@@ -66,7 +66,7 @@ function kindDetails(e: Entity): Array<[string, string | undefined]> {
 export function registerInfo(program: Command): void {
   program
     .command('info')
-    .summary('show details about one entity')
+    .summary('show one entity: origin, version, dependencies, installed files')
     .description('Show an entity: description, origin, version, dependencies and (when installed) the files palm wrote per target.')
     .argument('<kind>', 'entity kind (plurals ok)')
     .argument('<name>', 'name[@origin]')
@@ -78,7 +78,7 @@ export function registerInfo(program: Command): void {
       const scope = scopeOf(o);
       const ctx = await makeContext(o);
       const { getEntityInfo } = await import('../engine/query.js');
-      const info: { entity?: Entity; lock?: LockEntry; deps: EntityRef[] } = await getEntityInfo(ctx, kind, ref.name, {
+      const info: { entity?: Entity; lock?: LockEntry; deps: EntityRef[]; warnings: string[] } = await getEntityInfo(ctx, kind, ref.name, {
         origin: o.origin ?? ref.origin,
         scope,
       });
@@ -111,6 +111,7 @@ export function registerInfo(program: Command): void {
       if (entity) for (const [label, value] of kindDetails(entity)) row(label, value);
       row('depends on', info.deps.map((d) => `${d.kind} ${d.name}`).join(', '));
       row('via', lock?.via);
+      for (const w of info.warnings) console.log(pc.yellow(`  ⚠ ${w}`));
 
       if (lock) {
         console.log('');

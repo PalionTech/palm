@@ -68,7 +68,7 @@ describe('renderMcp env-ref', () => {
       env_http_headers: { 'X-Key': 'KEY', 'X-Tmpl': 'TMPL' },
     });
     expect(http.envRefs).toEqual(['DOCS_TOKEN', 'KEY', 'TMPL']);
-    expect(http.notes).toEqual(['Codex reads the complete "X-Tmpl" header value from TMPL; set TMPL to "Token ${TMPL}" with the value filled in']);
+    expect(http.notes).toEqual(['Codex sends the value of TMPL as the whole "X-Tmpl" header: export TMPL="Token ${TMPL}" with the secret filled in (the full header value, not just the secret)']);
   });
 
   it('codex: renamed env reference is forwarded under the key name with a note', () => {
@@ -138,5 +138,80 @@ describe('renderMcp misc', () => {
 
   it('stdio without command is a parse error', () => {
     expect(() => renderMcp({ name: 'x', transport: 'stdio' }, 'claude', 'env-ref')).toThrowError(/needs a command/);
+  });
+});
+
+describe('renderMcp optional secrets, args and runtime variables', () => {
+  // context7 from the MCP registry: an optional (isRequired: false) Authorization header.
+  const CTX7: McpServerConfig = {
+    name: 'context7',
+    transport: 'http',
+    url: 'https://mcp.context7.com/mcp',
+    secrets: [{ name: 'CONTEXT7_AUTHORIZATION', in: 'header', header: 'Authorization', required: false }],
+  };
+
+  it('env-ref: Claude gets ${VAR:-} for an optional secret (an unset ${VAR} fails to load); others keep their syntax', () => {
+    expect(renderMcpEntry(CTX7, 'claude', 'env-ref')).toEqual({
+      type: 'http',
+      url: 'https://mcp.context7.com/mcp',
+      headers: { Authorization: '${CONTEXT7_AUTHORIZATION:-}' },
+    });
+    expect(renderMcpEntry(CTX7, 'cursor', 'env-ref')).toEqual({ url: 'https://mcp.context7.com/mcp', headers: { Authorization: '${env:CONTEXT7_AUTHORIZATION}' } });
+    expect(renderMcpEntry(CTX7, 'codex', 'env-ref')).toEqual({ url: 'https://mcp.context7.com/mcp', env_http_headers: { Authorization: 'CONTEXT7_AUTHORIZATION' } });
+    // A declared default is kept for Claude.
+    const withDefault: McpServerConfig = { ...STDIO, env: { LEVEL: '${LOG_LEVEL:-info}' } };
+    expect(renderMcpEntry(withDefault, 'claude', 'env-ref')).toMatchObject({ env: { LEVEL: '${LOG_LEVEL:-info}' } });
+  });
+
+  it('literal: an optional secret without a value drops its header/env entry for every target, with a note', () => {
+    for (const target of ['claude', 'cursor', 'copilot', 'codex'] as const) {
+      const r = renderMcp(CTX7, target, 'literal', {});
+      const entry = r.entry as Record<string, unknown>;
+      expect(JSON.stringify(entry)).not.toContain('CONTEXT7_AUTHORIZATION');
+      expect(entry.headers ?? entry.env_http_headers ?? entry.http_headers).toBeUndefined();
+      expect(r.notes).toContain('optional CONTEXT7_AUTHORIZATION not set; header Authorization left out');
+    }
+    const stdio: McpServerConfig = { ...STDIO, env: { OPT: '${OPT_KEY:-}', LOG: 'debug' } };
+    expect(renderMcpEntry(stdio, 'claude', 'literal', {})).toMatchObject({ env: { OPT: '', LOG: 'debug' } });
+    const declaredOptional: McpServerConfig = { ...STDIO, env: { OPT: '${OPT_KEY}' }, secrets: [{ name: 'OPT_KEY', in: 'env', required: false }] };
+    expect(renderMcpEntry(declaredOptional, 'claude', 'literal', {})).not.toHaveProperty('env');
+    expect(renderMcpEntry(declaredOptional, 'codex', 'literal', {})).not.toHaveProperty('env_vars');
+  });
+
+  it('literal: a provided optional value is written', () => {
+    expect(renderMcpEntry(CTX7, 'claude', 'literal', { CONTEXT7_AUTHORIZATION: 'Bearer k' })).toMatchObject({ headers: { Authorization: 'Bearer k' } });
+    expect(renderMcpEntry(CTX7, 'codex', 'literal', { CONTEXT7_AUTHORIZATION: 'Bearer k' })).toMatchObject({ http_headers: { Authorization: 'Bearer k' } });
+  });
+
+  const ARGS: McpServerConfig = { name: 'pg', transport: 'stdio', command: 'npx', args: ['-y', 'pg-mcp', '--dsn=${PG_DSN}'] };
+
+  it('literal: placeholders in args are substituted for every target, Codex included', () => {
+    for (const target of ['claude', 'cursor', 'copilot', 'codex'] as const) {
+      const r = renderMcp(ARGS, target, 'literal', { PG_DSN: 'postgres://x' });
+      expect((r.entry as { args: string[] }).args).toEqual(['-y', 'pg-mcp', '--dsn=postgres://x']);
+      expect(r.envRefs).toEqual([]);
+    }
+  });
+
+  it('env-ref: placeholders in args stay harness references; Codex reports that it cannot expand them', () => {
+    expect(renderMcpEntry(ARGS, 'claude', 'env-ref')).toMatchObject({ args: ['-y', 'pg-mcp', '--dsn=${PG_DSN}'] });
+    expect(renderMcpEntry(ARGS, 'cursor', 'env-ref')).toMatchObject({ args: ['-y', 'pg-mcp', '--dsn=${env:PG_DSN}'] });
+    const codex = renderMcp(ARGS, 'codex', 'env-ref');
+    expect(codex.entry).toMatchObject({ args: ['-y', 'pg-mcp', '--dsn=${PG_DSN}'] });
+    expect(codex.notes.join('\n')).toMatch(/Codex does not expand environment variables in args: \$\{PG_DSN\} is passed literally/);
+  });
+
+  it('a declared secret that args reference gets no extra env placeholder', () => {
+    const cfg: McpServerConfig = { ...ARGS, secrets: [{ name: 'PG_DSN', in: 'env', required: true }] };
+    expect(renderMcpEntry(cfg, 'claude', 'env-ref')).not.toHaveProperty('env');
+  });
+
+  it('runtime variables are left exactly as written and never reported as env refs', () => {
+    const cfg: McpServerConfig = { name: 'p', transport: 'stdio', command: '${CLAUDE_PLUGIN_ROOT}/bin/server', args: ['${workspaceFolder}'] };
+    for (const target of ['claude', 'cursor', 'copilot'] as const) {
+      const r = renderMcp(cfg, target, 'env-ref');
+      expect(r.entry).toMatchObject({ command: '${CLAUDE_PLUGIN_ROOT}/bin/server', args: ['${workspaceFolder}'] });
+      expect(r.envRefs).toEqual([]);
+    }
   });
 });

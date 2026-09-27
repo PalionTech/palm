@@ -18,7 +18,7 @@ export function registerList(program: Command): void {
   program
     .command('list')
     .alias('ls')
-    .summary('list installed (or --available) entities')
+    .summary('list what is installed (--available: what your origins offer)')
     .description('List what is installed in the current scope (from the lockfile), or with --available everything your origins offer.')
     .argument('[kind]', 'restrict to one kind (plurals ok)')
     .option('--available', 'list entities in the origin indexes instead of installed ones')
@@ -31,9 +31,11 @@ export function registerList(program: Command): void {
       if (o.available) {
         const { getAllIndexes } = await import('../core/cache.js');
         const indexes: OriginIndex[] = await withSpinner(ctx, o, 'Reading origin indexes', () => getAllIndexes(ctx));
+        const { duplicateWarnings } = await import('../engine/query.js');
         const groups = indexes.map((ix) => ({
           origin: ix.origin,
           entities: ix.entities.filter((e) => !kind || e.kind === kind).sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name)),
+          duplicates: duplicateWarnings(ix, kind),
         }));
         if (o.json) return printJson(groups);
         const nonEmpty = groups.filter((gr) => gr.entities.length > 0);
@@ -48,6 +50,7 @@ export function registerList(program: Command): void {
             gr.entities.map((e) => [e.kind, e.name, e.version ?? '', truncate(e.description, 70)]),
             ['kind', 'name', 'version', 'description'],
           );
+          for (const w of gr.duplicates) console.log(pc.yellow(`⚠ ${w}`));
         });
         return;
       }

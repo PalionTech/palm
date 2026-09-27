@@ -1,25 +1,29 @@
+import { existsSync } from 'node:fs';
 import { hashValue } from '../core/hash.js';
 import { loadLock } from '../core/lockfile.js';
 import { isMcpManifestEntry, listDeps, loadManifest } from '../core/manifest.js';
-import { lockPath, manifestPath } from '../core/paths.js';
+import { lockPath, manifestPath, scopeRoot } from '../core/paths.js';
 import {
   KINDS,
   type DepRef,
   type InstallOutcome,
+  type InstallRequest,
   type InstallResult,
   type Kind,
   type LockEntry,
+  type Lockfile,
   type Manifest,
   type McpManifestEntry,
   type McpServerConfig,
   type PalmContext,
   type Scope,
+  type SecretPolicy,
   type TargetId,
 } from '../core/types.js';
 import { type EngineDeps } from './deps.js';
-import { installEntities, type EngineInstallRequest } from './install.js';
+import { dedupeOutcomes, installEntities } from './install.js';
 import { resolveTargets } from './resolve-targets.js';
-import { uninstallEntities } from './uninstall.js';
+import { absScopeFile, collectDependents, uninstallEntities } from './uninstall.js';
 
 /** Canonical MCP config for an ad hoc manifest entry (`command` or `url`). */
 export function adhocConfig(dep: McpManifestEntry): McpServerConfig {
@@ -33,22 +37,26 @@ export function adhocConfig(dep: McpManifestEntry): McpServerConfig {
   return cfg;
 }
 
-type ManifestDep = { kind: Kind; dep: DepRef | McpManifestEntry };
+export type ManifestDep = { kind: Kind; dep: DepRef | McpManifestEntry };
 
-function manifestDeps(m: Manifest): ManifestDep[] {
+export function manifestDeps(m: Manifest): ManifestDep[] {
   const out: ManifestDep[] = [];
   for (const kind of KINDS) for (const dep of listDeps(m, kind)) out.push({ kind, dep });
   return out;
 }
 
-/** Does lock entry `e` satisfy manifest dependency `d` (ignoring refs)? */
-function satisfies(e: LockEntry, d: ManifestDep): boolean {
+/**
+ * Does lock entry `e` satisfy manifest dependency `d` (ignoring refs)? Registry MCP servers
+ * are listed under their registry name (`io.github.upstash/context7`) but locked under their
+ * config key (`context7`); the lock entry's `path` holds the registry name.
+ */
+export function satisfies(e: LockEntry, d: ManifestDep): boolean {
   if (e.kind !== d.kind) return false;
   const name = d.dep.name.toLowerCase();
   if (e.name.toLowerCase() === name) return true;
   if (e.kind === 'mcp' && e.origin === 'registry') {
-    const reg = isMcpManifestEntry(d.dep) ? d.dep.registry : d.dep.name;
-    return !!reg && e.path.toLowerCase() === reg.toLowerCase();
+    const regs = [isMcpManifestEntry(d.dep) ? d.dep.registry : undefined, d.dep.name].filter((x): x is string => !!x);
+    return regs.some((r) => e.path.toLowerCase() === r.toLowerCase());
   }
   return false;
 }
@@ -71,7 +79,7 @@ function upToDate(e: LockEntry, d: ManifestDep, targets: TargetId[]): boolean {
   return true;
 }
 
-function toRequest(d: ManifestDep): EngineInstallRequest {
+function toRequest(d: ManifestDep): InstallRequest {
   const dep = d.dep;
   if (d.kind === 'mcp' && isMcpManifestEntry(dep)) {
     if (dep.registry) {
@@ -85,10 +93,15 @@ function toRequest(d: ManifestDep): EngineInstallRequest {
   return { kind: d.kind, spec: dep as DepRef };
 }
 
+/** Every file the entry (and whatever it pulled in) wrote is still on disk; otherwise sync redeploys it. */
+function intact(root: string, lock: Lockfile, entry: LockEntry): boolean {
+  return collectDependents(lock, [entry]).every((e) => e.files.every((f) => existsSync(absScopeFile(root, f))));
+}
+
 /** `palm install` with no arguments: install what the manifest lists, report (or prune) the rest. */
 export async function syncManifest(
   ctx: PalmContext,
-  opts: { scope: Scope; prune: boolean; targets?: TargetId[] },
+  opts: { scope: Scope; prune: boolean; targets?: TargetId[]; secretPolicy?: SecretPolicy },
   deps?: Partial<EngineDeps>,
 ): Promise<InstallResult & { extraneous: LockEntry[] }> {
   const manifest = await loadManifest(manifestPath(ctx.paths, opts.scope));
@@ -97,10 +110,11 @@ export async function syncManifest(
   const targets = opts.targets?.length ? opts.targets : await resolveTargets(ctx, { scope: opts.scope }, deps);
 
   const outcomes: InstallOutcome[] = [];
-  const requests: EngineInstallRequest[] = [];
+  const requests: InstallRequest[] = [];
+  const root = scopeRoot(ctx.paths, opts.scope);
   for (const d of wanted) {
     const present = lockBefore.entries.find((e) => satisfies(e, d));
-    if (present && !ctx.flags.force && upToDate(present, d, targets)) {
+    if (present && !ctx.flags.force && upToDate(present, d, targets) && intact(root, lockBefore, present)) {
       outcomes.push({ entry: present, status: 'unchanged', notes: [] });
     } else {
       requests.push(toRequest(d));
@@ -108,11 +122,11 @@ export async function syncManifest(
   }
 
   const result: InstallResult = requests.length
-    ? await installEntities(ctx, requests, { scope: opts.scope, targets, noSave: true }, deps)
+    ? await installEntities(ctx, requests, { scope: opts.scope, targets, noSave: true, ...(opts.secretPolicy ? { secretPolicy: opts.secretPolicy } : {}) }, deps)
     : { outcomes: [], warnings: [] };
 
   const lock = ctx.flags.dryRun
-    ? { entries: [...lockBefore.entries.filter((e) => !result.outcomes.some((o) => o.entry.kind === e.kind && o.entry.name === e.name)), ...result.outcomes.map((o) => o.entry)] }
+    ? { version: 1 as const, entries: [...lockBefore.entries.filter((e) => !result.outcomes.some((o) => o.entry.kind === e.kind && o.entry.name === e.name)), ...result.outcomes.map((o) => o.entry)] }
     : await loadLock(lockPath(ctx.paths, opts.scope));
   const extraneous = lock.entries.filter((e) => !e.via && !wanted.some((d) => satisfies(e, d)));
 
@@ -126,5 +140,5 @@ export async function syncManifest(
     );
     warnings.push(...r.warnings);
   }
-  return { outcomes: [...outcomes, ...result.outcomes], warnings, extraneous };
+  return { outcomes: dedupeOutcomes([...outcomes, ...result.outcomes]), warnings, extraneous };
 }

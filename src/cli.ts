@@ -11,6 +11,7 @@ const { version } = require('../package.json') as { version: string };
 async function main(argv: string[]): Promise<number> {
   const { args, passthrough } = splitPassthrough(argv);
   const verbose = args.includes('--verbose');
+  const json = args.includes('--json');
   const program = buildProgram({ version, passthrough });
   try {
     await program.parseAsync(args, { from: 'user' });
@@ -20,6 +21,8 @@ async function main(argv: string[]): Promise<number> {
     if (e instanceof ExitSignal) return e.exitCode;
     if (isPalmError(e)) {
       if (e.code === 'E_USAGE' && e.message === 'cancelled') return 1;
+      // --json: the error is data too (code, message, hint) for scripts.
+      if (json) process.stdout.write(`${JSON.stringify({ error: { code: e.code, message: e.message, ...(e.hint ? { hint: e.hint } : {}) } }, null, 2)}\n`);
       process.stderr.write(`${pc.red('error:')} ${e.message}\n`);
       if (e.hint) process.stderr.write(`${pc.dim(e.hint)}\n`);
       if (verbose && e.stack) process.stderr.write(`${pc.dim(e.stack)}\n`);

@@ -79,8 +79,47 @@ export const ORIGIN_ENTITIES: Record<string, Entity[]> = {
     skill('brainstorm', 'plugins/superpowers/skills/brainstorm', { plugin: 'superpowers' }),
     { kind: 'mcp', name: 'docs', path: '.mcp.json', origin: '', def: { kind: 'mcp', mcp: DOCS_MCP } },
   ],
-  b: [skill('wayfinder', 'skills/wayfinder', { description: 'the B wayfinder' })],
+  b: [skill('wayfinder', 'skills/wayfinder', { description: 'the B wayfinder' }), skill('shared', 'skills/shared', { description: 'the B shared' })],
   c: [skill('wayfinder', 'skills/wayfinder')],
+  /** Reference counting: two agents and a plugin that all use skill `shared`. */
+  d: [
+    skill('shared', 'skills/shared'),
+    {
+      kind: 'agent',
+      name: 'alpha',
+      path: 'agents/alpha.md',
+      origin: '',
+      def: { kind: 'agent', agent: { name: 'alpha', description: 'alpha', skills: ['shared'], instructions: ['style@d'], body: 'a' } },
+    },
+    {
+      kind: 'agent',
+      name: 'beta',
+      path: 'agents/beta.md',
+      origin: '',
+      def: { kind: 'agent', agent: { name: 'beta', description: 'beta', skills: ['shared'], body: 'b' } },
+    },
+    {
+      kind: 'agent',
+      name: 'picky',
+      path: 'agents/picky.md',
+      origin: '',
+      def: { kind: 'agent', agent: { name: 'picky', description: 'uses a skill only other origins have', skills: ['wayfinder'], body: 'p' } },
+    },
+    {
+      kind: 'instruction',
+      name: 'style',
+      path: 'instructions/style.md',
+      origin: '',
+      def: { kind: 'instruction', instruction: { name: 'style', alwaysApply: true, body: 'Be terse.' } },
+    },
+    {
+      kind: 'plugin',
+      name: 'bundle',
+      path: 'plugins/bundle',
+      origin: '',
+      def: { kind: 'plugin', members: [{ kind: 'skill', name: 'shared' }] },
+    },
+  ],
 };
 
 const ORIGIN_FILES: Record<string, Record<string, string>> = {
@@ -94,8 +133,16 @@ const ORIGIN_FILES: Record<string, Record<string, string>> = {
     'plugins/superpowers/skills/brainstorm/SKILL.md': 'brainstorm\n',
     '.mcp.json': JSON.stringify({ mcpServers: { docs: { type: 'http', url: 'https://docs.example/mcp' } } }),
   },
-  b: { 'skills/wayfinder/SKILL.md': '---\nname: wayfinder\n---\nwayfinder B\n' },
+  b: { 'skills/wayfinder/SKILL.md': '---\nname: wayfinder\n---\nwayfinder B\n', 'skills/shared/SKILL.md': 'shared B\n' },
   c: { 'skills/wayfinder/SKILL.md': '---\nname: wayfinder\n---\nwayfinder A\n' },
+  d: {
+    'skills/shared/SKILL.md': 'shared D\n',
+    'agents/alpha.md': '---\nname: alpha\nskills: [shared]\ninstructions: [style@d]\n---\na\n',
+    'agents/beta.md': '---\nname: beta\nskills: [shared]\n---\nb\n',
+    'agents/picky.md': '---\nname: picky\nskills: [wayfinder]\n---\np\n',
+    'instructions/style.md': 'Be terse.\n',
+    'plugins/bundle/.claude-plugin/plugin.json': '{"name":"bundle"}\n',
+  },
 };
 
 export function fakeScan(): ScanOriginFn & { calls: string[] } {
@@ -163,12 +210,14 @@ export const REGISTRY: Record<string, RegistryCandidate[]> = {
   ],
 };
 
+export type OriginKey = 'a' | 'b' | 'c' | 'd';
+
 export interface World {
   sb: Sandbox;
   ctx: PalmContext;
   ui: FakeUI;
   log: FakeLogger;
-  origins: Record<'a' | 'b' | 'c', string>;
+  origins: Record<OriginKey, string>;
   scan: ReturnType<typeof fakeScan>;
   calls: TargetCalls;
   registryCalls: string[];
@@ -179,14 +228,15 @@ export async function makeWorld(
   opts: {
     ui?: FakeUI;
     flags?: Partial<PalmContext['flags']>;
-    origins?: Array<'a' | 'b' | 'c'>;
+    origins?: OriginKey[];
     detect?: TargetId[];
     failFor?: TargetId[];
   } = {},
 ): Promise<World> {
   const sb = await sandbox();
-  const origins = { a: join(sb.root, 'origins', 'a'), b: join(sb.root, 'origins', 'b'), c: join(sb.root, 'origins', 'c') };
-  for (const k of ['a', 'b', 'c'] as const) await writeFiles(origins[k], ORIGIN_FILES[k]!);
+  const keys: OriginKey[] = ['a', 'b', 'c', 'd'];
+  const origins = Object.fromEntries(keys.map((k) => [k, join(sb.root, 'origins', k)])) as Record<OriginKey, string>;
+  for (const k of keys) await writeFiles(origins[k], ORIGIN_FILES[k]!);
   const ui = opts.ui ?? fakeUI();
   const log = fakeLogger();
   const ctx = await makeContext(sb, { ui, log, flags: opts.flags ?? {} });

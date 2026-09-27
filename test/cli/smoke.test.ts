@@ -64,3 +64,23 @@ describe('palm CLI smoke', () => {
     expect(r.stderr).toContain("unknown command 'frobnicate'");
   });
 });
+
+describe('palm --dry-run writes nothing (CLI)', () => {
+  it('install --from … --save-origin --dry-run registers no origin and deploys no file', async () => {
+    const project = join(home, 'dry-project');
+    const { mkdir } = await import('node:fs/promises');
+    const { existsSync, readdirSync } = await import('node:fs');
+    await mkdir(join(project, '.git'), { recursive: true });
+    const fixture = join(repo, 'test', 'fixtures', 'mattpocock-like');
+    const r = await execa(join(repo, 'node_modules', '.bin', 'tsx'), [join(repo, 'src', 'cli.ts'), 'install', 'skill', 'tdd', '--from', fixture, '--save-origin', '--dry-run', '--target', 'claude'], {
+      cwd: project,
+      reject: false,
+      env: { HOME: home, PALM_HOME: join(home, '.palm'), NO_COLOR: '1', CI: '1', PATH: process.env.PATH },
+    });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout + r.stderr).toContain('would register origin');
+    expect(r.stdout).toContain('dry run: no harness files, lockfile or manifest were changed');
+    expect(existsSync(join(home, '.palm', 'config.yaml'))).toBe(false);
+    expect(readdirSync(project).sort()).toEqual(['.git']);
+  });
+});

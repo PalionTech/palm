@@ -62,7 +62,8 @@ describe('mergeJsonFile', () => {
     const rec = await mergeJsonFile(file, '/servers', 'io.github/x~y', { url: 'u' }, { dryRun: false });
     expect(rec.pointer).toBe('/servers/io.github~1x~0y');
     await unmergeJsonFile(file, rec);
-    expect(await readJson(file)).toEqual({ servers: {} });
+    // `servers` became empty and was pruned; a file left as `{}` is deleted.
+    expect(await exists(file)).toBe(false);
   });
 
   it('rejects a non-object where an object is needed', async () => {
@@ -89,9 +90,21 @@ describe('unmergeJsonFile', () => {
     await write(file, JSON.stringify({ mcpServers: { s: { command: 'changed' } } }));
     await unmergeJsonFile(file, rec);
     expect(await readJson(file)).toEqual({ mcpServers: { s: { command: 'changed' } } });
-    await write(file, JSON.stringify({ mcpServers: { s: { command: 'x', disabled: true } } }));
+    await write(file, JSON.stringify({ mcpServers: { s: { command: 'x', disabled: true } }, theme: 'dark' }));
     await unmergeJsonFile(file, rec);
-    expect(await readJson(file)).toEqual({ mcpServers: {} });
+    expect(await readJson(file)).toEqual({ theme: 'dark' });
+  });
+
+  it('prunes containers it emptied (never the root) and deletes a file left as {}', async () => {
+    const file = path.join(await tmpDir(), 'settings.json');
+    await write(file, JSON.stringify({ permissions: { allow: ['Bash(ls:*)'] } }));
+    const rec = await mergeJsonFile(file, '/hooks/SessionStart', undefined, { hooks: [{ type: 'command', command: 'x' }] }, { dryRun: false });
+    await unmergeJsonFile(file, rec);
+    expect(await readJson(file)).toEqual({ permissions: { allow: ['Bash(ls:*)'] } });
+    const only = path.join(path.dirname(file), '.mcp.json');
+    const r2 = await mergeJsonFile(only, '/mcpServers', 'fs', { command: 'npx' }, { dryRun: false });
+    await unmergeJsonFile(only, r2);
+    expect(await exists(only)).toBe(false);
   });
 
   it('is a no-op for missing files and pointers', async () => {

@@ -8,7 +8,7 @@ export function registerUninstall(program: Command): void {
   program
     .command('uninstall')
     .aliases(['remove', 'rm'])
-    .summary('remove installed entities')
+    .summary('remove entities and the dependencies nothing else needs')
     .description('Remove installed entities: deletes the files palm wrote, reverses merged config, drops dependencies nothing else needs, and updates palm.yaml.')
     .argument('[kind]', 'restrict to one kind (plurals ok)')
     .argument('[names...]', 'name[@origin]')

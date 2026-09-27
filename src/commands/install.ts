@@ -118,13 +118,13 @@ export function registerInstall(
   program
     .command('install')
     .aliases(['i', 'add'])
-    .summary('install entities (bare: sync palm.yaml)')
+    .summary('install skills, agents, MCP servers, plugins… (no args: everything in palm.yaml)')
     .description('Install entities from your origins into the active targets. With no arguments, install everything palm.yaml lists.')
     .argument('[kind]', 'skill, agent, instruction, command, hook, mcp or plugin (plurals ok); omit to search all kinds')
     .argument('[specs...]', 'name[@origin][#ref]')
     .option('--from <origin>', 'take the entities from this origin spec (owner/repo, URL, path) without registering it')
     .option('--save-origin', 'register the --from origin')
-    .option('--secrets <policy>', 'MCP secret placement: env-ref or literal')
+    .option('--secrets <policy>', 'MCP secret placement: env-ref (project default) or literal (-g default)')
     .option('--prune', 'bare install only: remove installed entries no longer in palm.yaml')
     .option('--url <url>', 'ad hoc MCP server: HTTP/SSE endpoint')
     .option('--header <K=V>', 'ad hoc MCP server: HTTP header (repeatable)', collect)
@@ -133,12 +133,25 @@ export function registerInstall(
     .addHelpText(
       'after',
       `
+Spec grammar: name[@origin][#ref]
+  name       entity name (skill dir / agent file / MCP server key / plugin name)
+  @origin    origin alias from \`palm origin list\` (needed when several origins have the name)
+  #ref       tag, branch or commit of that origin (default: its latest semver tag)
+  MCP registry servers go by their registry name: palm install mcp io.github.upstash/context7
+
+Ad hoc MCP servers (no origin needed):
+  palm install mcp <name> [--env K=V]... -- <command> [args...]
+  palm install mcp <name> --url <url> [--header K=V]... [--transport http|sse]
+  \${VAR} in values stays an environment reference (env-ref) or is filled in (literal).
+
 Examples:
   palm install                                   install everything in palm.yaml
   palm install skill wayfinder@mattpocock
   palm install skills tdd grill-me               several of one kind
   palm install wayfinder                         search every kind
+  palm install skill tdd@mattpocock#v1.2.3       pin a tag
   palm i agent reviewer -g --target claude,codex
+  palm install plugin superpowers                all its skills, hooks, agents…
   palm install mcp fs -- npx -y @modelcontextprotocol/server-filesystem .
   palm install mcp docs --url https://example.com/mcp --header "Authorization=Bearer \${DOCS_TOKEN}"`,
     )
@@ -169,7 +182,12 @@ export async function runInstall(parsed: ParsedInstallArgs): Promise<void> {
   if (parsed.mode === 'sync') {
     const targets: TargetId[] = await resolveTargets(ctx, { scope: parsed.scope, flag: parsed.targets, save: true });
     const { syncManifest } = await import('../engine/sync.js');
-    const result: InstallResult & { extraneous: LockEntry[] } = await syncManifest(ctx, { scope: parsed.scope, prune: parsed.prune, targets });
+    const result: InstallResult & { extraneous: LockEntry[] } = await syncManifest(ctx, {
+      scope: parsed.scope,
+      prune: parsed.prune,
+      targets,
+      ...(parsed.secrets ? { secretPolicy: parsed.secrets } : {}),
+    });
     if (g.json) return printJson(result);
     printInstallSummary(result, { scope: parsed.scope, targets });
     if (result.extraneous.length) {
@@ -178,7 +196,7 @@ export async function runInstall(parsed: ParsedInstallArgs): Promise<void> {
       if (parsed.prune) console.log(`${pc.green('✓')} removed ${result.extraneous.length} entr${result.extraneous.length === 1 ? 'y' : 'ies'} not in palm.yaml: ${names}`);
       else console.log(pc.yellow(`⚠ installed but not in palm.yaml: ${names}`) + pc.dim('\n  run `palm install --prune` to remove them'));
     }
-    if (g.dryRun) console.log(pc.dim('\ndry run: nothing was written'));
+    if (g.dryRun) console.log(pc.dim(`\n${DRY_RUN_NOTE}`));
     return;
   }
 
@@ -187,8 +205,12 @@ export async function runInstall(parsed: ParsedInstallArgs): Promise<void> {
     const { parseOriginInput, addOrigin } = await import('../core/config.js');
     from = parseOriginInput(parsed.from);
     if (parsed.saveOrigin) {
-      from = await addOrigin(ctx, from, { scope: parsed.scope });
-      ctx.log.success(`registered origin ${from.alias}`);
+      if (ctx.flags.dryRun) {
+        ctx.log.info(`dry run: would register origin ${from.alias}`);
+      } else {
+        from = await addOrigin(ctx, from, { scope: parsed.scope });
+        ctx.log.success(`registered origin ${from.alias}`);
+      }
     }
   }
 
@@ -208,5 +230,8 @@ export async function runInstall(parsed: ParsedInstallArgs): Promise<void> {
   const result: InstallResult = await installEntities(ctx, requests, { scope: parsed.scope, targets, secretPolicy: parsed.secrets });
   if (g.json) return printJson(result);
   printInstallSummary(result, { scope: parsed.scope, targets });
-  if (g.dryRun) console.log(pc.dim('\ndry run: nothing was written'));
+  if (g.dryRun) console.log(pc.dim(`\n${DRY_RUN_NOTE}`));
 }
+
+/** What --dry-run does and does not touch (origins are still fetched so the plan is real). */
+export const DRY_RUN_NOTE = 'dry run: no harness files, lockfile or manifest were changed (origins were fetched into the palm cache as needed)';

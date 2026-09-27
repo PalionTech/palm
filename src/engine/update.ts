@@ -4,9 +4,9 @@ import { PalmError } from '../core/errors.js';
 import { loadLock } from '../core/lockfile.js';
 import { isMcpManifestEntry, listDeps, loadManifest } from '../core/manifest.js';
 import { lockPath, manifestPath } from '../core/paths.js';
-import type { DepRef, InstallOutcome, InstallResult, Kind, LockEntry, PalmContext, Scope } from '../core/types.js';
+import type { DepRef, InstallOutcome, InstallRequest, InstallResult, Kind, LockEntry, PalmContext, Scope } from '../core/types.js';
 import { resolveEngineDeps, type EngineDeps } from './deps.js';
-import { installEntities, type EngineInstallRequest } from './install.js';
+import { dedupeOutcomes, installEntities } from './install.js';
 import { nameMatchesEntry } from './query.js';
 
 function parentOf(lock: LockEntry[], e: LockEntry): LockEntry | undefined {
@@ -50,9 +50,9 @@ export async function updateEntities(
   const outcomes: InstallOutcome[] = [];
   const warnings: string[] = [];
   const refreshed = new Set<string>();
-  const groups = new Map<string, { targets: LockEntry['targets']; requests: EngineInstallRequest[] }>();
+  const groups = new Map<string, { targets: LockEntry['targets']; requests: InstallRequest[] }>();
   for (const e of roots.values()) {
-    let request: EngineInstallRequest;
+    let request: InstallRequest;
     if (e.origin === 'adhoc') {
       outcomes.push({ entry: e, status: 'unchanged', notes: ['ad hoc MCP server: edit palm.yaml and run `palm install` to change it'] });
       continue;
@@ -96,5 +96,5 @@ export async function updateEntities(
     outcomes.push(...r.outcomes);
     warnings.push(...r.warnings);
   }
-  return { outcomes, warnings };
+  return { outcomes: dedupeOutcomes(outcomes), warnings: [...new Set(warnings)] };
 }

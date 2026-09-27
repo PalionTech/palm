@@ -109,15 +109,31 @@ export interface SourceFile {
   mode: number;
 }
 
+export interface CopyListing {
+  files: SourceFile[];
+  /** Symlinks that were not followed (target outside the boundary, or broken), relative to the root. */
+  skipped: string[];
+}
+
 const ALWAYS_SKIP = new Set(['.git', 'node_modules', '.DS_Store']);
 
 /**
  * Recursively list the files to copy from `root`, skipping `.git`, `node_modules`,
- * `*.zip`, `.DS_Store` and any top-level names in `skipTop`. Symlinks are followed
- * (with a cycle guard). Sorted for determinism.
+ * `*.zip`, `.DS_Store` and any top-level names in `skipTop`. Sorted for determinism.
+ *
+ * Symlinks are followed only when their real target stays inside `boundary`
+ * (default: `root` itself; callers pass the origin root so links between skills of one
+ * repository keep working). A link that points anywhere else (`notes.md -> ~/.ssh/id_rsa`,
+ * `refs -> /etc`) is never read and is reported in `skipped`. A symlinked `root` is
+ * resolved and checked the same way.
  */
-export async function listCopyableFiles(root: string, skipTop: readonly string[] = []): Promise<SourceFile[]> {
-  const out: SourceFile[] = [];
+export async function listCopyFiles(root: string, opts: { skipTop?: readonly string[]; boundary?: string } = {}): Promise<CopyListing> {
+  const skipTop = opts.skipTop ?? [];
+  const files: SourceFile[] = [];
+  const skipped: string[] = [];
+  const boundary = await fs.realpath(opts.boundary ?? root);
+  const realRoot = await fs.realpath(root);
+  if (!isWithin(realRoot, boundary)) return { files, skipped: ['.'] };
   const seen = new Set<string>();
   async function walk(dir: string, relDir: string): Promise<void> {
     const real = await fs.realpath(dir);
@@ -131,14 +147,28 @@ export async function listCopyableFiles(root: string, skipTop: readonly string[]
       const rel = relDir ? `${relDir}/${name}` : name;
       let st;
       try {
+        const lst = await fs.lstat(abs);
+        if (lst.isSymbolicLink()) {
+          const target = await fs.realpath(abs); // throws for a broken link
+          if (!isWithin(target, boundary)) {
+            skipped.push(rel);
+            continue;
+          }
+        }
         st = await fs.stat(abs);
       } catch {
-        continue; // broken symlink
+        skipped.push(rel); // broken symlink or unreadable entry
+        continue;
       }
       if (st.isDirectory()) await walk(abs, rel);
-      else if (st.isFile()) out.push({ rel, abs, mode: st.mode & 0o777 });
+      else if (st.isFile()) files.push({ rel, abs, mode: st.mode & 0o777 });
     }
   }
   await walk(root, '');
-  return out;
+  return { files, skipped };
+}
+
+/** `listCopyFiles(...).files` (kept for callers that do not report skipped links). */
+export async function listCopyableFiles(root: string, skipTop: readonly string[] = [], boundary?: string): Promise<SourceFile[]> {
+  return (await listCopyFiles(root, { skipTop, ...(boundary ? { boundary } : {}) })).files;
 }

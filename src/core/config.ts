@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -40,6 +41,7 @@ function normalizeStoredOrigin(raw: unknown, baseDir: string, where: string): Or
   const spec: OriginSpec = { alias: typeof raw.alias === 'string' ? raw.alias : '', type };
   if (type === 'git') {
     if (typeof raw.url !== 'string' || !raw.url) throw new PalmError('E_PARSE', `${where}: git origin "${spec.alias}" has no url`);
+    validateOriginUrl(raw.url, `${where}: origin "${spec.alias || raw.url}"`);
     spec.url = raw.url;
   } else {
     if (typeof raw.path !== 'string' || !raw.path) throw new PalmError('E_PARSE', `${where}: local origin "${spec.alias}" has no path`);
@@ -83,7 +85,8 @@ export async function saveConfig(paths: PalmPaths, cfg: PalmConfig): Promise<voi
   for (const [k, v] of Object.entries(cfg)) {
     if (!(k in out) && v !== undefined && k !== 'origins' && k !== 'targets') out[k] = v;
   }
-  await writeYamlPreserving(configPath(paths), out, { flowKeys: ['targets'] });
+  // config.yaml is user-private (0600), like the harness configs palm writes secrets into.
+  await writeYamlPreserving(configPath(paths), out, { flowKeys: ['targets'], mode: 0o600 });
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +192,37 @@ function localPathFor(raw: string, cwd: string): string | undefined {
   return isDir(abs) ? abs : undefined;
 }
 
+/**
+ * The one gate for git origin URLs (CLI input, config.yaml, palm.yaml, marketplace imports).
+ * Allowed: `https://`, `http://` (warning), `ssh://`, `git://` (warning), `file://`,
+ * scp-like `user@host:path`, and absolute local paths (bare repositories). Refused: anything
+ * git could read as an option (leading `-`), transport helpers (`ext::`, `fd::`, `file::`,
+ * any `<name>::`), other schemes, and control characters. Returns a warning for plain-text
+ * transports.
+ */
+export function validateOriginUrl(url: string, where = 'origin'): { warning?: string } {
+  const bad = (why: string): PalmError =>
+    new PalmError('E_ORIGIN', `Refusing ${where} URL "${url}": ${why}`, 'Use https://…, ssh://…, git@host:owner/repo.git or a local path.');
+  if (!url || url !== url.trim()) throw bad('empty or padded with whitespace');
+  if (/[\u0000-\u001f\u007f]/.test(url)) throw bad('contains control characters');
+  if (url.startsWith('-')) throw bad('git would read it as an option');
+  if (/^[A-Za-z0-9+.-]*::/.test(url) || /^[^/]*::/.test(url)) throw bad('git transport helpers (ext::, fd::, …) are not allowed');
+  const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):\/\//.exec(url)?.[1]?.toLowerCase();
+  if (scheme) {
+    if (!['https', 'http', 'ssh', 'git', 'file'].includes(scheme)) throw bad(`unsupported scheme ${scheme}://`);
+    const rest = url.slice(scheme.length + 3);
+    if (rest.startsWith('-')) throw bad('host would be read as an option');
+    return scheme === 'http' || scheme === 'git' ? { warning: `${where} ${url} uses an unencrypted transport (${scheme}://)` } : {};
+  }
+  const scp = SCP_LIKE.exec(url);
+  if (scp) {
+    if (scp[2]!.startsWith('-') || scp[3]!.startsWith('-')) throw bad('host or path would be read as an option');
+    return {};
+  }
+  if (isAbsolute(url)) return {};
+  throw bad('not a URL git can fetch safely');
+}
+
 export interface ParseOriginOptions {
   alias?: string;
   ref?: string;
@@ -257,6 +291,7 @@ export function parseOriginInput(input: string, opts: ParseOriginOptions = {}): 
   }
 
   const spec: OriginSpec = { alias: '', ...parsed };
+  if (spec.type === 'git') validateOriginUrl(spec.url ?? '', `origin "${raw}"`);
   if (opts.ref) spec.ref = opts.ref;
   if (opts.root) spec.root = trimSlashes(opts.root);
   if (spec.root === '') delete spec.root;
@@ -303,20 +338,30 @@ function sanitizeAlias(s: string): string {
     .replace(/^[-.]+|-+$/g, '');
 }
 
+/**
+ * Repository names that say what a repo contains, not whose it is: `mattpocock/skills`,
+ * `anthropics/skills` and `openai/skills` are told apart by their owner.
+ */
+const GENERIC_REPO_NAMES = new Set([
+  'skills', 'agent-skills', 'claude-skills', 'plugins', 'claude-plugins', 'agents', 'subagents', 'prompts',
+  'rules', 'commands', 'hooks', 'mcp', 'mcp-servers', 'extensions', 'instructions', 'dotfiles', 'config', 'configs',
+]);
+
 /** Default alias for an origin that does not collide with `existing` (DESIGN.md §5). */
 export function deriveAlias(spec: OriginSpec, existing: OriginSpec[]): string {
   const { owner, repo } = repoParts(spec);
+  const base = owner && spec.type === 'git' && GENERIC_REPO_NAMES.has(repo.toLowerCase()) ? owner : repo;
   const last = spec.root ? trimSlashes(spec.root).split('/').pop() : undefined;
   const raw = last
-    ? [last, `${repo}-${last}`, owner ? `${owner}-${repo}-${last}` : undefined]
-    : [repo, owner ? `${owner}-${repo}` : undefined];
+    ? [last, `${base}-${last}`, owner ? `${owner}-${repo}-${last}` : undefined]
+    : [base, owner ? `${owner}-${repo}` : undefined];
   const candidates = [...new Set(raw.filter((c): c is string => !!c).map(sanitizeAlias).filter(Boolean))];
   if (candidates.length === 0) candidates.push('origin');
   const taken = new Set(existing.map((o) => o.alias.toLowerCase()));
   for (const c of candidates) if (!taken.has(c)) return c;
-  const base = candidates[candidates.length - 1]!;
+  const fallback = candidates[candidates.length - 1]!;
   for (let n = 2; ; n++) {
-    const c = `${base}-${n}`;
+    const c = `${fallback}-${n}`;
     if (!taken.has(c)) return c;
   }
 }
@@ -325,12 +370,16 @@ function sanitizeId(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9._-]/g, '-');
 }
 
-/** Cache directory name for an origin: `<host>__<owner>__<repo>[__<root>]`, or `local__<path>`. */
+/**
+ * Cache directory name for an origin: `<host>__<owner>__<repo>[__<root>]`, or
+ * `local__<path>-<hash>` (the short hash of the raw path keeps `a/b` and `a-b` apart).
+ */
 export function originId(spec: OriginSpec): string {
   const rootSegs = spec.root ? trimSlashes(spec.root).split('/').filter(Boolean) : [];
   if (spec.type === 'local') {
     const segs = (spec.path ?? '').split(/[\\/]+/).filter(Boolean);
-    return ['local', ...segs, ...rootSegs].map(sanitizeId).join('__');
+    const raw = `${spec.path ?? ''}\0${spec.root ?? ''}`;
+    return `${['local', ...segs, ...rootSegs].map(sanitizeId).join('__')}-${createHash('sha256').update(raw).digest('hex').slice(0, 8)}`;
   }
   const { host, segs } = urlParts(spec.url ?? '');
   const path = segs.map((s, i) => (i === segs.length - 1 ? stripGit(s) : s));

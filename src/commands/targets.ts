@@ -8,7 +8,7 @@ import { displayPath, makeContext, parseTargetList, printJson, scopeOf, scopeRoo
 export function registerTargets(program: Command): void {
   program
     .command('targets')
-    .summary('show active and detected targets')
+    .summary('show which harnesses palm installs into, and why')
     .description('Show which harnesses palm installs into for this scope, and which ones are detected at each scope.')
     .action(async (_opts: unknown, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();

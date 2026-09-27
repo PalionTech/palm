@@ -51,7 +51,7 @@ export function parseAgentFileDetailed(absPath: string, text: string): ParsedAge
   else if (CURSOR_ONLY_KEYS.some((k) => k in data)) sourceFormat = 'cursor-md';
   else sourceFormat = 'claude-md';
 
-  const known = new Set(['name', 'description', 'model', 'tools', 'disallowedTools', 'disallowed-tools', 'skills', 'mcpServers', 'color']);
+  const known = new Set(['name', 'description', 'model', 'tools', 'disallowedTools', 'disallowed-tools', 'skills', 'mcpServers', 'instructions', 'color']);
   const extra: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) if (!known.has(k)) extra[k] = v;
 
@@ -80,6 +80,7 @@ export function parseAgentFileDetailed(absPath: string, text: string): ParsedAge
     disallowedTools: asList(data.disallowedTools ?? data['disallowed-tools']),
     skills: asList(data.skills),
     mcpServers: mcpServers && mcpServers.length > 0 ? mcpServers : undefined,
+    instructions: asList(data.instructions),
     color: asString(data.color),
     body: split.body,
     extra: Object.keys(extra).length > 0 ? extra : undefined,

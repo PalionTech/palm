@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { PalmError } from '../core/errors.js';
 import { hashPath, hashValue } from '../core/hash.js';
@@ -6,6 +7,7 @@ import { addDep, deepEqual, loadManifest, normalizeDep, saveManifest } from '../
 import { lockPath, manifestPath, scopeRoot } from '../core/paths.js';
 import {
   TARGET_IDS,
+  type DeployInput,
   type DepRef,
   type Entity,
   type InstallOptions,
@@ -22,9 +24,11 @@ import {
   type SecretPolicy,
   type TargetId,
 } from '../core/types.js';
-import { resolveEngineDeps, type DeployInputWithEnv, type EngineDeps } from './deps.js';
+import { optionalSecretNames } from '../mcp/secrets.js';
+import { resolveEngineDeps, type EngineDeps } from './deps.js';
 import {
   IndexSession,
+  agentDepSpecs,
   candidatesIn,
   entityDeps,
   suggestNames,
@@ -32,13 +36,8 @@ import {
   type CandidateSource,
   type SourcedIndex,
 } from './query.js';
-import { collectDependents, protectedFiles, undeployEntries } from './uninstall.js';
+import { absScopeFile, planRemoval, protectedFiles, reparent, undeployEntries } from './uninstall.js';
 
-/** InstallRequest plus engine-internal fields used by sync/update. */
-export interface EngineInstallRequest extends InstallRequest {
-  /** Resolve this MCP registry name directly (manifest `{ registry: … }` entries). */
-  registry?: string;
-}
 
 interface Planned extends Candidate {
   direct: boolean;
@@ -49,6 +48,33 @@ interface Planned extends Candidate {
 }
 
 const nowIso = (): string => new Date().toISOString();
+
+/**
+ * One outcome per kind+name+origin. When an entity shows up twice (installed directly and
+ * reached again as a plugin/agent dependency), the more informative outcome wins: anything
+ * over a plain `unchanged`, otherwise the first.
+ */
+export function dedupeOutcomes(outcomes: InstallOutcome[]): InstallOutcome[] {
+  const byKey = new Map<string, InstallOutcome>();
+  for (const o of outcomes) {
+    const key = `${o.entry.kind}\0${o.entry.name.toLowerCase()}\0${o.entry.origin}`;
+    const prev = byKey.get(key);
+    if (!prev || (prev.status === 'unchanged' && o.status !== 'unchanged')) byKey.set(key, o);
+  }
+  return [...byKey.values()];
+}
+
+/** A target's "MCP x: export A, B in the environment …" note whose variables the engine already listed. */
+function coveredExportNote(note: string, exported: Set<string>): boolean {
+  const m = /^MCP \S+: export (.+) in the environment /.exec(note);
+  return !!m && m[1]!.split(', ').every((v) => exported.has(v));
+}
+
+/** True when every file the lock entry lists still exists (a deleted file makes a reinstall redeploy). */
+async function filesPresent(root: string, entry: LockEntry): Promise<boolean> {
+  for (const f of entry.files) if (!existsSync(absScopeFile(root, f))) return false;
+  return true;
+}
 
 function entityKey(kind: Kind, name: string): string {
   return `${kind}\0${name.toLowerCase()}`;
@@ -179,7 +205,7 @@ function manifestDepFor(entity: Entity, ref: string | undefined): DepRef | McpMa
 }
 
 /** Turn one request into a chosen entity (steps 3–5 of DESIGN §6). */
-async function resolveRequest(ctx: PalmContext, deps: EngineDeps, session: IndexSession, req: EngineInstallRequest): Promise<Planned> {
+async function resolveRequest(ctx: PalmContext, deps: EngineDeps, session: IndexSession, req: InstallRequest): Promise<Planned> {
   if (req.adhocMcp) {
     const cfg: McpServerConfig = { ...req.adhocMcp, source: { type: 'adhoc' } };
     const entity = synthesizeMcp(cfg, 'adhoc', cfg.name);
@@ -231,7 +257,7 @@ async function resolveRequest(ctx: PalmContext, deps: EngineDeps, session: Index
   return { ...chosen, direct: true, manifestDep: manifestDepFor(chosen.entity, dep.ref) };
 }
 
-/** Composite expansion (DESIGN §6 step 6): plugin → members, agent → skills/MCP servers. */
+/** Composite expansion (DESIGN §6 step 6): plugin → members, agent → skills/MCP servers/instructions. */
 async function expand(ctx: PalmContext, session: IndexSession, direct: Planned[], lock: Lockfile, warnings: string[]): Promise<Planned[]> {
   const plan: Planned[] = [];
   const seen = new Set<string>();
@@ -264,29 +290,54 @@ async function expand(ctx: PalmContext, session: IndexSession, direct: Planned[]
       }
     } else if (e.def.kind === 'agent') {
       const via = `agent:${e.name}`;
-      const wanted: Array<{ kind: Kind; name: string }> = [
-        ...(e.def.agent.skills ?? []).map((name) => ({ kind: 'skill' as const, name })),
-        ...(e.def.agent.mcpServers ?? []).map((name) => ({ kind: 'mcp' as const, name })),
-      ];
-      for (const w of wanted) {
-        if (seen.has(entityKey(w.kind, w.name))) continue;
-        const keep = alreadyElsewhere(w.kind, w.name, via);
+      for (const w of agentDepSpecs(e)) {
+        if (seen.has(entityKey(w.kind, w.dep.name))) continue;
+        const keep = alreadyElsewhere(w.kind, w.dep.name, via);
         if (keep) {
           queue.push({ entity: { kind: w.kind, name: keep.name, path: keep.path, origin: keep.origin, def: placeholderDef(w.kind) }, source: {}, direct: false, via, keep });
           continue;
         }
-        const own = item.source.index && item.source.spec ? candidatesIn([{ spec: item.source.spec, index: item.source.index }], w.kind, w.name) : [];
-        const cands = own.length ? own : candidatesIn(await session.all(), w.kind, w.name);
-        if (!cands.length) {
-          warnings.push(`agent ${e.name} uses ${w.kind} "${w.name}", which no origin provides; install it separately`);
+        const chosen = await resolveAgentDep(ctx, session, item, w, lock);
+        if (!chosen) {
+          warnings.push(
+            `agent ${e.name} uses ${w.kind} "${w.dep.name}"${w.dep.origin ? ` from ${w.dep.origin}` : ''}, which no origin provides; install it separately`,
+          );
           continue;
         }
-        const chosen = await choose(ctx, w.name, cands);
         queue.push({ ...chosen, direct: false, via });
       }
     }
   }
   return plan;
+}
+
+/**
+ * Resolve one agent dependency: an explicit `name@origin` from that origin only; otherwise
+ * the agent's own origin first, then the origin an earlier install of this dependency came
+ * from (so reinstalls never become ambiguous), then every origin (picker on ambiguity).
+ */
+async function resolveAgentDep(
+  ctx: PalmContext,
+  session: IndexSession,
+  agent: Planned,
+  w: { kind: Kind; dep: DepRef },
+  lock: Lockfile,
+): Promise<Candidate | undefined> {
+  if (w.dep.origin) {
+    const si = await session.byAlias(w.dep.origin, w.dep.ref).catch((err: unknown) => {
+      ctx.log.debug(`agent dependency ${w.dep.name}@${w.dep.origin}: ${(err as Error).message}`);
+      return undefined;
+    });
+    const cands = si ? candidatesIn([si], w.kind, w.dep.name) : [];
+    return cands.length ? choose(ctx, w.dep.name, cands) : undefined;
+  }
+  const own = agent.source.index && agent.source.spec ? candidatesIn([{ spec: agent.source.spec, index: agent.source.index }], w.kind, w.dep.name) : [];
+  if (own.length) return choose(ctx, w.dep.name, own);
+  const all = candidatesIn(await session.all(), w.kind, w.dep.name);
+  const prior = lock.entries.find((x) => x.kind === w.kind && x.name.toLowerCase() === w.dep.name.toLowerCase());
+  const sticky = prior ? all.filter((c) => c.entity.origin === prior.origin) : [];
+  const cands = sticky.length ? sticky : all;
+  return cands.length ? choose(ctx, w.dep.name, cands) : undefined;
 }
 
 /** Minimal def for entries reported from the lock without an index lookup. */
@@ -325,10 +376,19 @@ async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): P
     return out;
   };
 
+  const declared = entity.kind === 'plugin' || entity.kind === 'agent' ? entityDeps(entity) : [];
+  const withDeps = (entry: LockEntry): LockEntry => {
+    const out = { ...entry };
+    if (declared.length) out.deps = declared;
+    else delete out.deps;
+    return out;
+  };
+
   const missingTargets = opts.targets.filter((t) => !existing?.targets.includes(t));
-  const sameContent = !!existing && existing.contentHash === hash && !ctx.flags.force && others.length === 0;
+  const intact = !!existing && (await filesPresent(root, existing));
+  const sameContent = !!existing && intact && existing.contentHash === hash && !ctx.flags.force && others.length === 0;
   if (sameContent && missingTargets.length === 0) {
-    const entry = withVia(existing);
+    const entry = withDeps(withVia(existing));
     return { outcome: { entry, status: 'unchanged', notes: [] }, lock: upsertEntry(lock, entry) };
   }
 
@@ -346,12 +406,21 @@ async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): P
   const policy = defaultSecretPolicy(ctx, scope, opts.secretPolicy);
   const absPath = source.root ? join(source.root, entity.path) : root;
   let secretValues: Record<string, string> | undefined;
+  const exported = new Set<string>();
   if (entity.def.kind === 'mcp') {
     const cfg = entity.def.mcp;
     if (!ctx.flags.dryRun) {
       const r = await deps.resolveSecrets(ctx, cfg, policy);
       if (Object.keys(r.values).length) secretValues = r.values;
-      if (r.envRefs.length) notes.push(`export ${r.envRefs.join(', ')} before starting the harness`);
+      // Under literal, unresolved optional secrets are left out by the targets (they say so).
+      if (r.envRefs.length && policy === 'env-ref') {
+        const optional = optionalSecretNames(cfg);
+        const required = r.envRefs.filter((v) => !optional.has(v));
+        const maybe = r.envRefs.filter((v) => optional.has(v));
+        if (required.length) notes.push(`export ${required.join(', ')} before starting the harness`);
+        if (maybe.length) notes.push(`optional: export ${maybe.join(', ')} to use ${maybe.length === 1 ? 'it' : 'them'} (left empty otherwise)`);
+        for (const v of r.envRefs) exported.add(v);
+      }
     } else if (cfg.secrets?.length) {
       notes.push(`needs secrets: ${cfg.secrets.map((s) => s.name).join(', ')}`);
     }
@@ -379,7 +448,7 @@ async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): P
   } else {
     for (const id of deployTo) {
       try {
-        const input: DeployInputWithEnv = {
+        const input: DeployInput = {
           entity,
           absPath,
           originRoot: source.root ?? root,
@@ -401,7 +470,10 @@ async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): P
         }
         for (const f of res.files) if (!files.includes(f)) files.push(f);
         for (const m of res.merged ?? []) if (!merged.some((x) => deepEqual(x, m))) merged.push(m);
-        for (const n of res.notes) if (!notes.includes(`${id}: ${n}`)) notes.push(`${id}: ${n}`);
+        for (const n of res.notes) {
+          if (coveredExportNote(n, exported)) continue; // already said once for all targets
+          if (!notes.includes(`${id}: ${n}`)) notes.push(`${id}: ${n}`);
+        }
       } catch (error) {
         failures.push({ id, error });
       }
@@ -432,7 +504,9 @@ async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): P
   if (source.sha) entry.sha = source.sha;
   if (merged.length) entry.merged = merged;
   if (via) entry.via = via;
+  if (declared.length) entry.deps = declared;
   lock = upsertEntry(lock, entry);
+  if (existing && !intact && existing.contentHash === hash) notes.push('restored missing files');
 
   const status: InstallOutcome['status'] =
     entity.kind !== 'plugin' && deployTo.length > 0 && skipped === deployTo.length - failures.length && skipped > 0
@@ -465,7 +539,7 @@ export async function installEntities(
   const manifestBefore = JSON.stringify(manifest);
 
   const direct: Planned[] = [];
-  for (const req of requests as EngineInstallRequest[]) direct.push(await resolveRequest(ctx, deps, session, req));
+  for (const req of requests) direct.push(await resolveRequest(ctx, deps, session, req));
   const plan = await expand(ctx, session, direct, lock, warnings);
 
   const persist = async (): Promise<void> => {
@@ -495,13 +569,14 @@ export async function installEntities(
       }
     }
     if (orphans.length) {
-      const all = collectDependents(lock, orphans);
-      const leaving = new Set(all.map((p) => `${p.kind}\0${p.name.toLowerCase()}\0${p.origin}`));
-      await undeployEntries(ctx, deps, opts.scope, all, protectedFiles(scopeRoot(ctx.paths, opts.scope), lock, leaving), warnings);
-      for (const o of all) {
+      const removal = planRemoval(lock, orphans, { manifest, checkRoots: true });
+      const leaving = new Set(removal.removed.map((p) => `${p.kind}\0${p.name.toLowerCase()}\0${p.origin}`));
+      await undeployEntries(ctx, deps, opts.scope, removal.removed, protectedFiles(scopeRoot(ctx.paths, opts.scope), lock, leaving), warnings);
+      for (const o of removal.removed) {
         lock = removeEntry(lock, o.kind, o.name, o.origin);
         warnings.push(`removed ${o.kind} ${o.name}: no longer part of ${o.via}`);
       }
+      lock = reparent(lock, removal.kept);
     }
   } catch (e) {
     await persist();

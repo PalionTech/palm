@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { originId } from './config.js';
+import { originId, validateOriginUrl } from './config.js';
 import { PalmError } from './errors.js';
 import { cacheDir } from './paths.js';
 import type { OriginCheckout, OriginSpec, PalmContext } from './types.js';
@@ -21,9 +21,24 @@ class GitFailure extends Error {
   }
 }
 
-async function git(args: string[], cwd?: string): Promise<string> {
+/** Local repositories (bare repo paths, file:// URLs) are the only ones allowed to use git's file transport. */
+function isLocalRepoUrl(url: string | undefined): boolean {
+  return !!url && (url.startsWith('/') || /^file:\/\//i.test(url));
+}
+
+/**
+ * Run git with transport hardening: `ext::`/`fd::` helpers are never allowed and the file
+ * transport only for local origins (`url`), so a hostile config or submodule cannot make git
+ * execute commands or read local repositories.
+ */
+async function git(args: string[], cwd?: string, url?: string, timeout?: number): Promise<string> {
+  const hardening = [
+    '-c', 'protocol.ext.allow=never',
+    '-c', 'protocol.fd.allow=never',
+    '-c', `protocol.file.allow=${isLocalRepoUrl(url) ? 'user' : 'never'}`,
+  ];
   try {
-    const r = await execa('git', args, { cwd, env: GIT_ENV, stdin: 'ignore' });
+    const r = await execa('git', [...hardening, ...args], { cwd, env: GIT_ENV, stdin: 'ignore', ...(timeout ? { timeout } : {}) });
     return r.stdout;
   } catch (e) {
     const err = e as { code?: string; stderr?: unknown; shortMessage?: string; message: string };
@@ -59,11 +74,11 @@ function toPalmError(e: unknown, what: string, url: string): PalmError {
 // Tags and refs
 // ---------------------------------------------------------------------------
 
-/** Refuse values git would parse as options, and roots that escape the checkout. */
+/** Refuse unsafe URLs (see validateOriginUrl), refs git would parse as options, and roots that escape the checkout. */
 function assertSafeSpec(spec: { alias?: string; url?: string; ref?: string; root?: string }): void {
   const bad = (what: string, v: string): PalmError =>
     new PalmError('E_ORIGIN', `Invalid ${what} "${v}"${spec.alias ? ` for origin "${spec.alias}"` : ''}`);
-  if (spec.url?.startsWith('-')) throw bad('url', spec.url);
+  if (spec.url !== undefined) validateOriginUrl(spec.url, spec.alias ? `origin "${spec.alias}"` : 'origin');
   if (spec.ref?.startsWith('-')) throw bad('ref', spec.ref);
   if (spec.root && (spec.root.split(/[\\/]+/).includes('..') || spec.root.startsWith('/'))) throw bad('root', spec.root);
 }
@@ -72,7 +87,7 @@ export async function listRemoteTags(url: string): Promise<string[]> {
   assertSafeSpec({ url });
   let out: string;
   try {
-    out = await git(['ls-remote', '--tags', '--refs', url]);
+    out = await git(['ls-remote', '--tags', '--refs', '--', url], undefined, url);
   } catch (e) {
     throw toPalmError(e, 'Cannot list tags of', url);
   }
@@ -86,7 +101,7 @@ export async function listRemoteTags(url: string): Promise<string[]> {
 
 async function remoteDefaultBranch(url: string): Promise<string | undefined> {
   try {
-    const out = await git(['ls-remote', '--symref', url, 'HEAD']);
+    const out = await git(['ls-remote', '--symref', '--', url, 'HEAD'], undefined, url);
     const m = /^ref:\s+refs\/heads\/(\S+)\s+HEAD/m.exec(out);
     return m?.[1];
   } catch (e) {
@@ -171,46 +186,56 @@ async function readMeta(file: string): Promise<CheckoutMeta | undefined> {
   }
 }
 
-async function fetchSha(dir: string, sha: string): Promise<void> {
+async function fetchSha(url: string, dir: string, sha: string): Promise<void> {
   try {
-    await git(['fetch', '--depth', '1', 'origin', sha], dir);
-    await git(['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', 'FETCH_HEAD'], dir);
+    await git(['fetch', '--depth', '1', 'origin', '--', sha], dir, url);
+    await git(['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', 'FETCH_HEAD'], dir, url);
   } catch {
     // Servers that refuse unadvertised shas: fall back to a full fetch.
-    await git(['fetch', '--tags', 'origin'], dir);
-    await git(['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', sha], dir);
+    await git(['fetch', '--tags', 'origin'], dir, url);
+    await git(['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', sha], dir, url);
   }
 }
 
 async function freshClone(url: string, dir: string, ref: string | undefined): Promise<void> {
   await rm(dir, { recursive: true, force: true });
   if (ref && FULL_SHA.test(ref)) {
-    await git(['init', '-q', dir]);
-    await git(['remote', 'add', 'origin', url], dir);
-    await fetchSha(dir, ref);
+    await git(['init', '-q', '--', dir]);
+    await git(['remote', 'add', '--', 'origin', url], dir, url);
+    await fetchSha(url, dir, ref);
     return;
   }
   const args = ['-c', 'advice.detachedHead=false', 'clone', '--quiet', '--depth', '1'];
   if (ref) args.push('--branch', ref);
   try {
-    await git([...args, url, dir]);
+    await git([...args, '--', url, dir], undefined, url);
   } catch (e) {
     if (!ref || !SHORT_SHA.test(ref)) throw e;
     await rm(dir, { recursive: true, force: true });
-    await git(['clone', '--quiet', url, dir]);
-    await git(['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', ref], dir);
+    await git(['clone', '--quiet', '--', url, dir], undefined, url);
+    await git(['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', ref], dir, url);
   }
 }
 
 async function updateCheckout(url: string, dir: string, ref: string | undefined): Promise<void> {
-  await git(['remote', 'set-url', 'origin', url], dir);
+  await git(['remote', 'set-url', '--', 'origin', url], dir, url);
   if (ref && FULL_SHA.test(ref)) {
-    await fetchSha(dir, ref);
+    await fetchSha(url, dir, ref);
   } else {
-    await git(['fetch', '--quiet', '--depth', '1', 'origin', ref ?? 'HEAD'], dir);
-    await git(['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', 'FETCH_HEAD'], dir);
+    await git(['fetch', '--quiet', '--depth', '1', 'origin', '--', ref ?? 'HEAD'], dir, url);
+    await git(['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', 'FETCH_HEAD'], dir, url);
   }
-  await git(['clean', '-ffdxq'], dir);
+  await git(['clean', '-ffdxq'], dir, url);
+}
+
+/** `git ls-remote --exit-code <url> HEAD` through the validator and the hardened wrapper (used by `palm doctor`). */
+export async function pingRemote(url: string): Promise<void> {
+  validateOriginUrl(url);
+  try {
+    await git(['ls-remote', '--exit-code', '--', url, 'HEAD'], undefined, url, 20_000);
+  } catch (e) {
+    throw toPalmError(e, 'Cannot reach', url);
+  }
 }
 
 /** The ref to check out when the spec pins none: latest semver tag, else the default branch. */
@@ -290,7 +315,7 @@ export async function fetchOrigin(ctx: PalmContext, spec: OriginSpec, opts: { re
       } else {
         await freshClone(url, repoDir, wanted);
       }
-      const sha = (await git(['rev-parse', 'HEAD'], repoDir)).trim();
+      const sha = (await git(['rev-parse', 'HEAD'], repoDir, url)).trim();
       const next: CheckoutMeta = { url, requested, sha, fetchedAt: new Date().toISOString() };
       if (wanted) next.ref = wanted;
       await writeFile(metaFile, `${JSON.stringify(next, null, 2)}\n`, 'utf8');

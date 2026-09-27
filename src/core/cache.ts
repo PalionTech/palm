@@ -14,9 +14,15 @@ interface StoredIndex extends OriginIndex {
   cacheKey: string;
 }
 
-function indexFile(ctx: PalmContext, id: string, ref?: string): string {
+/**
+ * `<palmHome>/cache/<originId>[@<ref>][~<layout hash>].index.json`. Two aliases of one repository
+ * with different layout descriptors (or refs) share the checkout but never an index.
+ */
+export function indexFilePath(ctx: PalmContext, spec: OriginSpec): string {
+  const ref = spec.type === 'git' ? spec.ref : undefined;
   const suffix = ref ? `@${ref.replace(/[^A-Za-z0-9._-]/g, '-')}` : '';
-  return join(cacheDir(ctx.paths), `${id}${suffix}.index.json`);
+  const layout = spec.layout ? `~${hashValue(spec.layout).replace(/^sha256:/, '').slice(0, 8)}` : '';
+  return join(cacheDir(ctx.paths), `${originId(spec)}${suffix}${layout}.index.json`);
 }
 
 function cacheKey(spec: OriginSpec, checkout: OriginCheckout): string {
@@ -45,7 +51,7 @@ function withAlias(index: OriginIndex, alias: string): OriginIndex {
  */
 export async function getIndex(ctx: PalmContext, spec: OriginSpec, opts: { refresh?: boolean; scan?: ScanOriginFn } = {}): Promise<OriginIndex> {
   const checkout = await fetchOrigin(ctx, spec, { refresh: opts.refresh });
-  const file = indexFile(ctx, checkout.originId, spec.type === 'git' ? spec.ref : undefined);
+  const file = indexFilePath(ctx, spec);
   const key = cacheKey(spec, checkout);
   if (spec.type === 'git' && !opts.refresh) {
     try {
@@ -59,7 +65,8 @@ export async function getIndex(ctx: PalmContext, spec: OriginSpec, opts: { refre
     }
   }
   const scan = opts.scan ?? (await loadDefaultScan());
-  const result = await scan(checkout.root, spec);
+  // The scanner derives versions from a semver tag: give it the ref actually checked out.
+  const result = await scan(checkout.root, checkout.ref && !spec.ref ? { ...spec, ref: checkout.ref } : spec);
   const index: OriginIndex = {
     entities: result.entities.map((e) => ({ ...e, origin: spec.alias })),
     warnings: result.warnings ?? [],
@@ -97,5 +104,5 @@ export async function getAllIndexes(ctx: PalmContext, opts: { refresh?: boolean;
 }
 
 export async function invalidateIndex(ctx: PalmContext, spec: OriginSpec): Promise<void> {
-  await rm(indexFile(ctx, originId(spec), spec.type === 'git' ? spec.ref : undefined), { force: true });
+  await rm(indexFilePath(ctx, spec), { force: true });
 }

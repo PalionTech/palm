@@ -1,55 +1,7 @@
 import { PalmError } from '../core/errors.js';
-import type {
-  DeployInput,
-  LockEntry,
-  McpServerConfig,
-  PalmContext,
-  ResolveRegistryFn,
-  ScanOriginFn,
-  Scope,
-  SecretPolicy,
-  Target,
-  TargetId,
-} from '../core/types.js';
+import type { EngineDeps, ResolveRegistryFn, ResolveSecretsFn, ScanOriginFn, Target, TargetId } from '../core/types.js';
 
-/**
- * `Target.undeploy` with the optional environment the targets module accepts as a
- * 5th argument (not yet part of the core contract).
- */
-export type UndeployWithEnv = (
-  entry: LockEntry,
-  scope: Scope,
-  scopeRoot: string,
-  dryRun: boolean,
-  env?: NodeJS.ProcessEnv,
-) => Promise<void>;
-
-/** DeployInput plus the environment used for CLAUDE_CONFIG_DIR / CODEX_HOME resolution. */
-export type DeployInputWithEnv = DeployInput & { env?: NodeJS.ProcessEnv };
-
-/** Undeploy through a target, passing the context environment along. */
-export async function undeployWithEnv(
-  target: Target,
-  entry: LockEntry,
-  scope: Scope,
-  scopeRoot: string,
-  dryRun: boolean,
-  env: NodeJS.ProcessEnv,
-): Promise<void> {
-  await (target.undeploy as UndeployWithEnv).call(target, entry, scope, scopeRoot, dryRun, env);
-}
-
-/** Collaborators the engine calls into; tests replace them with fakes. */
-export interface EngineDeps {
-  scan: ScanOriginFn;
-  getTarget: (id: TargetId) => Target;
-  resolveRegistry: ResolveRegistryFn;
-  resolveSecrets: (
-    ctx: PalmContext,
-    cfg: McpServerConfig,
-    policy: SecretPolicy,
-  ) => Promise<{ values: Record<string, string>; envRefs: string[] }>;
-}
+export type { EngineDeps } from '../core/types.js';
 
 const DISPLAY_NAMES: Record<TargetId, string> = {
   claude: 'Claude Code',
@@ -96,7 +48,7 @@ async function importSecrets() {
 
 const lazyScan: ScanOriginFn = async (root, spec) => (await importScan()).scanOrigin(root, spec);
 const lazyResolveRegistry: ResolveRegistryFn = async (name, opts) => (await importRegistry()).resolveRegistry(name, opts);
-const lazyResolveSecrets: EngineDeps['resolveSecrets'] = async (ctx, cfg, policy) =>
+const lazyResolveSecrets: ResolveSecretsFn = async (ctx, cfg, policy) =>
   (await importSecrets()).resolveSecrets(ctx, cfg, policy);
 
 /** A Target whose implementation is imported on first async use. `configDir` needs the module loaded first. */
@@ -112,8 +64,7 @@ function lazyTarget(id: TargetId): Target {
       return loaded.configDir(scope, root, env);
     },
     deploy: async (input) => (await load()).deploy(input),
-    undeploy: (async (entry: LockEntry, scope: Scope, root: string, dryRun: boolean, env?: NodeJS.ProcessEnv) =>
-      undeployWithEnv(await load(), entry, scope, root, dryRun, env ?? process.env)) as Target['undeploy'],
+    undeploy: async (entry, scope, root, dryRun, env) => (await load()).undeploy(entry, scope, root, dryRun, env),
   };
 }
 

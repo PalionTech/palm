@@ -143,6 +143,11 @@ export interface AgentDefinition {
   skills?: string[];
   /** MCP server names this agent depends on. */
   mcpServers?: string[];
+  /**
+   * Instructions installed alongside the agent (palm extension, `instructions:` frontmatter).
+   * Entries are dependency strings `name[@origin]`; no harness reads this key, palm strips it on deploy.
+   */
+  instructions?: string[];
   color?: string;
   /** The system prompt (markdown body). */
   body: string;
@@ -302,6 +307,12 @@ export interface LockEntry {
   merged?: MergedRecord[];
   /** `plugin:<name>` or `agent:<name>` when installed as a dependency. */
   via?: string;
+  /**
+   * Plugin/agent entries only: the entities it declared (plugin members; agent skills, MCP
+   * servers and instructions). Uninstall keeps a `via` dependency while any remaining entry
+   * lists it here (reference counting), and re-parents it to that entry.
+   */
+  deps?: EntityRef[];
 }
 
 export interface Lockfile {
@@ -387,6 +398,8 @@ export interface InstallRequest {
   from?: OriginSpec;
   /** Ad hoc MCP definition (`palm install mcp name -- cmd` / `--url`). */
   adhocMcp?: McpServerConfig;
+  /** Resolve this MCP registry name directly (manifest `{ registry: … }` entries; used by sync/update). */
+  registry?: string;
 }
 
 export interface InstallOptions {
@@ -427,8 +440,10 @@ export interface DeployInput {
   secretValues?: Record<string, string>;
   dryRun: boolean;
   force: boolean;
-  /** Files already owned by this entity in the lock (may be overwritten). */
+  /** Files already owned by this entity in the lock (may be overwritten). Merged keys appear as `file#pointer`. */
   ownedFiles: string[];
+  /** Environment for CLAUDE_CONFIG_DIR / CODEX_HOME / COPILOT_HOME / PALM_HOME resolution (default: process.env). */
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface DeployResult {
@@ -448,8 +463,11 @@ export interface Target {
   /** Root config dir for the scope, e.g. <projectRoot>/.claude or ~/.claude. */
   configDir(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): string;
   deploy(input: DeployInput): Promise<DeployResult>;
-  /** Remove the given files/merged records previously produced by deploy. */
-  undeploy(entry: LockEntry, scope: Scope, scopeRoot: string, dryRun: boolean): Promise<void>;
+  /**
+   * Remove the given files/merged records previously produced by deploy.
+   * `env` resolves CLAUDE_CONFIG_DIR / CODEX_HOME / … like `DeployInput.env` (default: process.env).
+   */
+  undeploy(entry: LockEntry, scope: Scope, scopeRoot: string, dryRun: boolean, env?: NodeJS.ProcessEnv): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -477,3 +495,25 @@ export type ResolveRegistryFn = (name: string, opts: { registryUrl?: string; ver
 
 /** src/core/git.ts */
 export type FetchOriginFn = (ctx: PalmContext, spec: OriginSpec) => Promise<OriginCheckout>;
+
+/** src/mcp/secrets.ts `resolveSecrets`. */
+export type ResolveSecretsFn = (
+  ctx: PalmContext,
+  cfg: McpServerConfig,
+  policy: SecretPolicy,
+) => Promise<{ values: Record<string, string>; envRefs: string[] }>;
+
+/**
+ * Collaborators the engine calls into (src/engine/deps.ts supplies lazily imported
+ * defaults; tests pass fakes as `Partial<EngineDeps>`).
+ */
+export interface EngineDeps {
+  /** default: src/index/scan.ts `scanOrigin` */
+  scan: ScanOriginFn;
+  /** default: src/targets/index.ts `getTarget` */
+  getTarget: (id: TargetId) => Target;
+  /** default: src/mcp/registry.ts `resolveRegistry` */
+  resolveRegistry: ResolveRegistryFn;
+  /** default: src/mcp/secrets.ts `resolveSecrets` */
+  resolveSecrets: ResolveSecretsFn;
+}

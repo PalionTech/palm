@@ -5,15 +5,40 @@ import type { Command } from 'commander';
 import pc from 'picocolors';
 import { PalmError } from '../core/errors.js';
 import { pluralize } from '../core/kinds.js';
-import { KINDS, type Entity, type Kind, type OriginIndex, type OriginSpec, type PalmContext } from '../core/types.js';
+import { KINDS, type Entity, type Kind, type LayoutDescriptor, type OriginIndex, type OriginSpec, type PalmContext } from '../core/types.js';
 import { printTable } from '../ui/output.js';
-import { makeContext, printJson, withSpinner, type GlobalOptions } from './shared.js';
+import { collect, makeContext, printJson, withSpinner, type GlobalOptions } from './shared.js';
 
 interface OriginAddOptions extends GlobalOptions {
   alias?: string;
   ref?: string;
   root?: string;
   project?: boolean;
+  layout?: string[];
+}
+
+const LAYOUT_LIST_KEYS = ['skills', 'agents', 'commands', 'instructions', 'hooks', 'mcp', 'exclude', 'include'] as const;
+
+/** `--layout skills='skills/.curated/*' --layout exclude='**\/drafts/**' --layout nameFrom=dirname` → LayoutDescriptor. */
+export function parseLayoutOptions(values: string[] | undefined): LayoutDescriptor | undefined {
+  if (!values?.length) return undefined;
+  const out: Record<string, unknown> = {};
+  for (const v of values) {
+    const eq = v.indexOf('=');
+    const key = eq > 0 ? v.slice(0, eq).trim() : '';
+    const val = eq > 0 ? v.slice(eq + 1).trim() : '';
+    if (!key || !val) throw new PalmError('E_USAGE', `invalid --layout "${v}"`, `use kind=glob, kind one of: ${LAYOUT_LIST_KEYS.join(', ')}, or nameFrom=frontmatter|dirname`);
+    if (key === 'nameFrom') {
+      if (val !== 'frontmatter' && val !== 'dirname') throw new PalmError('E_USAGE', `invalid --layout nameFrom=${val}`, 'use nameFrom=frontmatter or nameFrom=dirname');
+      out.nameFrom = val;
+      continue;
+    }
+    if (!(LAYOUT_LIST_KEYS as readonly string[]).includes(key)) {
+      throw new PalmError('E_USAGE', `unknown --layout key "${key}"`, `use one of: ${LAYOUT_LIST_KEYS.join(', ')}, nameFrom`);
+    }
+    out[key] = [...((out[key] as string[] | undefined) ?? []), ...val.split(',').map((x) => x.trim()).filter(Boolean)];
+  }
+  return out as LayoutDescriptor;
 }
 
 /** "12 skills, 3 agents" for the entities of an index. */
@@ -29,11 +54,11 @@ export function describeLocation(spec: OriginSpec): string {
   return spec.root ? `${base} ${pc.dim(`/${spec.root}`)}` : base;
 }
 
-/** Read `<palmHome>/cache/<originId>.index.json` without fetching (DESIGN.md §5). */
+/** Read the cached index of an origin without fetching (DESIGN.md §5). */
 async function readCachedIndex(ctx: PalmContext, spec: OriginSpec): Promise<OriginIndex | undefined> {
   try {
-    const { originId } = await import('../core/config.js');
-    const text = await readFile(join(ctx.paths.palmHome, 'cache', `${originId(spec)}.index.json`), 'utf8');
+    const { indexFilePath } = await import('../core/cache.js');
+    const text = await readFile(indexFilePath(ctx, spec), 'utf8');
     const parsed = JSON.parse(text) as Partial<OriginIndex>;
     return Array.isArray(parsed.entities) ? (parsed as OriginIndex) : undefined;
   } catch {
@@ -121,9 +146,16 @@ async function importMarketplace(ctx: PalmContext, g: OriginAddOptions, input: s
           )
         : origins;
 
-    const { addOrigin } = await import('../core/config.js');
+    const { addOrigin, allOrigins, originId } = await import('../core/config.js');
+    const sameSource = (a: OriginSpec, b: OriginSpec): boolean => originId(a) === originId(b) && (a.ref ?? '') === (b.ref ?? '');
     const added: OriginSpec[] = [];
+    const existing: Array<{ spec: OriginSpec; as: string }> = [];
     for (const spec of chosen) {
+      const known = allOrigins(ctx).find((o) => sameSource(o, spec));
+      if (known) {
+        existing.push({ spec, as: known.alias });
+        continue;
+      }
       if (ctx.flags.dryRun) {
         added.push(spec);
         continue;
@@ -134,12 +166,30 @@ async function importMarketplace(ctx: PalmContext, g: OriginAddOptions, input: s
         ctx.log.warn(`skipped ${spec.alias}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    if (g.json) return printJson(added);
-    printTable(added.map((o) => [o.alias, describeLocation(o), o.ref ?? '']), ['alias', 'location', 'ref']);
+
+    // Index what was added, like `palm origin add` does (failures stay warnings).
+    const indexed = new Map<string, string>();
+    if (!ctx.flags.dryRun && !ctx.flags.offline) {
+      for (const spec of added) {
+        try {
+          indexed.set(spec.alias, kindCounts((await indexOne(ctx, g, spec)).entities));
+        } catch (e) {
+          indexed.set(spec.alias, pc.yellow(`not indexed: ${e instanceof Error ? e.message : String(e)}`));
+        }
+      }
+    }
+    if (g.json) return printJson({ added, existing: existing.map((x) => ({ alias: x.spec.alias, registeredAs: x.as })) });
+    if (added.length) {
+      printTable(
+        added.map((o) => [o.alias, describeLocation(o), o.ref ?? '', indexed.get(o.alias) ?? pc.dim('not indexed')]),
+        ['alias', 'location', 'ref', 'indexed'],
+      );
+    }
+    for (const x of existing) console.log(pc.dim(`· ${x.spec.alias}: already registered as ${x.as}`));
     console.log(
       ctx.flags.dryRun
         ? pc.dim('\ndry run: no origins were added')
-        : `\n${pc.green('✓')} added ${added.length} origin${added.length === 1 ? '' : 's'}; index them with ${pc.bold('palm origin update')}`,
+        : `\n${pc.green('✓')} added ${added.length} origin${added.length === 1 ? '' : 's'}${existing.length ? `, ${existing.length} already registered` : ''}`,
     );
   } finally {
     if (tmp) await rm(tmp, { recursive: true, force: true });
@@ -152,7 +202,7 @@ async function indexOne(ctx: PalmContext, g: GlobalOptions, spec: OriginSpec): P
 }
 
 export function registerOrigin(program: Command): void {
-  const origin = program.command('origin').summary('manage origins (where entities come from)').description('Manage origins: git repositories or local directories that palm indexes for entities.');
+  const origin = program.command('origin').summary('add, list, update or remove origins (the repos palm installs from)').description('Manage origins: git repositories or local directories that palm indexes for entities.');
 
   origin
     .command('add')
@@ -161,13 +211,15 @@ export function registerOrigin(program: Command): void {
     .option('--alias <alias>', 'short name used in name@alias (default: repo name)')
     .option('--ref <ref>', 'tag, branch or sha (default: latest semver tag, else default branch)')
     .option('--root <path>', 'subdirectory that is the origin root')
+    .option('--layout <kind=glob>', 'layout descriptor instead of auto-detection, e.g. skills=\'skills/.curated/*\' (repeatable; kinds: skills, agents, commands, instructions, hooks, mcp, exclude, include; or nameFrom=dirname)', collect)
     .option('--project', 'save in this project’s palm.yaml instead of the global config')
     .action(async (input: string, _opts: unknown, cmd: Command) => {
       const o = cmd.optsWithGlobals<OriginAddOptions>();
       const ctx = await makeContext(o);
       if (/marketplace\.json$/i.test(input)) return importMarketplace(ctx, o, input);
       const { parseOriginInput, addOrigin } = await import('../core/config.js');
-      const parsed = parseOriginInput(input, { alias: o.alias, ref: o.ref, root: o.root });
+      const layout = parseLayoutOptions(o.layout);
+      const parsed = parseOriginInput(input, { alias: o.alias, ref: o.ref, root: o.root, ...(layout ? { layout } : {}) });
       if (ctx.flags.dryRun) {
         console.log(`would add origin ${pc.bold(parsed.alias)} → ${describeLocation(parsed)}`);
         return;

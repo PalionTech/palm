@@ -17,7 +17,7 @@ export function withPalmIgnored(gitignore: string): string | undefined {
 export function registerInit(program: Command): void {
   program
     .command('init')
-    .summary('set up palm.yaml for this project')
+    .summary('create palm.yaml for this project')
     .description('Choose the targets for this project and write them to palm.yaml (and ignore .palm/ in .gitignore).')
     .action(async (_opts: unknown, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();

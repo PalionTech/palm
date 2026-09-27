@@ -13,7 +13,7 @@
  */
 import type { MergedRecord } from '../core/types.js';
 import { PalmError } from '../core/errors.js';
-import { atomicWrite, readTextOrUndefined } from './fs-utils.js';
+import { atomicWrite, readTextOrUndefined, removeFileIfExists } from './fs-utils.js';
 import { containsAll, deepEqual, isPlainObject } from './deep-equal.js';
 import { formatPointer, joinPointer, parsePointer } from './json-pointer.js';
 
@@ -211,7 +211,9 @@ export async function ensureJsonKey(file: string, pointer: string, key: string, 
  * Remove what `record` inserted. Array pointer → the first deep-equal item is removed.
  * Key pointer → the key is deleted when its current value still contains everything
  * palm wrote (keys the user added are tolerated; values the user changed are kept).
- * Containers are left in place. Missing file/pointer is a no-op.
+ * Containers left empty by the removal (`"SessionStart": []`, `"hooks": {}`,
+ * `"mcpServers": {}`) are pruned, and a file that ends up as `{}` is deleted.
+ * Missing file/pointer is a no-op.
  */
 export async function unmergeJsonFile(file: string, record: MergedRecord): Promise<void> {
   const text = await readTextOrUndefined(file);
@@ -223,16 +225,37 @@ export async function unmergeJsonFile(file: string, record: MergedRecord): Promi
   const last = segs[segs.length - 1]!;
   const node = getAtPointer(doc, record.pointer);
   let changed = false;
+  let emptied: string[] | undefined;
   if (Array.isArray(node) && !deepEqual(node, record.value)) {
     const idx = node.findIndex((item) => deepEqual(item, record.value));
     if (idx >= 0) {
       node.splice(idx, 1);
       changed = true;
+      emptied = segs;
     }
   } else if (node !== undefined && containsAll(node, record.value)) {
     if (Array.isArray(parent)) parent.splice(Number(last), 1);
     else if (isPlainObject(parent)) delete parent[last];
     changed = true;
+    emptied = segs.slice(0, -1);
   }
-  if (changed) await atomicWrite(file, serializeJson(doc));
+  if (!changed) return;
+  if (emptied) pruneEmptyContainers(doc, emptied);
+  if (Object.keys(doc).length === 0) {
+    await removeFileIfExists(file);
+    return;
+  }
+  await atomicWrite(file, serializeJson(doc));
+}
+
+/** Delete the container at `segs` and its ancestors while they are empty (never the root). */
+function pruneEmptyContainers(doc: Record<string, unknown>, segs: string[]): void {
+  for (let i = segs.length; i > 0; i--) {
+    const node = getAtPointer(doc, formatPointer(segs.slice(0, i)));
+    const empty = Array.isArray(node) ? node.length === 0 : isPlainObject(node) && Object.keys(node).length === 0;
+    if (!empty) return;
+    const parent = getAtPointer(doc, formatPointer(segs.slice(0, i - 1)));
+    if (isPlainObject(parent)) delete parent[segs[i - 1]!];
+    else return;
+  }
 }

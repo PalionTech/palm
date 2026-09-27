@@ -34,4 +34,4 @@ export function allTargets(): Target[] {
 }
 
 export { GenericTarget } from './base.js';
-export type { TargetDeployInput, TargetLayout } from './base.js';
+export type { TargetLayout } from './base.js';

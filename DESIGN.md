@@ -81,7 +81,29 @@ skill installed for claude + codex is copied to both `.claude/skills` and
 
 Hook and MCP writers **merge** into existing files and must preserve unrelated
 content and formatting as far as practical (JSON: parse/modify/stringify with 2
-spaces; TOML: use `smol-toml`, re-stringify whole file, acceptable).
+spaces; TOML: use `smol-toml`, re-stringify whole file, acceptable). Unmerging
+prunes containers palm emptied (`"SessionStart": []`, `"hooks": {}`,
+`"mcpServers": {}`) and deletes a JSON file left as `{}`.
+
+Hook scripts referenced through `${CLAUDE_PLUGIN_ROOT}` are copied to
+`.palm/hooks/<n>/` (project) or `$PALM_HOME/hooks/<n>/` (global): the whole plugin
+root (scripts may read sibling files, e.g. superpowers reads
+`skills/using-superpowers/SKILL.md`) minus docs, tests, CI and top-level README-type
+files. Commands get the root substituted and, for claude/codex (cursor), the variable
+exported (`CLAUDE_PLUGIN_ROOT="…" cmd`), as the harness would for a native plugin.
+
+Uninstall removes directories palm emptied, up to but never including the harness
+config dirs (`.claude`, `.codex`, `.cursor`, `.github`, `.vscode`, `~/.copilot`);
+the palm-owned containers `.agents/skills`, `.agents`, `.palm/hooks`, `.palm`
+(project) and `$PALM_HOME/hooks` go once empty.
+
+**Safety rules** (enforced in targets and engine): entity names are single path
+segments (`[A-Za-z0-9][A-Za-z0-9._-]*`, no `..`) or the deploy is refused; a lock
+path that resolves outside the scope (project root; or home / `$PALM_HOME` /
+harness home overrides for global) is never deleted; symlinks are followed only
+when their real target stays inside the origin, so a skill cannot smuggle
+`~/.ssh/id_rsa` into `.claude/skills`; a deploy that fails half-way removes the
+files it created.
 
 ## 3. Manifest (`palm.yaml`)
 
@@ -113,10 +135,12 @@ plugins:
 
 Dependency string grammar: `<name>[@<origin-alias>][#<ref>]`. Parse `#ref`
 first, then `@origin` only when the text after the last `@` contains no `/`.
-Names never contain `@` or `#`.
+Names never contain `@` or `#`. A section emptied by uninstall is removed.
 
-Bare `palm install` (no args) syncs the manifest: installs missing entries and
+Bare `palm install` (no args) syncs the manifest: installs missing entries,
+redeploys entries (and their dependencies) whose files were deleted by hand, and
 reports lock entries with no manifest entry (removes them with `--prune`).
+`--secrets` applies to the sync as well.
 
 ## 4. Lockfile (`palm.lock.yaml`)
 
@@ -144,7 +168,13 @@ entries:
         pointer: /hooks/SessionStart
         value: { ... }           # the exact JSON inserted
     via: plugin:superpowers      # or agent:<name>, absent for direct installs
+    deps:                        # plugin/agent entries: what they declared (members, skills, MCP servers, instructions)
+      - { kind: skill, name: brainstorming }
 ```
+
+`merged[].value` never holds a literal secret: values resolved under the `literal`
+policy are recorded as their `${VAR}` placeholder, and unmerge treats a placeholder
+as matching any text.
 
 ## 5. Origins and the index
 
@@ -176,10 +206,26 @@ Origin spec input forms accepted on the CLI (`palm origin add <spec>`):
 URL (optionally `#ref`), a local path, or a `marketplace.json` file/URL which is
 expanded into one origin per plugin entry (`palm origin import`).
 
-Default alias = repo name (`obra/superpowers` → `superpowers`); when the alias
-is taken, `owner-repo`. `root` subdirs append `-<lastSegment>`.
+Default alias = repo name (`obra/superpowers` → `superpowers`), or the owner when
+the repo name is generic (`skills`, `plugins`, `agents`, `prompts`, `rules`, `mcp`, …:
+`mattpocock/skills` → `mattpocock`, `anthropics/skills` → `anthropics`); when the
+alias is taken, `owner-repo`. A `root` subdir aliases to its last segment, then
+`<base>-<lastSegment>`. `palm origin add … --layout kind=glob` (repeatable) stores a
+layout descriptor; `palm origin import` skips entries already registered (same
+repo, root and ref) and indexes what it adds.
 
-`originId` (cache dir name) = sanitized `host/owner/repo[/root]` with `/` → `__`.
+`originId` (cache dir name) = sanitized `host/owner/repo[/root]` with `/` → `__`;
+local origins append a short hash of the raw path (`a/b` ≠ `a-b`). The index file is
+`<originId>[@<ref>][~<layout hash>].index.json`, so two aliases of one repository with
+different layouts share the checkout but not the index. The scanner receives the ref
+actually checked out, so skills without their own version take the tag's.
+
+**Origin URLs** pass one validator (`validateOriginUrl`) on input and when stored
+origins are loaded: `https://`, `http://` and `git://` (warning), `ssh://`,
+`file://`, `user@host:path`, absolute paths. Leading `-`, `ext::`/`fd::`/any `<x>::`
+transport, other schemes and control characters are refused. Every git call runs
+with `protocol.ext.allow=never`, `protocol.fd.allow=never`, `protocol.file.allow`
+only for local origins, and `--` before positional URLs/refs.
 
 The index for an origin is the `ScanResult` from `scanOrigin()`, cached at
 `cache/<originId>.index.json` with the resolved sha. `palm origin update`
@@ -229,9 +275,9 @@ palm install [<kind>] <spec>... [-g] [--from <origin>] [--target a,b] [--dry-run
 3. For each spec: parse `name[@origin][#ref]`; `--from` supplies/overrides origin and may be an unregistered spec (ad hoc origin, fetched but not saved unless `--save-origin`).
 4. Ensure the relevant origins are fetched and indexed (fetch lazily; `--offline` uses cache only).
 5. Match candidates: exact name within kind; if 0 → fuzzy suggestions + "add an origin" hint, exit 1; if 1 → proceed; if >1 → interactive picker showing `name  kind  origin  version  description`; non-TTY → error listing candidates with the `@origin` form to disambiguate. `--yes` picks the first only when candidates are identical content hashes.
-6. Expand composites: plugin → members; agent → referenced `skills`/`mcpServers` resolved (same origin first, then all origins, picker on ambiguity) and queued with `via: agent:<name>`.
-7. Materialize per target via `Target.deploy()`; collect written files + merged entries.
-8. Write lock entries and manifest entries (manifest gets the direct requests only, not `via` deps).
+6. Expand composites: plugin → members; agent → referenced `skills`/`mcpServers`/`instructions` (palm's `instructions:` frontmatter extension, `name[@origin]`) queued with `via: agent:<name>`. Resolution: an explicit `@origin` → only that origin; else the agent's own origin; else the origin the dependency was installed from before (so reinstalls never turn ambiguous); else all origins (picker; non-TTY → `E_AMBIGUOUS`). A dependency already installed another way is kept as is.
+7. Materialize per target via `Target.deploy()`; collect written files + merged entries. An entry whose recorded files are missing counts as changed and is redeployed.
+8. Write lock entries (plugin/agent entries record `deps`) and manifest entries (manifest gets the direct requests only, not `via` deps).
 9. Print a summary table: what was installed where, warnings (hooks = executable code, MCP secrets placement).
 
 Collision policy: if a destination file exists and is not in the lock → refuse
@@ -239,7 +285,15 @@ unless `--force` (then overwrite and record). If it is in the lock for the same
 entity → overwrite silently (reinstall/update).
 
 Uninstall reverses: remove `files`, remove `merged` values, drop `via` deps that
-no other entry needs, update manifest.
+no other entry needs, update manifest. **Reference counting:** a `via` dependency
+stays when the manifest lists it directly (it becomes direct) or when a remaining
+entry lists it in `deps` (it is re-parented to that entry's `via`). The same rule
+applies to dependencies a plugin/agent stopped declaring (update/sync).
+
+`--target` with an explicit value is saved (palm.yaml `targets:` for project scope,
+config.yaml for `-g`) when it differs from what is stored; an interactive pick is
+saved the same way. `--dry-run` writes no harness file, lockfile, manifest or
+config (origins are still fetched into the cache so the plan is real).
 
 ## 7. MCP specifics
 
@@ -256,12 +310,23 @@ Canonical `McpServerConfig` is harness-neutral. Sources:
 
 Secret placement policy (`SecretPolicy`):
 - `project` scope default `env-ref`: write harness-specific env references
-  (claude `${VAR}`, cursor `${env:VAR}`, copilot `${env:VAR}`, codex `env_vars = ["VAR"]`
-  or `bearer_token_env_var`) and print which vars to export.
+  (claude `${VAR}`, cursor `${env:VAR}`, copilot `${env:VAR}`, codex `env_vars = ["VAR"]`,
+  `bearer_token_env_var` for `Authorization: Bearer ${VAR}`, else `env_http_headers`)
+  and print which vars to export. Claude refuses a config whose `${VAR}` is unset
+  without a default, so **optional** secrets (registry `isRequired: false`, or
+  `${VAR:-default}`) are written as `${VAR:-}` for Claude.
 - `global` scope default `literal`: prompt (masked) for each secret not already in
-  `process.env` and write the value into the user-private config file.
-- `--secrets env-ref|literal` overrides. Never write literals into project files
-  unless `--secrets literal` is explicit.
+  `process.env` and write the value into the user-private config file (created
+  0600). An optional secret left empty (or unset without a TTY) drops its env
+  entry/header instead of leaving a bare `${VAR}`.
+- `--secrets env-ref|literal` overrides (also for a bare `palm install`). Never write
+  literals into project files unless `--secrets literal` is explicit.
+- Placeholders in `args` are detected as secrets too. Under `literal` they are
+  substituted for every target; under `env-ref` Claude/Cursor/VS Code expand them,
+  Codex does not (reported as a limitation in the summary).
+- Runtime variables (`RUNTIME_VARS` in src/mcp/secrets.ts: `CLAUDE_PLUGIN_ROOT`,
+  `CLAUDE_PROJECT_DIR`, `workspaceFolder`, `HOME`, …) are never secrets and are left
+  exactly as written.
 - HTTP servers without declared secrets: write url only; harnesses run OAuth on
   first connect (say so in the summary).
 
@@ -279,7 +344,10 @@ optional), skills (multiselect from installed + all indexed skills, with a
 search prompt), MCP servers (multiselect from installed + indexed + registry
 search), instructions (optional), then opens `$EDITOR` (fallback: multiline
 text prompt) for the system prompt. Output is the canonical agent file (Claude
-frontmatter superset) with `skills:` and `mcpServers:` lists.
+frontmatter superset) with `skills:` and `mcpServers:` lists and, because Claude
+agent files cannot carry instructions, an `instructions: [name@origin]` list that
+only palm reads (targets never receive it). Installing the agent installs all
+three as tracked dependencies (`via: agent:<name>`, recorded in `deps`).
 
 ## 9. Other commands
 
@@ -288,9 +356,11 @@ frontmatter superset) with `skills:` and `mcpServers:` lists.
 - `palm search <query> [--kind k] [--origin o] [--json]` — fuzzy over all indexes; `--kind mcp` also queries the registry.
 - `palm info <kind> <name>` — description, origin, version, files, deps.
 - `palm origin add|list|remove|update|import`
-- `palm update [<kind> <name>...] [-g]` — refetch origins, reinstall entries whose content hash changed; `--dry-run` shows the plan.
+- `palm update [<kind> <name>...] [-g]` — refetch origins, reinstall entries whose content hash changed; `--dry-run` shows the plan (each entity once).
 - `palm targets` — configured/detected targets; `palm config get|set <key> <value>`.
-- `palm doctor` — checks git, harness dirs, cache health, lock/manifest drift.
+- `palm doctor` — checks git, harness dirs, cache health, lock/manifest drift (registry MCP servers match by registry name), origin reachability (through the same validated git wrapper).
+- `palm info` / `palm list --available` show the scanner's warning when two plugins of one origin ship the same name (the first is indexed; `name@origin` resolves to it).
+- `--json` also turns errors into `{ "error": { code, message, hint } }` on stdout.
 
 ## 10. Conventions
 

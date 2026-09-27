@@ -12,7 +12,10 @@ export function resolvePaths(cwd: string, env: NodeJS.ProcessEnv): PalmPaths;
 export function scopeRoot(paths: PalmPaths, scope: Scope): string;          // projectRoot | home
 export function manifestPath(paths: PalmPaths, scope: Scope): string;       // <root>/palm.yaml | <palmHome>/palm.yaml
 export function lockPath(paths: PalmPaths, scope: Scope): string;
-export function hooksAssetDir(paths: PalmPaths, scope: Scope, entityName: string): string; // <projectRoot>/.palm/hooks/<n> | <palmHome>/hooks/<n>
+export function hooksAssetDir(paths: PalmPaths, scope: Scope, entityName: string): string; // <projectRoot>/.palm/hooks/<n> | <palmHome>/hooks/<n>; throws for unsafe names
+export function isSafeName(name: string): boolean;                           // one path segment: [A-Za-z0-9][A-Za-z0-9._-]*, no ".."
+export function scopeBoundaries(paths: PalmPaths, scope: Scope, env?: NodeJS.ProcessEnv): string[]; // project root | home, palmHome, harness home overrides
+export function safeScopePath(paths: PalmPaths, scope: Scope, file: string, env?: NodeJS.ProcessEnv): string | undefined; // abs path of a lock path, undefined when it leaves the scope
 
 // context.ts
 export interface ContextInit { cwd: string; env: NodeJS.ProcessEnv; ui: UI; log: Logger; flags: PalmContext['flags'] }
@@ -21,9 +24,10 @@ export async function createContext(init: ContextInit): Promise<PalmContext>;
 // config.ts
 export async function loadConfig(paths: PalmPaths): Promise<PalmConfig>;
 export async function saveConfig(paths: PalmPaths, cfg: PalmConfig): Promise<void>;
-export function parseOriginInput(input: string, opts?: { alias?: string; ref?: string; root?: string; layout?: LayoutDescriptor }): OriginSpec; // owner/repo, owner/repo/sub/dir, github:owner/repo, URL[#ref], local path
-export function deriveAlias(spec: OriginSpec, existing: OriginSpec[]): string;
-export function originId(spec: OriginSpec): string;
+export function parseOriginInput(input: string, opts?: { alias?: string; ref?: string; root?: string; layout?: LayoutDescriptor; cwd?: string }): OriginSpec; // owner/repo, owner/repo/sub/dir, github:owner/repo, URL[#ref], local path (relative to opts.cwd, default process.cwd()); git URLs pass validateOriginUrl
+export function validateOriginUrl(url: string, where?: string): { warning?: string }; // the one gate for git URLs (input + stored origins); throws E_ORIGIN
+export function deriveAlias(spec: OriginSpec, existing: OriginSpec[]): string; // repo name, owner for generic repo names (skills, plugins, …)
+export function originId(spec: OriginSpec): string;                          // local origins: `local__<path>-<hash8>`
 export async function addOrigin(ctx: PalmContext, spec: OriginSpec, opts?: { scope?: Scope }): Promise<OriginSpec>; // saves to config (global) or manifest.origins (project)
 export async function removeOrigin(ctx: PalmContext, alias: string): Promise<void>;
 export function findOrigin(ctx: PalmContext, alias: string): OriginSpec | undefined;   // config + project manifest origins
@@ -51,11 +55,14 @@ export function findEntry(lock: Lockfile, kind: Kind, name: string, origin?: str
 export async function fetchOrigin(ctx: PalmContext, spec: OriginSpec, opts?: { refresh?: boolean }): Promise<OriginCheckout>;
 export async function listRemoteTags(url: string): Promise<string[]>;
 export function latestSemverTag(tags: string[]): string | undefined;
+export async function pingRemote(url: string): Promise<void>;                // `palm doctor` reachability, validated + hardened
+// every git call: -c protocol.ext.allow=never -c protocol.fd.allow=never -c protocol.file.allow=<user for local origins, else never>, `--` before URLs/refs
 
 // cache.ts
 export async function getIndex(ctx: PalmContext, spec: OriginSpec, opts?: { refresh?: boolean; scan?: ScanOriginFn }): Promise<OriginIndex>;
 export async function getAllIndexes(ctx: PalmContext, opts?: { refresh?: boolean; scan?: ScanOriginFn }): Promise<OriginIndex[]>;
 export async function invalidateIndex(ctx: PalmContext, spec: OriginSpec): Promise<void>;
+export function indexFilePath(ctx: PalmContext, spec: OriginSpec): string;   // <cache>/<originId>[@<ref>][~<layout hash>].index.json
 
 // hash.ts
 export async function hashPath(absPath: string): Promise<string>;             // "sha256:<hex>", dir = sorted (relpath + content)
@@ -64,28 +71,34 @@ export async function hashPath(absPath: string): Promise<string>;             //
 ## src/engine (owner: core agent)
 
 ```ts
-export interface EngineDeps {
-  scan: ScanOriginFn;                                   // default: src/index/scan.js
-  getTarget: (id: TargetId) => Target;                  // default: src/targets/index.js
-  resolveRegistry: ResolveRegistryFn;                   // default: src/mcp/registry.js
-  resolveSecrets: (ctx: PalmContext, cfg: McpServerConfig, policy: SecretPolicy) => Promise<{ values: Record<string, string>; envRefs: string[] }>; // default: src/mcp/secrets.js
-}
+// EngineDeps and ResolveSecretsFn live in src/core/types.ts; src/engine/deps.ts re-exports
+// EngineDeps and supplies the lazily imported defaults:
+export function defaultEngineDeps(): EngineDeps;
+export async function resolveEngineDeps(partial?: Partial<EngineDeps>, opts?: { targets?: boolean }): Promise<EngineDeps>;
 
 // install.ts
 export async function installEntities(ctx: PalmContext, requests: InstallRequest[], opts: InstallOptions, deps?: Partial<EngineDeps>): Promise<InstallResult>;
+export function dedupeOutcomes(outcomes: InstallOutcome[]): InstallOutcome[];   // one per kind+name+origin
 // uninstall.ts
 export async function uninstallEntities(ctx: PalmContext, refs: Array<{ kind?: Kind; name: string; origin?: string }>, opts: { scope: Scope }, deps?: Partial<EngineDeps>): Promise<{ removed: LockEntry[]; warnings: string[] }>;
+export function planRemoval(lock: Lockfile, roots: LockEntry[], opts?: { manifest?: Manifest; checkRoots?: boolean }): { removed: LockEntry[]; kept: Array<{ entry: LockEntry; via?: string }> }; // reference counting via LockEntry.deps
+export function reparent(lock: Lockfile, kept: Array<{ entry: LockEntry; via?: string }>): Lockfile;
+export function collectDependents(lock: Lockfile, parents: LockEntry[], kept?: Set<string>): LockEntry[];
 // sync.ts
-export async function syncManifest(ctx: PalmContext, opts: { scope: Scope; prune: boolean; targets?: TargetId[] }, deps?: Partial<EngineDeps>): Promise<InstallResult & { extraneous: LockEntry[] }>;
+export async function syncManifest(ctx: PalmContext, opts: { scope: Scope; prune: boolean; targets?: TargetId[]; secretPolicy?: SecretPolicy }, deps?: Partial<EngineDeps>): Promise<InstallResult & { extraneous: LockEntry[] }>;
+export function satisfies(e: LockEntry, d: { kind: Kind; dep: DepRef | McpManifestEntry }): boolean; // registry MCP: lock path = registry name (used by doctor)
 // update.ts
 export async function updateEntities(ctx: PalmContext, refs: Array<{ kind?: Kind; name: string }>, opts: { scope: Scope }, deps?: Partial<EngineDeps>): Promise<InstallResult>;
 // resolve-targets.ts
-export async function resolveTargets(ctx: PalmContext, opts: { scope: Scope; flag?: TargetId[]; save?: boolean }, deps?: Partial<EngineDeps>): Promise<TargetId[]>;
+export async function resolveTargets(ctx: PalmContext, opts: { scope: Scope; flag?: TargetId[]; save?: boolean }, deps?: Partial<EngineDeps>): Promise<TargetId[]>; // save: persist an explicit flag or a pick when it differs
 // query.ts
 export async function listInstalled(ctx: PalmContext, scope: Scope, kind?: Kind): Promise<LockEntry[]>;
 export async function findCandidates(ctx: PalmContext, kind: Kind | undefined, name: string, opts: { origin?: string; from?: OriginSpec; refresh?: boolean }, deps?: Partial<EngineDeps>): Promise<Entity[]>;
 export async function searchIndex(ctx: PalmContext, query: string, opts: { kind?: Kind; origin?: string; refresh?: boolean }, deps?: Partial<EngineDeps>): Promise<Array<{ entity: Entity; score: number }>>;
-export async function getEntityInfo(ctx: PalmContext, kind: Kind, name: string, opts: { origin?: string; scope: Scope }, deps?: Partial<EngineDeps>): Promise<{ entity?: Entity; lock?: LockEntry; deps: EntityRef[] }>;
+export async function getEntityInfo(ctx: PalmContext, kind: Kind, name: string, opts: { origin?: string; scope: Scope }, deps?: Partial<EngineDeps>): Promise<{ entity?: Entity; lock?: LockEntry; deps: EntityRef[]; warnings: string[] }>; // warnings: duplicate-name notes for this entity
+export function duplicateWarnings(index: Pick<OriginIndex, 'warnings'>, kind?: Kind, name?: string): string[];
+export function entityDeps(entity: Entity): EntityRef[];                       // plugin members; agent skills, mcpServers, instructions
+export function agentDepSpecs(entity: Entity): Array<{ kind: Kind; dep: DepRef }>;
 ```
 
 ## src/index (owner: scanner agent)
@@ -121,7 +134,13 @@ export function renderInstruction(def: InstructionDefinition, target: TargetId):
 // convert-command.ts
 export function renderCommand(def: CommandDefinition, target: TargetId): { fileName: string; content: string };
 // convert-hooks.ts
-export function convertHooks(hooks: HookSet, target: TargetId, pluginRootAbs: string, scope: Scope): { hooks: unknown; dropped: string[] };
+export function convertHooks(hooks: HookSet, target: TargetId, pluginRootAbs: string, scope: Scope): { hooks: unknown; dropped: string[] }; // plugin-root commands also export CLAUDE_PLUGIN_ROOT / CURSOR_PLUGIN_ROOT
+// fs-utils.ts
+export async function listCopyFiles(root: string, opts?: { skipTop?: readonly string[]; boundary?: string }): Promise<{ files: SourceFile[]; skipped: string[] }>; // symlinks only inside `boundary`
+// deep-equal.ts
+export function redactSecrets<T>(value: T, secrets: Record<string, string> | undefined): T;  // literal values → ${NAME} for MergedRecord.value
+export function containsAll(actual: unknown, recorded: unknown): boolean;                   // ${VAR} in recorded strings matches any text
+// Target.undeploy(entry, scope, scopeRoot, dryRun, env?) — env as DeployInput.env
 // mcp-config.ts
 export function renderMcpEntry(cfg: McpServerConfig, target: TargetId, policy: SecretPolicy, values?: Record<string, string>): unknown; // harness-specific object/table
 // json-merge.ts
@@ -146,7 +165,11 @@ export const DEFAULT_REGISTRY_URL: string;
 export function serverJsonToConfig(serverJson: unknown): McpServerConfig;
 // secrets.ts
 export async function resolveSecrets(ctx: PalmContext, cfg: McpServerConfig, policy: SecretPolicy): Promise<{ values: Record<string, string>; envRefs: string[] }>;
-export function detectSecrets(cfg: McpServerConfig): SecretRef[];   // ${VAR} placeholders in env/headers → SecretRef
+export function detectSecrets(cfg: McpServerConfig): SecretRef[];   // ${VAR} placeholders in env, headers, url and args → SecretRef (the scanner uses it too)
+export const RUNTIME_VARS: ReadonlySet<string>;                       // the one list of harness/OS variables that are never secrets
+export function isRuntimeVar(name: string): boolean;
+export function isPlaceholderValue(value: string): boolean;           // "", "<your key>", "your-token" (scanner turns these into ${KEY})
+export function optionalSecretNames(cfg: McpServerConfig): Set<string>;
 // adhoc.ts
 export function parseAdhocMcp(name: string, opts: { command?: string[]; url?: string; headers?: string[]; env?: string[]; transport?: string }): McpServerConfig;
 ```
@@ -178,4 +201,7 @@ export async function createCommand(ctx: PalmContext, opts: { name?: string; ins
 | `src/mcp/**`, `test/mcp` | mcp agent |
 | `src/cli.ts`, `src/commands/**`, `src/ui/**`, `src/create/**`, `test/cli` | cli agent |
 
-Nobody edits `package.json`, `tsconfig.json`, `DESIGN.md`, `API.md`, `src/core/types.ts`, `src/core/kinds.ts`, `src/core/errors.ts`. Missing types are defined locally and reported.
+Contract changes go into `src/core/types.ts`, `DESIGN.md` and this file together (the
+integration pass lifted the former local stand-ins `DeployInputWithEnv`, `UndeployWithEnv`,
+`TargetDeployInput` and `EngineInstallRequest` into `DeployInput.env`, the `env` argument of
+`Target.undeploy`, and `InstallRequest.registry`).

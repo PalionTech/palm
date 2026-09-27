@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import pc from 'picocolors';
-import type { InstallRequest, Kind, LockEntry, OriginIndex, PalmContext, PickOption, UI } from '../core/types.js';
+import type { Kind, LockEntry, OriginIndex, PalmContext, PickOption, UI } from '../core/types.js';
 import { matchesQuery } from '../ui/prompts.js';
 import { truncate } from '../ui/output.js';
 import { editBody, finishCreate, mineDir, renderFrontmatterFile, required, validateSlug, writeNewFile, type CreateOptions } from './shared.js';
@@ -22,7 +22,11 @@ export interface AgentAnswers {
   body: string;
 }
 
-/** Canonical agent file: Claude Code frontmatter (+ skills/mcpServers lists) and the system prompt. */
+/**
+ * Canonical agent file: Claude Code frontmatter (+ skills/mcpServers lists) and the system prompt.
+ * `instructions` (a palm extension no harness reads) lists `name@origin` instructions that palm
+ * installs as dependencies of the agent; targets never receive the key.
+ */
 export function renderAgentFile(a: AgentAnswers): string {
   return renderFrontmatterFile(
     {
@@ -32,6 +36,7 @@ export function renderAgentFile(a: AgentAnswers): string {
       tools: a.tools.length ? a.tools.join(', ') : undefined,
       skills: a.skills.length ? a.skills : undefined,
       mcpServers: a.mcpServers.length ? a.mcpServers : undefined,
+      instructions: a.instructions.length ? a.instructions : undefined,
     },
     a.body,
   );
@@ -249,10 +254,7 @@ export async function createAgent(ctx: PalmContext, opts: CreateOptions): Promis
   const file = join(dir, 'agents', `${answers.name}.md`);
   if (!(await writeNewFile(ctx, file, renderAgentFile(answers)))) return;
   ctx.log.success(`created ${file}`);
-
-  const extra: InstallRequest[] = answers.instructions.map((v) => {
-    const at = v.lastIndexOf('@');
-    return { kind: 'instruction', spec: { name: v.slice(0, at), origin: v.slice(at + 1) } };
-  });
-  await finishCreate(ctx, { ...opts, kind: 'agent', entityName: answers.name, mine, extra });
+  // Skills, MCP servers and instructions are declared in the agent file, so the install
+  // resolves them as dependencies (`via: agent:<name>`, recorded in the lock entry's `deps`).
+  await finishCreate(ctx, { ...opts, kind: 'agent', entityName: answers.name, mine });
 }

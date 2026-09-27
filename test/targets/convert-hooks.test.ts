@@ -19,7 +19,17 @@ describe('convertHooks from Claude', () => {
     expect(r.hooks).toEqual({
       hooks: {
         PostToolUse: [
-          { matcher: 'Edit|Write', hooks: [{ type: 'command', command: '"$CLAUDE_PROJECT_DIR/.palm/hooks/fmt/hooks/format.sh"', timeout: 30 }] },
+          {
+            matcher: 'Edit|Write',
+            hooks: [
+              {
+                type: 'command',
+                // the plugin root is also exported, as Claude Code does for plugin hooks
+                command: 'CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR/.palm/hooks/fmt" "$CLAUDE_PROJECT_DIR/.palm/hooks/fmt/hooks/format.sh"',
+                timeout: 30,
+              },
+            ],
+          },
         ],
         SessionStart: [{ hooks: [{ type: 'command', command: 'echo hi' }] }],
         WorktreeCreate: [{ hooks: [{ type: 'prompt', prompt: 'x' }] }],
@@ -41,7 +51,9 @@ describe('convertHooks from Claude', () => {
     };
     const r = convertHooks({ ...claudeSet, raw }, 'codex', ASSET, 'project');
     expect(r.hooks).toEqual({
-      hooks: { SessionStart: [{ matcher: 'startup', hooks: [{ type: 'command', command: `${ASSET}/s.sh`, statusMessage: 'Loading' }] }] },
+      hooks: {
+        SessionStart: [{ matcher: 'startup', hooks: [{ type: 'command', command: `CLAUDE_PLUGIN_ROOT="${ASSET}" ${ASSET}/s.sh`, statusMessage: 'Loading' }] }],
+      },
     });
     expect(r.dropped).toEqual(['Notification: not supported by codex']);
   });
@@ -60,7 +72,7 @@ describe('convertHooks from Claude', () => {
     expect(r.hooks).toEqual({
       version: 1,
       hooks: {
-        postToolUse: [{ command: `"${ASSET}/hooks/format.sh"`, matcher: 'Edit|Write', timeout: 30 }],
+        postToolUse: [{ command: `CURSOR_PLUGIN_ROOT="${ASSET}" "${ASSET}/hooks/format.sh"`, matcher: 'Edit|Write', timeout: 30 }],
         sessionStart: [{ command: 'echo hi' }],
         beforeSubmitPrompt: [{ command: 'guard' }],
         stop: [{ command: 'done' }],
@@ -120,7 +132,7 @@ describe('convertHooks into Claude', () => {
           {
             matcher: 'Shell',
             hooks: [
-              { type: 'command', command: '/abs/c/a.sh', timeout: 10 },
+              { type: 'command', command: 'CLAUDE_PLUGIN_ROOT="/abs/c" /abs/c/a.sh', timeout: 10 },
               { type: 'command', command: 'b.sh' },
             ],
           },
@@ -164,7 +176,17 @@ describe('convertHooks into Claude', () => {
 
   it('same-family native events are kept (cursor → cursor)', () => {
     const cur: HookSet = { name: 'c', dialect: 'cursor', raw: { version: 1, hooks: { afterFileEdit: [{ command: '${CURSOR_PLUGIN_ROOT}/f.sh', loop_limit: 2 }] } } };
-    expect(convertHooks(cur, 'cursor', '/a', 'project')).toEqual({ hooks: { version: 1, hooks: { afterFileEdit: [{ command: '/a/f.sh', loop_limit: 2 }] } }, dropped: [] });
+    expect(convertHooks(cur, 'cursor', '/a', 'project')).toEqual({
+      hooks: { version: 1, hooks: { afterFileEdit: [{ command: 'CURSOR_PLUGIN_ROOT="/a" /a/f.sh', loop_limit: 2 }] } },
+      dropped: [],
+    });
+  });
+
+  it('PowerShell commands get the substitution but no POSIX env prefix; commands without the root are untouched', () => {
+    const raw = { hooks: { SessionStart: [{ hooks: [{ type: 'command', command: '& "${CLAUDE_PLUGIN_ROOT}/s.ps1"', shell: 'powershell' }, { type: 'command', command: 'echo hi' }] }] } };
+    expect(convertHooks({ ...claudeSet, raw }, 'claude', '/a', 'global').hooks).toEqual({
+      hooks: { SessionStart: [{ hooks: [{ type: 'command', command: '& "/a/s.ps1"', shell: 'powershell' }, { type: 'command', command: 'echo hi' }] }] },
+    });
   });
 
   it('gemini: event names mapped and ms timeouts converted', () => {

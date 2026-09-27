@@ -100,6 +100,21 @@ export function substitutePluginRoot(command: string, replacement: string): stri
   return command.replace(ROOT_TOKENS, () => replacement);
 }
 
+/**
+ * A command that referenced the plugin root, with the root substituted and — for harnesses
+ * that would have set it when running the plugin natively — the variable exported for the
+ * script too (`CLAUDE_PLUGIN_ROOT="…" cmd` for claude/codex, `CURSOR_PLUGIN_ROOT="…"` for
+ * cursor). Scripts such as superpowers' `session-start` read it to find sibling files and to
+ * pick the output format the harness understands. PowerShell commands only get the substitution.
+ */
+export function rootedCommand(command: string, replacement: string, target: TargetId, shell?: unknown): string {
+  if (!new RegExp(ROOT_TOKENS.source).test(command)) return command;
+  const substituted = substitutePluginRoot(command, replacement);
+  const variable = target === 'claude' || target === 'codex' ? 'CLAUDE_PLUGIN_ROOT' : target === 'cursor' ? 'CURSOR_PLUGIN_ROOT' : undefined;
+  if (!variable || (typeof shell === 'string' && shell.toLowerCase() === 'powershell')) return substituted;
+  return `${variable}="${replacement.replace(/(["\\`])/g, '\\$1')}" ${substituted}`;
+}
+
 /** True when any command string in the raw hooks references the plugin root. */
 export function referencesPluginRoot(raw: unknown): boolean {
   return JSON.stringify(raw ?? null).match(ROOT_TOKENS) !== null;
@@ -184,13 +199,16 @@ function sourceFamily(hooks: HookSet): Family | undefined {
   return undefined;
 }
 
-/** Deep-copy entries, substituting the plugin root in every command-like string. */
-function substituteEntry(entry: unknown, replacement: string): unknown {
+/** Deep-copy entries, substituting the plugin root in every command-like string (see rootedCommand). */
+function substituteEntry(entry: unknown, replacement: string, target: TargetId): unknown {
   if (typeof entry === 'string') return substitutePluginRoot(entry, replacement);
-  if (Array.isArray(entry)) return entry.map((e) => substituteEntry(e, replacement));
+  if (Array.isArray(entry)) return entry.map((e) => substituteEntry(e, replacement, target));
   if (isPlainObject(entry)) {
     return Object.fromEntries(
-      Object.entries(entry).map(([k, v]) => [k, ['command', 'bash', 'powershell', 'hooks'].includes(k) ? substituteEntry(v, replacement) : v]),
+      Object.entries(entry).map(([k, v]) => {
+        if (k === 'command' && typeof v === 'string') return [k, rootedCommand(v, replacement, target, entry.shell)];
+        return [k, ['command', 'bash', 'powershell', 'hooks'].includes(k) ? substituteEntry(v, replacement, target) : v];
+      }),
     );
   }
   return entry;
@@ -216,7 +234,7 @@ export function convertHooks(hooks: HookSet, target: TargetId, pluginRootAbs: st
         dropped.push(`${srcEvent}: not supported by ${target}`);
         continue;
       }
-      events[out] = [...(events[out] ?? []), ...(substituteEntry(entries, replacement) as unknown[])];
+      events[out] = [...(events[out] ?? []), ...(substituteEntry(entries, replacement, target) as unknown[])];
     }
     return { hooks: wrap(target, events), dropped };
   }
@@ -229,7 +247,7 @@ export function convertHooks(hooks: HookSet, target: TargetId, pluginRootAbs: st
       dropped.push(`${h.event}: not supported by ${target}`);
       continue;
     }
-    const command = substitutePluginRoot(h.command, replacement);
+    const command = fam === 'copilot' ? substitutePluginRoot(h.command, replacement) : rootedCommand(h.command, replacement, target);
     const list = (events[ev] ??= []);
     if (fam === 'claude') {
       const item = { type: 'command', command, ...(h.timeout !== undefined ? { timeout: h.timeout } : {}) };

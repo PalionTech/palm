@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Entity, LockEntry, TargetId } from '../../src/core/types.js';
-import type { TargetDeployInput } from '../../src/targets/base.js';
+import type { DeployInput } from '../../src/core/types.js';
 
 const created: string[] = [];
 
@@ -26,7 +26,7 @@ export function mkEntity(def: Entity['def'], name = 'demo'): Entity {
   return { kind: def.kind, name, path: `${def.kind}s/${name}`, origin: 'test', def };
 }
 
-export function mkInput(over: Partial<TargetDeployInput> & Pick<TargetDeployInput, 'entity' | 'scopeRoot'>): TargetDeployInput {
+export function mkInput(over: Partial<DeployInput> & Pick<DeployInput, 'entity' | 'scopeRoot'>): DeployInput {
   return {
     absPath: over.scopeRoot,
     originRoot: over.scopeRoot,
@@ -95,6 +95,9 @@ export async function makeOrigin(): Promise<{ root: string; skillDir: string; pl
   await write(path.join(pluginDir, 'skills', 's', 'SKILL.md'), SKILL_MD);
   await write(path.join(pluginDir, 'agents', 'a.md'), '---\nname: a\ndescription: a\n---\n');
   await write(path.join(pluginDir, 'commands', 'c.md'), 'c');
+  await write(path.join(pluginDir, 'docs', 'guide.md'), '# guide');
+  await write(path.join(pluginDir, 'tests', 'hook.test.sh'), 'exit 0');
+  await write(path.join(pluginDir, 'README.md'), '# fmt');
   return { root, skillDir, pluginDir, hooksFile };
 }
 

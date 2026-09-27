@@ -3,7 +3,9 @@ import { allOrigins, findOrigin, originId } from '../core/config.js';
 import { PalmError } from '../core/errors.js';
 import { loadLock, findEntry } from '../core/lockfile.js';
 import { lockPath } from '../core/paths.js';
+import { parseDepRef } from '../core/manifest.js';
 import type {
+  DepRef,
   Entity,
   EntityRef,
   Kind,
@@ -214,16 +216,38 @@ export async function searchIndex(
   );
 }
 
-/** Direct dependencies of an entity (plugin members, agent skills/MCP servers). */
+/** An agent's declared dependencies as `name[@origin][#ref]` specs: skills, MCP servers, instructions. */
+export function agentDepSpecs(entity: Entity): Array<{ kind: Kind; dep: DepRef }> {
+  if (entity.def.kind !== 'agent') return [];
+  const a = entity.def.agent;
+  const out: Array<{ kind: Kind; dep: DepRef }> = [];
+  const add = (kind: Kind, specs: string[] | undefined): void => {
+    for (const spec of specs ?? []) {
+      try {
+        out.push({ kind, dep: parseDepRef(spec) });
+      } catch {
+        // an empty entry: nothing to depend on
+      }
+    }
+  };
+  add('skill', a.skills);
+  add('mcp', a.mcpServers);
+  add('instruction', a.instructions);
+  return out;
+}
+
+/** Direct dependencies of an entity (plugin members; agent skills, MCP servers and instructions). */
 export function entityDeps(entity: Entity): EntityRef[] {
-  if (entity.def.kind === 'plugin') return [...entity.def.members];
-  if (entity.def.kind === 'agent') {
-    return [
-      ...(entity.def.agent.skills ?? []).map((name) => ({ kind: 'skill' as const, name })),
-      ...(entity.def.agent.mcpServers ?? []).map((name) => ({ kind: 'mcp' as const, name })),
-    ];
-  }
-  return [];
+  if (entity.def.kind === 'plugin') return entity.def.members.map((m) => ({ kind: m.kind, name: m.name }));
+  return agentDepSpecs(entity).map((d) => ({ kind: d.kind, name: d.dep.name }));
+}
+
+/** Scanner warnings about an entity whose name is taken twice in one origin (the first copy is indexed). */
+export function duplicateWarnings(index: Pick<OriginIndex, 'warnings'>, kind: Kind | undefined, name?: string): string[] {
+  return index.warnings.filter((w) => {
+    const m = /^duplicate (\w+) "([^"]+)"/.exec(w);
+    return !!m && (!kind || m[1] === kind) && (name === undefined || m[2]!.toLowerCase() === name.toLowerCase());
+  });
 }
 
 export async function getEntityInfo(
@@ -232,21 +256,25 @@ export async function getEntityInfo(
   name: string,
   opts: { origin?: string; scope: Scope },
   deps?: Partial<EngineDeps>,
-): Promise<{ entity?: Entity; lock?: LockEntry; deps: EntityRef[] }> {
+): Promise<{ entity?: Entity; lock?: LockEntry; deps: EntityRef[]; warnings: string[] }> {
   const lockFile = await loadLock(lockPath(ctx.paths, opts.scope));
   const lock =
     findEntry(lockFile, kind, name, opts.origin) ??
     lockFile.entries.find((e) => e.kind === kind && nameMatchesEntry(e, name) && (!opts.origin || e.origin === opts.origin));
   const origin = opts.origin ?? (lock && lock.origin !== 'registry' && lock.origin !== 'adhoc' ? lock.origin : undefined);
   let entity: Entity | undefined;
+  const warnings: string[] = [];
   try {
     const d = await resolveEngineDeps(deps);
     const session = new IndexSession(ctx, d.scan);
     const cands = candidatesIn(await poolFor(session, { origin }), kind, lock?.name ?? name);
-    entity = cands[0]?.entity;
+    const first = cands[0];
+    entity = first?.entity;
+    if (first?.source.index) warnings.push(...duplicateWarnings(first.source.index, kind, first.entity.name));
   } catch (e) {
     if (!lock) throw e;
     ctx.log.debug(`index lookup for ${kind} ${name} failed: ${(e as Error).message}`);
   }
-  return { ...(entity ? { entity } : {}), ...(lock ? { lock } : {}), deps: entity ? entityDeps(entity) : [] };
+  const depRefs = entity ? entityDeps(entity) : (lock?.deps ?? []);
+  return { ...(entity ? { entity } : {}), ...(lock ? { lock } : {}), deps: depRefs, warnings };
 }

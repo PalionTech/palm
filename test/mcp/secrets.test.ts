@@ -57,18 +57,19 @@ const docs: McpServerConfig = {
 };
 
 describe('detectSecrets', () => {
-  it('finds ${VAR}, ${env:VAR} and ${VAR:-default} in env, headers and url', () => {
+  it('finds ${VAR}, ${env:VAR} and ${VAR:-default} in env, headers, url and args (runtime vars excluded)', () => {
     const cfg: McpServerConfig = {
       name: 'x',
       transport: 'stdio',
       command: 'node',
-      args: ['${CLAUDE_PLUGIN_ROOT}/server.js', '${NOT_SCANNED}'],
+      args: ['${CLAUDE_PLUGIN_ROOT}/server.js', '--token=${ARG_TOKEN}'],
       env: { A: '${A_KEY}', B: 'prefix-${env:B_KEY}', C: '${C_KEY:-fallback}', D: 'literal', E: '${CLAUDE_PLUGIN_ROOT}/data' },
     };
     expect(detectSecrets(cfg)).toEqual([
       { name: 'A_KEY', in: 'env', required: true },
       { name: 'B_KEY', in: 'env', required: true },
       { name: 'C_KEY', in: 'env', required: false },
+      { name: 'ARG_TOKEN', in: 'env', required: true },
     ]);
   });
 

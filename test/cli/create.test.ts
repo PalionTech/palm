@@ -67,10 +67,10 @@ describe('renderAgentFile', () => {
     body: '\nYou are a meticulous reviewer.\n\n## Process\n\n1. Read the diff.\n',
   };
 
-  it('writes canonical Claude frontmatter plus skills and mcpServers', () => {
+  it('writes canonical Claude frontmatter plus skills, mcpServers and palm instructions', () => {
     const file = renderAgentFile(base);
     const { data, body } = frontmatter(file);
-    expect(Object.keys(data)).toEqual(['name', 'description', 'model', 'tools', 'skills', 'mcpServers']);
+    expect(Object.keys(data)).toEqual(['name', 'description', 'model', 'tools', 'skills', 'mcpServers', 'instructions']);
     expect(data).toEqual({
       name: 'code-reviewer',
       description: 'Use proactively after code changes: reviews diffs.',
@@ -78,12 +78,13 @@ describe('renderAgentFile', () => {
       tools: 'Read, Grep, Glob',
       skills: ['tdd', 'wayfinder'],
       mcpServers: ['github'],
+      instructions: ['ts-style@mine'],
     });
     expect(body).toBe('You are a meticulous reviewer.\n\n## Process\n\n1. Read the diff.\n');
   });
 
   it('omits model when inherited and empty lists', () => {
-    const { data } = frontmatter(renderAgentFile({ ...base, model: 'inherit', tools: [], skills: [], mcpServers: [] }));
+    const { data } = frontmatter(renderAgentFile({ ...base, model: 'inherit', tools: [], skills: [], mcpServers: [], instructions: [] }));
     expect(data).toEqual({ name: 'code-reviewer', description: base.description });
     const { data: noModel } = frontmatter(renderAgentFile({ ...base, model: undefined }));
     expect(noModel).not.toHaveProperty('model');

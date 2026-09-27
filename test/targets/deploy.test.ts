@@ -137,7 +137,10 @@ describe.each(TARGET_IDS.flatMap((t) => (['project', 'global'] as const).map((s)
     const converted = convertHooks(E.hook.entity.def.kind === 'hook' ? E.hook.entity.def.hooks : (undefined as never), id, abs(assetRel), scope)
       .hooks as { hooks: Record<string, unknown[]> };
     for (const f of ASSET_FILES) expect(hook.files).toContain(shown(`${assetRel}/${f}`));
-    for (const skipped of ['skills', 'agents', 'commands']) expect(await exists(abs(`${assetRel}/${skipped}`))).toBe(false);
+    // Hook scripts may read plugin files (superpowers' session-start reads skills/*/SKILL.md): those are
+    // copied; docs, tests and top-level READMEs are not.
+    expect(hook.files).toContain(shown(`${assetRel}/skills/s/SKILL.md`));
+    for (const skipped of ['docs', 'tests', 'README.md']) expect(await exists(abs(`${assetRel}/${skipped}`))).toBe(false);
     expect((await fs.stat(abs(`${assetRel}/hooks/format.sh`))).mode & 0o777).toBe(0o755);
     if (id === 'copilot') {
       expect(hook.files).toContain(shown(P.hookFile));
@@ -192,11 +195,13 @@ describe.each(TARGET_IDS.flatMap((t) => (['project', 'global'] as const).map((s)
     expect(await exists(abs(assetRel))).toBe(false);
     if (id === 'codex') expect(await exists(abs(P.instruction!))).toBe(false);
     if (id !== 'copilot') {
-      const hooksDoc = (await readJson(abs(P.hookFile))) as { hooks: Record<string, unknown[]> };
-      for (const list of Object.values(hooksDoc.hooks)) expect(list).toEqual([]);
+      // Emptied event lists and the `hooks` object are pruned; a file palm alone wrote is deleted
+      // (cursor keeps the `version` key palm ensured, so its file stays).
+      expect(await exists(abs(P.hookFile))).toBe(id === 'cursor');
+      if (id === 'cursor') expect(await readJson(abs(P.hookFile))).toEqual({ version: 1 });
     }
     if (id === 'codex') expect(parseToml(await read(abs(P.mcpFile)))).toEqual({});
-    else expect(JSON.stringify(await readJson(abs(P.mcpFile)))).not.toContain('"gh"');
+    else expect(await exists(abs(P.mcpFile))).toBe(false);
     // the harness config dir itself survives
     expect(await exists(target.configDir(scope, root, env))).toBe(true);
   });
@@ -317,13 +322,14 @@ describe('undeploy keeps unrelated content', () => {
 
     expect(await read(path.join(root, 'AGENTS.md'))).toBe(AGENTS);
     expect(await read(path.join(root, '.codex/config.toml'))).toBe(TOML);
+    // Lists palm emptied are pruned; everything the user had survives.
     expect(await readJson(path.join(root, '.claude/settings.json'))).toEqual({
       theme: 'dark',
-      hooks: { Stop: [{ hooks: [{ type: 'command', command: 'user' }] }], PostToolUse: [], SessionStart: [] },
+      hooks: { Stop: [{ hooks: [{ type: 'command', command: 'user' }] }] },
     });
     expect(await readJson(path.join(root, '.mcp.json'))).toEqual({ mcpServers: { mine: { command: 'mine' } } });
-    expect(await readJson(path.join(root, '.cursor/hooks.json'))).toEqual({ version: 1, hooks: { stop: [{ command: 'user' }], postToolUse: [], sessionStart: [] } });
-    expect(await readJson(path.join(root, '.vscode/mcp.json'))).toEqual({ inputs: [{ id: 'k', type: 'promptString' }], servers: {} });
+    expect(await readJson(path.join(root, '.cursor/hooks.json'))).toEqual({ version: 1, hooks: { stop: [{ command: 'user' }] } });
+    expect(await readJson(path.join(root, '.vscode/mcp.json'))).toEqual({ inputs: [{ id: 'k', type: 'promptString' }] });
     for (const gone of ['.claude/agents', '.agents/skills', '.github', '.cursor/rules', '.palm/hooks/fmt', '.codex/agents']) {
       expect(await exists(path.join(root, gone))).toBe(gone === '.github'); // `.github` is a stop dir: kept (empty)
     }
@@ -430,5 +436,98 @@ describe('detect / configDir / registry', () => {
     const root = await tmpDir();
     const plugin = mkEntity({ kind: 'plugin', members: [] });
     expect(await getTarget('claude').deploy(mkInput({ entity: plugin, scopeRoot: root }))).toMatchObject({ files: [], skipped: true });
+  });
+});
+
+describe('symlinks never copy files from outside the origin (security)', () => {
+  afterEach(cleanupTmp);
+
+  it('skill: an outside file/dir link is skipped and reported; a link inside the origin is followed', async () => {
+    const origin = await makeOrigin();
+    const outside = await tmpDir('palm-outside-');
+    await write(path.join(outside, 'id_rsa'), 'PRIVATE KEY');
+    await write(path.join(outside, 'ssh', 'config'), 'Host *');
+    await fs.symlink(path.join(outside, 'id_rsa'), path.join(origin.skillDir, 'leak.md'));
+    await fs.symlink(path.join(outside, 'ssh'), path.join(origin.skillDir, 'refs'));
+    await write(path.join(origin.root, 'shared', 'glossary.md'), '# glossary');
+    await fs.symlink(path.join(origin.root, 'shared'), path.join(origin.skillDir, 'shared'));
+
+    const root = await tmpDir();
+    for (const id of ['claude', 'codex'] as const) {
+      const r = await getTarget(id).deploy(
+        mkInput({ entity: mkEntity({ kind: 'skill', skill: { name: 'demo', description: 'd' } }), absPath: origin.skillDir, originRoot: origin.root, scopeRoot: root }),
+      );
+      expect(r.files.some((f) => f.endsWith('/leak.md') || f.includes('/refs/'))).toBe(false);
+      expect(r.files.some((f) => f.endsWith('/shared/glossary.md'))).toBe(true);
+      expect(r.notes.join('\n')).toMatch(/not copied \(symlink leaving the origin, or broken\): leak\.md, refs/);
+    }
+    for (const dir of ['.claude/skills/demo', '.agents/skills/demo']) {
+      expect(await exists(path.join(root, dir, 'leak.md'))).toBe(false);
+      expect(await exists(path.join(root, dir, 'refs'))).toBe(false);
+    }
+  });
+
+  it('a skill directory that is itself a link out of the origin copies nothing', async () => {
+    const origin = await makeOrigin();
+    const outside = await tmpDir('palm-outside-');
+    await write(path.join(outside, 'SKILL.md'), SKILL_MD);
+    const linked = path.join(origin.root, 'skills', 'evil');
+    await fs.symlink(outside, linked);
+    const root = await tmpDir();
+    const input = mkInput({ entity: mkEntity({ kind: 'skill', skill: { name: 'evil', description: 'd' } }, 'evil'), absPath: linked, originRoot: origin.root, scopeRoot: root });
+    await expect(getTarget('claude').deploy(input)).rejects.toMatchObject({ code: 'E_NOT_FOUND' });
+    expect(await exists(path.join(root, '.claude/skills/evil'))).toBe(false);
+  });
+
+  it('hook assets: a plugin-root link to a home directory is not followed', async () => {
+    const origin = await makeOrigin();
+    const fakeHome = await tmpDir('palm-home-');
+    await write(path.join(fakeHome, '.ssh', 'id_rsa'), 'PRIVATE KEY');
+    await fs.symlink(fakeHome, path.join(origin.pluginDir, 'home'));
+    const root = await tmpDir();
+    const hook = mkEntity({ kind: 'hook', hooks: { name: 'fmt', dialect: 'claude', raw: CLAUDE_HOOKS, pluginRootRel: 'plugins/fmt' } }, 'fmt');
+    const r = await getTarget('claude').deploy(mkInput({ entity: hook, absPath: origin.hooksFile, originRoot: origin.root, scopeRoot: root }));
+    expect(r.files.some((f) => f.includes('/home/'))).toBe(false);
+    expect(await exists(path.join(root, '.palm/hooks/fmt/home'))).toBe(false);
+    expect(r.notes.join('\n')).toMatch(/not copied .*: home/);
+  });
+});
+
+describe('entity names cannot escape their directory (security)', () => {
+  afterEach(cleanupTmp);
+
+  it('deploy refuses traversal names; hook cleanup ignores them', async () => {
+    const origin = await makeOrigin();
+    const root = await tmpDir();
+    const victim = path.join(root, 'victim');
+    await write(path.join(victim, 'data'), 'keep me');
+    const bad = mkEntity({ kind: 'skill', skill: { name: '../../victim', description: 'd' } }, '../../victim');
+    await expect(getTarget('claude').deploy(mkInput({ entity: bad, absPath: origin.skillDir, originRoot: origin.root, scopeRoot: root }))).rejects.toMatchObject({
+      code: 'E_USAGE',
+    });
+    const hookEntry = mkLock(mkEntity({ kind: 'hook', hooks: { name: 'x', dialect: 'claude', raw: {} } }, '../../victim'), ['claude'], [], []);
+    await getTarget('claude').undeploy(hookEntry, 'project', path.join(root, 'project'), false);
+    expect(await read(path.join(victim, 'data'))).toBe('keep me');
+  });
+});
+
+describe('a deploy that fails half-way leaves no untracked files', () => {
+  afterEach(cleanupTmp);
+
+  it('rolls back the files it created before the failing write', async () => {
+    const origin = await makeOrigin();
+    const root = await tmpDir();
+    // `scripts/` exists but is read-only: SKILL.md and references/notes.md are written first, then run.sh fails.
+    const scripts = path.join(root, '.claude', 'skills', 'demo', 'scripts');
+    await fs.mkdir(scripts, { recursive: true });
+    await fs.chmod(scripts, 0o500);
+    try {
+      const input = mkInput({ entity: mkEntity({ kind: 'skill', skill: { name: 'demo', description: 'd' } }), absPath: origin.skillDir, originRoot: origin.root, scopeRoot: root });
+      await expect(getTarget('claude').deploy(input)).rejects.toBeTruthy();
+      expect(await exists(path.join(root, '.claude/skills/demo/SKILL.md'))).toBe(false);
+      expect(await exists(path.join(root, '.claude/skills/demo/references/notes.md'))).toBe(false);
+    } finally {
+      await fs.chmod(scripts, 0o755);
+    }
   });
 });

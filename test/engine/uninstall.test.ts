@@ -28,7 +28,7 @@ describe('uninstallEntities', () => {
     const lock = await loadLock(join(w.sb.project, 'palm.lock.yaml'));
     expect(lock.entries.map((e) => e.name)).toEqual(['wayfinder']);
     const m = await loadManifest(join(w.sb.project, 'palm.yaml'));
-    expect(m.agents).toEqual([]);
+    expect(m.agents).toBeUndefined(); // emptied sections are dropped
     expect(m.skills).toEqual(['wayfinder@a']);
   });
 

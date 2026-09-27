@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import type { Command } from 'commander';
 import { execa } from 'execa';
 import pc from 'picocolors';
-import { KINDS, TARGET_IDS, type LockEntry, type OriginSpec, type PalmContext, type Scope } from '../core/types.js';
+import { TARGET_IDS, type LockEntry, type OriginSpec, type PalmContext, type Scope } from '../core/types.js';
 import { ExitSignal, makeContext, printJson, type GlobalOptions } from './shared.js';
 
 export type CheckStatus = 'ok' | 'info' | 'warn' | 'fail';
@@ -115,7 +115,8 @@ async function checkTargets(ctx: PalmContext): Promise<Check[]> {
 async function checkDrift(ctx: PalmContext): Promise<Check[]> {
   const { lockPath, manifestPath } = await import('../core/paths.js');
   const { loadLock } = await import('../core/lockfile.js');
-  const { loadManifest, listDeps } = await import('../core/manifest.js');
+  const { loadManifest } = await import('../core/manifest.js');
+  const { manifestDeps, satisfies } = await import('../engine/sync.js');
   const checks: Check[] = [];
   for (const scope of ['project', 'global'] as Scope[]) {
     const root = scope === 'global' ? ctx.paths.home : ctx.paths.projectRoot;
@@ -127,10 +128,8 @@ async function checkDrift(ctx: PalmContext): Promise<Check[]> {
       for (const f of e.files) if (!(await exists(isAbsolute(f) ? f : join(root, f)))) missing.push(f);
       if (missing.length) problems.push(`${e.kind} ${e.name}: ${missing.length}/${e.files.length} files missing (e.g. ${missing[0]})`);
     }
-    for (const kind of KINDS) {
-      for (const dep of listDeps(manifest, kind)) {
-        if (!lock.entries.some((e) => e.kind === kind && e.name === dep.name)) problems.push(`${kind} ${dep.name} is in palm.yaml but not installed`);
-      }
+    for (const d of manifestDeps(manifest)) {
+      if (!lock.entries.some((e) => satisfies(e, d))) problems.push(`${d.kind} ${d.dep.name} is in palm.yaml but not installed`);
     }
     checks.push(
       problems.length
@@ -141,16 +140,14 @@ async function checkDrift(ctx: PalmContext): Promise<Check[]> {
   return checks;
 }
 
-async function checkOrigin(ctx: PalmContext, spec: OriginSpec): Promise<Check> {
+async function checkOrigin(spec: OriginSpec): Promise<Check> {
   if (spec.type === 'local') {
     const ok = spec.path ? await exists(spec.path) : false;
     return { group: 'origins', name: spec.alias, status: ok ? 'ok' : 'fail', detail: ok ? `${spec.path}` : `directory missing: ${spec.path ?? '(no path)'}` };
   }
   try {
-    await execa('git', ['ls-remote', '--exit-code', spec.url ?? '', 'HEAD'], {
-      timeout: 20_000,
-      env: { ...ctx.env, GIT_TERMINAL_PROMPT: '0' },
-    });
+    const { pingRemote } = await import('../core/git.js');
+    await pingRemote(spec.url ?? '');
     return { group: 'origins', name: spec.alias, status: 'ok', detail: `reachable (${spec.url})` };
   } catch (e) {
     const msg = e instanceof Error ? (e.message.split('\n')[0] ?? e.message) : String(e);
@@ -169,7 +166,7 @@ async function safely(group: string, fn: () => Promise<Check[]>): Promise<Check[
 export function registerDoctor(program: Command): void {
   program
     .command('doctor')
-    .summary('check the environment, targets, lockfiles and origins')
+    .summary('check git, node, harness dirs, lockfile drift and origin reachability')
     .description('Check git and Node, palm home, harness detection, lock/manifest drift and origin reachability (skipped with --offline).')
     .action(async (_opts: unknown, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();
@@ -186,7 +183,7 @@ export function registerDoctor(program: Command): void {
             const { allOrigins } = await import('../core/config.js');
             const specs = allOrigins(ctx);
             if (specs.length === 0) return [{ group: 'origins', name: 'origins', status: 'info', detail: 'none registered' } satisfies Check];
-            return Promise.all(specs.map((s) => checkOrigin(ctx, s)));
+            return Promise.all(specs.map((s) => checkOrigin(s)));
           })),
         );
       }

@@ -13,7 +13,7 @@ export function registerCreate(program: Command): void {
   program
     .command('create')
     .alias('new')
-    .summary('author a new agent, skill, instruction or command')
+    .summary('write a new agent, skill, instruction or command, then install it')
     .description('Interactive wizard that writes a new entity into your local "mine" origin, then offers to install it.')
     .argument('<kind>', CREATABLE.join(' | '))
     .argument('[name]', 'slug for the new entity')

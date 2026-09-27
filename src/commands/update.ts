@@ -8,7 +8,7 @@ export function registerUpdate(program: Command): void {
   program
     .command('update')
     .alias('up')
-    .summary('refetch origins and reinstall changed entities')
+    .summary('refetch origins and reinstall entities whose content changed')
     .description('Refetch origins and reinstall entries whose content changed. With no names, updates everything in the scope; --dry-run shows the plan.')
     .argument('[kind]', 'restrict to one kind (plurals ok)')
     .argument('[names...]', 'names to update (default: all of the kind, or everything)')

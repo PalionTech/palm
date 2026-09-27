@@ -17,7 +17,7 @@ export function installHint(e: Pick<Entity, 'kind' | 'name' | 'origin'>): string
 export function registerSearch(program: Command): void {
   program
     .command('search')
-    .summary('search origins (and the MCP registry)')
+    .summary('search your origins by name and description (MCP: also the registry)')
     .description('Fuzzy search across every origin index. Without --kind, or with --kind mcp, the MCP registry is searched too.')
     .argument('<query>', 'words to look for in names and descriptions')
     .option('--kind <kind>', 'restrict to one kind')

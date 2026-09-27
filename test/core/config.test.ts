@@ -26,8 +26,10 @@ describe('parseOriginInput', () => {
   afterEach(async () => removeDir(dir));
 
   it.each<[string, Partial<OriginSpec>]>([
-    ['mattpocock/skills', { type: 'git', url: 'https://github.com/mattpocock/skills.git', alias: 'skills' }],
-    ['mattpocock/skills#v1.2.3', { url: 'https://github.com/mattpocock/skills.git', ref: 'v1.2.3', alias: 'skills' }],
+    // A generic repository name (skills, plugins, agents, …) aliases to the owner.
+    ['mattpocock/skills', { type: 'git', url: 'https://github.com/mattpocock/skills.git', alias: 'mattpocock' }],
+    ['mattpocock/skills#v1.2.3', { url: 'https://github.com/mattpocock/skills.git', ref: 'v1.2.3', alias: 'mattpocock' }],
+    ['anthropics/skills', { url: 'https://github.com/anthropics/skills.git', alias: 'anthropics' }],
     ['cursor/plugins/pstack', { url: 'https://github.com/cursor/plugins.git', root: 'pstack', alias: 'pstack' }],
     ['cursor/plugins/a/b#main', { url: 'https://github.com/cursor/plugins.git', root: 'a/b', ref: 'main', alias: 'b' }],
     ['github:obra/superpowers', { url: 'https://github.com/obra/superpowers.git', alias: 'superpowers' }],
@@ -72,7 +74,7 @@ describe('aliases and ids', () => {
     expect(deriveAlias(gh('obra/superpowers'), taken('superpowers', 'obra-superpowers'))).toBe('obra-superpowers-2');
     expect(deriveAlias(gh('obra/superpowers'), taken('superpowers', 'obra-superpowers', 'obra-superpowers-2'))).toBe('obra-superpowers-3');
     expect(deriveAlias(gh('cursor/plugins/pstack'), [])).toBe('pstack');
-    expect(deriveAlias(gh('cursor/plugins/pstack'), taken('pstack'))).toBe('plugins-pstack');
+    expect(deriveAlias(gh('cursor/plugins/pstack'), taken('pstack'))).toBe('cursor-pstack'); // `plugins` is generic → owner
     expect(deriveAlias(gh('Obra/SuperPowers'), [])).toBe('superpowers');
   });
 
@@ -80,7 +82,12 @@ describe('aliases and ids', () => {
     expect(originId(gh('mattpocock/skills'))).toBe('github.com__mattpocock__skills');
     expect(originId(gh('cursor/plugins/pstack'))).toBe('github.com__cursor__plugins__pstack');
     expect(originId(gh('git@github.com:Obra/superpowers.git'))).toBe('github.com__obra__superpowers');
-    expect(originId({ alias: 'm', type: 'local', path: '/Users/Max/My Skills' })).toBe('local__users__max__my-skills');
+    expect(originId({ alias: 'm', type: 'local', path: '/Users/Max/My Skills' })).toMatch(/^local__users__max__my-skills-[0-9a-f]{8}$/);
+    // Paths that sanitize to the same segments still get distinct ids.
+    const a = originId({ alias: 'a', type: 'local', path: '/x/a/b' });
+    const b = originId({ alias: 'b', type: 'local', path: '/x/a-b' });
+    const c = originId({ alias: 'c', type: 'local', path: '/x/a b' });
+    expect(new Set([a, b, c]).size).toBe(3);
   });
 });
 
@@ -106,11 +113,11 @@ describe('origin registry', () => {
     expect(cfgText).toContain('https://github.com/mattpocock/skills.git');
 
     const reloaded = await makeContext(sb);
-    expect(reloaded.config.origins.map((o) => o.alias)).toEqual(['skills', 'superpowers']);
+    expect(reloaded.config.origins.map((o) => o.alias)).toEqual(['mattpocock', 'superpowers']);
 
     // same default alias, different repo → auto-renamed
-    const other = await addOrigin(reloaded, parseOriginInput('someone/skills'));
-    expect(other.alias).toBe('someone-skills');
+    const other = await addOrigin(reloaded, parseOriginInput('someone/superpowers'));
+    expect(other.alias).toBe('someone-superpowers');
 
     // explicit alias clash → error
     await expect(addOrigin(reloaded, parseOriginInput('x/y', { alias: 'superpowers' }))).rejects.toMatchObject({ code: 'E_ORIGIN' });
@@ -118,17 +125,17 @@ describe('origin registry', () => {
     // project scope writes palm.yaml origins
     await writeFile(join(sb.project, 'palm.yaml'), 'origins:\n  - acme/superpowers-fork\n');
     const proj = await makeContext(sb);
-    await addOrigin(proj, { alias: 'skills', type: 'git', url: 'https://github.com/mattpocock/skills.git', ref: 'v2' }, { scope: 'project' });
+    await addOrigin(proj, { alias: 'mattpocock', type: 'git', url: 'https://github.com/mattpocock/skills.git', ref: 'v2' }, { scope: 'project' });
     const m = await loadManifest(join(sb.project, 'palm.yaml'));
     expect(m.origins).toHaveLength(2);
-    expect(findOrigin(proj, 'skills')?.ref).toBe('v2'); // project wins
+    expect(findOrigin(proj, 'mattpocock')?.ref).toBe('v2'); // project wins
     expect(findOrigin(proj, 'superpowers-fork')?.url).toBe('https://github.com/acme/superpowers-fork.git');
-    expect(allOrigins(proj).map((o) => o.alias).sort()).toEqual(['skills', 'someone-skills', 'superpowers', 'superpowers-fork']);
+    expect(allOrigins(proj).map((o) => o.alias).sort()).toEqual(['mattpocock', 'someone-superpowers', 'superpowers', 'superpowers-fork']);
 
     await removeOrigin(proj, 'superpowers-fork');
     expect(findOrigin(proj, 'superpowers-fork')).toBeUndefined();
     await removeOrigin(proj, 'superpowers');
-    expect((await loadConfig(proj.paths)).origins.map((o) => o.alias)).toEqual(['skills', 'someone-skills']);
+    expect((await loadConfig(proj.paths)).origins.map((o) => o.alias)).toEqual(['mattpocock', 'someone-superpowers']);
     await expect(removeOrigin(proj, 'nope')).rejects.toMatchObject({ code: 'E_NOT_FOUND' });
   });
 

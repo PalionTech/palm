@@ -60,7 +60,7 @@ describe('engine with real targets', () => {
     expect(lock.entries[0]!.merged).toHaveLength(1);
 
     await uninstallEntities(w.ctx, [{ kind: 'mcp', name: 'fs' }], { scope: 'project' }, w.deps);
-    expect((await read()).mcpServers?.fs).toBeUndefined();
+    expect(existsSync(join(w.sb.project, '.mcp.json'))).toBe(false); // palm wrote it alone: removed once empty
   });
 
   it('writes global installs under the temp home only', async () => {

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadLock } from '../../src/core/lockfile.js';
@@ -96,5 +96,28 @@ describe('updateEntities', () => {
     const names = (await loadLock(join(w.sb.project, 'palm.lock.yaml'))).entries.map((e) => e.name).sort();
     expect(names).toEqual(['docs', 'reviewer', 'superpowers', 'tdd']);
     expect(existsSync(join(w.sb.project, '.claude/skill/brainstorm.txt'))).toBe(false);
+  });
+});
+
+describe('bare palm install repairs deleted files', () => {
+  let w: World;
+  afterEach(async () => removeDir(w.sb.root));
+
+  it('redeploys a direct entry and a plugin member whose files were removed by hand', async () => {
+    w = await makeWorld({ origins: ['d'] });
+    const opts = { scope: 'project' as const, targets: ['claude' as const] };
+    await installEntities(w.ctx, [{ kind: 'skill', spec: 'shared' }, { kind: 'agent', spec: 'alpha' }], opts, w.deps);
+    const unchanged = await syncManifest(w.ctx, { scope: 'project', prune: false, targets: ['claude'] }, w.deps);
+    expect(unchanged.outcomes.every((o) => o.status === 'unchanged')).toBe(true);
+
+    await rm(join(w.sb.project, '.claude/skill/shared.txt'));
+    await rm(join(w.sb.project, '.claude/instruction/style.txt')); // pulled in by agent alpha
+    const r = await syncManifest(w.ctx, { scope: 'project', prune: false, targets: ['claude'] }, w.deps);
+    const byName = Object.fromEntries(r.outcomes.map((o) => [o.entry.name, o]));
+    expect(byName.shared?.status).toBe('updated');
+    expect(byName.shared?.notes).toContain('restored missing files');
+    expect(byName.style?.status).toBe('updated');
+    expect(existsSync(join(w.sb.project, '.claude/skill/shared.txt'))).toBe(true);
+    expect(existsSync(join(w.sb.project, '.claude/instruction/style.txt'))).toBe(true);
   });
 });

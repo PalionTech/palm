@@ -17,16 +17,40 @@ function validate(ids: readonly string[], where: string): TargetId[] {
   return out;
 }
 
+/** Persist targets: `targets:` in palm.yaml (project) or config.yaml (global), when they differ. */
+async function saveTargets(ctx: PalmContext, scope: Scope, targets: TargetId[]): Promise<void> {
+  if (ctx.flags.dryRun) return;
+  const same = (a: readonly string[] | undefined): boolean => !!a && a.length === targets.length && a.every((t, i) => t === targets[i]);
+  if (scope === 'project') {
+    const file = manifestPath(ctx.paths, 'project');
+    const m = await loadManifest(file);
+    if (same(m.targets)) return;
+    await saveManifest(file, { ...m, targets });
+    ctx.log.debug(`saved targets ${targets.join(', ')} to ${file}`);
+  } else {
+    if (same(ctx.config.targets)) return;
+    ctx.config.targets = targets;
+    await saveConfig(ctx.paths, ctx.config);
+    ctx.log.debug('saved targets to config.yaml');
+  }
+}
+
 /**
  * Targets for an operation: --target flag > manifest `targets` (project) >
- * config default > detection > interactive multiselect (saved when `save`).
+ * config default > detection > interactive multiselect. With `save`, an explicit
+ * flag or an interactive pick is persisted (palm.yaml for project scope,
+ * config.yaml for global) when it differs from what is stored.
  */
 export async function resolveTargets(
   ctx: PalmContext,
   opts: { scope: Scope; flag?: TargetId[]; save?: boolean },
   depsIn?: Partial<EngineDeps>,
 ): Promise<TargetId[]> {
-  if (opts.flag?.length) return validate(opts.flag, '--target');
+  if (opts.flag?.length) {
+    const targets = validate(opts.flag, '--target');
+    if (opts.save) await saveTargets(ctx, opts.scope, targets);
+    return targets;
+  }
 
   if (opts.scope === 'project') {
     const m = await loadManifest(manifestPath(ctx.paths, 'project'));
@@ -75,15 +99,6 @@ export async function resolveTargets(
   );
   if (!picked.length) throw new PalmError('E_TARGET', 'No target selected', '--target claude,codex');
   const targets = validate(picked, 'selection');
-  if (opts.save && !ctx.flags.dryRun) {
-    if (opts.scope === 'project') {
-      const file = manifestPath(ctx.paths, 'project');
-      const m = await loadManifest(file);
-      await saveManifest(file, { ...m, targets });
-    } else {
-      ctx.config.targets = targets;
-      await saveConfig(ctx.paths, ctx.config);
-    }
-  }
+  if (opts.save) await saveTargets(ctx, opts.scope, targets);
   return targets;
 }

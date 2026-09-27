@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { Document, isMap, isNode, isScalar, isSeq, parseDocument, type Node as YamlNode } from 'yaml';
 import { PalmError } from './errors.js';
@@ -102,7 +102,10 @@ export function removeDep(m: Manifest, kind: Kind, name: string): Manifest {
   const lower = name.toLowerCase();
   const next = list.filter((e) => !entryNames(e).includes(lower));
   if (next.length === list.length) return m;
-  return { ...m, [key]: next };
+  const out: Manifest = { ...m, [key]: next };
+  // An emptied section disappears instead of lingering as `agents: []`.
+  if (next.length === 0) delete (out as Record<string, unknown>)[key];
+  return out;
 }
 
 export function listDeps(m: Manifest, kind: Kind): Array<DepRef | McpManifestEntry> {
@@ -197,10 +200,11 @@ function updateNode(doc: Document, node: unknown, value: unknown): unknown {
   return doc.createNode(value);
 }
 
-async function atomicWrite(file: string, text: string): Promise<void> {
+async function atomicWrite(file: string, text: string, mode?: number): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   const tmp = `${file}.${randomBytes(4).toString('hex')}.tmp`;
-  await writeFile(tmp, text, 'utf8');
+  await writeFile(tmp, text, { encoding: 'utf8', ...(mode !== undefined ? { mode } : {}) });
+  if (mode !== undefined) await chmod(tmp, mode);
   await rename(tmp, file);
 }
 
@@ -208,7 +212,7 @@ async function atomicWrite(file: string, text: string): Promise<void> {
  * Write `value` as YAML. When the file already exists, its comments, key
  * order and unchanged nodes are preserved (yaml Document API).
  */
-export async function writeYamlPreserving(file: string, value: unknown, opts: { flowKeys?: string[] } = {}): Promise<void> {
+export async function writeYamlPreserving(file: string, value: unknown, opts: { flowKeys?: string[]; mode?: number } = {}): Promise<void> {
   let existing: string | undefined;
   try {
     existing = await readFile(file, 'utf8');
@@ -232,7 +236,7 @@ export async function writeYamlPreserving(file: string, value: unknown, opts: { 
     }
     out = doc.toString({ lineWidth: 0, flowCollectionPadding: false });
   }
-  await atomicWrite(file, out);
+  await atomicWrite(file, out, opts.mode);
 }
 
 // ---------------------------------------------------------------------------

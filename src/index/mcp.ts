@@ -5,7 +5,8 @@
  *  - flat `{ name: {...} }` (claude-plugins-official)
  */
 
-import type { McpServerConfig, SecretRef } from '../core/types.js';
+import type { McpServerConfig } from '../core/types.js';
+import { detectSecrets, isPlaceholderValue } from '../mcp/secrets.js';
 import { asString, compact, isRecord } from './util.js';
 
 const SERVER_HINT_KEYS = ['command', 'url', 'type', 'httpUrl', 'serverUrl', 'transport'];
@@ -62,10 +63,9 @@ function toServerConfig(name: string, def: unknown): McpServerConfig | undefined
   if (transport !== 'stdio' && !url) return undefined;
 
   const args = Array.isArray(def.args) ? def.args.map((a) => String(a)) : undefined;
-  const env = stringMap(def.env);
+  const env = normalizePlaceholders(stringMap(def.env));
   const headers = stringMap(def.headers);
-  const secrets = findSecrets(env, headers);
-  return compact({
+  const cfg: McpServerConfig = compact({
     name,
     transport,
     command: transport === 'stdio' ? command : undefined,
@@ -74,57 +74,14 @@ function toServerConfig(name: string, def: unknown): McpServerConfig | undefined
     cwd: asString(def.cwd),
     url: transport === 'stdio' ? undefined : url,
     headers,
-    secrets: secrets.length > 0 ? secrets : undefined,
     source: { type: 'origin' as const },
   });
+  const secrets = detectSecrets(cfg);
+  return secrets.length > 0 ? { ...cfg, secrets } : cfg;
 }
 
-/** Variables that are provided by the harness, never by the user. */
-const NON_SECRET_VARS = new Set([
-  'CLAUDE_PLUGIN_ROOT',
-  'CLAUDE_PLUGIN_DATA',
-  'CLAUDE_PROJECT_DIR',
-  'CURSOR_PLUGIN_ROOT',
-  'PLUGIN_ROOT',
-  'workspaceFolder',
-  'workspaceRoot',
-  'userHome',
-  'HOME',
-  'PWD',
-  'PATH',
-  'USER',
-]);
-
-const VAR_RE = /\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)(:-[^}]*)?\}/g;
-
-/** `${VAR}`, `${VAR:-default}` and `${env:VAR}` placeholders in env values and headers. */
-export function findSecrets(env?: Record<string, string>, headers?: Record<string, string>): SecretRef[] {
-  const out: SecretRef[] = [];
-  const seen = new Set<string>();
-  const add = (ref: SecretRef) => {
-    if (seen.has(ref.name)) return;
-    seen.add(ref.name);
-    out.push(ref);
-  };
-  for (const [key, value] of Object.entries(env ?? {})) {
-    let matched = false;
-    for (const m of value.matchAll(VAR_RE)) {
-      const v = m[1];
-      if (v === undefined || NON_SECRET_VARS.has(v)) continue;
-      matched = true;
-      add({ name: v, in: 'env', required: m[2] === undefined });
-    }
-    if (!matched && (value === '' || /^<.*>$/.test(value) || /^your[-_ ]/i.test(value))) {
-      add({ name: key, in: 'env', required: true });
-    }
-  }
-  for (const [header, value] of Object.entries(headers ?? {})) {
-    const matches = [...value.matchAll(VAR_RE)].filter((m) => m[1] !== undefined && !NON_SECRET_VARS.has(m[1]));
-    for (const m of matches) {
-      const name = m[1] as string;
-      const format = matches.length === 1 ? value.replace(m[0], '{value}') : undefined;
-      add(compact({ name, in: 'header' as const, header, required: m[2] === undefined, format: format === '{value}' ? undefined : format }));
-    }
-  }
-  return out;
+/** `API_KEY: ""` / `"<your key>"` / `"your-token"` → `API_KEY: "${API_KEY}"`, so the value becomes a secret the user supplies. */
+function normalizePlaceholders(env: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!env) return env;
+  return Object.fromEntries(Object.entries(env).map(([k, v]) => [k, isPlaceholderValue(v) ? `\${${k}}` : v]));
 }
