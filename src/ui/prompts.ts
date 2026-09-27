@@ -46,6 +46,13 @@ function toClack<T>(options: PickOption<T>[]): SelectOpts<T> {
 
 export function createClackUI(opts: { output?: Writable } = {}): MultilineUI {
   const output = opts.output;
+  // A pseudo-terminal without a window size (some CI runners, `expect`, `script`) reports
+  // columns 0; clack then hard-wraps every character. Fall back to a sane width.
+  const stdout = process.stdout as NodeJS.WriteStream & { columns?: number; rows?: number };
+  if (stdout.isTTY) {
+    if (!(typeof stdout.columns === 'number' && stdout.columns > 0)) stdout.columns = 80;
+    if (!(typeof stdout.rows === 'number' && stdout.rows > 0)) stdout.rows = 24;
+  }
   const unwrap = <V>(value: V | typeof p.CANCEL_SYMBOL): V => {
     if (p.isCancel(value)) cancelled(output);
     return value as V;
