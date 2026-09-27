@@ -18,8 +18,7 @@
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "prepare": "tsup"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@clack/prompts": "^1.0.0",
