@@ -1,0 +1,303 @@
+# palm — design contract
+
+`palm` is a package manager for agent resources. It installs skills, agents,
+instructions, commands, hooks, MCP servers and plugins from git repositories
+("origins") into the on-disk locations of AI coding harnesses ("targets").
+
+This file is the contract every module is written against. `src/core/types.ts`
+is the executable form of it. If a module needs something the contract does not
+provide, extend the contract (types.ts + this file) rather than inventing a
+private convention.
+
+## 1. Vocabulary
+
+| Term | Meaning | Primitive / composite |
+|---|---|---|
+| **instruction** | Always-on or path-scoped markdown context (`CLAUDE.md` rules, `.instructions.md`, `.mdc` rules, `AGENTS.md` sections). Advisory only. | primitive |
+| **skill** | A directory with `SKILL.md` (Agent Skills spec) plus optional `scripts/`, `references/`, `assets/`. Loaded on demand. | primitive |
+| **command** | A user-invoked `/name` prompt template (`commands/*.md`, `*.prompt.md`, Gemini `*.toml`). Legacy in most harnesses; skills supersede them. | primitive |
+| **agent** | A subagent definition: one file with system prompt + delegation description + tool policy + model, which may *reference* skills and MCP servers by name. palm treats those references as dependencies, so installing an agent installs what it needs. | primitive with deps |
+| **hook** | Lifecycle event + matcher → handler (shell command). Dialects differ per harness. | primitive |
+| **mcp** | An MCP server connection spec (stdio command or HTTP URL + headers/env). Not content. | primitive |
+| **plugin** | A distributable bundle: manifest + any of the above. Installing a plugin installs its members. | composite |
+| **origin** | A place entities come from: a git repo (optionally a subdir at a ref) or a local directory. Scanned into an index. | source |
+| **registry** | A named list of origins. v1 has one implicit registry: the user's configured origins. Remote index servers are a later concern. | source |
+| **target** | A harness that reads files from well-known paths: `claude`, `codex`, `copilot`, `cursor` in v1. | destination |
+| **scope** | `project` (files under the project root) or `global` (`-g`, files under the user's home). | destination |
+
+"Capability" is not a packaging concept (it is MCP/A2A protocol feature
+negotiation) and does not appear in palm.
+
+## 2. Filesystem layout
+
+### palm's own state
+
+```
+$PALM_HOME (default ~/.palm)
+  config.yaml          # origins, default targets, preferences
+  palm.yaml            # GLOBAL manifest (what is installed with -g)
+  palm.lock.yaml       # GLOBAL lockfile
+  cache/<originId>/    # git checkout of an origin at its resolved ref
+  cache/<originId>.index.json   # scan result for that checkout
+  mine/                # auto-created local origin (alias "mine") for `palm create`
+    skills/<name>/SKILL.md
+    agents/<name>.md
+    instructions/<name>.md
+    commands/<name>.md
+  hooks/<entity>/      # copied hook scripts for global installs
+```
+
+### project scope
+
+```
+<projectRoot>/
+  palm.yaml            # project manifest
+  palm.lock.yaml       # project lockfile
+  .palm/hooks/<entity>/  # copied hook scripts for project installs (gitignored by palm)
+```
+
+`projectRoot` = nearest ancestor of cwd containing `palm.yaml`, else nearest
+ancestor containing `.git`, else cwd.
+
+### target locations (v1)
+
+Paths are relative to projectRoot (project scope) or `~` (global scope).
+`~/.claude` honours `$CLAUDE_CONFIG_DIR`; `~/.codex` honours `$CODEX_HOME`.
+
+| kind | claude | codex | copilot | cursor |
+|---|---|---|---|---|
+| skill | `.claude/skills/<n>/` · `~/.claude/skills/<n>/` | `.agents/skills/<n>/` · `~/.agents/skills/<n>/` | `.agents/skills/<n>/` · `~/.agents/skills/<n>/` | `.agents/skills/<n>/` · `~/.agents/skills/<n>/` |
+| agent | `.claude/agents/<n>.md` · `~/.claude/agents/<n>.md` | `.codex/agents/<n>.toml` · `~/.codex/agents/<n>.toml` | `.github/agents/<n>.agent.md` · `~/.copilot/agents/<n>.agent.md` | `.cursor/agents/<n>.md` · `~/.cursor/agents/<n>.md` |
+| instruction | `.claude/rules/<n>.md` · `~/.claude/rules/<n>.md` | managed block in `AGENTS.md` · `~/.codex/AGENTS.md` | `.github/instructions/<n>.instructions.md` · `~/.copilot/instructions/<n>.instructions.md` | `.cursor/rules/<n>.mdc` · (no user scope: skip + warn) |
+| command | `.claude/commands/<n>.md` · `~/.claude/commands/<n>.md` | (no project scope: skip + warn) · `~/.codex/prompts/<n>.md` | `.github/prompts/<n>.prompt.md` · (skip + warn) | `.cursor/commands/<n>.md` · `~/.cursor/commands/<n>.md` |
+| hook | merged into `.claude/settings.json` · `~/.claude/settings.json` | merged into `.codex/hooks.json` · `~/.codex/hooks.json` | `.github/hooks/<n>.json` · `~/.copilot/hooks/<n>.json` | merged into `.cursor/hooks.json` · `~/.cursor/hooks.json` |
+| mcp | `.mcp.json` · `~/.claude.json` (`mcpServers`) | `.codex/config.toml` · `~/.codex/config.toml` (`[mcp_servers.<n>]`) | `.vscode/mcp.json` (`servers`) · `~/.copilot/mcp-config.json` (`mcpServers`) | `.cursor/mcp.json` · `~/.cursor/mcp.json` |
+
+
+The shared `.agents/skills` directory is written **once** even when several
+non-Claude targets are active. Claude Code does not read `.agents/skills`, so a
+skill installed for claude + codex is copied to both `.claude/skills` and
+`.agents/skills`.
+
+Hook and MCP writers **merge** into existing files and must preserve unrelated
+content and formatting as far as practical (JSON: parse/modify/stringify with 2
+spaces; TOML: use `smol-toml`, re-stringify whole file, acceptable).
+
+## 3. Manifest (`palm.yaml`)
+
+```yaml
+targets: [claude, codex]           # optional; falls back to config default / detection
+origins:                           # optional project-local origins (same shape as config)
+  - mattpocock/skills
+skills:
+  - wayfinder@mattpocock
+  - tdd@mattpocock#v1.2.3
+agents:
+  - comment-sicko@pstack
+instructions: []
+commands: []
+hooks: []
+mcp:
+  - io.github.github/github-mcp-server        # MCP registry name
+  - name: docs                                 # ad hoc definition
+    transport: http
+    url: https://example.com/mcp
+    headers: { Authorization: "Bearer ${DOCS_TOKEN}" }
+  - name: fs
+    transport: stdio
+    command: npx
+    args: [-y, "@modelcontextprotocol/server-filesystem", "."]
+plugins:
+  - superpowers@superpowers
+```
+
+Dependency string grammar: `<name>[@<origin-alias>][#<ref>]`. Parse `#ref`
+first, then `@origin` only when the text after the last `@` contains no `/`.
+Names never contain `@` or `#`.
+
+Bare `palm install` (no args) syncs the manifest: installs missing entries and
+reports lock entries with no manifest entry (removes them with `--prune`).
+
+## 4. Lockfile (`palm.lock.yaml`)
+
+One entry per installed entity per scope. Everything needed to uninstall,
+detect drift, and reinstall deterministically.
+
+```yaml
+version: 1
+entries:
+  - kind: skill
+    name: wayfinder
+    origin: mattpocock
+    url: https://github.com/mattpocock/skills.git
+    ref: v1.2.3
+    sha: 3f2a...
+    path: skills/engineering/wayfinder
+    contentHash: sha256:...
+    installedAt: 2026-09-27T17:00:00Z
+    targets: [claude, codex]
+    files:                       # everything palm wrote, scope-relative (project) or absolute (global)
+      - .claude/skills/wayfinder/SKILL.md
+      - .agents/skills/wayfinder/SKILL.md
+    merged:                      # entries palm inserted into shared files, for exact removal
+      - file: .claude/settings.json
+        pointer: /hooks/SessionStart
+        value: { ... }           # the exact JSON inserted
+    via: plugin:superpowers      # or agent:<name>, absent for direct installs
+```
+
+## 5. Origins and the index
+
+`config.yaml`:
+
+```yaml
+targets: [claude, codex, copilot, cursor]   # default targets for -g and for projects without their own
+origins:
+  - alias: mattpocock
+    type: git
+    url: https://github.com/mattpocock/skills.git
+    ref: v1.2.3            # optional; absent = latest semver tag if any, else default branch
+  - alias: pstack
+    type: git
+    url: https://github.com/cursor/plugins.git
+    root: pstack           # subdirectory
+  - alias: mine
+    type: local
+    path: /Users/max/.palm/mine
+  - alias: openai
+    type: git
+    url: https://github.com/openai/skills.git
+    layout:                # optional descriptor overriding auto-detection
+      skills: ["skills/.curated/*"]
+```
+
+Origin spec input forms accepted on the CLI (`palm origin add <spec>`):
+`owner/repo`, `owner/repo/sub/dir`, `github:owner/repo`, any `https://`/`git@`
+URL (optionally `#ref`), a local path, or a `marketplace.json` file/URL which is
+expanded into one origin per plugin entry (`palm origin import`).
+
+Default alias = repo name (`obra/superpowers` → `superpowers`); when the alias
+is taken, `owner-repo`. `root` subdirs append `-<lastSegment>`.
+
+`originId` (cache dir name) = sanitized `host/owner/repo[/root]` with `/` → `__`.
+
+The index for an origin is the `ScanResult` from `scanOrigin()`, cached at
+`cache/<originId>.index.json` with the resolved sha. `palm origin update`
+refetches and rescans. Install reads from the cache when present, otherwise
+fetches first.
+
+### Scan rules (priority order)
+
+0. Ignore: `node_modules`, `test(s)`, `fixture(s)`, `eval(s)`, `example(s)`,
+   `template(s)`, `docs`, `website`, `dist`, `build`; install outputs
+   `.agents/skills`, `.claude/skills`, `.github/{skills,agents,instructions,prompts}`,
+   `.cursor/rules`; root `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` (contributor guidance).
+   Include dot-directories otherwise (openai/skills uses `skills/.curated`).
+1. `layout` descriptor on the origin → use it, skip detection.
+2. `apm.yml` with `.apm/` → APM package: primitives from `.apm/{skills,agents,instructions,prompts,hooks}`.
+3. Marketplace file (`.claude-plugin/marketplace.json` > `.cursor-plugin/marketplace.json` >
+   `.github/plugin/marketplace.json` > `.agents/plugins/marketplace.json`): each entry with a
+   relative source becomes a `plugin` entity scanned at that path; entries with remote sources
+   are surfaced as `warnings` ("remote plugin X → add as origin"), not fetched. A single entry
+   with source `./` collapses into the root plugin. `strict:false` + `skills:[...]` = exact subset.
+4. Per-plugin manifest (`.claude-plugin/plugin.json` > `.cursor-plugin/plugin.json` >
+   root `plugin.json` with agent-plugins `$schema` > `.codex-plugin/plugin.json` >
+   `gemini-extension.json`): pick ONE, never union. Claude semantics: `skills` adds to
+   default `skills/` scan; `agents`/`commands` replace defaults; `hooks`/`mcpServers` merge
+   with `hooks/hooks.json`/`.mcp.json`; hooks may be inline in the manifest.
+5. Convention scan: root `SKILL.md` → one skill; else `**/SKILL.md` to depth 5
+   (a SKILL.md under another SKILL.md is a sub-skill: record `parent`);
+   agents `agents/**/*.md` + `**/*.agent.md` with `name`+`description` frontmatter (exclude
+   `agents/openai.yaml`, README); commands `commands/*.md`, `commands/*.toml`, `prompts/*.prompt.md`;
+   hooks `hooks/hooks.json`, `hooks/*/hooks.json`; mcp `.mcp.json`/`mcp.json` (wrapped or flat);
+   instructions `rules/*.mdc`, `*.instructions.md`, `instructions/*.md`.
+
+Names: skill = frontmatter `name` (fallback dirname; if invalid slug, slugify
+dirname; if it differs from dirname keep frontmatter name and warn); agent =
+file stem minus `.agent`, `name` with spaces → `displayName`; plugin =
+manifest name → marketplace entry name → dirname; mcp = server key.
+Version = frontmatter `metadata.version` → `version` → manifest `version` → tag.
+
+## 6. Install flow (engine)
+
+```
+palm install [<kind>] <spec>... [-g] [--from <origin>] [--target a,b] [--dry-run] [--force] [--yes]
+```
+
+1. Resolve scope + targets (flag > manifest > config default > detection > interactive multiselect saved to manifest).
+2. Parse kind (singular/plural/aliases, see `kinds.ts`). If the first arg is not a kind, search all kinds.
+3. For each spec: parse `name[@origin][#ref]`; `--from` supplies/overrides origin and may be an unregistered spec (ad hoc origin, fetched but not saved unless `--save-origin`).
+4. Ensure the relevant origins are fetched and indexed (fetch lazily; `--offline` uses cache only).
+5. Match candidates: exact name within kind; if 0 → fuzzy suggestions + "add an origin" hint, exit 1; if 1 → proceed; if >1 → interactive picker showing `name  kind  origin  version  description`; non-TTY → error listing candidates with the `@origin` form to disambiguate. `--yes` picks the first only when candidates are identical content hashes.
+6. Expand composites: plugin → members; agent → referenced `skills`/`mcpServers` resolved (same origin first, then all origins, picker on ambiguity) and queued with `via: agent:<name>`.
+7. Materialize per target via `Target.deploy()`; collect written files + merged entries.
+8. Write lock entries and manifest entries (manifest gets the direct requests only, not `via` deps).
+9. Print a summary table: what was installed where, warnings (hooks = executable code, MCP secrets placement).
+
+Collision policy: if a destination file exists and is not in the lock → refuse
+unless `--force` (then overwrite and record). If it is in the lock for the same
+entity → overwrite silently (reinstall/update).
+
+Uninstall reverses: remove `files`, remove `merged` values, drop `via` deps that
+no other entry needs, update manifest.
+
+## 7. MCP specifics
+
+Canonical `McpServerConfig` is harness-neutral. Sources:
+
+- **origin**: `.mcp.json`/`mcp.json` in a plugin/origin (entity kind `mcp`).
+- **registry**: official MCP registry (`https://registry.modelcontextprotocol.io`).
+  `server.json` → prefer `remotes[0]` (http/sse url + headers), else `packages[0]`
+  by registryType: npm → `npx -y <id>@<version> ...args`; pypi → `uvx <id>`;
+  oci → `docker run -i --rm <id>`. `environmentVariables[]`/`headers[]` with
+  `isSecret` become `secrets`.
+- **ad hoc**: `palm install mcp <name> -- <command> [args...]` or
+  `palm install mcp <name> --url <url> [--header K=V] [--env K=V]`.
+
+Secret placement policy (`SecretPolicy`):
+- `project` scope default `env-ref`: write harness-specific env references
+  (claude `${VAR}`, cursor `${env:VAR}`, copilot `${env:VAR}`, codex `env_vars = ["VAR"]`
+  or `bearer_token_env_var`) and print which vars to export.
+- `global` scope default `literal`: prompt (masked) for each secret not already in
+  `process.env` and write the value into the user-private config file.
+- `--secrets env-ref|literal` overrides. Never write literals into project files
+  unless `--secrets literal` is explicit.
+- HTTP servers without declared secrets: write url only; harnesses run OAuth on
+  first connect (say so in the summary).
+
+## 8. `palm create`
+
+`palm create agent|skill|instruction|command [name]` — interactive wizard,
+writes into the `mine` local origin (created + git-initialised on first use,
+registered in config), rescans `mine`, then offers to install it now (default
+yes) through the normal install path so dependencies get resolved with the
+picker.
+
+`create agent` asks: name (slug), description (when to delegate), model (select:
+inherit/opus/sonnet/haiku/custom), tools (multiselect of Claude tool names,
+optional), skills (multiselect from installed + all indexed skills, with a
+search prompt), MCP servers (multiselect from installed + indexed + registry
+search), instructions (optional), then opens `$EDITOR` (fallback: multiline
+text prompt) for the system prompt. Output is the canonical agent file (Claude
+frontmatter superset) with `skills:` and `mcpServers:` lists.
+
+## 9. Other commands
+
+- `palm uninstall|remove|rm [<kind>] <name>... [-g]`
+- `palm list|ls [<kind>] [-g] [--json]` — installed (from lock); `--available` lists the index.
+- `palm search <query> [--kind k] [--origin o] [--json]` — fuzzy over all indexes; `--kind mcp` also queries the registry.
+- `palm info <kind> <name>` — description, origin, version, files, deps.
+- `palm origin add|list|remove|update|import`
+- `palm update [<kind> <name>...] [-g]` — refetch origins, reinstall entries whose content hash changed; `--dry-run` shows the plan.
+- `palm targets` — configured/detected targets; `palm config get|set <key> <value>`.
+- `palm doctor` — checks git, harness dirs, cache health, lock/manifest drift.
+
+## 10. Conventions
+
+- TypeScript strict, ESM, Node ≥ 22. No default exports. Named exports only.
+- Errors: throw `PalmError(code, message, hint?)`; the CLI prints `message` and `hint`, exit 1. Never `process.exit` outside `src/cli.ts`.
+- All filesystem paths in function signatures are absolute unless the name ends in `Rel`.
+- No global mutable state. Pass a `PalmContext` (see types) explicitly.
+- Interactive prompts only in `src/ui/` and `src/create/`; core and engine never prompt. When a decision needs the user, engine calls `ctx.ui.pick()` / `ctx.ui.confirm()` which the CLI implements with `@clack/prompts` and tests implement with fakes.
+- Tests: `vitest`, colocated under `test/<module>/`, using temp dirs (`fs.mkdtemp`) and `PALM_HOME` overrides; never touch the real home.
+- Logging: `ctx.log.info|warn|debug`; `--verbose` enables debug.

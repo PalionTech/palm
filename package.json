@@ -1,0 +1,40 @@
+{
+  "name": "@paliontech/palm",
+  "version": "0.1.0",
+  "description": "palm — package manager for agent resources: skills, agents, instructions, hooks, MCP servers and plugins, installed into Claude Code, Codex, Copilot and Cursor.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "palm": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepare": "tsup"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.0.0",
+    "commander": "^14.0.0",
+    "execa": "^9.6.0",
+    "fast-glob": "^3.3.3",
+    "picocolors": "^1.1.1",
+    "smol-toml": "^1.4.0",
+    "yaml": "^2.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
