@@ -1,0 +1,14 @@
+{
+  "name": "superpowers-dev",
+  "owner": {
+    "name": "Jesse Vincent"
+  },
+  "plugins": [
+    {
+      "name": "superpowers",
+      "description": "Core skills library",
+      "version": "6.3.0",
+      "source": "./"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "beta",
+  "version": "0.2.0",
+  "mcpServers": {
+    "beta-server": {
+      "httpUrl": "https://beta.example.com/mcp"
+    }
+  }
+}

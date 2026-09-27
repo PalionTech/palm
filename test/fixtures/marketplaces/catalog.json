@@ -1,0 +1,78 @@
+{
+  "name": "sample-catalog",
+  "owner": {
+    "name": "Example"
+  },
+  "metadata": {
+    "description": "Curated catalog of known-good skill repos"
+  },
+  "plugins": [
+    {
+      "name": "local-skills",
+      "source": "./",
+      "description": "the catalog repo itself",
+      "skills": [
+        "example-skill"
+      ]
+    },
+    {
+      "name": "superpowers",
+      "source": {
+        "source": "github",
+        "repo": "obra/superpowers"
+      },
+      "skills": [
+        "brainstorming",
+        "writing-plans"
+      ]
+    },
+    {
+      "name": "caveman-skill",
+      "source": {
+        "source": "github",
+        "repo": "juliusbrussee/caveman",
+        "path": "skills/caveman"
+      }
+    },
+    {
+      "name": "pstack",
+      "source": {
+        "source": "github",
+        "repo": "cursor/plugins",
+        "path": "pstack",
+        "ref": "main"
+      }
+    },
+    {
+      "name": "pinned",
+      "source": {
+        "source": "github",
+        "repo": "mattpocock/skills",
+        "ref": "v1.2.3",
+        "sha": "3f2a9c0ffee"
+      }
+    },
+    {
+      "name": "plain-git",
+      "source": {
+        "source": "git",
+        "url": "https://gitlab.com/acme/agent-kit.git",
+        "ref": "v2.0.0"
+      }
+    },
+    {
+      "name": "from-npm",
+      "source": {
+        "source": "npm",
+        "package": "@acme/claude-plugin"
+      }
+    },
+    {
+      "name": "mystery",
+      "source": {
+        "source": "s3",
+        "bucket": "x"
+      }
+    }
+  ]
+}

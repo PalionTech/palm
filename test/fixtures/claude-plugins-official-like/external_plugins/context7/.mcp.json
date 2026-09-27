@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "Authorization": "${CONTEXT7_API_KEY:-}"
+      }
+    },
+    "fs": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "."
+      ],
+      "env": {
+        "FS_TOKEN": "${FS_TOKEN}"
+      }
+    }
+  }
+}

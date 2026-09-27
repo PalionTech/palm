@@ -1,0 +1,2 @@
+description = "Review the diff"
+prompt = "Review {{args}} carefully."

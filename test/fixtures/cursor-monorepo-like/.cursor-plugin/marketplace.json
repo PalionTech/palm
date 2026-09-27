@@ -1,0 +1,35 @@
+{
+  "name": "cursor-plugins",
+  "owner": {
+    "name": "Cursor"
+  },
+  "plugins": [
+    {
+      "name": "pstack",
+      "source": "pstack",
+      "description": "if you want to go fast, go deep first."
+    },
+    {
+      "name": "ahrefs",
+      "source": "third_party/ahrefs",
+      "description": "Research keywords."
+    },
+    {
+      "name": "cursor-team-kit",
+      "source": "team-kit",
+      "description": "Internal team workflows."
+    },
+    {
+      "name": "far-away",
+      "source": {
+        "source": "github",
+        "repo": "acme/far-away",
+        "ref": "v1.0.0"
+      }
+    },
+    {
+      "name": "missing-dir",
+      "source": "does-not-exist"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.alexanderkrauck/mailindex-mcp",
+  "description": "Search, move, mark, delete and draft your real mail over a self-hosted index.",
+  "title": "mailindex-mcp",
+  "repository": {
+    "url": "https://github.com/alexanderkrauck/mailindex-mcp",
+    "source": "github"
+  },
+  "version": "0.2.1",
+  "websiteUrl": "https://github.com/alexanderkrauck/mailindex-mcp",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/alexanderkrauck/mailindex-mcp:0.2.1",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:8002/mcp"
+      },
+      "environmentVariables": [
+        {
+          "description": "PostgreSQL connection URL. This server keeps its own index and does not run without a database; the repository ships docker-compose files that start one for you.",
+          "isRequired": true,
+          "format": "string",
+          "name": "EMAILSERVER_DATABASE_URL"
+        },
+        {
+          "description": "How callers are authenticated: development (no auth, loopback only), single_user (static bearer token), or google (multi-user OAuth).",
+          "default": "development",
+          "name": "EMAILSERVER_AUTH_MODE"
+        },
+        {
+          "description": "Bearer token required in single_user mode. At least 32 characters, or the server refuses to start.",
+          "isSecret": true,
+          "name": "EMAILSERVER_API_TOKEN"
+        },
+        {
+          "description": "Key used to encrypt stored mailbox credentials at rest. Generate with: openssl rand -base64 32",
+          "isSecret": true,
+          "name": "CREDENTIAL_ENCRYPTION_KEY"
+        }
+      ]
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "com.github": {
+        "serverDisplayName": "mailindex-mcp"
+      }
+    }
+  }
+}

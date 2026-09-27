@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Texan-NXTassist/nr-mcp",
+  "description": "MCP server for Node-RED — safe deploy, optimistic locking, smart search, 13 tools",
+  "repository": {
+    "url": "https://github.com/Texan-NXTassist/nr-mcp",
+    "source": "github"
+  },
+  "version": "1.2.2",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "nr-mcp",
+      "version": "1.2.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "Node-RED base URL (default: http://localhost:1880)",
+          "format": "string",
+          "name": "NR_URL"
+        },
+        {
+          "description": "Bearer token for Node-RED authentication",
+          "format": "string",
+          "isSecret": true,
+          "name": "NR_TOKEN"
+        },
+        {
+          "description": "Username for Basic Auth",
+          "format": "string",
+          "name": "NR_USER"
+        },
+        {
+          "description": "Password for Basic Auth",
+          "format": "string",
+          "isSecret": true,
+          "name": "NR_PASS"
+        }
+      ]
+    }
+  ]
+}

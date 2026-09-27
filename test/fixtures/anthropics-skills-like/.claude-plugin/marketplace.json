@@ -1,0 +1,31 @@
+{
+  "name": "anthropic-agent-skills",
+  "owner": {
+    "name": "Anthropic"
+  },
+  "metadata": {
+    "description": "Anthropic example skills",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "document-skills",
+      "description": "Document processing suite",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/xlsx",
+        "./skills/pdf"
+      ]
+    },
+    {
+      "name": "example-skills",
+      "description": "Example skills",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/canvas-design"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+name: my-apm-pkg
+version: 1.0.0
+description: A sample APM package
+dependencies:
+  mcp:
+    - io.github.github/github-mcp-server

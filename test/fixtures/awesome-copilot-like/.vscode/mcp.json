@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "dev": {
+      "command": "node",
+      "args": [
+        "x.js"
+      ]
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "name": "claude-plugins-official",
+  "owner": {
+    "name": "Anthropic"
+  },
+  "plugins": [
+    {
+      "name": "agent-sdk-dev",
+      "description": "Development kit for the Claude Agent SDK",
+      "source": "./plugins/agent-sdk-dev",
+      "category": "development"
+    },
+    {
+      "name": "github",
+      "description": "GitHub MCP",
+      "source": "./external_plugins/github"
+    },
+    {
+      "name": "context7",
+      "description": "Context7 docs",
+      "source": "./external_plugins/context7"
+    },
+    {
+      "name": "clangd-lsp",
+      "description": "C/C++ language server",
+      "version": "1.0.0",
+      "source": "./plugins/clangd-lsp",
+      "strict": false,
+      "lspServers": {
+        "clangd": {
+          "command": "clangd",
+          "args": [
+            "--background-index"
+          ]
+        }
+      }
+    },
+    {
+      "name": "42crunch",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/42Crunch-AI/claude-plugins.git",
+        "path": "plugins/api-security-testing",
+        "ref": "v1.5.5",
+        "sha": "faf5305385de8afed9468904e8639be737aff39e"
+      }
+    },
+    {
+      "name": "agentforce-adlc",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/SalesforceAIResearch/agentforce-adlc.git",
+        "sha": "09bf1539d41f9ff355ba3eb5d05d4a75813423bb"
+      }
+    },
+    {
+      "name": "npm-plugin",
+      "source": {
+        "source": "npm",
+        "package": "@acme/plugin"
+      }
+    }
+  ]
+}

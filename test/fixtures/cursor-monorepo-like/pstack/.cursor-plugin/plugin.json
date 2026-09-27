@@ -1,0 +1,8 @@
+{
+  "name": "pstack",
+  "displayName": "pstack",
+  "version": "0.14.2",
+  "description": "if you want to go fast, go deep first.",
+  "skills": "./skills/",
+  "agents": "./agents/"
+}

@@ -1,0 +1,2 @@
+description = "Switch caveman level"
+prompt = "Switch to caveman {{args}} mode."

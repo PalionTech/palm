@@ -1,0 +1,5 @@
+---
+name: partial
+---
+
+No description.

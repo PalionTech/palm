@@ -1,0 +1,8 @@
+---
+description: Keep imports at top of file
+alwaysApply: true
+---
+
+# No inline imports
+
+Always place imports at the top.

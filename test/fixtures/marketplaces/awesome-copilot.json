@@ -1,0 +1,104 @@
+{
+  "name": "awesome-copilot",
+  "metadata": {
+    "description": "Community-driven collection of GitHub Copilot plugins, agents, prompts, and skills",
+    "version": "1.0.0"
+  },
+  "owner": {
+    "name": "GitHub",
+    "email": "copilot@github.com"
+  },
+  "plugins": [
+    {
+      "name": "accessibility-kanban",
+      "source": "plugins/accessibility-kanban",
+      "description": "Kanban board to manage accessibility issues, allow you to plan, track, and complete remediation work.",
+      "version": "1.0.2"
+    },
+    {
+      "name": "acreadiness-cockpit",
+      "source": "plugins/acreadiness-cockpit",
+      "description": "Drive Microsoft AgentRC from Copilot chat: assess AI readiness, generate Copilot instructions (flat or nested with applyTo globs for monorepos), and manage policies. Produces a self-contained static HTML dashboard at reports/index.html.",
+      "version": "1.0.0"
+    },
+    {
+      "name": "agent-council",
+      "description": "A runtime-portable 5-agent quality gate that adjudicates text artifacts before they ship. Five role-conditioned LLM deliberators run a 2-round async protocol with cross-read rebuttal and return one verdict \u2014 SHIP, REVISE, or HOLD \u2014 plus a structured revision brief and a full audit transcript.",
+      "version": "0.1.3",
+      "author": {
+        "name": "Parth Sangani",
+        "url": "https://github.com/Avyayalaya"
+      },
+      "repository": "https://github.com/Avyayalaya/agent-council",
+      "license": "MIT",
+      "keywords": [
+        "quality-gate",
+        "multi-agent",
+        "adjudication",
+        "council",
+        "llm-as-judge",
+        "agent-orchestration",
+        "review",
+        "claude-code",
+        "mcp"
+      ],
+      "source": {
+        "source": "github",
+        "repo": "Avyayalaya/agent-council",
+        "ref": "v0.1.3"
+      }
+    },
+    {
+      "name": "ai-ready",
+      "description": "Analyze any repository and generate AI-ready configuration \u2014 AGENTS.md, copilot-instructions.md, CI workflows, issue templates, and more. Mines your PR review patterns and creates files customized to your stack.",
+      "version": "1.3.0",
+      "author": {
+        "name": "John Papa",
+        "url": "https://github.com/johnpapa"
+      },
+      "repository": "https://github.com/johnpapa/ai-ready",
+      "homepage": "https://github.com/johnpapa/ai-ready",
+      "license": "MIT",
+      "keywords": [
+        "ai-ready",
+        "copilot",
+        "agents",
+        "configuration",
+        "skills",
+        "code-review",
+        "onboarding"
+      ],
+      "source": {
+        "source": "github",
+        "repo": "johnpapa/ai-ready",
+        "path": ".github/plugin",
+        "ref": "v1.3.0"
+      }
+    },
+    {
+      "name": "anarlog",
+      "description": "Query Anarlog meetings locally, or connect through OAuth to read opted-in Cloud snapshots.",
+      "version": "1.3.0",
+      "author": {
+        "name": "Fastrepl",
+        "url": "https://anarlog.so"
+      },
+      "repository": "https://github.com/fastrepl/anarlog",
+      "homepage": "https://docs.anarlog.so/agents/overview",
+      "license": "MIT",
+      "keywords": [
+        "meetings",
+        "notes",
+        "transcripts",
+        "productivity",
+        "mcp"
+      ],
+      "source": {
+        "source": "github",
+        "repo": "fastrepl/anarlog",
+        "path": "agent-plugins/anarlog",
+        "sha": "259b68866a7d6c331cd428aaa33a33300a700c5d"
+      }
+    }
+  ]
+}

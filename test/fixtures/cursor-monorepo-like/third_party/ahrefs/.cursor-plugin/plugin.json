@@ -1,0 +1,6 @@
+{
+  "name": "ahrefs",
+  "displayName": "Ahrefs",
+  "version": "1.0.0",
+  "mcpServers": "./mcp.json"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "agent-sdk-dev",
+  "version": "1.0.0",
+  "description": "Agent SDK dev kit",
+  "author": {
+    "name": "Anthropic"
+  }
+}

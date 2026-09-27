@@ -1,0 +1,13 @@
+{
+  "name": "superpowers-dev",
+  "plugins": [
+    {
+      "name": "superpowers",
+      "source": {
+        "source": "url",
+        "url": "./"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "caveman",
+  "owner": {
+    "name": "Julius"
+  },
+  "plugins": [
+    {
+      "name": "caveman",
+      "description": "Talk like caveman.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

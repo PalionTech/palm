@@ -1,0 +1,13 @@
+{
+  "name": "mattpocock",
+  "owner": {
+    "name": "Matt Pocock"
+  },
+  "plugins": [
+    {
+      "name": "mattpocock-skills",
+      "source": "./",
+      "description": "Matt Pocock's agent skills"
+    }
+  ]
+}

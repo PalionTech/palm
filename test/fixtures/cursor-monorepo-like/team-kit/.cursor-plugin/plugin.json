@@ -1,0 +1,9 @@
+{
+  "name": "cursor-team-kit",
+  "displayName": "Cursor Team Kit",
+  "version": "1.2.0",
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "rules": "./rules/",
+  "hooks": "./hooks/hooks.json"
+}

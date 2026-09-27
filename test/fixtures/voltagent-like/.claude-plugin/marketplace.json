@@ -1,0 +1,13 @@
+{
+  "name": "voltagent-subagents",
+  "owner": {
+    "name": "VoltAgent"
+  },
+  "plugins": [
+    {
+      "name": "voltagent-core-dev",
+      "source": "./categories/01-core-development",
+      "version": "1.0.4"
+    }
+  ]
+}

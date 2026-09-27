@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": "bash \"${CURSOR_PLUGIN_ROOT}/hooks/mark.sh\""
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": "bash ./hooks/record.sh",
+        "matcher": "^advisor$"
+      }
+    ]
+  }
+}

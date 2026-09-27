@@ -1,0 +1,25 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "eu.nordicmcp/stripe",
+  "description": "Hosted Stripe MCP server: 18 tools for payments, subscriptions, invoicing, customers, and reporting.",
+  "title": "NordicMCP — Stripe",
+  "repository": {
+    "url": "https://github.com/pefman/nordicmcp.eu",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "websiteUrl": "https://nordicmcp.eu/docs/integrations/stripe",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://nordicmcp.eu/mcp/stripe/{token}",
+      "variables": {
+        "token": {
+          "description": "Your NordicMCP API token (36-char UUID) for the Stripe integration — create one at https://nordicmcp.eu after adding your Stripe key",
+          "isRequired": true,
+          "isSecret": true
+        }
+      }
+    }
+  ]
+}

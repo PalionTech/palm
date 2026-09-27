@@ -1,0 +1,9 @@
+{
+  "name": "voltagent-core-dev",
+  "version": "1.0.4",
+  "agents": [
+    "./api-designer.md",
+    "./backend-developer.md",
+    "./missing.md"
+  ]
+}
