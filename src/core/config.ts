@@ -33,12 +33,71 @@ function validTargets(v: unknown): TargetId[] | undefined {
   return out.length ? out : undefined;
 }
 
-/** Turn a stored origin entry (object or string) into a full OriginSpec. Relative local paths resolve against `baseDir`. */
+// ---------------------------------------------------------------------------
+// Alias rules (DESIGN.md §5): every stored origin carries an explicit, unique alias
+// ---------------------------------------------------------------------------
+
+/** Origin aliases: lowercase letters, digits, `.`, `_` and `-`, starting with a letter or digit. */
+export const ORIGIN_ALIAS_RE = /^[a-z0-9][a-z0-9._-]*$/;
+
+/** A problem with a stored origin's alias. Unlike other bad palm.yaml origin entries these are never skipped. */
+class OriginAliasError extends PalmError {}
+
+function aliasFormatHint(alias: string): string {
+  const suggestion = sanitizeAlias(alias);
+  const example = suggestion && suggestion !== alias ? ` (e.g. \`${suggestion}\`)` : '';
+  return `An alias is lowercase letters, digits, ".", "_" and "-", starting with a letter or digit${example}.`;
+}
+
+/** Throws `code` unless `alias` matches ORIGIN_ALIAS_RE. */
+function assertAliasFormat(alias: string, code: 'E_USAGE' | 'E_PARSE', where?: string): void {
+  if (ORIGIN_ALIAS_RE.test(alias)) return;
+  const msg = `${where ? `${where}: ` : ''}invalid origin alias "${alias}"`;
+  if (code === 'E_PARSE') throw new OriginAliasError(code, msg, aliasFormatHint(alias));
+  throw new PalmError(code, msg, aliasFormatHint(alias));
+}
+
+/** No two origins of one file may share an alias. */
+function assertUniqueAliases(origins: OriginSpec[], where: string): void {
+  const seen = new Map<string, OriginSpec>();
+  for (const o of origins) {
+    const prev = seen.get(o.alias);
+    if (prev) {
+      throw new OriginAliasError(
+        'E_PARSE',
+        `${where}: origin alias "${o.alias}" is used twice (${describeOrigin(prev)} and ${describeOrigin(o)})`,
+        'Give each origin its own alias.',
+      );
+    }
+    seen.set(o.alias, o);
+  }
+}
+
+/** `{ alias: x, type: git, url: … }` — a stored origin as one YAML flow mapping (for hints). */
+function flowMapping(spec: OriginSpec): string {
+  const parts = Object.entries(serializeOrigin(spec))
+    .filter(([, v]) => typeof v === 'string')
+    .map(([k, v]) => `${k}: ${String(v)}`);
+  return `{ ${parts.join(', ')} }`;
+}
+
+/**
+ * Turn a stored origin entry into a full OriginSpec. Relative local paths resolve against `baseDir`.
+ * The alias is mandatory and never derived here: a string entry or a mapping without `alias` is E_PARSE.
+ */
 function normalizeStoredOrigin(raw: unknown, baseDir: string, where: string): OriginSpec {
-  if (typeof raw === 'string') return parseOriginInput(raw, { cwd: baseDir });
+  if (typeof raw === 'string') {
+    const parsed = parseOriginInput(raw, { cwd: baseDir }); // an unusable URL or path is reported first
+    throw new OriginAliasError(
+      'E_PARSE',
+      `${where}: origin ${raw} has no alias`,
+      `write it as a mapping and add \`alias: ${parsed.alias}\`, e.g. \`- ${flowMapping(parsed)}\` (palm derives that name with \`palm origin add\`)`,
+    );
+  }
   if (!isObject(raw)) throw new PalmError('E_PARSE', `${where}: invalid origin entry ${JSON.stringify(raw)}`);
   const type = raw.type === 'local' || (raw.type === undefined && typeof raw.path === 'string' && !raw.url) ? 'local' : 'git';
-  const spec: OriginSpec = { alias: typeof raw.alias === 'string' ? raw.alias : '', type };
+  const alias = typeof raw.alias === 'string' || typeof raw.alias === 'number' ? String(raw.alias) : '';
+  const spec: OriginSpec = { alias, type };
   if (type === 'git') {
     if (typeof raw.url !== 'string' || !raw.url) throw new PalmError('E_PARSE', `${where}: git origin "${spec.alias}" has no url`);
     validateOriginUrl(raw.url, `${where}: origin "${spec.alias || raw.url}"`);
@@ -51,7 +110,14 @@ function normalizeStoredOrigin(raw: unknown, baseDir: string, where: string): Or
   if (typeof raw.root === 'string' && raw.root) spec.root = trimSlashes(raw.root);
   if (isObject(raw.layout)) spec.layout = raw.layout as LayoutDescriptor;
   if (typeof raw.description === 'string') spec.description = raw.description;
-  if (!spec.alias) spec.alias = deriveAlias(spec, []);
+  if (!alias.trim()) {
+    throw new OriginAliasError(
+      'E_PARSE',
+      `${where}: origin ${String(type === 'git' ? raw.url : raw.path)} has no alias`,
+      `add \`alias: ${deriveAlias(spec, [])}\` (palm derives that name with \`palm origin add\`)`,
+    );
+  }
+  assertAliasFormat(alias, 'E_PARSE', where);
   return spec;
 }
 
@@ -66,6 +132,7 @@ export async function loadConfig(paths: PalmPaths): Promise<PalmConfig> {
   else delete cfg.targets;
   if (Array.isArray(data.origins)) {
     cfg.origins = data.origins.map((o) => normalizeStoredOrigin(o, paths.palmHome, file));
+    assertUniqueAliases(cfg.origins, file);
   }
   return cfg;
 }
@@ -296,6 +363,7 @@ export function parseOriginInput(input: string, opts: ParseOriginOptions = {}): 
   if (opts.root) spec.root = trimSlashes(opts.root);
   if (spec.root === '') delete spec.root;
   if (opts.layout) spec.layout = opts.layout;
+  if (opts.alias !== undefined) assertAliasFormat(opts.alias, 'E_USAGE');
   spec.alias = opts.alias ?? deriveAlias(spec, []);
   return spec;
 }
@@ -335,7 +403,7 @@ function sanitizeAlias(s: string): string {
   return s
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^[-.]+|-+$/g, '');
+    .replace(/^[-._]+|-+$/g, ''); // ORIGIN_ALIAS_RE: starts with a letter or digit
 }
 
 /**
@@ -407,9 +475,12 @@ export function projectOrigins(ctx: PalmContext): OriginSpec[] {
     try {
       out.push(normalizeStoredOrigin(raw, ctx.paths.projectRoot, file));
     } catch (e) {
+      // A refused URL or missing path skips the entry; a missing or invalid alias is a hard error.
+      if (e instanceof OriginAliasError) throw e;
       ctx.log.warn((e as Error).message);
     }
   }
+  assertUniqueAliases(out, file);
   return out;
 }
 
@@ -429,8 +500,92 @@ function describeOrigin(o: OriginSpec): string {
   return o.type === 'local' ? (o.path ?? '') : `${o.url ?? ''}${o.root ? ` (${o.root})` : ''}`;
 }
 
+// ---------------------------------------------------------------------------
+// Origin queries (`-o/--origin` on list, search and info)
+// ---------------------------------------------------------------------------
+
+function comparableUrl(url: string): string {
+  return stripGit(url.trim().replace(/\/+$/, '')).toLowerCase();
+}
+
+/** `owner/repo` forms of a remote git origin: the full repository path and its last two segments. */
+function repoPaths(spec: OriginSpec): string[] {
+  if (spec.type !== 'git' || !spec.url) return [];
+  const { host, segs } = urlParts(spec.url);
+  if (host === 'file' || segs.length < 2) return [];
+  const clean = segs.map((s, i) => (i === segs.length - 1 ? stripGit(s) : s).toLowerCase());
+  return [...new Set([clean.join('/'), clean.slice(-2).join('/')])];
+}
+
+/**
+ * How well `query` names `spec`: 3 = alias; 2 = exactly this origin (`owner/repo[/root]`, URL or
+ * path including its root); 1 = its repository or directory but not its `root`; 0 = no match.
+ */
+function originMatchRank(spec: OriginSpec, query: string): 0 | 1 | 2 | 3 {
+  const q = query.trim();
+  if (!q) return 0;
+  if (spec.alias.toLowerCase() === q.toLowerCase()) return 3;
+  const root = spec.root ? trimSlashes(spec.root).toLowerCase() : '';
+  let rank: 0 | 1 | 2 = 0;
+  const hit = (exact: boolean): void => {
+    rank = Math.max(rank, exact ? 2 : 1) as 1 | 2;
+  };
+  const lower = q.replace(/\/+$/, '').toLowerCase();
+  for (const p of repoPaths(spec)) {
+    if (lower === p) hit(!root);
+    if (root && lower === `${p}/${root}`) hit(true);
+  }
+  if (spec.type === 'git' && spec.url && comparableUrl(spec.url) === comparableUrl(q)) hit(!root);
+  const dir = spec.type === 'local' ? spec.path : spec.url && isAbsolute(spec.url) ? spec.url : undefined;
+  if (dir && (isAbsolute(q) || q === '~' || q.startsWith('~/'))) {
+    const abs = resolve(expandTilde(q));
+    if (abs === resolve(dir)) hit(!root);
+    if (root && abs === resolve(dir, spec.root!)) hit(true);
+  }
+  return rank;
+}
+
+/**
+ * Whether `query` names `spec`: its alias (case-insensitive), `owner/repo` or `owner/repo/root`
+ * of a git origin's URL + root, the full URL, or the local path (absolute or `~/…`).
+ */
+export function matchOrigin(spec: OriginSpec, query: string): boolean {
+  return originMatchRank(spec, query) > 0;
+}
+
+/**
+ * The one registered origin `query` names (see matchOrigin). An alias wins over everything else,
+ * and a query naming an origin exactly (root included) wins over one naming only its repository.
+ * Throws E_NOT_FOUND (listing the registered aliases) or E_AMBIGUOUS.
+ */
+export function resolveOriginQuery(ctx: PalmContext, query: string): OriginSpec {
+  const origins = allOrigins(ctx);
+  const ranked = origins.map((o) => ({ o, rank: originMatchRank(o, query) })).filter((r) => r.rank > 0);
+  if (ranked.length === 0) {
+    const aliases = origins.map((o) => o.alias).sort();
+    throw new PalmError(
+      'E_NOT_FOUND',
+      `No origin matches "${query}"`,
+      aliases.length
+        ? `Registered origins: ${aliases.join(', ')}. Use an alias, owner/repo[/root], the URL or the local path.`
+        : 'No origins are registered; add one with `palm origin add owner/repo`.',
+    );
+  }
+  const top = Math.max(...ranked.map((r) => r.rank));
+  const best = ranked.filter((r) => r.rank === top).map((r) => r.o);
+  if (best.length > 1) {
+    throw new PalmError(
+      'E_AMBIGUOUS',
+      `"${query}" matches ${best.length} origins: ${best.map((o) => `${o.alias} (${describeOrigin(o)})`).join(', ')}`,
+      `Use the alias instead, e.g. -o ${best[0]!.alias}.`,
+    );
+  }
+  return best[0]!;
+}
+
 export async function addOrigin(ctx: PalmContext, spec: OriginSpec, opts: { scope?: Scope } = {}): Promise<OriginSpec> {
   const scope = opts.scope ?? 'global';
+  assertAliasFormat(spec.alias, 'E_USAGE');
   const all = allOrigins(ctx);
   let next = { ...spec };
   const clash = all.find((o) => o.alias.toLowerCase() === next.alias.toLowerCase());
@@ -440,7 +595,7 @@ export async function addOrigin(ctx: PalmContext, spec: OriginSpec, opts: { scop
       next.alias = deriveAlias(next, all);
     } else {
       throw new PalmError(
-        'E_ORIGIN',
+        'E_CONFLICT',
         `Origin alias "${next.alias}" is already used by ${describeOrigin(clash)}`,
         'Pick another alias with --alias <name>, or remove the existing one with `palm origin remove`.',
       );

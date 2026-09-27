@@ -109,8 +109,8 @@ files it created.
 
 ```yaml
 targets: [claude, codex]           # optional; falls back to config default / detection
-origins:                           # optional project-local origins (same shape as config)
-  - mattpocock/skills
+origins:                           # optional project-local origins (same shape as config, alias required)
+  - { alias: mattpocock, type: git, url: https://github.com/mattpocock/skills.git }
 skills:
   - wayfinder@mattpocock
   - tdd@mattpocock#v1.2.3
@@ -206,6 +206,8 @@ Origin spec input forms accepted on the CLI (`palm origin add <spec>`):
 URL (optionally `#ref`), a local path, or a `marketplace.json` file/URL which is
 expanded into one origin per plugin entry (`palm origin import`).
 
+Every origin in `config.yaml` or a project `palm.yaml` must carry an explicit, unique `alias` matching `^[a-z0-9][a-z0-9._-]*$` (palm never derives one on load: a missing or malformed alias is `E_PARSE` naming the file and the alias `palm origin add` would derive, a clash on add is `E_CONFLICT`), and `-o/--origin` on `list`, `search` and `info` selects an origin by alias, `owner/repo[/root]`, URL or local path (`matchOrigin`/`resolveOriginQuery`).
+
 Default alias = repo name (`obra/superpowers` → `superpowers`), or the owner when
 the repo name is generic (`skills`, `plugins`, `agents`, `prompts`, `rules`, `mcp`, …:
 `mattpocock/skills` → `mattpocock`, `anthropics/skills` → `anthropics`); when the
@@ -270,7 +272,7 @@ Version = frontmatter `metadata.version` → `version` → manifest `version` �
 palm install [<kind>] <spec>... [-g] [--from <origin>] [--target a,b] [--dry-run] [--force] [--yes]
 ```
 
-1. Resolve scope + targets (flag > manifest > config default > detection > interactive multiselect saved to manifest).
+1. Resolve scope + targets (flag > manifest > config default > detection > interactive multiselect saved to manifest). The CLI first runs a pre-flight (`preflightInstall`: steps 3–5 without the picker or registry), so a name that matches nothing fails before any target prompt; `origin`/`registry` as the kind word and kind-less repository specs (`owner/repo`, git URLs, paths) are usage errors pointing at `palm origin add` / `--from`.
 2. Parse kind (singular/plural/aliases, see `kinds.ts`). If the first arg is not a kind, search all kinds.
 3. For each spec: parse `name[@origin][#ref]`; `--from` supplies/overrides origin and may be an unregistered spec (ad hoc origin, fetched but not saved unless `--save-origin`).
 4. Ensure the relevant origins are fetched and indexed (fetch lazily; `--offline` uses cache only).
@@ -352,8 +354,8 @@ three as tracked dependencies (`via: agent:<name>`, recorded in `deps`).
 ## 9. Other commands
 
 - `palm uninstall|remove|rm [<kind>] <name>... [-g]`
-- `palm list|ls [<kind>] [-g] [--json]` — installed (from lock); `--available` lists the index.
-- `palm search <query> [--kind k] [--origin o] [--json]` — fuzzy over all indexes; `--kind mcp` also queries the registry.
+- `palm list|ls [<kind>] [-g] [-o origin] [--json]` — installed (from lock); `--available` lists the index grouped by origin; `-o` keeps one origin (installed view also accepts `mine`, `registry`, `adhoc`).
+- `palm search <query> [--kind k] [-o origin] [--json]` — fuzzy over all indexes; `--kind mcp` also queries the registry.
 - `palm info <kind> <name>` — description, origin, version, files, deps.
 - `palm origin add|list|remove|update|import`
 - `palm update [<kind> <name>...] [-g]` — refetch origins, reinstall entries whose content hash changed; `--dry-run` shows the plan (each entity once).

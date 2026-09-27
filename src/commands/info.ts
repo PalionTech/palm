@@ -70,16 +70,27 @@ export function registerInfo(program: Command): void {
     .description('Show an entity: description, origin, version, dependencies and (when installed) the files palm wrote per target.')
     .argument('<kind>', 'entity kind (plurals ok)')
     .argument('<name>', 'name[@origin]')
-    .option('--origin <alias>', 'origin to look in')
+    .option('-o, --origin <name-or-alias>', 'origin to look in: alias, owner/repo[/root], URL or local path')
     .action(async (kindArg: string, nameArg: string, _opts: unknown, cmd: Command) => {
       const o = cmd.optsWithGlobals<InfoOptions>();
       const kind = requireKind(kindArg);
       const ref = splitNameOrigin(nameArg);
       const scope = scopeOf(o);
       const ctx = await makeContext(o);
+      let origin = ref.origin;
+      if (o.origin) {
+        const { resolveOriginQuery } = await import('../core/config.js');
+        try {
+          origin = resolveOriginQuery(ctx, o.origin).alias;
+        } catch (e) {
+          // An origin removed after installing: its lock entries still carry the alias.
+          if (!(e instanceof PalmError && e.code === 'E_NOT_FOUND')) throw e;
+          origin = o.origin;
+        }
+      }
       const { getEntityInfo } = await import('../engine/query.js');
       const info: { entity?: Entity; lock?: LockEntry; deps: EntityRef[]; warnings: string[] } = await getEntityInfo(ctx, kind, ref.name, {
-        origin: o.origin ?? ref.origin,
+        origin,
         scope,
       });
       if (!info.entity && !info.lock) {

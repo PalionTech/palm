@@ -18,22 +18,27 @@ export function registerSearch(program: Command): void {
   program
     .command('search')
     .summary('search your origins by name and description (MCP: also the registry)')
-    .description('Fuzzy search across every origin index. Without --kind, or with --kind mcp, the MCP registry is searched too.')
+    .description('Fuzzy search across every origin index. Without --kind or --origin, or with --kind mcp, the MCP registry is searched too.')
     .argument('<query>', 'words to look for in names and descriptions')
     .option('--kind <kind>', 'restrict to one kind')
-    .option('--origin <alias>', 'restrict to one origin')
+    .option('-o, --origin <name-or-alias>', 'restrict to one origin: alias, owner/repo[/root], URL or local path')
     .option('--refresh', 'refetch origins before searching')
     .action(async (query: string, _opts: unknown, cmd: Command) => {
       const o = cmd.optsWithGlobals<SearchOptions>();
       const kind = o.kind ? requireKind(o.kind) : undefined;
       const ctx = await makeContext(o);
+      let origin: string | undefined;
+      if (o.origin) {
+        const { resolveOriginQuery } = await import('../core/config.js');
+        origin = resolveOriginQuery(ctx, o.origin).alias;
+      }
       const { searchIndex } = await import('../engine/query.js');
       const hits = await withSpinner(ctx, o, `Searching for "${query}"`, () =>
-        searchIndex(ctx, query, { kind, origin: o.origin, refresh: Boolean(o.refresh) }),
+        searchIndex(ctx, query, { kind, origin, refresh: Boolean(o.refresh) }),
       );
 
       let registry: RegistryCandidate[] = [];
-      const wantRegistry = (!kind || kind === 'mcp') && !o.origin && !ctx.flags.offline;
+      const wantRegistry = (!kind || kind === 'mcp') && !origin && !ctx.flags.offline;
       if (wantRegistry) {
         try {
           const { searchRegistry } = await import('../mcp/registry.js');

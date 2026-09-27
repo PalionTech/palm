@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseInstallArgs } from '../../src/commands/install.js';
+import { looksLikeRepoRef, parseInstallArgs } from '../../src/commands/install.js';
 import { parseTargetList, splitKindArgs, splitNameOrigin, splitPassthrough } from '../../src/commands/shared.js';
 
 describe('parseInstallArgs', () => {
@@ -96,6 +96,43 @@ describe('parseInstallArgs', () => {
     } catch (e) {
       expect(e).toMatchObject({ code: 'E_USAGE' });
     }
+  });
+});
+
+describe('install: origins and repositories are not entity names', () => {
+  const usageError = (argv: string[]): { code?: string; message?: string; hint?: string } => {
+    try {
+      parseInstallArgs(argv);
+    } catch (e) {
+      return e as { code?: string; message?: string; hint?: string };
+    }
+    throw new Error(`palm ${argv.join(' ')} did not throw`);
+  };
+
+  it.each([['origin'], ['origins'], ['registry'], ['Origin']])('palm install %s anthropics/skills → E_USAGE with the origin-add hint', (word) => {
+    const err = usageError(['install', word, 'anthropics/skills']);
+    expect(err).toMatchObject({ code: 'E_USAGE', message: `${word.toLowerCase()} is not an installable kind` });
+    expect(err.hint).toContain('register a repository with: palm origin add <owner/repo | url | path>');
+  });
+
+  it.each([['anthropics/skills'], ['anthropics/skills#v1'], ['https://github.com/anthropics/skills'], ['git@github.com:anthropics/skills.git'], ['github:anthropics/skills'], ['gitlab:group/repo'], ['./vendor/skills'], ['~/src/skills']])(
+    'palm install %s → E_USAGE pointing at origin add and --from',
+    (spec) => {
+      const err = usageError(['install', spec]);
+      expect(err).toMatchObject({ code: 'E_USAGE', message: `"${spec}" is a repository, not an entity name` });
+      expect(err.hint).toContain(`palm origin add ${spec}`);
+      expect(err.hint).toContain(`palm install skill <name> --from ${spec}`);
+    },
+  );
+
+  it('leaves MCP registry names, refs with slashes and kind-qualified specs alone', () => {
+    expect(parseInstallArgs(['install', 'io.github.upstash/context7'])).toMatchObject({ kind: undefined, specs: ['io.github.upstash/context7'] });
+    expect(parseInstallArgs(['install', 'wayfinder#feature/x'])).toMatchObject({ specs: ['wayfinder#feature/x'] });
+    expect(parseInstallArgs(['install', 'skill', 'origin'])).toMatchObject({ kind: 'skill', specs: ['origin'] });
+    expect(parseInstallArgs(['install', 'mcp', 'io.github.x/y'])).toMatchObject({ kind: 'mcp', specs: ['io.github.x/y'] });
+    expect(looksLikeRepoRef('wayfinder@mattpocock')).toBe(false);
+    expect(looksLikeRepoRef('@modelcontextprotocol/server-filesystem')).toBe(false);
+    expect(looksLikeRepoRef('owner/repo@alias')).toBe(true);
   });
 });
 

@@ -1,6 +1,10 @@
+import { statSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { Command } from 'commander';
 import pc from 'picocolors';
-import type { InstallRequest, InstallResult, Kind, LockEntry, OriginSpec, Scope, SecretPolicy, TargetId } from '../core/types.js';
+import { PalmError } from '../core/errors.js';
+import { parseDepRef } from '../core/manifest.js';
+import type { EngineDeps, InstallRequest, InstallResult, Kind, LockEntry, OriginSpec, PalmContext, Scope, SecretPolicy, TargetId } from '../core/types.js';
 import { printInstallSummary } from '../ui/output.js';
 import {
   collect,
@@ -54,9 +58,62 @@ interface InstallCliOptions extends GlobalOptions {
 
 const ADHOC_HINT = 'palm install mcp <name> -- <command> [args...]   or   palm install mcp <name> --url <url> [--header K=V]';
 
+/** Words people reach for that name a place to install from, not something to install. */
+const NOT_KINDS = new Set(['origin', 'origins', 'registry']);
+const ORIGIN_ADD_HINT = 'register a repository with: palm origin add <owner/repo | url | path>';
+const REPO_PREFIX = /^(?:https?:\/\/|ssh:\/\/|git:\/\/|file:\/\/|git@|github:|gitlab:)/i;
+
+/**
+ * True when a spec names a repository or path rather than an entity: a git URL, `github:`/`gitlab:`,
+ * a relative/home path, or `owner/repo` (an MCP registry name like `io.github.x/y` has a dot in its
+ * first segment and does not count).
+ */
+export function looksLikeRepoRef(spec: string): boolean {
+  const s = spec.trim();
+  if (REPO_PREFIX.test(s) || s === '.' || s === '..' || s === '~' || s.startsWith('~/')) return true;
+  let name: string;
+  try {
+    name = parseDepRef(s).name;
+  } catch {
+    return false;
+  }
+  if (!name.includes('/')) return false;
+  const first = name.split('/')[0]!;
+  if (first.startsWith('@')) return false; // npm-style scope: leave it to the registry / not-found path
+  return first.startsWith('.') || !first.includes('.');
+}
+
+export function repoRefError(spec: string): PalmError {
+  return new PalmError(
+    'E_USAGE',
+    `"${spec}" is a repository, not an entity name`,
+    `register it: palm origin add ${spec}   or take one entity from it: palm install skill <name> --from ${spec}`,
+  );
+}
+
+/** True when `spec` (a bare name that matched nothing) is a directory, relative to the cwd. */
+function isDirectory(ctx: PalmContext, spec: string): boolean {
+  try {
+    return statSync(resolve(ctx.paths.cwd, spec)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /** Pure interpretation of already-tokenised install arguments. */
 export function interpretInstallArgs(positional: string[], opts: InstallCliOptions, passthrough: string[]): ParsedInstallArgs {
+  const first = positional[0]?.toLowerCase();
+  if (first && NOT_KINDS.has(first)) {
+    throw usage(
+      `${first} is not an installable kind`,
+      first === 'registry' ? `${ORIGIN_ADD_HINT}; MCP registry servers install with: palm install mcp <registry-name>` : ORIGIN_ADD_HINT,
+    );
+  }
   const { kind, rest: specs } = splitKindArgs(positional);
+  if (!kind) {
+    const repo = specs.find(looksLikeRepoRef);
+    if (repo) throw repoRefError(repo);
+  }
   const headers = opts.header ?? [];
   const env = opts.env ?? [];
   const adhocRequested = passthrough.length > 0 || Boolean(opts.url) || headers.length > 0 || env.length > 0 || Boolean(opts.transport);
@@ -175,19 +232,27 @@ export function parseInstallArgs(argv: string[]): ParsedInstallArgs {
 }
 
 export async function runInstall(parsed: ParsedInstallArgs): Promise<void> {
+  await installWithContext(await makeContext(parsed.global), parsed);
+}
+
+/** `palm install` against a given context (tests pass a sandbox context and fake UI). */
+export async function installWithContext(ctx: PalmContext, parsed: ParsedInstallArgs, deps?: Partial<EngineDeps>): Promise<void> {
   const g = parsed.global;
-  const ctx = await makeContext(g);
   const { resolveTargets } = await import('../engine/resolve-targets.js');
 
   if (parsed.mode === 'sync') {
-    const targets: TargetId[] = await resolveTargets(ctx, { scope: parsed.scope, flag: parsed.targets, save: true });
+    const targets: TargetId[] = await resolveTargets(ctx, { scope: parsed.scope, flag: parsed.targets, save: true }, deps);
     const { syncManifest } = await import('../engine/sync.js');
-    const result: InstallResult & { extraneous: LockEntry[] } = await syncManifest(ctx, {
-      scope: parsed.scope,
-      prune: parsed.prune,
-      targets,
-      ...(parsed.secrets ? { secretPolicy: parsed.secrets } : {}),
-    });
+    const result: InstallResult & { extraneous: LockEntry[] } = await syncManifest(
+      ctx,
+      {
+        scope: parsed.scope,
+        prune: parsed.prune,
+        targets,
+        ...(parsed.secrets ? { secretPolicy: parsed.secrets } : {}),
+      },
+      deps,
+    );
     if (g.json) return printJson(result);
     printInstallSummary(result, { scope: parsed.scope, targets });
     if (result.extraneous.length) {
@@ -224,10 +289,20 @@ export async function runInstall(parsed: ParsedInstallArgs): Promise<void> {
     requests = parsed.specs.map((spec) => ({ kind: parsed.kind, spec, from }));
   }
 
-  // Resolve targets only after the requests parsed, so bad input fails before any prompt.
-  const targets: TargetId[] = await resolveTargets(ctx, { scope: parsed.scope, flag: parsed.targets, save: true });
-  const { installEntities } = await import('../engine/install.js');
-  const result: InstallResult = await installEntities(ctx, requests, { scope: parsed.scope, targets, secretPolicy: parsed.secrets });
+  // Names must resolve before targets are asked for, so bad input fails before any prompt.
+  const { installEntities, preflightInstall } = await import('../engine/install.js');
+  // A kind-less name that matches nothing but is a local directory was meant as an origin.
+  const dirs = parsed.kind ? [] : requests.filter((r) => typeof r.spec === 'string' && isDirectory(ctx, r.spec));
+  for (const r of dirs) {
+    try {
+      await preflightInstall(ctx, [r], deps);
+    } catch (e) {
+      throw e instanceof PalmError && e.code === 'E_NOT_FOUND' ? repoRefError(r.spec as string) : e;
+    }
+  }
+  await preflightInstall(ctx, dirs.length ? requests.filter((r) => !dirs.includes(r)) : requests, deps);
+  const targets: TargetId[] = await resolveTargets(ctx, { scope: parsed.scope, flag: parsed.targets, save: true }, deps);
+  const result: InstallResult = await installEntities(ctx, requests, { scope: parsed.scope, targets, secretPolicy: parsed.secrets }, deps);
   if (g.json) return printJson(result);
   printInstallSummary(result, { scope: parsed.scope, targets });
   if (g.dryRun) console.log(pc.dim(`\n${DRY_RUN_NOTE}`));

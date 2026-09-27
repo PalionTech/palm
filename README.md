@@ -48,7 +48,7 @@ the harness directories it finds (`.claude/`, `.codex/` or `AGENTS.md`,
 |---|---|
 | `palm install [kind] <name[@origin][#ref]>...` (`i`, `add`) | Install entities; with no arguments install everything in `palm.yaml` (redeploying files deleted by hand; `--prune` removes extras). |
 | `palm uninstall [kind] <name>...` (`remove`, `rm`) | Remove entities, reverse merged config, drop dependencies nothing else needs. |
-| `palm list [kind]` (`ls`) | What is installed; `--available` lists what your origins offer. |
+| `palm list [kind] [-o origin]` (`ls`) | What is installed; `--available` lists what your origins offer, grouped by origin; `-o` keeps one origin (alias, `owner/repo[/root]`, URL or path; installed view also `mine`, `registry`, `adhoc`). |
 | `palm search <query> [--kind k] [--origin o]` | Search names and descriptions; `--kind mcp` also searches the MCP registry. |
 | `palm info <kind> <name[@origin]>` | Origin, version, dependencies, files per harness. |
 | `palm update [kind] [name]...` (`up`) | Refetch origins, reinstall what changed; `--dry-run` shows the plan. |

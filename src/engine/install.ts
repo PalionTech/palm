@@ -204,23 +204,19 @@ function manifestDepFor(entity: Entity, ref: string | undefined): DepRef | McpMa
   return dep;
 }
 
-/** Turn one request into a chosen entity (steps 3–5 of DESIGN §6). */
-async function resolveRequest(ctx: PalmContext, deps: EngineDeps, session: IndexSession, req: InstallRequest): Promise<Planned> {
-  if (req.adhocMcp) {
-    const cfg: McpServerConfig = { ...req.adhocMcp, source: { type: 'adhoc' } };
-    const entity = synthesizeMcp(cfg, 'adhoc', cfg.name);
-    return { entity, source: {}, direct: true, manifestDep: mcpManifestEntry(cfg) };
-  }
+interface IndexLookup {
+  dep: DepRef;
+  pool: SourcedIndex[];
+  /** Origin alias the lookup was limited to (`--from` or `name@origin`). */
+  scopedTo?: string;
+  cands: Candidate[];
+  /** Nothing indexed matches, but the MCP registry may know the name. */
+  registryFallback: boolean;
+}
+
+/** Match a request against the origin indexes (DESIGN §6 steps 3–5, before any registry lookup). */
+async function lookupIndexed(session: IndexSession, req: InstallRequest): Promise<IndexLookup> {
   const dep = normalizeDep(req.spec);
-  const kind = req.kind;
-
-  if (req.registry) {
-    const cands = await registryCandidates(ctx, deps, req.registry, dep.ref);
-    if (!cands.length) throw new PalmError('E_NOT_FOUND', `MCP registry has no server "${req.registry}"${dep.ref ? ` at ${dep.ref}` : ''}`);
-    const chosen = await choose(ctx, req.registry, cands);
-    return { ...chosen, direct: true, manifestDep: manifestDepFor(chosen.entity, dep.ref) };
-  }
-
   let pool: SourcedIndex[];
   let scopedTo: string | undefined;
   if (req.from) {
@@ -232,9 +228,33 @@ async function resolveRequest(ctx: PalmContext, deps: EngineDeps, session: Index
   } else {
     pool = await session.all();
   }
+  const cands = candidatesIn(pool, req.kind, dep.name);
+  const registryFallback =
+    cands.length === 0 && !scopedTo && (req.kind === 'mcp' || (req.kind === undefined && dep.name.includes('/')));
+  return { dep, pool, ...(scopedTo ? { scopedTo } : {}), cands, registryFallback };
+}
 
-  let cands = candidatesIn(pool, kind, dep.name);
-  if (cands.length === 0 && !scopedTo && (kind === 'mcp' || (kind === undefined && dep.name.includes('/')))) {
+/** Turn one request into a chosen entity (steps 3–5 of DESIGN §6). */
+async function resolveRequest(ctx: PalmContext, deps: EngineDeps, session: IndexSession, req: InstallRequest): Promise<Planned> {
+  if (req.adhocMcp) {
+    const cfg: McpServerConfig = { ...req.adhocMcp, source: { type: 'adhoc' } };
+    const entity = synthesizeMcp(cfg, 'adhoc', cfg.name);
+    return { entity, source: {}, direct: true, manifestDep: mcpManifestEntry(cfg) };
+  }
+  const kind = req.kind;
+
+  if (req.registry) {
+    const dep = normalizeDep(req.spec);
+    const cands = await registryCandidates(ctx, deps, req.registry, dep.ref);
+    if (!cands.length) throw new PalmError('E_NOT_FOUND', `MCP registry has no server "${req.registry}"${dep.ref ? ` at ${dep.ref}` : ''}`);
+    const chosen = await choose(ctx, req.registry, cands);
+    return { ...chosen, direct: true, manifestDep: manifestDepFor(chosen.entity, dep.ref) };
+  }
+
+  const found = await lookupIndexed(session, req);
+  const { dep, pool, scopedTo } = found;
+  let cands = found.cands;
+  if (found.registryFallback) {
     try {
       cands = await registryCandidates(ctx, deps, dep.name, dep.ref);
     } catch (e) {
@@ -515,6 +535,33 @@ async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): P
         ? 'updated'
         : 'installed';
   return { outcome: { entry, status, notes }, lock };
+}
+
+/**
+ * Fail fast on names that match nothing, before the CLI asks for targets: throws the same
+ * E_NOT_FOUND (with suggestions) or E_ORIGIN that installEntities would. Ad hoc MCP servers
+ * and names only the MCP registry may know are left to the engine (no network here), and so
+ * is ambiguity (the engine's picker). Git origins come from the index cache, so the engine's
+ * own lookup afterwards fetches nothing again.
+ */
+export async function preflightInstall(ctx: PalmContext, requests: InstallRequest[], depsIn?: Partial<EngineDeps>): Promise<void> {
+  const deps = await resolveEngineDeps(depsIn);
+  // installEntities reads the same origins and repeats their warnings; show them here only on failure.
+  const warned: string[] = [];
+  const quiet: PalmContext = { ...ctx, log: { ...ctx.log, warn: (msg) => void warned.push(msg) } };
+  const session = new IndexSession(quiet, deps.scan);
+  try {
+    for (const req of requests) {
+      if (req.adhocMcp || req.registry) continue;
+      const l = await lookupIndexed(session, req);
+      if (l.cands.length === 0 && !l.registryFallback) {
+        throw await notFound(quiet, session, req.kind, l.dep.name, l.scopedTo, l.scopedTo ? l.pool : undefined);
+      }
+    }
+  } catch (e) {
+    for (const msg of warned) ctx.log.warn(msg);
+    throw e;
+  }
 }
 
 /**

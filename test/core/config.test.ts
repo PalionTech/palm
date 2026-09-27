@@ -120,10 +120,10 @@ describe('origin registry', () => {
     expect(other.alias).toBe('someone-superpowers');
 
     // explicit alias clash → error
-    await expect(addOrigin(reloaded, parseOriginInput('x/y', { alias: 'superpowers' }))).rejects.toMatchObject({ code: 'E_ORIGIN' });
+    await expect(addOrigin(reloaded, parseOriginInput('x/y', { alias: 'superpowers' }))).rejects.toMatchObject({ code: 'E_CONFLICT' });
 
     // project scope writes palm.yaml origins
-    await writeFile(join(sb.project, 'palm.yaml'), 'origins:\n  - acme/superpowers-fork\n');
+    await writeFile(join(sb.project, 'palm.yaml'), 'origins:\n  - { alias: superpowers-fork, url: https://github.com/acme/superpowers-fork.git }\n');
     const proj = await makeContext(sb);
     await addOrigin(proj, { alias: 'mattpocock', type: 'git', url: 'https://github.com/mattpocock/skills.git', ref: 'v2' }, { scope: 'project' });
     const m = await loadManifest(join(sb.project, 'palm.yaml'));

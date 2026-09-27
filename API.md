@@ -31,6 +31,9 @@ export function originId(spec: OriginSpec): string;                          // 
 export async function addOrigin(ctx: PalmContext, spec: OriginSpec, opts?: { scope?: Scope }): Promise<OriginSpec>; // saves to config (global) or manifest.origins (project)
 export async function removeOrigin(ctx: PalmContext, alias: string): Promise<void>;
 export function findOrigin(ctx: PalmContext, alias: string): OriginSpec | undefined;   // config + project manifest origins
+export function matchOrigin(spec: OriginSpec, query: string): boolean;         // alias (any case), owner/repo[/root] of a git url+root, full url, local path (abs or ~)
+export function resolveOriginQuery(ctx: PalmContext, query: string): OriginSpec; // alias > exact origin > repo-only match; throws E_NOT_FOUND (lists aliases) / E_AMBIGUOUS
+export const ORIGIN_ALIAS_RE: RegExp;                                          // /^[a-z0-9][a-z0-9._-]*$/; stored origins without a valid alias → E_PARSE, clash on add → E_CONFLICT
 export function allOrigins(ctx: PalmContext): OriginSpec[];
 export async function ensureMineOrigin(ctx: PalmContext): Promise<OriginSpec>; // creates <palmHome>/mine (+ git init) and registers alias "mine"
 
@@ -79,6 +82,7 @@ export async function resolveEngineDeps(partial?: Partial<EngineDeps>, opts?: { 
 // install.ts
 export async function installEntities(ctx: PalmContext, requests: InstallRequest[], opts: InstallOptions, deps?: Partial<EngineDeps>): Promise<InstallResult>;
 export function dedupeOutcomes(outcomes: InstallOutcome[]): InstallOutcome[];   // one per kind+name+origin
+export async function preflightInstall(ctx: PalmContext, requests: InstallRequest[], deps?: Partial<EngineDeps>): Promise<void>; // CLI runs it before resolveTargets: throws installEntities' E_NOT_FOUND/E_ORIGIN for unmatched names; skips ad hoc/registry-only names; no picker
 // uninstall.ts
 export async function uninstallEntities(ctx: PalmContext, refs: Array<{ kind?: Kind; name: string; origin?: string }>, opts: { scope: Scope }, deps?: Partial<EngineDeps>): Promise<{ removed: LockEntry[]; warnings: string[] }>;
 export function planRemoval(lock: Lockfile, roots: LockEntry[], opts?: { manifest?: Manifest; checkRoots?: boolean }): { removed: LockEntry[]; kept: Array<{ entry: LockEntry; via?: string }> }; // reference counting via LockEntry.deps
