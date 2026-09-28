@@ -206,7 +206,7 @@ describe('agent wizard options', () => {
     origin,
     path: name,
     contentHash: 'sha256:x',
-    installedAt: '2026-09-27T00:00:00Z',
+    transform: 1,
     targets: ['claude'],
     files: [],
   });

@@ -42,6 +42,40 @@ export function parseSkillMd(dirName: string, text: string): SkillDefinition {
   return parseSkillMdDetailed(dirName, text).def;
 }
 
+/** Canonical name: frontmatter `name` when it is a valid slug, else derived from the directory. */
+function resolveSkillName(
+  dirName: string,
+  fmName: string | undefined,
+  opts: ParseSkillOptions,
+): { name: string; issue?: SkillIssue } {
+  if (opts.nameFrom === 'dirname') return { name: toSlug(dirName, fmName) };
+  if (fmName === undefined) {
+    const name = toSlug(dirName);
+    const message = `missing frontmatter name; using directory name "${name}"`;
+    return { name, issue: { code: 'name-missing', message } };
+  }
+  if (isSlug(fmName)) {
+    if (fmName === dirName) return { name: fmName };
+    const message = `frontmatter name "${fmName}" differs from directory "${dirName}"; keeping "${fmName}"`;
+    return { name: fmName, issue: { code: 'name-mismatch', message } };
+  }
+  const dirSlug = isSlug(dirName) ? dirName : slugify(dirName);
+  const name = dirSlug !== '' ? dirSlug : toSlug(fmName);
+  const message = `frontmatter name "${fmName}" is not a valid slug; using "${name}"`;
+  return { name, issue: { code: 'name-invalid', message } };
+}
+
+/** `metadata` as a string map (objects JSON-encoded, null/undefined values dropped). */
+function metadataOf(raw: unknown): Record<string, string> | undefined {
+  if (!isRecord(raw)) return undefined;
+  const metadata: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (v === undefined || v === null) continue;
+    metadata[k] = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  }
+  return metadata;
+}
+
 export function parseSkillMdDetailed(
   dirName: string,
   text: string,
@@ -52,64 +86,24 @@ export function parseSkillMdDetailed(
     throw new PalmError('E_PARSE', `SKILL.md in "${dirName}" has no YAML frontmatter`);
   }
   const data = parseFrontmatterYaml(split.raw);
-  const issues: SkillIssue[] = [];
   const fmName = asString(data.name);
-  const dirSlug = isSlug(dirName) ? dirName : slugify(dirName);
-
-  let name: string;
-  if (opts.nameFrom === 'dirname') {
-    name = toSlug(dirName, fmName);
-  } else if (fmName === undefined) {
-    name = toSlug(dirName);
-    issues.push({
-      code: 'name-missing',
-      message: `missing frontmatter name; using directory name "${name}"`,
-    });
-  } else if (isSlug(fmName)) {
-    name = fmName;
-    if (fmName !== dirName) {
-      issues.push({
-        code: 'name-mismatch',
-        message: `frontmatter name "${fmName}" differs from directory "${dirName}"; keeping "${fmName}"`,
-      });
-    }
-  } else {
-    name = dirSlug !== '' ? dirSlug : toSlug(fmName);
-    issues.push({
-      code: 'name-invalid',
-      message: `frontmatter name "${fmName}" is not a valid slug; using "${name}"`,
-    });
-  }
-
+  const { name, issue } = resolveSkillName(dirName, fmName, opts);
+  const issues: SkillIssue[] = issue ? [issue] : [];
   const description = asString(data.description);
   if (description === undefined)
     issues.push({ code: 'description-missing', message: 'missing frontmatter description' });
-
-  const metadataRaw = data.metadata;
-  let metadata: Record<string, string> | undefined;
-  if (isRecord(metadataRaw)) {
-    metadata = {};
-    for (const [k, v] of Object.entries(metadataRaw)) {
-      if (v === undefined || v === null) continue;
-      metadata[k] = typeof v === 'object' ? JSON.stringify(v) : String(v);
-    }
-  }
-
   const version =
-    asString(isRecord(metadataRaw) ? metadataRaw.version : undefined) ?? asString(data.version);
-  const allowedTools = asList(data['allowed-tools'] ?? data.allowedTools, { whitespace: true });
-
+    asString(isRecord(data.metadata) ? data.metadata.version : undefined) ?? asString(data.version);
   const extra: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) if (!SPEC_KEYS.has(k)) extra[k] = v;
-
   const def: SkillDefinition = withoutUndefined({
     name,
     description: description ?? '',
     version,
     license: asString(data.license),
     compatibility: asString(data.compatibility),
-    metadata,
-    allowedTools,
+    metadata: metadataOf(data.metadata),
+    allowedTools: asList(data['allowed-tools'] ?? data.allowedTools, { whitespace: true }),
     dirName: name !== dirName ? dirName : undefined,
     extra: Object.keys(extra).length > 0 ? extra : undefined,
   });

@@ -19,7 +19,8 @@ suffix, e.g. `import { isRecord } from '../lib/object.js'`.
 - `ensureDir(dir: string): Promise<void>`: `mkdir -p`.
 - `isWithin(child: string, parent: string, opts?: { strict?: boolean }): boolean`: lexical, absolute paths; `child === parent` is true unless `strict: true`; `isWithin('/a/bc', '/a/b')` is false.
 - `toPosix(p: string): string`: platform separator to `/`.
-- `writeFileAtomic(file: string, data: string | Uint8Array, opts?: { mode?: number }): Promise<void>`: temp file + rename in the same dir, creates parents, keeps the old file's mode unless `mode` is given, removes the temp file on failure.
+- `writeFileAtomic(file: string, data: string | Uint8Array, opts?: { mode?: number }): Promise<void>`: temp file + rename in the same dir, creates parents, keeps the old file's mode unless `mode` is given, removes the temp file on failure. A symlinked `file` (a chain, relative or dangling links included) is written through to its final target, so the link survives.
+- `resolveWriteTarget(file: string): Promise<string>`: the path a write to `file` lands on (the final target of a symlinked file, relative links resolved against the real directory holding them; ELOOP after 40 hops).
 - `readTextIfExists(file: string): Promise<string | undefined>`: undefined only for ENOENT.
 - `readJsonFile<T = unknown>(file: string, opts?: { tolerant?: boolean }): Promise<T>`: BOM ignored; `tolerant` accepts `//` and `/* */` comments and trailing commas; invalid JSON throws `invalid JSON in <file>: …`.
 - `readJsonIfExists<T = unknown>(file: string, opts?: { tolerant?: boolean }): Promise<T | undefined>`: undefined when missing or blank.
@@ -84,3 +85,13 @@ suffix, e.g. `import { isRecord } from '../lib/object.js'`.
 - `interface WriteYamlOptions { preserveFrom?: string | false; flowKeys?: readonly string[]; comment?: string; mode?: number }`: `preserveFrom: false` always writes fresh; `flowKeys` and `comment` (lines without `#`) apply to fresh documents.
 
 Also in `src/core/errors.ts`: `messageOf(e: unknown): string` and the `E_CANCELLED` code.
+
+## unicode.ts
+
+Hidden-Unicode detection for text palm deploys (`palm audit`, the pre-deploy scan).
+
+- `type HiddenUnicodeSeverity = 'critical' | 'warning'`; `interface HiddenUnicodeFinding { severity; codePoint: number; index: number; name: string }` (`index`: UTF-16 offset, what `text.slice` uses; `name`: the Unicode name, e.g. `RIGHT-TO-LEFT OVERRIDE`).
+- `scanHiddenUnicode(text: string): HiddenUnicodeFinding[]`: in order. Critical: bidi embeddings/overrides U+202A–U+202E and isolates U+2066–U+2069, tag characters U+E0000–U+E007F, variation selectors 17–256 U+E0100–U+E01EF. Warning: every invisible format character (category Cf: U+200B–U+200F, U+2060–U+2064, U+206A–U+206F, U+00AD, U+061C, U+180E, U+FFF9–U+FFFB, …) plus the Hangul fillers and U+034F; U+FEFF only after offset 0. Not reported: a BOM at offset 0, a ZWJ joining two emoji, visible Cf marks (U+0600–U+0605, U+06DD, U+070F, U+0890–U+0891, U+08E2, U+110BD, U+110CD), VS1–16.
+- `stripHiddenUnicode(text: string, opts?: { severity?: HiddenUnicodeSeverity }): string`: removes the findings (default every one; `'critical'` only critical), everything else byte for byte.
+- `hasHiddenUnicode(text: string, severity?: HiddenUnicodeSeverity): boolean` (default: any finding).
+- `describeCodePoint(cp: number): string` (`U+202E RIGHT-TO-LEFT OVERRIDE`) and `codePointName(cp: number): string` (`FORMAT CHARACTER` when unnamed).

@@ -70,7 +70,17 @@ export const VERBS: readonly VerbSpec[] = [
   },
 ];
 
-export const UTILITIES = ['init', 'doctor', 'config', 'completion', 'cache'] as const;
+export const UTILITIES = [
+  'init',
+  'doctor',
+  'outdated',
+  'why',
+  'find',
+  'audit',
+  'config',
+  'completion',
+  'cache',
+] as const;
 
 /** What a command action hands to the dispatcher. */
 export interface Invocation {

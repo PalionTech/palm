@@ -18,9 +18,9 @@ function entry(name: string, origin = 'o', extra: Partial<LockEntry> = {}): Lock
     origin,
     path: `skills/${name}`,
     contentHash: 'sha256:x',
-    installedAt: '2026-01-01T00:00:00.000Z',
+    transform: 1,
     targets: ['claude'],
-    files: [`.claude/skills/${name}/SKILL.md`],
+    files: [{ path: `.claude/skills/${name}/SKILL.md`, hash: '' }],
     ...extra,
   };
 }
@@ -33,11 +33,11 @@ describe('lockfile', () => {
   afterEach(async () => removeDir(dir));
 
   it('is empty when missing', async () => {
-    expect(await loadLock(join(dir, 'palm.lock.yaml'))).toEqual({ version: 1, entries: [] });
+    expect(await loadLock(join(dir, 'palm.lock.yaml'))).toEqual({ version: 2, entries: [] });
   });
 
   it('upserts by kind+name+origin and removes', () => {
-    let lock = upsertEntry({ version: 1, entries: [] }, entry('a'));
+    let lock = upsertEntry({ version: 2, entries: [] }, entry('a'));
     lock = upsertEntry(lock, entry('a', 'o', { contentHash: 'sha256:y' }));
     lock = upsertEntry(lock, entry('a', 'p'));
     expect(lock.entries).toHaveLength(2);
@@ -51,7 +51,7 @@ describe('lockfile', () => {
   it('saves and loads', async () => {
     const file = join(dir, 'palm.lock.yaml');
     const lock = upsertEntry(
-      upsertEntry({ version: 1, entries: [] }, entry('b')),
+      upsertEntry({ version: 2, entries: [] }, entry('b')),
       entry('a', 'o', { via: 'plugin:p', merged: [] }),
     );
     await saveLock(file, lock);

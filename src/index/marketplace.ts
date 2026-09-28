@@ -1,7 +1,8 @@
 /**
  * Plugin marketplaces (Claude, Cursor, Copilot, Codex). Used two ways:
- *  - during a scan, relative entries become plugin entities (see scan.ts);
- *  - `palm origin import` expands a marketplace into one OriginSpec per entry (parseMarketplace).
+ *  - during a scan, relative entries become plugin entities (see rules/marketplace.ts);
+ *  - `palm install origin <marketplace.json>` expands a marketplace into one OriginSpec per entry
+ *    (parseMarketplace).
  */
 
 import { readFile, stat } from 'node:fs/promises';
@@ -78,54 +79,65 @@ export function marketplaceRootFor(fileAbs: string): string {
 
 const REMOTE_STRING = /^(https?:\/\/|git@|ssh:\/\/|git:\/\/|github:)/;
 
+function normalizeSourceString(src: string): MarketplaceSource {
+  const s = src.trim();
+  if (s.startsWith('github:')) return { type: 'github', repo: s.slice('github:'.length) };
+  if (REMOTE_STRING.test(s)) return { type: 'git', url: s };
+  return { type: 'local', path: normRel(s) };
+}
+
+type SourceObject = Record<string, unknown>;
+
+function githubSource(src: SourceObject): MarketplaceSource {
+  const repo = asString(src.repo);
+  if (!repo) return { type: 'unknown', raw: src };
+  const path = asString(src.path);
+  return withoutUndefined({
+    type: 'github' as const,
+    repo,
+    path: path ? normRel(path) : undefined,
+    ref: asString(src.ref),
+    sha: asString(src.sha),
+  });
+}
+
+function gitSubdirSource(src: SourceObject): MarketplaceSource {
+  const url = asString(src.url);
+  if (!url) return { type: 'unknown', raw: src };
+  return withoutUndefined({
+    type: 'git-subdir' as const,
+    url,
+    path: normRel(asString(src.path) ?? ''),
+    ref: asString(src.ref),
+    sha: asString(src.sha),
+  });
+}
+
+function urlSource(src: SourceObject, kind: 'url' | 'git'): MarketplaceSource {
+  const url = asString(src.url);
+  if (!url) return { type: 'unknown', raw: src };
+  // Codex writes `{source:"url", url:"./"}` for the marketplace repo itself.
+  if (!REMOTE_STRING.test(url) && !/^[a-z]+:\/\//i.test(url))
+    return { type: 'local', path: normRel(url) };
+  return withoutUndefined({ type: kind, url, ref: asString(src.ref), sha: asString(src.sha) });
+}
+
 export function normalizeSource(src: unknown): MarketplaceSource {
-  if (typeof src === 'string') {
-    const s = src.trim();
-    if (s.startsWith('github:')) return { type: 'github', repo: s.slice('github:'.length) };
-    if (REMOTE_STRING.test(s)) return { type: 'git', url: s };
-    return { type: 'local', path: normRel(s) };
-  }
+  if (typeof src === 'string') return normalizeSourceString(src);
   if (!isRecord(src)) return { type: 'unknown', raw: src };
   const kind = asString(src.source) ?? asString(src.type);
-  const ref = asString(src.ref);
-  const sha = asString(src.sha);
-  const path = asString(src.path);
   switch (kind) {
-    case 'github': {
-      const repo = asString(src.repo);
-      if (!repo) return { type: 'unknown', raw: src };
-      return withoutUndefined({
-        type: 'github' as const,
-        repo,
-        path: path ? normRel(path) : undefined,
-        ref,
-        sha,
-      });
-    }
-    case 'git-subdir': {
-      const url = asString(src.url);
-      if (!url) return { type: 'unknown', raw: src };
-      return withoutUndefined({
-        type: 'git-subdir' as const,
-        url,
-        path: normRel(path ?? ''),
-        ref,
-        sha,
-      });
-    }
+    case 'github':
+      return githubSource(src);
+    case 'git-subdir':
+      return gitSubdirSource(src);
     case 'url':
-    case 'git': {
-      const url = asString(src.url);
-      if (!url) return { type: 'unknown', raw: src };
-      // Codex writes `{source:"url", url:"./"}` for the marketplace repo itself.
-      if (!REMOTE_STRING.test(url) && !/^[a-z]+:\/\//i.test(url))
-        return { type: 'local', path: normRel(url) };
-      return withoutUndefined({ type: kind, url, ref, sha });
-    }
+    case 'git':
+      return urlSource(src, kind);
     case 'local':
     case 'relative':
     case 'path':
-      return { type: 'local', path: normRel(path ?? asString(src.url) ?? '') };
+      return { type: 'local', path: normRel(asString(src.path) ?? asString(src.url) ?? '') };
     case 'npm': {
       const pkg = asString(src.package) ?? asString(src.name) ?? '';
       return withoutUndefined({
@@ -139,17 +151,26 @@ export function normalizeSource(src: unknown): MarketplaceSource {
   }
 }
 
+/** `@<sha12>` when pinned to a commit, else `#<ref>`, else nothing. */
+function pinSuffix(s: { ref?: string; sha?: string }): string {
+  if (s.sha) return `@${s.sha.slice(0, 12)}`;
+  return s.ref ? `#${s.ref}` : '';
+}
+
+const refSuffix = (ref: string | undefined): string => (ref ? `#${ref}` : '');
+const pathSuffix = (path: string | undefined): string => (path ? `/${path}` : '');
+
 export function describeSource(s: MarketplaceSource): string {
   switch (s.type) {
     case 'local':
       return s.path === '' ? './' : s.path;
     case 'github':
-      return `github:${s.repo}${s.path ? '/' + s.path : ''}${s.sha ? '@' + s.sha.slice(0, 12) : s.ref ? '#' + s.ref : ''}`;
+      return `github:${s.repo}${pathSuffix(s.path)}${pinSuffix(s)}`;
     case 'git-subdir':
-      return `${s.url} (${s.path})${s.sha ? '@' + s.sha.slice(0, 12) : s.ref ? '#' + s.ref : ''}`;
+      return `${s.url} (${s.path})${pinSuffix(s)}`;
     case 'url':
     case 'git':
-      return `${s.url}${s.sha ? '@' + s.sha.slice(0, 12) : s.ref ? '#' + s.ref : ''}`;
+      return `${s.url}${pinSuffix(s)}`;
     case 'npm':
       return `npm:${s.package}`;
     case 'unknown':
@@ -157,16 +178,16 @@ export function describeSource(s: MarketplaceSource): string {
   }
 }
 
-/** A `palm origin add` argument that would fetch this remote source. */
+/** The `palm install origin` arguments that would fetch this remote source. */
 export function originHint(s: MarketplaceSource): string | undefined {
   switch (s.type) {
     case 'github':
-      return `${s.repo}${s.path ? '/' + s.path : ''}${s.ref ? '#' + s.ref : ''}`;
+      return `${s.repo}${pathSuffix(s.path)}${refSuffix(s.ref)}`;
     case 'url':
     case 'git':
-      return `${s.url}${s.ref ? '#' + s.ref : ''}`;
+      return `${s.url}${refSuffix(s.ref)}`;
     case 'git-subdir':
-      return `${s.url}${s.ref ? '#' + s.ref : ''} (root: ${s.path})`;
+      return `${s.url}${refSuffix(s.ref)} --root ${s.path}`;
     default:
       return undefined;
   }
@@ -260,12 +281,104 @@ function baseFromUrl(file: string): { url?: string; ref?: string; root?: string 
   const m = raw ?? blob;
   if (!m) return {};
   const [, owner, repo, ref, filePath] = m;
-  const root = marketplaceRootFor('/' + (filePath ?? '')).slice(1);
+  const root = marketplaceRootFor(`/${filePath ?? ''}`).slice(1);
   return withoutUndefined({
     url: `https://github.com/${owner}/${repo}.git`,
     ref,
     root: root === '' ? undefined : root,
   });
+}
+
+/** Where relative entries of an imported marketplace resolve: a repository URL or a directory. */
+interface ImportBase {
+  url?: string;
+  ref?: string;
+  /** Marketplace root inside the repository (URL imports). */
+  root: string;
+  path?: string;
+}
+
+type SpecOrWarning = Omit<OriginSpec, 'alias'> | string;
+
+function localEntrySpec(e: MarketplaceEntry, path: string, base: ImportBase): SpecOrWarning {
+  const rel = joinRel(base.root, path);
+  if (base.url)
+    return {
+      type: 'git',
+      url: normalizeGitUrl(base.url),
+      ref: base.ref,
+      root: rel === '' ? undefined : rel,
+    };
+  if (base.path) return { type: 'local', path: resolve(base.path, rel === '' ? '.' : rel) };
+  return `plugin "${e.name}": relative source ${describeSource(e.source)} cannot be resolved without a base path or URL; skipped`;
+}
+
+/** The origin an entry imports as (remote pins: `sha` wins over `ref`), or why it cannot. */
+function entrySpec(e: MarketplaceEntry, base: ImportBase): SpecOrWarning {
+  const s = e.source;
+  switch (s.type) {
+    case 'local':
+      return localEntrySpec(e, s.path, base);
+    case 'github':
+      return {
+        type: 'git',
+        url: `https://github.com/${s.repo.replace(/\.git$/, '')}.git`,
+        ref: s.sha ?? s.ref,
+        root: s.path || undefined,
+      };
+    case 'git-subdir':
+      return {
+        type: 'git',
+        url: normalizeGitUrl(s.url),
+        ref: s.sha ?? s.ref,
+        root: s.path || undefined,
+      };
+    case 'url':
+    case 'git':
+      return { type: 'git', url: normalizeGitUrl(s.url), ref: s.sha ?? s.ref };
+    case 'npm':
+      return `plugin "${e.name}": npm source ${s.package} is not supported; skipped`;
+    case 'unknown':
+      return `plugin "${e.name}": unrecognised source ${describeSource(s)}; skipped`;
+  }
+}
+
+interface ImportedSpec {
+  spec: OriginSpec;
+  entry: string;
+}
+
+/** One origin per distinct location; entries sharing one (several `./` subsets) import once. */
+function collapseShared(mp: Marketplace, specs: ImportedSpec[], warnings: string[]): OriginSpec[] {
+  const groups = new Map<string, ImportedSpec[]>();
+  for (const s of specs) {
+    const key = JSON.stringify([s.spec.type, s.spec.url, s.spec.path, s.spec.ref, s.spec.root]);
+    groups.set(key, [...(groups.get(key) ?? []), s]);
+  }
+  const used = new Set<string>();
+  const uniqueAlias = (wanted: string) => {
+    let a = wanted;
+    for (let i = 2; used.has(a); i++) a = `${wanted}-${i}`;
+    used.add(a);
+    return a;
+  };
+  const origins: OriginSpec[] = [];
+  for (const [first, ...rest] of groups.values()) {
+    if (!first) continue;
+    if (rest.length === 0) {
+      origins.push(
+        withoutUndefined({ ...first.spec, alias: uniqueAlias(slugify(first.entry) || 'plugin') }),
+      );
+      continue;
+    }
+    const alias = uniqueAlias(toSlug(mp.name, first.entry));
+    warnings.push(
+      `plugins ${[first, ...rest].map((g) => `"${g.entry}"`).join(', ')} share one source; imported once as origin "${alias}"`,
+    );
+    first.spec.description = mp.name ? `marketplace ${mp.name}` : first.spec.description;
+    origins.push(withoutUndefined({ ...first.spec, alias }));
+  }
+  return origins;
 }
 
 /**
@@ -281,95 +394,21 @@ export const parseMarketplace = async (
   const mp = await readMarketplace(file);
   const warnings = [...mp.warnings];
   const fromUrl = /^https?:\/\//.test(file) ? baseFromUrl(file) : {};
-  const baseUrl = base.url ?? fromUrl.url;
-  const baseRef = base.ref ?? fromUrl.ref;
-  const baseRoot = base.url ? '' : (fromUrl.root ?? '');
-  const basePath = base.path ?? mp.rootDir;
-
-  const specs: Array<{ spec: OriginSpec; entry: string; key: string }> = [];
-  for (const e of mp.entries) {
-    const s = e.source;
-    let spec: Omit<OriginSpec, 'alias'> | undefined;
-    switch (s.type) {
-      case 'local': {
-        const rel = joinRel(baseRoot, s.path);
-        if (baseUrl)
-          spec = {
-            type: 'git',
-            url: normalizeGitUrl(baseUrl),
-            ref: baseRef,
-            root: rel === '' ? undefined : rel,
-          };
-        else if (basePath)
-          spec = { type: 'local', path: resolve(basePath, rel === '' ? '.' : rel) };
-        else
-          warnings.push(
-            `plugin "${e.name}": relative source ${describeSource(s)} cannot be resolved without a base path or URL; skipped`,
-          );
-        break;
-      }
-      case 'github':
-        spec = {
-          type: 'git',
-          url: `https://github.com/${s.repo.replace(/\.git$/, '')}.git`,
-          ref: s.sha ?? s.ref,
-          root: s.path || undefined,
-        };
-        break;
-      case 'git-subdir':
-        spec = {
-          type: 'git',
-          url: normalizeGitUrl(s.url),
-          ref: s.sha ?? s.ref,
-          root: s.path || undefined,
-        };
-        break;
-      case 'url':
-      case 'git':
-        spec = { type: 'git', url: normalizeGitUrl(s.url), ref: s.sha ?? s.ref };
-        break;
-      case 'npm':
-        warnings.push(`plugin "${e.name}": npm source ${s.package} is not supported; skipped`);
-        break;
-      case 'unknown':
-        warnings.push(`plugin "${e.name}": unrecognised source ${describeSource(s)}; skipped`);
-        break;
-    }
-    if (!spec) continue;
-    const full = withoutUndefined({ alias: '', ...spec, description: e.description }) as OriginSpec;
-    const key = JSON.stringify([full.type, full.url, full.path, full.ref, full.root]);
-    specs.push({ spec: full, entry: e.name, key });
-  }
-
-  // Collapse entries sharing one location (e.g. several `source: "./"` subsets of one repo).
-  const groups = new Map<string, Array<{ spec: OriginSpec; entry: string }>>();
-  for (const s of specs) {
-    const g = groups.get(s.key);
-    if (g) g.push(s);
-    else groups.set(s.key, [s]);
-  }
-  const used = new Set<string>();
-  const uniqueAlias = (wanted: string) => {
-    let a = wanted;
-    for (let i = 2; used.has(a); i++) a = `${wanted}-${i}`;
-    used.add(a);
-    return a;
+  const importBase: ImportBase = {
+    url: base.url ?? fromUrl.url,
+    ref: base.ref ?? fromUrl.ref,
+    root: base.url ? '' : (fromUrl.root ?? ''),
+    path: base.path ?? mp.rootDir,
   };
-  const origins: OriginSpec[] = [];
-  for (const group of groups.values()) {
-    const first = group[0];
-    if (!first) continue;
-    let alias: string;
-    if (group.length > 1) {
-      alias = uniqueAlias(toSlug(mp.name, first.entry));
-      warnings.push(
-        `plugins ${group.map((g) => `"${g.entry}"`).join(', ')} share one source; imported once as origin "${alias}"`,
-      );
-      first.spec.description = mp.name ? `marketplace ${mp.name}` : first.spec.description;
-    } else {
-      alias = uniqueAlias(slugify(first.entry) || 'plugin');
-    }
-    origins.push(withoutUndefined({ ...first.spec, alias }));
+  const specs: ImportedSpec[] = [];
+  for (const e of mp.entries) {
+    const spec = entrySpec(e, importBase);
+    if (typeof spec === 'string') warnings.push(spec);
+    else
+      specs.push({
+        spec: withoutUndefined({ alias: '', ...spec, description: e.description }) as OriginSpec,
+        entry: e.name,
+      });
   }
-  return { origins, warnings };
+  return { origins: collapseShared(mp, specs, warnings), warnings };
 };

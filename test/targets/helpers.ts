@@ -44,9 +44,9 @@ export function mkLock(
     origin: 'test',
     path: entity.path,
     contentHash: 'sha256:0',
-    installedAt: '2026-09-27T00:00:00Z',
+    transform: 1,
     targets,
-    files,
+    files: files.map((path) => ({ path, hash: '' })),
     merged,
   };
 }

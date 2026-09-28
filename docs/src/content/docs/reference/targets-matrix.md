@@ -7,13 +7,12 @@ This page lists every path palm writes, by kind, target and scope.
 `<n>` is the entity name. Project paths are relative to the project root; global paths start at `~`.
 
 ```sh
-palm install agent reviewer --target claude,codex,copilot,cursor
+palm install agent reviewer --target claude,codex,copilot,cursor,gemini,opencode
 palm install agent reviewer -g
 ```
 
-`gemini` (Gemini CLI) and `opencode` (OpenCode) are planned for 1.0.
-Their rows show the planned paths, checked against each harness's documentation and source on 2026-09-28.
-A note under each table names the paths we could not verify yet.
+The `gemini` (Gemini CLI) and `opencode` (OpenCode) rows follow each harness's documentation and source, checked on 2026-09-28.
+Neither harness has been tested against a running CLI yet.
 
 ## Skills
 
@@ -23,13 +22,12 @@ A note under each table names the paths we could not verify yet.
 | `codex` | `.agents/skills/<n>/` | `~/.agents/skills/<n>/` |
 | `copilot` | `.agents/skills/<n>/` | `~/.agents/skills/<n>/` |
 | `cursor` | `.agents/skills/<n>/` | `~/.agents/skills/<n>/` |
-| `gemini`, planned | `.gemini/skills/<n>/` | `~/.gemini/skills/<n>/` |
-| `opencode`, planned | `.opencode/skills/<n>/` | `~/.config/opencode/skills/<n>/` |
+| `gemini` | `.agents/skills/<n>/` | `~/.agents/skills/<n>/` |
+| `opencode` | `.agents/skills/<n>/` | `~/.agents/skills/<n>/` |
 
-We have not verified the Gemini CLI paths yet.
-
-palm writes `.agents/skills` once, however many of `codex`, `copilot` and `cursor` are active.
-OpenCode also reads `.agents/skills` and `.claude/skills`.
+palm writes `.agents/skills` once, however many of `codex`, `copilot`, `cursor`, `gemini` and `opencode` are active.
+With `$GEMINI_CLI_HOME` set, Gemini CLI reads `$GEMINI_CLI_HOME/.agents/skills`, so global skills go to `$GEMINI_CLI_HOME/.gemini/skills/<n>/`.
+With `OPENCODE_DISABLE_EXTERNAL_SKILLS` set, OpenCode ignores `.agents/skills`, so palm writes `.opencode/skills/<n>/` and `~/.config/opencode/skills/<n>/`.
 
 ## Agents
 
@@ -39,11 +37,17 @@ OpenCode also reads `.agents/skills` and `.claude/skills`.
 | `codex` | `.codex/agents/<n>.toml` | `~/.codex/agents/<n>.toml` |
 | `copilot` | `.github/agents/<n>.agent.md` | `~/.copilot/agents/<n>.agent.md` |
 | `cursor` | `.cursor/agents/<n>.md` | `~/.cursor/agents/<n>.md` |
-| `gemini`, planned | `.gemini/agents/<n>.md` | `~/.gemini/agents/<n>.md` |
-| `opencode`, planned | `.opencode/agents/<n>.md` | `~/.config/opencode/agents/<n>.md` |
+| `gemini` | `.gemini/agents/<n>.md` | `~/.gemini/agents/<n>.md` |
+| `opencode` | `.opencode/agents/<n>.md` | `~/.config/opencode/agents/<n>.md` |
 
-We have not verified the Gemini CLI and OpenCode paths yet.
-Gemini CLI agents are a preview feature.
+Gemini CLI rejects an agent file with any key outside its schema.
+palm writes only `name`, `description`, `kind`, `display_name`, `tools`, `model`, `temperature`, `max_turns` and `timeout_mins`.
+Claude tool names become Gemini names, for example `Read` becomes `read_file` and `Bash` becomes `run_shell_command`.
+Gemini CLI agents are a preview feature behind `experimental.enableAgents`.
+
+OpenCode passes unknown agent keys to the model provider, so palm writes only the keys OpenCode defines.
+Each agent gets `mode: subagent`, and a `tools` list becomes a `permission` block that denies everything else.
+The install summary names every key palm dropped.
 
 ## Instructions
 
@@ -53,10 +57,13 @@ Gemini CLI agents are a preview feature.
 | `codex` | managed block in `AGENTS.md` | managed block in `~/.codex/AGENTS.md` |
 | `copilot` | `.github/instructions/<n>.instructions.md` | `~/.copilot/instructions/<n>.instructions.md` |
 | `cursor` | `.cursor/rules/<n>.mdc` | skipped: Cursor has no user rules |
-| `gemini`, planned | managed block in `GEMINI.md` | managed block in `~/.gemini/GEMINI.md` |
-| `opencode`, planned | managed block in `AGENTS.md` | managed block in `~/.config/opencode/AGENTS.md` |
+| `gemini` | managed block in `GEMINI.md` | managed block in `~/.gemini/GEMINI.md` |
+| `opencode` | `.opencode/instructions/<n>.md`, listed in `opencode.json` | `~/.config/opencode/instructions/<n>.md`, listed in `~/.config/opencode/opencode.json` |
 
-We have not verified the global Gemini CLI and OpenCode paths yet.
+Gemini CLI loads only `GEMINI.md` files, so each instruction is a block in that file.
+OpenCode reads the files named in the `instructions` array of `opencode.json`.
+palm adds one entry per instruction: a project-relative path, or an absolute path in the global config.
+It does not write `AGENTS.md` for OpenCode, because an `AGENTS.md` hides an existing `CLAUDE.md` from OpenCode.
 
 ## Commands
 
@@ -66,11 +73,12 @@ We have not verified the global Gemini CLI and OpenCode paths yet.
 | `codex` | skipped: Codex has no project prompts | `~/.codex/prompts/<n>.md` |
 | `copilot` | `.github/prompts/<n>.prompt.md` | skipped: Copilot has no user prompt files |
 | `cursor` | `.cursor/commands/<n>.md` | `~/.cursor/commands/<n>.md` |
-| `gemini`, planned | `.gemini/commands/<n>.toml` | `~/.gemini/commands/<n>.toml` |
-| `opencode`, planned | `.opencode/commands/<n>.md` | `~/.config/opencode/commands/<n>.md` |
+| `gemini` | `.gemini/commands/<n>.toml` | `~/.gemini/commands/<n>.toml` |
+| `opencode` | `.opencode/commands/<n>.md` | `~/.config/opencode/commands/<n>.md` |
 
-Gemini CLI commands are TOML files; we verified the format.
-We have not verified the Gemini CLI and OpenCode paths yet.
+Gemini CLI commands are TOML files with `description` and `prompt`.
+palm turns `$ARGUMENTS` into `{{args}}`, a shell line into `!{cmd}` and a file reference into `@{path}`.
+Gemini CLI has no positional arguments such as `$1`, and the install summary says so.
 
 ## Hooks
 
@@ -80,13 +88,26 @@ We have not verified the Gemini CLI and OpenCode paths yet.
 | `codex` | merged into `.codex/hooks.json` | merged into `~/.codex/hooks.json` |
 | `copilot` | `.github/hooks/<n>.json` | `~/.copilot/hooks/<n>.json` |
 | `cursor` | merged into `.cursor/hooks.json` | merged into `~/.cursor/hooks.json` |
-| `gemini`, planned | merged into `.gemini/settings.json` (`hooks`) | merged into `~/.gemini/settings.json` |
-| `opencode`, planned | skipped: OpenCode hooks are JavaScript plugins | skipped |
-
-We have not verified the Gemini CLI paths yet.
+| `gemini` | merged into `.gemini/settings.json` (`hooks`) | merged into `~/.gemini/settings.json` (`hooks`) |
+| `opencode` | skipped: OpenCode hooks are JavaScript plugins | skipped |
 
 palm copies hook scripts to `.palm/hooks/<n>/`, or to `~/.palm/hooks/<n>/` with `-g`.
 Claude Code and Codex use PascalCase event names; Cursor and Copilot use camelCase with `version: 1`.
+
+Gemini CLI has its own event names and counts timeouts in milliseconds:
+
+| Claude Code event | Gemini CLI event |
+| --- | --- |
+| `PreToolUse` | `BeforeTool` |
+| `PostToolUse` | `AfterTool` |
+| `UserPromptSubmit` | `BeforeAgent` |
+| `Stop` | `AfterAgent` |
+| `PreCompact` | `PreCompress` |
+| `SessionStart`, `SessionEnd`, `Notification` | same name |
+
+palm drops the other Claude Code events, such as `SubagentStop`, and names them in the install summary.
+Tool names in matchers change as for agents.
+A hook script still receives Gemini tool names on stdin, so a script that tests for `Bash` does not match.
 
 ## MCP servers
 
@@ -96,14 +117,20 @@ Claude Code and Codex use PascalCase event names; Cursor and Copilot use camelCa
 | `codex` | `.codex/config.toml` (`[mcp_servers.<n>]`) | `~/.codex/config.toml` |
 | `copilot` | `.vscode/mcp.json` (`servers`) | `~/.copilot/mcp-config.json` (`mcpServers`) |
 | `cursor` | `.cursor/mcp.json` | `~/.cursor/mcp.json` |
-| `gemini`, planned | `.gemini/settings.json` (`mcpServers`) | `~/.gemini/settings.json` |
-| `opencode`, planned | `opencode.json` (`mcp`) | `~/.config/opencode/opencode.json` |
+| `gemini` | `.gemini/settings.json` (`mcpServers`) | `~/.gemini/settings.json` (`mcpServers`) |
+| `opencode` | `opencode.json` (`mcp`) | `~/.config/opencode/opencode.json` (`mcp`) |
 
-We have not verified the global Gemini CLI and OpenCode paths yet.
+Secrets stay environment references unless you pass `--secrets literal`.
+Gemini CLI uses `${NAME}`, like Claude Code. OpenCode uses `{env:NAME}` and has no default value syntax.
+palm writes `opencode.json` even when `opencode.jsonc` exists, because OpenCode loads and merges both.
 
 ## Harness homes
 
 With `-g`, `~/.claude` follows `$CLAUDE_CONFIG_DIR`, `~/.codex` follows `$CODEX_HOME` and `~/.copilot` follows `$COPILOT_HOME`.
+`~/.gemini` becomes `$GEMINI_CLI_HOME/.gemini`, and `~/.config/opencode` becomes `$XDG_CONFIG_HOME/opencode`.
+
+Gemini CLI ignores project settings, commands, skills, agents and MCP servers in folders you have not trusted.
+Trust the project folder in Gemini CLI after installing.
 
 ## How merging works
 
@@ -113,9 +140,10 @@ The lockfile records each insertion as a file, a JSON pointer and the exact valu
 
 An uninstall removes exactly those values.
 It prunes containers palm emptied, such as `"hooks": {}`, and deletes a JSON file left as `{}`.
-It removes directories palm emptied, but never the harness directories themselves, such as `.claude` or `.github`.
+It removes directories palm emptied, but never the harness directories themselves, such as `.claude`, `.github` or `.opencode`.
 
-For Codex instructions, palm writes one managed block per instruction in `AGENTS.md` and removes only its own blocks.
+For Codex and Gemini CLI instructions, palm writes one managed block per instruction in `AGENTS.md` or `GEMINI.md` and removes only its own blocks.
+For OpenCode, it removes only its own entries from the `instructions` array.
 
 ## Related
 

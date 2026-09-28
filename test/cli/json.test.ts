@@ -47,7 +47,7 @@ describe('--json: stdout carries one JSON document, everything else goes to stde
     expect(onlyJson(r.stdout)).toMatchObject({ error: { code: 'E_NOT_FOUND' } });
   });
 
-  it('install with a failing target: nothing but the error document on stdout, exit 1', async () => {
+  it('install with a failing target: the result document lists the failure, exit 1', async () => {
     sb = await cliSandbox();
     await writeOrigins(sb, [{ alias: 'matt', fixture: 'mattpocock-like' }]);
     const { getTarget } = fakeTargets({ failFor: ['claude'] });
@@ -58,7 +58,8 @@ describe('--json: stdout carries one JSON document, everything else goes to stde
     });
     expect(r.code).toBe(1);
     expect(onlyJson(r.stdout)).toMatchObject({
-      error: { code: 'E_TARGET', message: 'claude is broken' },
+      outcomes: [{ status: 'failed', entry: { name: 'tdd', targets: [] } }],
+      failures: [{ name: 'tdd', target: 'claude', code: 'E_TARGET', message: 'claude is broken' }],
     });
   });
 
@@ -72,13 +73,16 @@ describe('--json: stdout carries one JSON document, everything else goes to stde
       deps: { getTarget },
     });
     const doc = onlyJson(r.stdout);
-    expect(doc).toMatchObject({ outcomes: [{ entry: { name: 'tdd', targets: ['claude'] } }] });
-    expect((doc.warnings as string[]).some((w) => w.includes('codex is broken'))).toBe(true);
-    expect(r.code).toBe(failureCount(doc) ? 1 : 0);
+    expect(doc).toMatchObject({
+      outcomes: [{ entry: { name: 'tdd', targets: ['claude'] } }],
+      failures: [{ name: 'tdd', target: 'codex', message: 'codex is broken' }],
+    });
+    expect(failureCount(doc)).toBe(1);
+    expect(r.code).toBe(1);
     expect(r.stderr).not.toContain('{');
   });
 
-  it('human output of the same install shows the table and the warning at the end', async () => {
+  it('human output of the same install shows the table and the failure on stderr', async () => {
     sb = await cliSandbox();
     await writeOrigins(sb, [{ alias: 'matt', fixture: 'mattpocock-like' }]);
     const { getTarget } = fakeTargets({ failFor: ['codex'] });
@@ -88,6 +92,7 @@ describe('--json: stdout carries one JSON document, everything else goes to stde
       deps: { getTarget },
     });
     expect(r.stdout).toContain('+ installed  skill  tdd');
-    expect(r.stderr).toMatch(/Warnings\n {2}! skill tdd → codex: codex is broken/);
+    expect(r.stderr).toMatch(/x skill tdd@matt → codex: codex is broken/);
+    expect(r.code).toBe(1);
   });
 });

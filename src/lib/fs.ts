@@ -12,6 +12,7 @@ import {
   mkdir,
   readdir,
   readFile,
+  readlink,
   realpath,
   rename,
   rm,
@@ -72,24 +73,53 @@ async function fileMode(p: string): Promise<number | undefined> {
   }
 }
 
+/** Longest symlink chain `writeFileAtomic` follows (Linux's own limit). */
+const MAX_LINK_HOPS = 40;
+
+/**
+ * The path a write to `file` lands on: `file` itself, or, when it is a symbolic link (or a
+ * chain of them), the final target, so a dotfiles-managed `~/.claude/settings.json` stays a
+ * link. A relative link resolves against the real directory holding it; a dangling link
+ * resolves to its missing target. Symlinked parent directories need nothing special: the
+ * temp file and the rename both go through them.
+ */
+export async function resolveWriteTarget(file: string): Promise<string> {
+  let current = path.resolve(file);
+  for (let hop = 0; hop < MAX_LINK_HOPS; hop++) {
+    let isLink: boolean;
+    try {
+      isLink = (await lstat(current)).isSymbolicLink();
+    } catch (e) {
+      if (isEnoent(e)) return current;
+      throw e;
+    }
+    if (!isLink) return current;
+    current = path.resolve(await realpath(path.dirname(current)), await readlink(current));
+  }
+  throw Object.assign(new Error(`too many levels of symbolic links: ${file}`), { code: 'ELOOP' });
+}
+
 /**
  * Writes `data` to `file` through a temp file and a rename in the same directory, creating
- * missing parent directories. The existing file's permission bits are kept unless `mode` is
- * given. On failure the temp file is removed and the error rethrown.
+ * missing parent directories. A symlinked `file` is written through: the temp file and the
+ * rename happen next to the link's final target, and the link itself is left in place. The
+ * existing file's permission bits are kept unless `mode` is given. On failure the temp file is
+ * removed and the error rethrown.
  */
 export async function writeFileAtomic(
   file: string,
   data: string | Uint8Array,
   opts: { mode?: number } = {},
 ): Promise<void> {
-  const dir = path.dirname(file);
+  const target = await resolveWriteTarget(file);
+  const dir = path.dirname(target);
   await mkdir(dir, { recursive: true });
-  const mode = opts.mode ?? (await fileMode(file));
-  const tmp = path.join(dir, `.${path.basename(file)}.${randomBytes(6).toString('hex')}.tmp`);
+  const mode = opts.mode ?? (await fileMode(target));
+  const tmp = path.join(dir, `.${path.basename(target)}.${randomBytes(6).toString('hex')}.tmp`);
   try {
     await writeFile(tmp, data, mode === undefined ? {} : { mode });
     if (mode !== undefined) await chmod(tmp, mode);
-    await rename(tmp, file);
+    await rename(tmp, target);
   } catch (e) {
     await rm(tmp, { force: true }).catch(() => undefined);
     throw e;

@@ -38,11 +38,11 @@ export function parseInstructionFile(absPath: string, text: string): Instruction
 
   if (lower.endsWith('.instructions.md')) {
     const applyTo = asList(data.applyTo);
-    const always = applyTo !== undefined && applyTo.some((g) => ALWAYS_GLOBS.has(g));
+    const always = applyTo?.some((g) => ALWAYS_GLOBS.has(g)) ?? false;
     return withoutUndefined({
       name,
       description,
-      globs: applyTo && applyTo.length > 0 && !always ? applyTo : undefined,
+      globs: applyTo?.length && !always ? applyTo : undefined,
       alwaysApply: always,
       body,
       sourceFormat: 'instructions-md' as const,

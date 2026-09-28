@@ -4,7 +4,7 @@
  */
 import type { Command, Option } from 'commander';
 import { resourceWords } from '../core/kinds.js';
-import { TARGET_IDS } from '../core/types.js';
+import { KINDS, TARGET_IDS } from '../core/types.js';
 import type { App } from './app.js';
 import { type Invocation, usage, VERBS } from './grammar.js';
 
@@ -43,6 +43,8 @@ function firstWords(cmd: Command): string[] {
   const verb = VERBS.find((v) => v.name === cmd.name());
   if (verb) return [...new Set(verb.resources.flatMap((r) => resourceWords(r)))];
   if (cmd.name() === 'completion') return [...SHELLS];
+  // utilities whose first argument is a kind (`outdated`, `why`, `audit`)
+  if (cmd.registeredArguments[0]?.name() === 'kind') return KINDS.flatMap((k) => resourceWords(k));
   return cmd.commands.map((c) => c.name());
 }
 

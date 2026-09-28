@@ -52,6 +52,8 @@ export interface ParsedInstallArgs {
   saveOrigin: boolean;
   secrets?: SecretPolicy;
   prune: boolean;
+  /** `--frozen`: install exactly what the lock records; any difference is an error. */
+  frozen: boolean;
   adhoc?: AdhocMcpArgs;
   scope: Scope;
   targets?: TargetId[];
@@ -63,6 +65,7 @@ interface InstallCliOptions extends GlobalOptions {
   saveOrigin?: boolean;
   secrets?: string;
   prune?: boolean;
+  frozen?: boolean;
   url?: string;
   header?: string[];
   env?: string[];
@@ -174,6 +177,13 @@ function checkMode(mode: 'install' | 'sync', kind: Kind | undefined, opts: Insta
       '--prune only applies to a bare `palm install` (manifest sync)',
       'palm install --prune',
     );
+  if (opts.frozen && mode !== 'sync')
+    throw usage(
+      '--frozen only applies to a bare `palm install` (install what palm.lock.yaml records)',
+      'palm install --frozen',
+    );
+  if (opts.frozen && opts.prune)
+    throw usage('--frozen writes nothing, so it cannot --prune', 'palm install --frozen');
   if (opts.saveOrigin && !opts.from)
     throw usage(
       '--save-origin needs --from <origin>',
@@ -190,7 +200,7 @@ export function interpretInstallArgs(inv: Invocation, passthrough: string[]): Pa
   const adhoc = adhocArgs(kind, specs, opts, passthrough);
   const mode = specs.length === 0 ? 'sync' : 'install';
   checkMode(mode, kind, opts);
-  const { from, saveOrigin, secrets, prune, url, header, env, transport, ...global } = opts;
+  const { from, saveOrigin, secrets, prune, frozen, url, header, env, transport, ...global } = opts;
   return {
     mode,
     kind,
@@ -199,6 +209,7 @@ export function interpretInstallArgs(inv: Invocation, passthrough: string[]): Pa
     saveOrigin: Boolean(saveOrigin),
     secrets: parseSecretPolicy(secrets),
     prune: Boolean(prune),
+    frozen: Boolean(frozen),
     adhoc,
     scope: scopeOf(global),
     targets: parseTargetList(global.target),
@@ -240,11 +251,12 @@ export async function installWithContext(
   finishInstall(r, result, targets);
 }
 
+/** Targets, saved to palm.yaml / config.yaml when none are stored (not under --frozen). */
 async function resolveTargetsFor(r: InstallRun): Promise<TargetId[]> {
   const { resolveTargets } = await import('../engine/resolve-targets.js');
   return resolveTargets(
     r.ctx,
-    { scope: r.parsed.scope, flag: r.parsed.targets, save: true },
+    { scope: r.parsed.scope, flag: r.parsed.targets, save: !r.parsed.frozen },
     r.deps,
   );
 }
@@ -259,6 +271,7 @@ async function syncInstall(r: InstallRun): Promise<void> {
       scope: parsed.scope,
       prune: parsed.prune,
       targets,
+      ...(parsed.frozen ? { frozen: true } : {}),
       ...(parsed.secrets ? { secretPolicy: parsed.secrets } : {}),
     },
     r.deps,
@@ -280,7 +293,8 @@ function finishInstall(r: InstallRun, result: InstallResult, targets: TargetId[]
   if (parsed.global.dryRun && !out.jsonMode) out.hint(`\n${DRY_RUN_NOTE}`);
   const failed = failureCount(result);
   if (failed) {
-    if (!out.jsonMode) out.error(`${failed} of ${result.outcomes.length} failed; see above`);
+    if (!out.jsonMode)
+      out.error(`${failed} failed; see above (the lockfile records what succeeded)`);
     throw new ExitSignal(1);
   }
 }

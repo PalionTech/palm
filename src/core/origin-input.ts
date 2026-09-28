@@ -135,7 +135,7 @@ function localPathFor(raw: string, cwd: string): string | undefined {
     throw new PalmError(
       'E_ORIGIN',
       `Local origin must be a directory: ${abs}`,
-      'For a marketplace.json file use `palm origin import <file>`.',
+      'For a marketplace.json file use `palm install origin <file>`.',
     );
   }
   return abs;

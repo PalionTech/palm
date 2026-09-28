@@ -21,80 +21,75 @@ function validate(ids: readonly string[], where: string): TargetId[] {
   return out;
 }
 
-/** Persist targets: `targets:` in palm.yaml (project) or config.yaml (global), when they differ. */
-async function saveTargets(ctx: PalmContext, scope: Scope, targets: TargetId[]): Promise<void> {
-  if (ctx.flags.dryRun) return;
-  const same = (a: readonly string[] | undefined): boolean =>
-    !!a && a.length === targets.length && a.every((t, i) => t === targets[i]);
-  if (scope === 'project') {
-    const file = ScopePaths.of(ctx, 'project').manifestFile;
-    const m = await Manifest.load(file);
-    if (same(m.targets)) return;
-    await m.setTargets(targets).save(file);
-    ctx.log.debug(`saved targets ${targets.join(', ')} to ${file}`);
-  } else {
-    if (same(ctx.config.targets)) return;
-    ctx.config.targets = targets;
-    await saveConfig(ctx.paths, ctx.config);
-    ctx.log.debug('saved targets to config.yaml');
-  }
+type TargetSource = 'flag' | 'manifest' | 'config' | 'detected' | 'picked';
+
+function sameList(a: readonly string[] | undefined, b: readonly string[]): boolean {
+  return !!a && a.length === b.length && a.every((t, i) => t === b[i]);
 }
 
 /**
- * Targets for an operation: --target flag > manifest `targets` (project) >
- * config default > detection > interactive multiselect. With `save`, an explicit
- * flag or an interactive pick is persisted (palm.yaml for project scope,
- * config.yaml for global) when it differs from what is stored.
+ * Persist resolved targets so the next run (and the next developer) gets the same set:
+ * `targets:` in palm.yaml (project) or config.yaml (global). Written when the store has none,
+ * whatever decided them (config default, detection, a pick), and when an explicit flag or a
+ * pick differs from what is stored. One info line says so. Never under --dry-run.
  */
-export async function resolveTargets(
+async function persistTargets(
   ctx: PalmContext,
-  opts: { scope: Scope; flag?: TargetId[]; save?: boolean },
-  depsIn?: Partial<EngineDeps>,
+  scope: Scope,
+  found: { targets: TargetId[]; source: TargetSource },
+): Promise<void> {
+  const { targets, source } = found;
+  const explicit = source === 'flag' || source === 'picked';
+  if (ctx.flags.dryRun) return;
+  if (scope === 'project') {
+    const file = ScopePaths.of(ctx, 'project').manifestFile;
+    const m = await Manifest.load(file);
+    if ((m.targets?.length && !explicit) || sameList(m.targets, targets)) return;
+    await m.setTargets(targets).save(file);
+    ctx.log.info(`saved targets ${targets.join(', ')} to palm.yaml`);
+    return;
+  }
+  if ((ctx.config.targets?.length && !explicit) || sameList(ctx.config.targets, targets)) return;
+  ctx.config.targets = targets;
+  await saveConfig(ctx.paths, ctx.config);
+  ctx.log.info(`saved targets ${targets.join(', ')} to config.yaml`);
+}
+
+async function detectTargets(
+  ctx: PalmContext,
+  scope: Scope,
+  deps: EngineDeps,
 ): Promise<TargetId[]> {
-  if (opts.flag?.length) {
-    const targets = validate(opts.flag, '--target');
-    if (opts.save) await saveTargets(ctx, opts.scope, targets);
-    return targets;
-  }
-
-  if (opts.scope === 'project') {
-    const m = await Manifest.load(ScopePaths.of(ctx, 'project').manifestFile);
-    if (m.targets?.length) return validate(m.targets, 'palm.yaml');
-  }
-  if (ctx.config.targets?.length) return validate(ctx.config.targets, 'config.yaml');
-
-  const deps = await resolveEngineDeps(depsIn, { targets: true });
-  const { root } = ScopePaths.of(ctx, opts.scope);
+  const { root } = ScopePaths.of(ctx, scope);
   const detected = await Promise.all(
     TARGET_IDS.map(async (id) => {
       try {
-        return (await deps.getTarget(id).detect(opts.scope, root, ctx.env)) ? id : undefined;
+        return (await deps.getTarget(id).detect(scope, root, ctx.env)) ? id : undefined;
       } catch (e) {
         ctx.log.debug(`target ${id} detection failed: ${messageOf(e)}`);
         return undefined;
       }
     }),
   );
-  const found = detected.filter((x): x is TargetId => !!x);
-  if (found.length) {
-    ctx.log.debug(`detected targets: ${found.join(', ')}`);
-    return found;
-  }
+  return detected.filter((x): x is TargetId => !!x);
+}
 
+async function pickTargets(ctx: PalmContext, scope: Scope, deps: EngineDeps): Promise<TargetId[]> {
   if (!ctx.ui.isInteractive) {
     throw new PalmError(
       'E_TARGET',
-      `No coding harness detected ${opts.scope === 'global' ? 'in your home directory' : 'in this project'}`,
+      `No coding harness detected ${scope === 'global' ? 'in your home directory' : 'in this project'}`,
       '--target claude,codex (or set `targets:` in palm.yaml / `palm config set targets claude,codex`)',
     );
   }
+  const { root } = ScopePaths.of(ctx, scope);
   const picked = await ctx.ui.pickMany(
     'Which harnesses should palm install into?',
     TARGET_IDS.map((id) => {
       const t = deps.getTarget(id);
       let hint: string | undefined;
       try {
-        hint = t.configDir(opts.scope, root, ctx.env);
+        hint = t.configDir(scope, root, ctx.env);
       } catch {
         hint = undefined;
       }
@@ -104,7 +99,43 @@ export async function resolveTargets(
   );
   if (!picked.length)
     throw new PalmError('E_TARGET', 'No target selected', '--target claude,codex');
-  const targets = validate(picked, 'selection');
-  if (opts.save) await saveTargets(ctx, opts.scope, targets);
-  return targets;
+  return validate(picked, 'selection');
+}
+
+/** Targets and where they came from: flag > palm.yaml > config.yaml > detection > pick. */
+async function findTargets(
+  ctx: PalmContext,
+  opts: { scope: Scope; flag?: TargetId[] },
+  depsIn?: Partial<EngineDeps>,
+): Promise<{ targets: TargetId[]; source: TargetSource }> {
+  if (opts.flag?.length) return { targets: validate(opts.flag, '--target'), source: 'flag' };
+  if (opts.scope === 'project') {
+    const m = await Manifest.load(ScopePaths.of(ctx, 'project').manifestFile);
+    if (m.targets?.length) return { targets: validate(m.targets, 'palm.yaml'), source: 'manifest' };
+  }
+  if (ctx.config.targets?.length)
+    return { targets: validate(ctx.config.targets, 'config.yaml'), source: 'config' };
+  const deps = await resolveEngineDeps(depsIn, { targets: true });
+  const found = await detectTargets(ctx, opts.scope, deps);
+  if (found.length) {
+    ctx.log.debug(`detected targets: ${found.join(', ')}`);
+    return { targets: found, source: 'detected' };
+  }
+  return { targets: await pickTargets(ctx, opts.scope, deps), source: 'picked' };
+}
+
+/**
+ * Targets for an operation: --target flag > manifest `targets` (project) > config default >
+ * detection > interactive multiselect. With `save`, the result is persisted so the set does
+ * not depend on the machine: palm.yaml (project) or config.yaml (global) get `targets:` when
+ * they have none, and an explicit flag or a pick replaces a different stored set.
+ */
+export async function resolveTargets(
+  ctx: PalmContext,
+  opts: { scope: Scope; flag?: TargetId[]; save?: boolean },
+  depsIn?: Partial<EngineDeps>,
+): Promise<TargetId[]> {
+  const found = await findTargets(ctx, opts, depsIn);
+  if (opts.save) await persistTargets(ctx, opts.scope, found);
+  return found.targets;
 }

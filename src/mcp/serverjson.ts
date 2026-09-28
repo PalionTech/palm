@@ -168,37 +168,33 @@ const RUNTIME_HINT_TO_TYPE: Record<string, string> = {
   dnx: 'nuget',
 };
 
+function legacyPackage(p: unknown): unknown {
+  if (!isRecord(p)) return p;
+  const pkg = { ...p };
+  if (pkg.identifier === undefined && typeof pkg.name === 'string') pkg.identifier = pkg.name;
+  if (!pkg.registryType && typeof pkg.registryName === 'string' && pkg.registryName)
+    pkg.registryType = pkg.registryName;
+  if (!pkg.registryType && typeof pkg.runtimeHint === 'string')
+    pkg.registryType = RUNTIME_HINT_TO_TYPE[pkg.runtimeHint];
+  if (pkg.version === '') delete pkg.version;
+  if (!pkg.transport) pkg.transport = { type: 'stdio' };
+  return pkg;
+}
+
+function legacyRemote(r: unknown): unknown {
+  if (!isRecord(r)) return r;
+  const rem = { ...r };
+  if (rem.type === undefined && typeof rem.transportType === 'string') rem.type = rem.transportType;
+  return rem;
+}
+
 function normalizeLegacy(raw: Record<string, unknown>): Record<string, unknown> {
   const s = camelizeKeys(raw) as Record<string, unknown>;
-  const vd = s['versionDetail'];
-  if (s['version'] === undefined && isRecord(vd) && typeof vd['version'] === 'string')
-    s['version'] = vd['version'];
-  if (Array.isArray(s['packages'])) {
-    s['packages'] = s['packages'].map((p: unknown) => {
-      if (!isRecord(p)) return p;
-      const pkg = { ...p };
-      if (pkg['identifier'] === undefined && typeof pkg['name'] === 'string')
-        pkg['identifier'] = pkg['name'];
-      if (!pkg['registryType'] && typeof pkg['registryName'] === 'string' && pkg['registryName']) {
-        pkg['registryType'] = pkg['registryName'];
-      }
-      if (!pkg['registryType'] && typeof pkg['runtimeHint'] === 'string') {
-        pkg['registryType'] = RUNTIME_HINT_TO_TYPE[pkg['runtimeHint']];
-      }
-      if (pkg['version'] === '') delete pkg['version'];
-      if (!pkg['transport']) pkg['transport'] = { type: 'stdio' };
-      return pkg;
-    });
-  }
-  if (Array.isArray(s['remotes'])) {
-    s['remotes'] = s['remotes'].map((r: unknown) => {
-      if (!isRecord(r)) return r;
-      const rem = { ...r };
-      if (rem['type'] === undefined && typeof rem['transportType'] === 'string')
-        rem['type'] = rem['transportType'];
-      return rem;
-    });
-  }
+  const vd = s.versionDetail;
+  if (s.version === undefined && isRecord(vd) && typeof vd.version === 'string')
+    s.version = vd.version;
+  if (Array.isArray(s.packages)) s.packages = s.packages.map(legacyPackage);
+  if (Array.isArray(s.remotes)) s.remotes = s.remotes.map(legacyRemote);
   return s;
 }
 
@@ -208,11 +204,11 @@ function normalizeLegacy(raw: Record<string, unknown>): Record<string, unknown> 
  */
 export function normalizeServerJson(raw: unknown): ServerJson {
   let s: unknown = raw;
-  if (isRecord(s) && isRecord(s['server']) && typeof s['name'] !== 'string') s = s['server'];
+  if (isRecord(s) && isRecord(s.server) && typeof s.name !== 'string') s = s.server;
   if (!isRecord(s)) throw new PalmError('E_PARSE', 'Invalid server.json: expected an object');
   if (looksLegacy(s)) s = normalizeLegacy(s);
   const obj = s as Record<string, unknown>;
-  if (typeof obj['name'] !== 'string' || obj['name'] === '') {
+  if (typeof obj.name !== 'string' || obj.name === '') {
     throw new PalmError('E_PARSE', 'Invalid server.json: missing "name"');
   }
   return obj as unknown as ServerJson;
@@ -259,6 +255,45 @@ interface TemplateOpts {
   wholeName?: string;
 }
 
+interface Template {
+  text: string;
+  parent: ServerJsonInput;
+  idents: string[];
+  /** The whole template is exactly one `{ident}`. */
+  single: boolean;
+  opts: TemplateOpts;
+}
+
+/** The SecretRef (and `${VAR}` placeholder) one `{ident}` segment becomes. */
+function variableRef(c: Conv, t: Template, match: string, ident: string) {
+  const { opts } = t;
+  const v = t.parent.variables?.[ident];
+  const name = t.single && opts.wholeName ? opts.wholeName : variableEnvName(c, ident);
+  const ref: SecretRef = {
+    name,
+    in: opts.in,
+    required: Boolean(v?.isRequired || t.parent.isRequired),
+  };
+  const description = v?.description ?? t.parent.description;
+  if (description) ref.description = description;
+  if (opts.in === 'header' && opts.header) {
+    ref.header = opts.header;
+    if (t.idents.length === 1 && !t.single) ref.format = t.text.replace(match, '{value}');
+  }
+  c.secrets.add(ref);
+  return envRef(name);
+}
+
+/** One `{ident}` segment: a fixed value or non-secret default inline, else a `${VAR}` reference. */
+function substituteOne(c: Conv, t: Template, match: string, ident: string) {
+  const v = t.parent.variables?.[ident];
+  if (!v && !t.opts.undeclared) return match;
+  const secret = Boolean(v?.isSecret || t.parent.isSecret);
+  if (v?.value !== undefined) return v.value;
+  if (v?.default !== undefined && !secret) return v.default;
+  return variableRef(c, t, match, ident);
+}
+
 /**
  * Substitute `{ident}` template segments. Variables with a fixed `value` (or a non-secret
  * `default`) are inlined; everything else becomes a `${VAR}` placeholder plus a SecretRef.
@@ -269,30 +304,12 @@ function substitute(
   parent: ServerJsonInput,
   opts: TemplateOpts,
 ): string {
-  const vars = parent.variables ?? {};
   const idents = [...template.matchAll(TEMPLATE_VAR)].map((m) => m[1] as string);
   const single = idents.length === 1 && template.trim() === `{${idents[0]}}`;
-  return template.replace(TEMPLATE_VAR, (match, ident: string) => {
-    const v = vars[ident];
-    if (!v && !opts.undeclared) return match;
-    const secret = Boolean(v?.isSecret || parent.isSecret);
-    if (v?.value !== undefined) return v.value;
-    if (v?.default !== undefined && !secret) return v.default;
-    const name = single && opts.wholeName ? opts.wholeName : variableEnvName(c, ident);
-    const ref: SecretRef = {
-      name,
-      in: opts.in,
-      required: Boolean(v?.isRequired || parent.isRequired),
-    };
-    const description = v?.description ?? parent.description;
-    if (description) ref.description = description;
-    if (opts.in === 'header' && opts.header) {
-      ref.header = opts.header;
-      if (idents.length === 1 && !single) ref.format = template.replace(match, '{value}');
-    }
-    c.secrets.add(ref);
-    return envRef(name);
-  });
+  const t: Template = { text: template, parent, idents, single, opts };
+  return template.replace(TEMPLATE_VAR, (match, ident: string) =>
+    substituteOne(c, t, match, ident),
+  );
 }
 
 /** Header or env var entry → rendered value, or undefined to omit (optional, nothing to fill in). */
@@ -321,6 +338,58 @@ interface RenderedArgs {
   env: Record<string, string>;
 }
 
+/** A named argument's flag with its leading dashes (`port` → `--port`); undefined for positionals. */
+function flagOf(arg: ServerJsonArgument): string | undefined {
+  if (arg.type !== 'named' || !arg.name) return undefined;
+  return arg.name.startsWith('-') ? arg.name : `--${arg.name}`;
+}
+
+/**
+ * docker `-e KEY=<template with variables>` → `-e KEY` plus env[KEY], so secrets travel via the
+ * environment instead of the command line. False when `arg` is not such an argument.
+ */
+function dockerEnvArg(c: Conv, arg: ServerJsonArgument, flag: string, out: RenderedArgs): boolean {
+  if ((flag !== '-e' && flag !== '--env') || arg.value === undefined || !arg.variables)
+    return false;
+  const eq = arg.value.indexOf('=');
+  const tpl = eq > 0 ? arg.value.slice(eq + 1) : '';
+  if (eq <= 0 || !HAS_TEMPLATE_VAR.test(tpl)) return false;
+  const key = arg.value.slice(0, eq);
+  out.env[key] = substitute(c, tpl, arg, { undeclared: false, in: 'env', wholeName: key });
+  out.args.push(flag, key);
+  return true;
+}
+
+/** An argument's value: fixed (templated), default, or a required `${VAR}` the user fills in. */
+function argValue(c: Conv, arg: ServerJsonArgument): string | undefined {
+  if (arg.value !== undefined)
+    return substitute(c, arg.value, arg, { undeclared: false, in: 'env' });
+  if (arg.default !== undefined) return arg.default;
+  if (!arg.isRequired) return undefined;
+  const label = arg.valueHint ?? arg.name?.replace(/^-+/, '') ?? 'arg';
+  const name = `${c.prefix}_${upperSnake(label)}`;
+  const ref: SecretRef = { name, in: 'env', required: true };
+  if (arg.description) ref.description = arg.description;
+  c.secrets.add(ref);
+  return envRef(name);
+}
+
+function pushArg(
+  out: RenderedArgs,
+  arg: ServerJsonArgument,
+  flag: string | undefined,
+  value?: string,
+) {
+  if (arg.type !== 'named') {
+    if (value !== undefined) out.args.push(value);
+    return;
+  }
+  if (!flag) return;
+  // A declared flag with no value: only meaningful for required boolean switches.
+  if (value !== undefined) out.args.push(flag, value);
+  else if (arg.isRequired && arg.format === 'boolean') out.args.push(flag);
+}
+
 function renderArgs(
   c: Conv,
   list: ServerJsonArgument[] | undefined,
@@ -328,49 +397,9 @@ function renderArgs(
 ): RenderedArgs {
   const out: RenderedArgs = { args: [], env: {} };
   for (const arg of list ?? []) {
-    const flag =
-      arg.type === 'named' && arg.name
-        ? arg.name.startsWith('-')
-          ? arg.name
-          : `--${arg.name}`
-        : undefined;
-
-    // docker -e KEY=<template with variables> → `-e KEY` + env[KEY], so secrets travel via env.
-    if (dockerEnv && flag && (flag === '-e' || flag === '--env') && arg.value !== undefined) {
-      const eq = arg.value.indexOf('=');
-      const tpl = eq > 0 ? arg.value.slice(eq + 1) : '';
-      if (eq > 0 && arg.variables && HAS_TEMPLATE_VAR.test(tpl)) {
-        const key = arg.value.slice(0, eq);
-        out.env[key] = substitute(c, tpl, arg, { undeclared: false, in: 'env', wholeName: key });
-        out.args.push(flag, key);
-        continue;
-      }
-    }
-
-    let value: string | undefined;
-    if (arg.value !== undefined)
-      value = substitute(c, arg.value, arg, { undeclared: false, in: 'env' });
-    else if (arg.default !== undefined) value = arg.default;
-    else if (arg.isRequired) {
-      const label = arg.valueHint ?? arg.name?.replace(/^-+/, '') ?? 'arg';
-      const name = `${c.prefix}_${upperSnake(label)}`;
-      const ref: SecretRef = { name, in: 'env', required: true };
-      if (arg.description) ref.description = arg.description;
-      c.secrets.add(ref);
-      value = envRef(name);
-    }
-
-    if (arg.type === 'named') {
-      if (!flag) continue;
-      if (value === undefined) {
-        // A declared flag with no value: only meaningful for required boolean switches.
-        if (arg.isRequired && arg.format === 'boolean') out.args.push(flag);
-        continue;
-      }
-      out.args.push(flag, value);
-    } else if (value !== undefined) {
-      out.args.push(value);
-    }
+    const flag = flagOf(arg);
+    if (dockerEnv && flag && dockerEnvArg(c, arg, flag, out)) continue;
+    pushArg(out, arg, flag, argValue(c, arg));
   }
   return out;
 }
@@ -400,8 +429,8 @@ function ociImage(pkg: ServerJsonPackage): string {
   return tagged || !pkg.version ? id : `${id}:${pkg.version}`;
 }
 
-function fromPackage(c: Conv, sj: ServerJson, pkg: ServerJsonPackage): McpServerConfig {
-  const transport = pkg.transport?.type ?? 'stdio';
+/** mcpb bundles and non-stdio packages: palm cannot start them; E_USAGE with what to do instead. */
+function rejectUninstallable(c: Conv, sj: ServerJson, pkg: ServerJsonPackage): void {
   if (pkg.registryType === 'mcpb') {
     throw new PalmError(
       'E_USAGE',
@@ -409,6 +438,7 @@ function fromPackage(c: Conv, sj: ServerJson, pkg: ServerJsonPackage): McpServer
       `Install the bundle in a client that supports .mcpb, or add it manually with: palm install mcp ${c.short} -- <command> [args...]`,
     );
   }
+  const transport = pkg.transport?.type ?? 'stdio';
   if (transport !== 'stdio') {
     const where = pkg.transport?.url ? ` at ${pkg.transport.url}` : '';
     throw new PalmError(
@@ -417,68 +447,83 @@ function fromPackage(c: Conv, sj: ServerJson, pkg: ServerJsonPackage): McpServer
       `Start it yourself (${pkg.registryType} ${pkg.identifier}), then: palm install mcp ${c.short} --url <url>`,
     );
   }
+}
 
+/** The package's environment variables that have a value to write (optional empty ones omitted). */
+function envFromPackage(c: Conv, pkg: ServerJsonPackage): Record<string, string> {
   const env: Record<string, string> = {};
-  const envNames: string[] = [];
   for (const ev of pkg.environmentVariables ?? []) {
     if (!ev?.name) continue;
     const v = keyValue(c, ev, 'env');
-    if (v === undefined) continue;
-    env[ev.name] = v;
-    envNames.push(ev.name);
+    if (v !== undefined) env[ev.name] = v;
   }
+  return env;
+}
 
-  const isOci = pkg.registryType === 'oci';
-  const runtime = renderArgs(c, pkg.runtimeArguments, isOci);
+interface PackageLaunch {
+  pkg: ServerJsonPackage;
+  runtime: string[];
+  packageArgs: string[];
+  /** Names of the env vars the server gets (docker passes each with `-e`). */
+  envNames: string[];
+}
+
+type CommandBuilder = (l: PackageLaunch) => { command: string; args: string[] };
+
+function versioned(pkg: ServerJsonPackage, sep: string): string {
+  return pkg.version ? `${pkg.identifier}${sep}${pkg.version}` : pkg.identifier;
+}
+
+/** How each package registry's server is started. */
+const COMMAND_FOR: Readonly<Record<string, CommandBuilder>> = {
+  npm: ({ pkg, runtime, packageArgs }) => {
+    const yes = runtime.includes('-y') || runtime.includes('--yes') ? [] : ['-y'];
+    const spec = hasFlag(pkg.runtimeArguments, '--package', '-p') ? [] : [versioned(pkg, '@')];
+    return { command: 'npx', args: [...yes, ...runtime, ...spec, ...packageArgs] };
+  },
+  pypi: ({ pkg, runtime, packageArgs }) => {
+    const spec = hasFlag(pkg.runtimeArguments, '--from') ? [] : [versioned(pkg, '==')];
+    return { command: 'uvx', args: [...runtime, ...spec, ...packageArgs] };
+  },
+  oci: ({ pkg, runtime, packageArgs, envNames }) => {
+    const envFlags = envNames.flatMap((n) => ['-e', n]);
+    const args = ['run', '-i', '--rm', ...envFlags, ...runtime, ociImage(pkg), ...packageArgs];
+    return { command: 'docker', args };
+  },
+  nuget: ({ pkg, runtime, packageArgs }) => {
+    const args = [...runtime, versioned(pkg, '@'), '--yes'];
+    if (packageArgs.length) args.push('--', ...packageArgs);
+    return { command: 'dnx', args };
+  },
+};
+
+/** Other registries run through their `runtimeHint`; without one palm cannot start them. */
+function commandFor(
+  c: Conv,
+  sj: ServerJson,
+  l: PackageLaunch,
+): { command: string; args: string[] } {
+  const known = COMMAND_FOR[l.pkg.registryType];
+  if (known) return known(l);
+  if (!l.pkg.runtimeHint) {
+    throw new PalmError(
+      'E_USAGE',
+      `MCP server ${sj.name} uses unsupported package registry "${l.pkg.registryType}"`,
+      `Add it manually with: palm install mcp ${c.short} -- <command> [args...]`,
+    );
+  }
+  return { command: l.pkg.runtimeHint, args: [...l.runtime, l.pkg.identifier, ...l.packageArgs] };
+}
+
+function fromPackage(c: Conv, sj: ServerJson, pkg: ServerJsonPackage): McpServerConfig {
+  rejectUninstallable(c, sj, pkg);
+  const env = envFromPackage(c, pkg);
+  const envNames = Object.keys(env);
+  const runtime = renderArgs(c, pkg.runtimeArguments, pkg.registryType === 'oci');
   const packageArgs = renderArgs(c, pkg.packageArguments, false).args;
   Object.assign(env, runtime.env);
-
-  let command: string;
-  let args: string[];
-  const id = pkg.identifier;
-  switch (pkg.registryType) {
-    case 'npm': {
-      command = 'npx';
-      const yes = runtime.args.includes('-y') || runtime.args.includes('--yes') ? [] : ['-y'];
-      const spec = hasFlag(pkg.runtimeArguments, '--package', '-p')
-        ? []
-        : [pkg.version ? `${id}@${pkg.version}` : id];
-      args = [...yes, ...runtime.args, ...spec, ...packageArgs];
-      break;
-    }
-    case 'pypi': {
-      command = 'uvx';
-      const spec = hasFlag(pkg.runtimeArguments, '--from')
-        ? []
-        : [pkg.version ? `${id}==${pkg.version}` : id];
-      args = [...runtime.args, ...spec, ...packageArgs];
-      break;
-    }
-    case 'oci': {
-      command = 'docker';
-      const envFlags = envNames.flatMap((n) => ['-e', n]);
-      args = ['run', '-i', '--rm', ...envFlags, ...runtime.args, ociImage(pkg), ...packageArgs];
-      break;
-    }
-    case 'nuget': {
-      command = 'dnx';
-      args = [...runtime.args, pkg.version ? `${id}@${pkg.version}` : id, '--yes'];
-      if (packageArgs.length) args.push('--', ...packageArgs);
-      break;
-    }
-    default: {
-      if (!pkg.runtimeHint) {
-        throw new PalmError(
-          'E_USAGE',
-          `MCP server ${sj.name} uses unsupported package registry "${pkg.registryType}"`,
-          `Add it manually with: palm install mcp ${c.short} -- <command> [args...]`,
-        );
-      }
-      command = pkg.runtimeHint;
-      args = [...runtime.args, id, ...packageArgs];
-    }
-  }
-
+  const launch = { pkg, runtime: runtime.args, packageArgs, envNames };
+  const { command, args } = commandFor(c, sj, launch);
   const cfg: McpServerConfig = { name: c.short, transport: 'stdio', command, args };
   if (Object.keys(env).length) cfg.env = env;
   return cfg;

@@ -219,7 +219,7 @@ describe('parseOriginInput: one row per matcher', () => {
       expect.objectContaining({ code: 'E_ORIGIN', hint: expect.stringContaining('owner/repo') }),
     );
     expect(() => parseOriginInput('./file.json', { cwd: dir })).toThrow(
-      expect.objectContaining({ hint: expect.stringContaining('palm origin import') }),
+      expect.objectContaining({ hint: expect.stringContaining('palm install origin') }),
     );
   });
 });

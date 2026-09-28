@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   hooksAssetDir,
+  isHomeAsProject,
   lockPath,
   manifestPath,
   resolvePaths,
@@ -69,5 +70,33 @@ describe('resolvePaths', () => {
     expect(lockPath(p, 'global')).toBe('/p/palm.lock.yaml');
     expect(hooksAssetDir(p, 'project', 'fmt')).toBe('/proj/.palm/hooks/fmt');
     expect(hooksAssetDir(p, 'global', 'fmt')).toBe('/p/hooks/fmt');
+  });
+});
+
+describe('isHomeAsProject', () => {
+  let root: string;
+  beforeEach(async () => {
+    root = await tempDir();
+  });
+  afterEach(async () => removeDir(root));
+
+  it('is true when the project root falls back to home, and false everywhere else', async () => {
+    const home = join(root, 'home');
+    const env = { HOME: home };
+    await mkdir(join(home, 'notes'), { recursive: true });
+    await mkdir(join(root, 'repo', '.git'), { recursive: true });
+    expect(isHomeAsProject(resolvePaths(home, env), env)).toBe(true);
+    expect(isHomeAsProject(resolvePaths(join(home, 'notes'), env), env)).toBe(false);
+    expect(isHomeAsProject(resolvePaths(join(root, 'repo'), env), env)).toBe(false);
+  });
+
+  it('a dotfiles .git in home is no marker; a palm.yaml there is', async () => {
+    const home = join(root, 'home');
+    const env = { HOME: home };
+    await mkdir(join(home, '.git'), { recursive: true });
+    await mkdir(join(home, 'notes'), { recursive: true });
+    expect(isHomeAsProject(resolvePaths(join(home, 'notes'), env), env)).toBe(true);
+    await writeFile(join(home, 'palm.yaml'), 'skills: []\n');
+    expect(isHomeAsProject(resolvePaths(join(home, 'notes'), env), env)).toBe(false);
   });
 });

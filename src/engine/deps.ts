@@ -8,6 +8,8 @@ const DISPLAY_NAMES: Record<TargetId, string> = {
   codex: 'Codex',
   copilot: 'GitHub Copilot',
   cursor: 'Cursor',
+  gemini: 'Gemini CLI',
+  opencode: 'OpenCode',
 };
 
 function unavailable(what: string, file: string, e: unknown): PalmError {
@@ -70,8 +72,7 @@ function lazyTarget(id: TargetId): Target {
       return loaded.configDir(scope, root, env);
     },
     deploy: async (input) => (await load()).deploy(input),
-    undeploy: async (entry, scope, root, dryRun, env) =>
-      (await load()).undeploy(entry, scope, root, dryRun, env),
+    undeploy: async (...args) => (await load()).undeploy(...args),
   };
 }
 

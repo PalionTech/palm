@@ -1,11 +1,15 @@
 /**
  * `palm uninstall [kind] <names...>` (aliases `remove`, `rm`, `delete`): delete what palm
- * wrote, reverse merged config, drop dependencies nothing else needs, update palm.yaml.
+ * wrote, reverse merged config, drop dependencies nothing else needs, update palm.yaml. Files
+ * the user changed since palm wrote them stay (listed, `--force` removes them); a file or
+ * target that cannot be removed is reported and the command exits 1.
  * `palm uninstall origin <alias>...` unregisters origins.
  */
-import type { LockEntry } from '../core/types.js';
+import pc from 'picocolors';
+import type { Kind, LockEntry } from '../core/types.js';
 import { DepRef } from '../domain/dep-ref.js';
-import { type Output, symbol } from '../ui/output.js';
+import type { UninstallResult } from '../engine/uninstall.js';
+import { type Output, printFailures, symbol } from '../ui/output.js';
 import type { App } from './app.js';
 import { type Invocation, usage } from './grammar.js';
 import { uninstallOrigin } from './origin.js';
@@ -31,33 +35,47 @@ function printRemoved(out: Output, removed: LockEntry[], dryRun: boolean): void 
   );
 }
 
-export async function run(inv: Invocation, app: App): Promise<void> {
-  if (inv.resource === 'origin') return uninstallOrigin(inv, app);
-  const g = inv.opts as GlobalOptions;
-  const kind = entityKind(inv.resource, 'uninstall');
+/** Modified files palm left in place, with the command that removes them anyway. */
+function printSkipped(out: Output, result: UninstallResult, again: string): void {
+  if (!result.skipped.length) return;
+  out.out();
+  out.out(`${symbol('warning')} kept files you changed since palm wrote them:`);
+  for (const s of result.skipped)
+    for (const f of s.files) out.out(`    ${f}  ${pc.dim(`(${s.kind} ${s.name})`)}`);
+  out.hint(`  delete them too: ${again} --force`);
+}
+
+function refsOf(inv: Invocation, kind: Kind | undefined) {
   if (inv.names.length === 0)
     throw usage(
       `name at least one ${kind ?? 'entity'} to uninstall`,
       `palm uninstall ${kind ?? 'skill'} <name>   (see what is installed: palm get)`,
     );
-  const refs = inv.names.map((spec) => {
+  return inv.names.map((spec) => {
     const ref = DepRef.parse(spec);
     return { kind, name: ref.name, ...(ref.origin ? { origin: ref.origin } : {}) };
   });
+}
+
+export async function run(inv: Invocation, app: App): Promise<void> {
+  if (inv.resource === 'origin') return uninstallOrigin(inv, app);
+  const g = inv.opts as GlobalOptions;
+  const kind = entityKind(inv.resource, 'uninstall');
+  const refs = refsOf(inv, kind);
   const scope = scopeOf(g);
   const ctx = await makeContext(app, g);
   const { uninstallEntities } = await import('../engine/uninstall.js');
-  const result: { removed: LockEntry[]; warnings: string[] } = await uninstallEntities(
-    ctx,
-    refs,
-    { scope },
-    app.deps,
-  );
+  const result = await uninstallEntities(ctx, refs, { scope }, app.deps);
   const out = app.out;
   for (const w of result.warnings) out.warn(w);
+  const again = ['palm uninstall', inv.resource, ...inv.names, scope === 'global' ? '-g' : '']
+    .filter(Boolean)
+    .join(' ');
   if (out.jsonMode) out.json(result);
   else if (result.removed.length === 0) out.warn(`nothing was removed from the ${scope} scope`);
   else printRemoved(out, result.removed, ctx.flags.dryRun);
+  if (!out.jsonMode) printSkipped(out, result, again);
   if (ctx.flags.dryRun && !out.jsonMode) out.hint('\ndry run: nothing was removed');
+  if (!out.jsonMode) printFailures(out, result.failures);
   if (failureCount(result)) throw new ExitSignal(1);
 }

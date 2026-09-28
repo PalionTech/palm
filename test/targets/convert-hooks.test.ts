@@ -7,6 +7,8 @@ import { CLAUDE_HOOKS } from './helpers.js';
 const PROJECT = ScopePaths.at('project', '/proj', { HOME: '/home/u' });
 const GLOBAL = ScopePaths.at('global', '/home/u', {});
 const ASSET = PROJECT.hooksAssetDir('fmt');
+/** What codex and copilot project commands use for the project root. */
+const GIT_TOP = '$(git rev-parse --show-toplevel 2>/dev/null || pwd)';
 const claudeSet: HookSet = {
   name: 'fmt',
   dialect: 'claude',
@@ -46,6 +48,19 @@ describe('convertHooks from Claude', () => {
     });
   });
 
+  it.each(['claude', 'codex', 'copilot', 'cursor'] as const)(
+    '%s project: no absolute path in any command; global keeps the absolute asset dir',
+    (target) => {
+      const project = JSON.stringify(convertHooks(claudeSet, target, ASSET, PROJECT).hooks);
+      expect(project).not.toContain('/proj');
+      expect(project).toContain('/.palm/hooks/fmt/hooks/format.sh');
+      const global = JSON.stringify(
+        convertHooks(claudeSet, target, '/home/u/.palm/hooks/fmt', GLOBAL).hooks,
+      );
+      expect(global).toContain('/home/u/.palm/hooks/fmt/hooks/format.sh');
+    },
+  );
+
   it('claude global: absolute asset dir', () => {
     const r = convertHooks(claudeSet, 'claude', '/home/u/.palm/hooks/fmt', GLOBAL);
     expect(JSON.stringify(r.hooks)).toContain('\\"/home/u/.palm/hooks/fmt/hooks/format.sh\\"');
@@ -74,7 +89,7 @@ describe('convertHooks from Claude', () => {
             hooks: [
               {
                 type: 'command',
-                command: `CLAUDE_PLUGIN_ROOT="${ASSET}" ${ASSET}/s.sh`,
+                command: `CLAUDE_PLUGIN_ROOT="${GIT_TOP}/.palm/hooks/fmt" ${GIT_TOP}/.palm/hooks/fmt/s.sh`,
                 statusMessage: 'Loading',
               },
             ],
@@ -108,7 +123,8 @@ describe('convertHooks from Claude', () => {
       hooks: {
         postToolUse: [
           {
-            command: `CURSOR_PLUGIN_ROOT="${ASSET}" "${ASSET}/hooks/format.sh"`,
+            command:
+              'CURSOR_PLUGIN_ROOT="$CURSOR_PROJECT_DIR/.palm/hooks/fmt" "$CURSOR_PROJECT_DIR/.palm/hooks/fmt/hooks/format.sh"',
             matcher: 'Edit|Write',
             timeout: 30,
           },
@@ -140,7 +156,7 @@ describe('convertHooks from Claude', () => {
         postToolUse: [
           {
             type: 'command',
-            bash: `"${ASSET}/hooks/format.sh"`,
+            bash: `"${GIT_TOP}/.palm/hooks/fmt/hooks/format.sh"`,
             timeoutSec: 30,
             matcher: 'Edit|Write',
           },

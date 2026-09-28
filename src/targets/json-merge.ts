@@ -9,6 +9,9 @@
  *   (scope-relative for project scope). `appendJsonItem` gives a `json-item` record (the
  *   path names the array, `value` is the item), `setJsonKey` a `json-key` record (the path
  *   names the key itself, `/mcpServers/<name>`).
+ * - Each edit also exists as a pure text transform (`appendItemText`, `setKeyText`,
+ *   `ensureKeyText`): current text in, next text out (undefined when unchanged). Deploys plan
+ *   with those and let the Writer write (and, on failure, restore) the file.
  */
 
 import { messageOf, PalmError } from '../core/errors.js';
@@ -16,7 +19,7 @@ import type { JsonItemRecord, JsonKeyRecord, JsonRecord } from '../domain/merged
 import { parseJson, stringifyJson } from '../lib/json.js';
 import { formatPointer } from '../lib/json-pointer.js';
 import { deepEqual, isRecord } from '../lib/object.js';
-import { atomicWrite, readTextOrUndefined, removeFileIfExists } from './fs-utils.js';
+import { atomicWrite, readTextOrUndefined, removeFileIfExists, rewriteText } from './fs-utils.js';
 import { containsAll } from './recorded.js';
 
 export interface JsonMergeOptions {
@@ -27,9 +30,19 @@ export interface JsonMergeOptions {
   displayFile?: string;
 }
 
-/** Read a JSON object file (JSONC tolerated); `{}` when missing or empty. */
-async function readJsonObject(file: string): Promise<Record<string, unknown>> {
-  const text = await readTextOrUndefined(file);
+/** One edit of a JSON file, for the pure text transforms. */
+export interface JsonEdit {
+  /** The file (for error messages). */
+  file: string;
+  /** Array path (`appendItemText`) or key path, last segment = the key (`setKeyText`, `ensureKeyText`). */
+  path: readonly string[];
+  value: unknown;
+  onConflict?: 'overwrite' | 'error';
+  displayFile?: string;
+}
+
+/** Parse a JSON object file's text (JSONC tolerated); `{}` when empty. */
+function parseJsonObject(text: string | undefined, file: string): Record<string, unknown> {
   if (text === undefined || text.trim() === '') return {};
   let doc: unknown;
   try {
@@ -103,6 +116,58 @@ function walkCreate(
   return node;
 }
 
+/** `text` with `edit.value` appended to the array at `edit.path`; undefined when a deep-equal item is there. */
+export function appendItemText(text: string | undefined, edit: JsonEdit): string | undefined {
+  if (edit.path.length === 0)
+    throw new PalmError('E_INTERNAL', `cannot append to the root of ${edit.file}`);
+  const doc = parseJsonObject(text, edit.file);
+  const arr = walkCreate(doc, edit.path, true, edit.file) as unknown[];
+  if (arr.some((x) => deepEqual(x, edit.value))) return undefined;
+  arr.push(structuredClone(edit.value));
+  return stringifyJson(doc);
+}
+
+/** The object holding the key `edit.path` names, and the key; missing objects are created. */
+function keyParent(
+  doc: Record<string, unknown>,
+  edit: JsonEdit,
+): { obj: Record<string, unknown>; key: string } {
+  const key = edit.path.at(-1);
+  if (key === undefined)
+    throw new PalmError('E_INTERNAL', `cannot replace the root of ${edit.file}`);
+  const obj = walkCreate(doc, edit.path.slice(0, -1), false, edit.file) as Record<string, unknown>;
+  return { obj, key };
+}
+
+/**
+ * `text` with the key at `edit.path` set to `edit.value`; undefined when it already holds it.
+ * An existing different value is overwritten or, with `onConflict: 'error'`, refused (E_CONFLICT).
+ */
+export function setKeyText(text: string | undefined, edit: JsonEdit): string | undefined {
+  const doc = parseJsonObject(text, edit.file);
+  const { obj, key } = keyParent(doc, edit);
+  const current = obj[key];
+  if (deepEqual(current, edit.value)) return undefined;
+  if (current !== undefined && edit.onConflict === 'error') {
+    throw new PalmError(
+      'E_CONFLICT',
+      `refusing to overwrite ${edit.displayFile ?? edit.file} (${formatPointer(edit.path)} already exists with different content)`,
+      'rerun with --force',
+    );
+  }
+  obj[key] = structuredClone(edit.value);
+  return stringifyJson(doc);
+}
+
+/** `text` with the key at `edit.path` set when it is missing; undefined when it exists. */
+export function ensureKeyText(text: string | undefined, edit: JsonEdit): string | undefined {
+  const doc = parseJsonObject(text, edit.file);
+  const { obj, key } = keyParent(doc, edit);
+  if (obj[key] !== undefined) return undefined;
+  obj[key] = structuredClone(edit.value);
+  return stringifyJson(doc);
+}
+
 /**
  * Append `item` to the array at `arrayPath` unless a deep-equal item is already there.
  * Missing intermediate objects and the array itself are created.
@@ -113,14 +178,8 @@ export async function appendJsonItem(
   item: unknown,
   opts: JsonMergeOptions,
 ): Promise<JsonItemRecord> {
-  if (arrayPath.length === 0)
-    throw new PalmError('E_INTERNAL', `cannot append to the root of ${file}`);
-  const doc = await readJsonObject(file);
-  const arr = walkCreate(doc, arrayPath, true, file) as unknown[];
-  if (!arr.some((x) => deepEqual(x, item))) {
-    arr.push(structuredClone(item));
-    if (!opts.dryRun) await atomicWrite(file, stringifyJson(doc));
-  }
+  const edit = { file, path: arrayPath, value: item };
+  await rewriteText(file, (text) => appendItemText(text, edit), opts.dryRun);
   return { type: 'json-item', file, path: [...arrayPath], value: item };
 }
 
@@ -135,22 +194,8 @@ export async function setJsonKey(
   value: unknown,
   opts: JsonMergeOptions,
 ): Promise<JsonKeyRecord> {
-  const key = keyPath.at(-1);
-  if (key === undefined) throw new PalmError('E_INTERNAL', `cannot replace the root of ${file}`);
-  const doc = await readJsonObject(file);
-  const obj = walkCreate(doc, keyPath.slice(0, -1), false, file) as Record<string, unknown>;
-  const current = obj[key];
-  if (!deepEqual(current, value)) {
-    if (current !== undefined && opts.onConflict === 'error') {
-      throw new PalmError(
-        'E_CONFLICT',
-        `refusing to overwrite ${opts.displayFile ?? file} (${formatPointer(keyPath)} already exists with different content)`,
-        'rerun with --force',
-      );
-    }
-    obj[key] = structuredClone(value);
-    if (!opts.dryRun) await atomicWrite(file, stringifyJson(doc));
-  }
+  const edit = { ...opts, file, path: keyPath, value };
+  await rewriteText(file, (text) => setKeyText(text, edit), opts.dryRun);
   return { type: 'json-key', file, path: [...keyPath], value };
 }
 
@@ -161,14 +206,8 @@ export async function ensureJsonKey(
   value: unknown,
   opts: { dryRun: boolean },
 ): Promise<boolean> {
-  const key = keyPath.at(-1);
-  if (key === undefined) throw new PalmError('E_INTERNAL', `cannot replace the root of ${file}`);
-  const doc = await readJsonObject(file);
-  const obj = walkCreate(doc, keyPath.slice(0, -1), false, file) as Record<string, unknown>;
-  if (obj[key] !== undefined) return false;
-  obj[key] = structuredClone(value);
-  if (!opts.dryRun) await atomicWrite(file, stringifyJson(doc));
-  return true;
+  const edit = { file, path: keyPath, value };
+  return rewriteText(file, (text) => ensureKeyText(text, edit), opts.dryRun);
 }
 
 /**
@@ -182,7 +221,7 @@ export async function ensureJsonKey(
 export async function unmergeJsonFile(file: string, record: JsonRecord): Promise<void> {
   const text = await readTextOrUndefined(file);
   if (text === undefined || text.trim() === '') return;
-  const doc = await readJsonObject(file);
+  const doc = parseJsonObject(text, file);
   const emptied = record.type === 'json-item' ? removeItem(doc, record) : removeKey(doc, record);
   if (!emptied) return;
   pruneEmptyContainers(doc, emptied);

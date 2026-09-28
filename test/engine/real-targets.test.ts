@@ -31,7 +31,7 @@ describe('engine with real targets', () => {
     const opts = { scope: 'project' as const, targets: ['claude' as const, 'codex' as const] };
     const r = await installEntities(w.ctx, [{ kind: 'skill', spec: 'wayfinder' }], opts, w.deps);
     expect(r.outcomes[0]!.status).toBe('installed');
-    expect(r.outcomes[0]!.entry.files.sort()).toEqual([
+    expect(r.outcomes[0]!.entry.files.map((f) => f.path).sort()).toEqual([
       '.agents/skills/wayfinder/SKILL.md',
       '.claude/skills/wayfinder/SKILL.md',
     ]);
@@ -89,6 +89,8 @@ describe('engine with real targets', () => {
       { scope: 'global', targets: ['claude'] },
       w.deps,
     );
-    expect(r.outcomes[0]!.entry.files).toEqual([join(w.sb.home, '.claude/agents/dual.md')]);
+    expect(r.outcomes[0]!.entry.files.map((f) => f.path)).toEqual([
+      join(w.sb.home, '.claude/agents/dual.md'),
+    ]);
   });
 });

@@ -221,7 +221,7 @@ describe('origin aliases are mandatory', () => {
     await expect(loadConfig(paths())).rejects.toMatchObject({
       code: 'E_PARSE',
       message: `${file}: origin https://github.com/obra/superpowers.git has no alias`,
-      hint: 'add `alias: superpowers` (palm derives that name with `palm origin add`)',
+      hint: 'add `alias: superpowers` (palm derives that name with `palm install origin`)',
     });
   });
 
@@ -362,7 +362,7 @@ describe('origin aliases are mandatory', () => {
     );
   });
 
-  it('palm origin add always stores the alias it derived', async () => {
+  it('palm install origin always stores the alias it derived', async () => {
     const ctx = await makeContext(sb);
     await addOrigin(ctx, parseOriginInput('obra/superpowers'));
     await addOrigin(ctx, parseOriginInput('someone/superpowers'), { scope: 'project' });

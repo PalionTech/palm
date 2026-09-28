@@ -220,7 +220,7 @@ describe('printInstallSummary', () => {
             origin: 'registry',
             path: '.mcp.json',
             contentHash: 'sha256:1',
-            installedAt: '2026-09-27T00:00:00Z',
+            transform: 1,
             targets: ['claude', 'cursor'],
             files: [],
             merged: [{ file: '.mcp.json', pointer: '/mcpServers', value: {} }],
@@ -235,14 +235,15 @@ describe('printInstallSummary', () => {
             origin: 'mattpocock',
             path: 'skills/tdd',
             contentHash: 'sha256:2',
-            installedAt: '2026-09-27T00:00:00Z',
+            transform: 1,
             targets: ['claude'],
-            files: ['.claude/skills/tdd/SKILL.md'],
+            files: [{ path: '.claude/skills/tdd/SKILL.md', hash: '' }],
             via: 'agent:reviewer',
           },
         },
       ],
       warnings: ['hooks run shell commands'],
+      failures: [],
     };
     printInstallSummary(c.out, result, { scope: 'project', targets: ['claude', 'cursor'] });
     c.out.finish();
@@ -260,7 +261,11 @@ describe('printInstallSummary', () => {
 
   it('says so when there is nothing to install', () => {
     const c = captured();
-    printInstallSummary(c.out, { outcomes: [], warnings: [] }, { scope: 'global', targets: [] });
+    printInstallSummary(
+      c.out,
+      { outcomes: [], warnings: [], failures: [] },
+      { scope: 'global', targets: [] },
+    );
     expect(c.stdout()).toContain('Nothing to install');
   });
 });

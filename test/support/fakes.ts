@@ -153,8 +153,8 @@ export function fakeTargets(opts: { detect?: TargetId[]; failFor?: TargetId[] } 
     async undeploy(entry, _scope, root, dryRun) {
       calls.undeploy.push({ id, entry, dryRun });
       if (dryRun) return;
-      for (const f of entry.files)
-        if (f.startsWith(`.${id}/`)) await rm(join(root, f), { force: true });
+      for (const { path } of entry.files)
+        if (path.startsWith(`.${id}/`)) await rm(join(root, path), { force: true });
     },
   });
   const targets = {
@@ -162,6 +162,8 @@ export function fakeTargets(opts: { detect?: TargetId[]; failFor?: TargetId[] } 
     codex: make('codex'),
     copilot: make('copilot'),
     cursor: make('cursor'),
+    gemini: make('gemini'),
+    opencode: make('opencode'),
   };
   return { calls, getTarget: (id) => targets[id] };
 }

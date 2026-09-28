@@ -34,17 +34,18 @@ describe('query', () => {
     ]);
 
     expect(
-      (await findCandidates(w.ctx, 'skill', 'WAYFINDER', {}, w.deps)).map((e) => e.origin),
+      (await findCandidates(w.ctx, { kind: 'skill', name: 'WAYFINDER' }, {}, w.deps)).map(
+        (e) => e.origin,
+      ),
     ).toEqual(['a', 'b']);
     expect(
-      (await findCandidates(w.ctx, undefined, 'dual', { origin: 'a' }, w.deps))
+      (await findCandidates(w.ctx, { name: 'dual' }, { origin: 'a' }, w.deps))
         .map((e) => e.kind)
         .sort(),
     ).toEqual(['agent', 'skill']);
     const adhoc = await findCandidates(
       w.ctx,
-      'skill',
-      'wayfinder',
+      { kind: 'skill', name: 'wayfinder' },
       { from: { alias: 'tmp', type: 'local', path: w.origins.c } },
       w.deps,
     );
@@ -64,7 +65,12 @@ describe('query', () => {
     expect((await listInstalled(w.ctx, 'project', 'skill')).map((e) => e.name)).toEqual(['tdd']);
     expect(await listInstalled(w.ctx, 'global')).toEqual([]);
 
-    const info = await getEntityInfo(w.ctx, 'agent', 'reviewer', { scope: 'project' }, w.deps);
+    const info = await getEntityInfo(
+      w.ctx,
+      { kind: 'agent', name: 'reviewer' },
+      { scope: 'project' },
+      w.deps,
+    );
     expect(info.entity?.description).toBe('reviews code');
     expect(info.lock?.origin).toBe('a');
     expect(info.deps).toEqual([
@@ -107,6 +113,8 @@ describe('resolveTargets', () => {
       'Fake codex',
       'Fake copilot',
       'Fake cursor',
+      'Fake gemini',
+      'Fake opencode',
     ]);
     expect((await loadManifest(join(w.sb.project, 'palm.yaml'))).targets).toEqual([
       'claude',

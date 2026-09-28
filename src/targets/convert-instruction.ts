@@ -5,6 +5,9 @@
  * - cursor  `<n>.mdc`, `description`, `globs` (comma-joined, unquoted like Cursor
  *   writes it), `alwaysApply`.
  * - codex   managed block content for AGENTS.md ("Applies to: ..." line + body).
+ * - gemini  the same block content, for GEMINI.md (Gemini CLI has no per-file rules).
+ * - opencode `<n>.md` with that content as plain markdown (OpenCode reads instruction files
+ *   verbatim; they are listed in `opencode.json#/instructions`).
  */
 import type { InstructionDefinition, TargetId } from '../core/types.js';
 import { normalizeBody, withFrontmatter } from '../lib/frontmatter.js';
@@ -38,15 +41,31 @@ function renderCursor(def: InstructionDefinition, globs: string[]): RenderedInst
   return { fileName: `${def.name}.mdc`, content: withFrontmatter(lines.join('\n'), def.body) };
 }
 
-function renderCodex(def: InstructionDefinition, globs: string[]): RenderedInstruction {
+/** The body, led by an "Applies to:" line when the instruction is scoped to globs. */
+function scopedBody(def: InstructionDefinition, globs: string[]): string {
   const body = normalizeBody(def.body);
-  return { managedBlock: globs.length ? `Applies to: ${globs.join(', ')}\n\n${body}` : body };
+  return globs.length ? `Applies to: ${globs.join(', ')}\n\n${body}` : body;
+}
+
+function renderCodex(def: InstructionDefinition, globs: string[]): RenderedInstruction {
+  return { managedBlock: scopedBody(def, globs) };
+}
+
+function renderOpencode(def: InstructionDefinition, globs: string[]): RenderedInstruction {
+  return { fileName: `${def.name}.md`, content: scopedBody(def, globs) };
 }
 
 const RENDERERS: Record<
   TargetId,
   (def: InstructionDefinition, globs: string[]) => RenderedInstruction
-> = { claude: renderClaude, copilot: renderCopilot, cursor: renderCursor, codex: renderCodex };
+> = {
+  claude: renderClaude,
+  copilot: renderCopilot,
+  cursor: renderCursor,
+  codex: renderCodex,
+  gemini: renderCodex,
+  opencode: renderOpencode,
+};
 
 export function renderInstruction(
   def: InstructionDefinition,

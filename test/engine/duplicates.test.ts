@@ -25,12 +25,16 @@ describe('duplicate names across plugins of one origin', () => {
     );
     expect(duplicateWarnings(index, 'agent')).toEqual([]);
 
-    const cands = await findCandidates(ctx, 'skill', 'tdd', { origin: 'mono' });
+    const cands = await findCandidates(ctx, { kind: 'skill', name: 'tdd' }, { origin: 'mono' });
     expect(cands.map((e) => `${e.name}@${e.origin} ${e.path}`)).toEqual([
       'tdd@mono pstack/skills/tdd',
     ]);
 
-    const info = await getEntityInfo(ctx, 'skill', 'tdd', { origin: 'mono', scope: 'project' });
+    const info = await getEntityInfo(
+      ctx,
+      { kind: 'skill', name: 'tdd' },
+      { origin: 'mono', scope: 'project' },
+    );
     expect(info.entity?.path).toBe('pstack/skills/tdd');
     expect(info.warnings).toEqual(dups);
 

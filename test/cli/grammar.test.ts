@@ -259,7 +259,32 @@ describe('utilities', () => {
     [['completion', 'zsh'], { command: 'completion', names: ['zsh'] }],
     [['cache', 'info'], { command: 'cache info', names: [] }],
     [['cache', 'clean', '--yes'], { command: 'cache clean', names: [] }],
+    [['outdated'], { command: 'outdated', names: [] }],
+    [['outdated', 'skills'], { command: 'outdated', names: ['skills'] }],
+    [['why', 'skill', 'tdd@matt'], { command: 'why', names: ['skill', 'tdd@matt'] }],
+    [
+      ['find', '.claude/skills/tdd/SKILL.md'],
+      { command: 'find', names: ['.claude/skills/tdd/SKILL.md'] },
+    ],
+    [['audit'], { command: 'audit', names: [] }],
+    [['audit', 'skill', 'tdd'], { command: 'audit', names: ['skill', 'tdd'] }],
   ])('palm %j', (argv, expected) => {
     expect(parseArgv(argv as string[]).invocation).toMatchObject(expected);
   });
+
+  it('keeps the global flags and their own options', () => {
+    expect(parseArgv(['outdated', '-g', '--json']).invocation.opts).toMatchObject({
+      global: true,
+      json: true,
+    });
+    expect(parseArgv(['audit', '--strip']).invocation.opts).toMatchObject({ strip: true });
+    expect(parseArgv(['find', 'x', '-g']).invocation.opts).toMatchObject({ global: true });
+  });
+
+  it.each([[['why']], [['why', 'skill']], [['find']]])(
+    'palm %j: a missing argument is a usage error',
+    (argv) => {
+      expect(() => parseArgv(argv)).toThrow(/missing required argument/);
+    },
+  );
 });

@@ -5,72 +5,108 @@
  * - claude / codex: `{ hooks: { <PascalEvent>: [{ matcher?, hooks: [{ type: "command", command, timeout? }] }] } }`
  * - cursor:         `{ version: 1, hooks: { <camelEvent>: [{ command, matcher?, timeout? }] } }`
  * - copilot:        `{ version: 1, hooks: { <camelEvent>: [{ type: "command", bash, timeoutSec?, matcher? }] } }`
+ * - gemini:         `{ hooks: { <GeminiEvent>: [{ matcher?, hooks: [{ type: "command", command, timeout? }] }] } }`
+ *                   with Gemini event names, tool names in matchers and `timeout` in milliseconds
+ *                   ("`timeout` is in milliseconds", docs/hooks/reference.md)
+ * - opencode:       none; OpenCode has no declarative hooks (the layout skips them)
  *
  * `${CLAUDE_PLUGIN_ROOT}`, `${CURSOR_PLUGIN_ROOT}`, `${PLUGIN_ROOT}` (and the unbraced
- * `$CLAUDE_PLUGIN_ROOT`) in command strings become `pluginRootAbs`, except for
- * claude at project scope where they become `$CLAUDE_PROJECT_DIR/<pluginRootAbs relative to
- * the project>` so the committed settings.json stays portable.
+ * `$CLAUDE_PLUGIN_ROOT`) in command strings become `pluginRootAbs` at global scope. At project
+ * scope the committed config must work in any clone, so they become the harness's project
+ * directory followed by the root's project-relative path (`PROJECT_DIR`, DESIGN.md §2):
+ * `$CLAUDE_PROJECT_DIR/.palm/hooks/<n>` (claude), `$CURSOR_PROJECT_DIR/.palm/hooks/<n>`
+ * (cursor), `$GEMINI_PROJECT_DIR/.palm/hooks/<n>` (gemini), and the git top level for codex and
+ * copilot, which set no such variable.
  *
  * Same-family conversions (claude→claude, claude→codex, cursor→cursor,
- * copilot→copilot) keep entries verbatim apart from the substitution; other
+ * copilot→copilot, gemini→gemini) keep entries verbatim apart from the substitution; other
  * conversions go through a canonical `{ event, matcher, command, timeout }` form and
  * only `type: "command"` hooks survive. Events without an equivalent are reported
  * in `dropped`.
  */
 import type { HookSet, TargetId } from '../core/types.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
+import { isWithin } from '../lib/fs.js';
 import { isRecord } from '../lib/object.js';
+import { geminiMatcher } from './tool-names.js';
 
 interface EventInfo {
   claude: string;
   cursor?: string;
   copilot?: string;
+  /** Gemini CLI `HookEventName` (packages/core/src/hooks/types.ts), per research R7 §6. */
+  gemini?: string;
   codex: boolean;
 }
 
 /** Canonical (Claude) event names and their equivalents. */
 export const HOOK_EVENTS: readonly EventInfo[] = [
-  { claude: 'SessionStart', cursor: 'sessionStart', copilot: 'sessionStart', codex: true },
-  { claude: 'SessionEnd', cursor: 'sessionEnd', copilot: 'sessionEnd', codex: true },
+  {
+    claude: 'SessionStart',
+    cursor: 'sessionStart',
+    copilot: 'sessionStart',
+    gemini: 'SessionStart',
+    codex: true,
+  },
+  {
+    claude: 'SessionEnd',
+    cursor: 'sessionEnd',
+    copilot: 'sessionEnd',
+    gemini: 'SessionEnd',
+    codex: true,
+  },
   {
     claude: 'UserPromptSubmit',
     cursor: 'beforeSubmitPrompt',
     copilot: 'userPromptSubmitted',
+    gemini: 'BeforeAgent',
     codex: true,
   },
-  { claude: 'PreToolUse', cursor: 'preToolUse', copilot: 'preToolUse', codex: true },
-  { claude: 'PostToolUse', cursor: 'postToolUse', copilot: 'postToolUse', codex: true },
+  {
+    claude: 'PreToolUse',
+    cursor: 'preToolUse',
+    copilot: 'preToolUse',
+    gemini: 'BeforeTool',
+    codex: true,
+  },
+  {
+    claude: 'PostToolUse',
+    cursor: 'postToolUse',
+    copilot: 'postToolUse',
+    gemini: 'AfterTool',
+    codex: true,
+  },
   {
     claude: 'PostToolUseFailure',
     cursor: 'postToolUseFailure',
     copilot: 'postToolUseFailure',
     codex: false,
   },
-  { claude: 'Stop', cursor: 'stop', copilot: 'agentStop', codex: true },
+  { claude: 'Stop', cursor: 'stop', copilot: 'agentStop', gemini: 'AfterAgent', codex: true },
   { claude: 'SubagentStart', cursor: 'subagentStart', copilot: 'subagentStart', codex: true },
   { claude: 'SubagentStop', cursor: 'subagentStop', copilot: 'subagentStop', codex: true },
-  { claude: 'PreCompact', cursor: 'preCompact', copilot: 'preCompact', codex: true },
+  {
+    claude: 'PreCompact',
+    cursor: 'preCompact',
+    copilot: 'preCompact',
+    gemini: 'PreCompress',
+    codex: true,
+  },
   { claude: 'PostCompact', codex: true },
   { claude: 'PermissionRequest', copilot: 'permissionRequest', codex: true },
-  { claude: 'Notification', copilot: 'notification', codex: false },
+  { claude: 'Notification', copilot: 'notification', gemini: 'Notification', codex: false },
 ];
 
 /** Gemini CLI event names → canonical. */
-const GEMINI_EVENTS: Record<string, string> = {
-  BeforeTool: 'PreToolUse',
-  AfterTool: 'PostToolUse',
-  BeforeAgent: 'UserPromptSubmit',
-  AfterAgent: 'Stop',
-  SessionStart: 'SessionStart',
-  SessionEnd: 'SessionEnd',
-  PreCompress: 'PreCompact',
-  Notification: 'Notification',
-};
+const GEMINI_EVENTS: Readonly<Record<string, string>> = Object.fromEntries(
+  HOOK_EVENTS.flatMap((e) => (e.gemini ? [[e.gemini, e.claude]] : [])),
+);
 
-type Family = 'claude' | 'cursor' | 'copilot';
+type Family = 'claude' | 'cursor' | 'copilot' | 'gemini';
 
+/** The dialect a target's hooks file speaks (opencode has none: its hooks are skipped). */
 function familyOf(target: TargetId): Family {
-  return target === 'codex' ? 'claude' : target;
+  return target === 'codex' || target === 'opencode' ? 'claude' : target;
 }
 
 /** Map a source event name (any dialect) to its canonical Claude name. */
@@ -96,28 +132,69 @@ export function targetEvent(canonical: string, target: TargetId): string | undef
       return info.cursor;
     case 'copilot':
       return info.copilot;
+    case 'gemini':
+      return info.gemini;
+    case 'opencode':
+      return undefined;
   }
 }
 
 const ROOT_TOKENS =
   /\$\{(?:CLAUDE_PLUGIN_ROOT|CURSOR_PLUGIN_ROOT|PLUGIN_ROOT)\}|\$CLAUDE_PLUGIN_ROOT\b/g;
 
-/** What the plugin-root tokens become (see the module comment). */
+/**
+ * Codex and Copilot export no project-directory variable, and run hooks from the session's
+ * working directory (Codex) or an undocumented default (Copilot), so project hooks resolve the
+ * repository root themselves, as the Codex hook docs recommend; outside a git repository the
+ * working directory stands in.
+ */
+const GIT_TOP_LEVEL = '$(git rev-parse --show-toplevel 2>/dev/null || pwd)';
+
+/**
+ * How a project-scope hook command names the project root, per harness:
+ * - claude: `$CLAUDE_PROJECT_DIR` (https://code.claude.com/docs/en/hooks)
+ * - cursor: `$CURSOR_PROJECT_DIR`, set for every hook (https://cursor.com/docs/agent/hooks)
+ * - codex, copilot: the git top level (https://learn.chatgpt.com/docs/hooks,
+ *   https://docs.github.com/en/copilot/reference/hooks-configuration)
+ * - gemini: `$GEMINI_PROJECT_DIR`, which Gemini CLI sets and expands in hook commands
+ *   (packages/core/src/hooks/hookRunner.ts, research R7 §6)
+ * - opencode: unused (OpenCode hooks are JS plugins; palm installs none)
+ */
+export const PROJECT_DIR: Readonly<Record<TargetId, string>> = {
+  claude: '$CLAUDE_PROJECT_DIR',
+  codex: GIT_TOP_LEVEL,
+  copilot: GIT_TOP_LEVEL,
+  cursor: '$CURSOR_PROJECT_DIR',
+  gemini: '$GEMINI_PROJECT_DIR',
+  opencode: GIT_TOP_LEVEL,
+};
+
+/**
+ * What the plugin-root tokens become (see the module comment): the absolute root at global
+ * scope, or for a root inside the project, the harness's project directory plus the root's
+ * project-relative path, so no absolute path reaches a committed config.
+ */
 export function pluginRootReplacement(
   target: TargetId,
   pluginRootAbs: string,
   paths: ScopePaths,
 ): string {
-  if (target === 'claude' && paths.scope === 'project')
-    return `$CLAUDE_PROJECT_DIR/${paths.lockForm(pluginRootAbs)}`;
-  return pluginRootAbs;
+  if (paths.scope !== 'project' || !isWithin(pluginRootAbs, paths.root)) return pluginRootAbs;
+  const rel = paths.lockForm(pluginRootAbs);
+  return rel === '' ? PROJECT_DIR[target] : `${PROJECT_DIR[target]}/${rel}`;
 }
 
-/** The variable a harness sets to the plugin root when it runs a plugin's hooks natively. */
+/**
+ * The variable a harness sets to the plugin root when it runs a plugin's hooks natively.
+ * Gemini CLI sets no `CLAUDE_PLUGIN_ROOT` but exports `CLAUDE_PROJECT_DIR` "for compatibility"
+ * (hookRunner.ts), and the hooks palm converts for it come from Claude plugins, so their
+ * scripts get the variable they were written for.
+ */
 const PLUGIN_ROOT_VAR: Partial<Record<TargetId, string>> = {
   claude: 'CLAUDE_PLUGIN_ROOT',
   codex: 'CLAUDE_PLUGIN_ROOT',
   cursor: 'CURSOR_PLUGIN_ROOT',
+  gemini: 'CLAUDE_PLUGIN_ROOT',
 };
 
 export function substitutePluginRoot(command: string, replacement: string): string {
@@ -246,9 +323,7 @@ function toCanonical(hooks: HookSet, dropped: string[]): CanonHook[] {
 }
 
 function sourceFamily(hooks: HookSet): Family | undefined {
-  if (hooks.dialect === 'claude' || hooks.dialect === 'cursor' || hooks.dialect === 'copilot')
-    return hooks.dialect;
-  return undefined;
+  return hooks.dialect === 'unknown' ? undefined : hooks.dialect;
 }
 
 /** Deep-copy entries, substituting the plugin root in every command-like string (see rootedCommand). */
@@ -273,7 +348,8 @@ function substituteEntry(entry: unknown, replacement: string, target: TargetId):
 }
 
 function wrap(target: TargetId, events: Record<string, unknown[]>): unknown {
-  return familyOf(target) === 'claude' ? { hooks: events } : { version: 1, hooks: events };
+  const fam = familyOf(target);
+  return fam === 'claude' || fam === 'gemini' ? { hooks: events } : { version: 1, hooks: events };
 }
 
 /** Target event for a same-family source event; unmapped events are native to the family. */
@@ -306,6 +382,20 @@ function convertSameFamily(
   return events;
 }
 
+/** Append `h` to the `{ matcher?, hooks: [...] }` group of its matcher (Claude/Gemini shape). */
+function pushGrouped(list: unknown[], h: CanonHook, command: string): void {
+  const item = {
+    type: 'command',
+    command,
+    ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
+  };
+  const group = list.find((g) => isRecord(g) && g.matcher === h.matcher) as
+    | { hooks: unknown[] }
+    | undefined;
+  if (group) group.hooks.push(item);
+  else list.push({ ...(h.matcher !== undefined ? { matcher: h.matcher } : {}), hooks: [item] });
+}
+
 /** Append canonical hook `h` (command already rooted) to `list` in the target family's shape. */
 function pushHook(list: unknown[], fam: Family, h: CanonHook, command: string): void {
   const matcher = h.matcher !== undefined ? { matcher: h.matcher } : {};
@@ -318,16 +408,14 @@ function pushHook(list: unknown[], fam: Family, h: CanonHook, command: string): 
     list.push({ type: 'command', bash: command, ...timeout, ...matcher });
     return;
   }
-  const item = {
-    type: 'command',
-    command,
-    ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
-  };
-  const group = list.find((g) => isRecord(g) && g.matcher === h.matcher) as
-    | { hooks: unknown[] }
-    | undefined;
-  if (group) group.hooks.push(item);
-  else list.push({ ...matcher, hooks: [item] });
+  if (fam === 'gemini') {
+    // Matchers are regexes over tool names, and Gemini timeouts are milliseconds (R7 §6).
+    const matcherIn = h.matcher !== undefined ? geminiMatcher(h.matcher) : undefined;
+    const timeout = h.timeout !== undefined ? h.timeout * 1000 : undefined;
+    pushGrouped(list, { ...h, matcher: matcherIn, timeout }, command);
+    return;
+  }
+  pushGrouped(list, h, command);
 }
 
 /** Other families: through the canonical form; only command hooks survive. */

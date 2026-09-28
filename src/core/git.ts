@@ -3,16 +3,14 @@ import { mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { execa } from 'execa';
+import { gt, lt, minVersion, prerelease, rcompare, satisfies, valid, validRange } from 'semver';
 import { type CheckoutSlot, Origin } from '../domain/origin.js';
 import { errnoCode, isEnoent, readJsonFile, writeJsonFile } from '../lib/fs.js';
 import { messageOf, PalmError } from './errors.js';
+import { type GitCall, GitFailure, isGitTimeout, runGit } from './git-exec.js';
 import { validateOriginUrl } from './origin-input.js';
 import { cacheDir } from './paths.js';
 import type { OriginCheckout, OriginSpec, PalmContext } from './types.js';
-
-/** Never let git block on a credential prompt: private repos fail fast. */
-const GIT_ENV: Record<string, string> = { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
 
 const NETWORK_PATTERNS = [
   /could not resolve host/i,
@@ -21,65 +19,39 @@ const NETWORK_PATTERNS = [
   /connection (timed out|refused)/i,
 ];
 
-class GitFailure extends Error {
-  constructor(
-    message: string,
-    readonly detail: string,
-  ) {
-    super(message);
-  }
+/** `git <args>` through the hardened runner (git-exec.ts): clean env, no prompts, timeouts. */
+function git(args: string[], call: GitCall = {}): Promise<string> {
+  return runGit(args, call);
 }
 
-/** Local repositories (bare repo paths, file:// URLs) are the only ones allowed to use git's file transport. */
-function isLocalRepoUrl(url: string | undefined): boolean {
-  return !!url && (url.startsWith('/') || /^file:\/\//i.test(url));
+/** Talks to `url`: ls-remote, clone, fetch (120 s timeout). */
+function remote(url: string, cwd?: string): GitCall {
+  return { url, cwd, network: true };
 }
 
-/**
- * Run git with transport hardening: `ext::`/`fd::` helpers are never allowed and the file
- * transport only for local origins (`url`), so a hostile config or submodule cannot make git
- * execute commands or read local repositories.
- */
-async function git(args: string[], cwd?: string, url?: string, timeout?: number): Promise<string> {
-  const hardening = [
-    '-c',
-    'protocol.ext.allow=never',
-    '-c',
-    'protocol.fd.allow=never',
-    '-c',
-    `protocol.file.allow=${isLocalRepoUrl(url) ? 'user' : 'never'}`,
-  ];
-  try {
-    const r = await execa('git', [...hardening, ...args], {
-      cwd,
-      env: GIT_ENV,
-      stdin: 'ignore',
-      ...(timeout ? { timeout } : {}),
-    });
-    return r.stdout;
-  } catch (e) {
-    if (isEnoent(e))
-      throw new PalmError('E_GIT', 'git is not installed or not on PATH', 'Install git and retry.');
-    const err = e as { stderr?: unknown; shortMessage?: string; message: string };
-    const stderr = typeof err.stderr === 'string' ? err.stderr : '';
-    const detail =
-      stderr
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => l && !l.startsWith('hint:'))
-        .slice(-3)
-        .join(' | ') ||
-      err.shortMessage ||
-      err.message;
-    throw new GitFailure(
-      `git ${args.find((a) => !a.startsWith('-')) ?? args[0]} failed: ${detail}`,
-      detail,
+/** A local step in the checkout `cwd` of `url` (30 s timeout). */
+function local(url: string, cwd: string): GitCall {
+  return { url, cwd };
+}
+
+function timeoutError(e: GitFailure, what: string, url: string): PalmError {
+  const message = `${what} ${url}: ${e.detail}`;
+  if (e.opts.network)
+    return new PalmError(
+      'E_NETWORK',
+      message,
+      `The remote did not answer in time. Check your network, VPN or proxy, then retry: git ls-remote ${url}`,
     );
-  }
+  return new PalmError(
+    'E_GIT',
+    message,
+    'A local git step hung. Retry; if it keeps hanging, clear the checkouts with: palm cache clean',
+  );
 }
 
 function toPalmError(e: unknown, what: string, url: string): PalmError {
   if (e instanceof PalmError) return e;
+  if (e instanceof GitFailure && isGitTimeout(e)) return timeoutError(e, what, url);
   const detail = e instanceof GitFailure ? e.detail : messageOf(e);
   if (NETWORK_PATTERNS.some((p) => p.test(detail))) {
     return new PalmError(
@@ -93,6 +65,11 @@ function toPalmError(e: unknown, what: string, url: string): PalmError {
     `${what} ${url}: ${detail}`,
     'Check the URL and ref. Private repositories need credentials configured for git (ssh key or credential helper).',
   );
+}
+
+/** A failure a retry cannot fix (timeout, git missing): never worth a second clone. */
+function isFinal(e: unknown): boolean {
+  return e instanceof PalmError || isGitTimeout(e);
 }
 
 // ---------------------------------------------------------------------------
@@ -113,25 +90,31 @@ function assertSafeSpec(spec: { alias?: string; url?: string; ref?: string; root
     throw bad('root', spec.root);
 }
 
-export async function listRemoteTags(url: string): Promise<string[]> {
+/** Branch and tag names of a remote (`git ls-remote --tags --heads --refs`). */
+export async function listRemoteRefs(url: string): Promise<{ tags: string[]; heads: string[] }> {
   assertSafeSpec({ url });
   let out: string;
   try {
-    out = await git(['ls-remote', '--tags', '--refs', '--', url], undefined, url);
+    out = await git(['ls-remote', '--tags', '--heads', '--refs', '--', url], remote(url));
   } catch (e) {
     throw toPalmError(e, 'Cannot list tags of', url);
   }
-  const tags: string[] = [];
+  const refs = { tags: [] as string[], heads: [] as string[] };
   for (const line of out.split('\n')) {
-    const ref = line.split('\t')[1];
-    if (ref?.startsWith('refs/tags/')) tags.push(ref.slice('refs/tags/'.length));
+    const ref = line.split('\t')[1] ?? '';
+    if (ref.startsWith('refs/tags/')) refs.tags.push(ref.slice('refs/tags/'.length));
+    else if (ref.startsWith('refs/heads/')) refs.heads.push(ref.slice('refs/heads/'.length));
   }
-  return tags;
+  return refs;
+}
+
+export async function listRemoteTags(url: string): Promise<string[]> {
+  return (await listRemoteRefs(url)).tags;
 }
 
 async function remoteDefaultBranch(url: string): Promise<string | undefined> {
   try {
-    const out = await git(['ls-remote', '--symref', '--', url, 'HEAD'], undefined, url);
+    const out = await git(['ls-remote', '--symref', '--', url, 'HEAD'], remote(url));
     const m = /^ref:\s+refs\/heads\/(\S+)\s+HEAD/m.exec(out);
     return m?.[1];
   } catch (e) {
@@ -139,63 +122,101 @@ async function remoteDefaultBranch(url: string): Promise<string | undefined> {
   }
 }
 
-interface SemVer {
-  major: number;
-  minor: number;
-  patch: number;
-  pre: string[];
+interface TagVersion {
+  tag: string;
+  version: string;
 }
 
-const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
-
-function parseSemver(tag: string): SemVer | undefined {
-  const m = SEMVER.exec(tag);
-  if (!m) return undefined;
-  return {
-    major: Number(m[1]),
-    minor: Number(m[2]),
-    patch: Number(m[3]),
-    pre: m[4] ? m[4].split('.') : [],
-  };
+/** Tags that name a semver version (`v1.2.3` or `1.2.3`, prereleases and build metadata allowed). */
+function tagVersions(tags: readonly string[]): TagVersion[] {
+  return tags.flatMap((tag) => {
+    const version = /^v?\d/.test(tag) ? valid(tag) : null;
+    return version ? [{ tag, version }] : [];
+  });
 }
 
-/** One prerelease identifier: numeric ones numerically and below alphanumeric ones. */
-function comparePreId(x: string, y: string): number {
-  const nx = /^\d+$/.test(x);
-  const ny = /^\d+$/.test(y);
-  if (nx && ny) return Number(x) - Number(y);
-  if (nx !== ny) return nx ? -1 : 1;
-  if (x === y) return 0;
-  return x < y ? -1 : 1;
-}
-
-function comparePre(a: string[], b: string[]): number {
-  if (!a.length || !b.length) return Math.sign(b.length - a.length); // release > prerelease
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const x = a[i];
-    const y = b[i];
-    if (x === undefined) return -1;
-    if (y === undefined) return 1;
-    const d = comparePreId(x, y);
-    if (d) return d;
-  }
-  return 0;
-}
-
-function compareSemver(a: SemVer, b: SemVer): number {
-  return a.major - b.major || a.minor - b.minor || a.patch - b.patch || comparePre(a.pre, b.pre);
+/** The highest version; on a tie (`1.0.0` and `1.0.0+build`) the first listed wins. */
+function highest(list: readonly TagVersion[]): TagVersion | undefined {
+  let best: TagVersion | undefined;
+  for (const x of list) if (!best || gt(x.version, best.version)) best = x;
+  return best;
 }
 
 /** Highest semver tag (`v1.2.3` or `1.2.3`). Prereleases only count when there is no release. */
 export function latestSemverTag(tags: string[]): string | undefined {
-  const parsed = tags
-    .map((t) => ({ t, v: parseSemver(t) }))
-    .filter((x): x is { t: string; v: SemVer } => !!x.v);
-  const releases = parsed.filter((x) => x.v.pre.length === 0);
-  const pool = releases.length ? releases : parsed;
-  let best: { t: string; v: SemVer } | undefined;
-  for (const x of pool) if (!best || compareSemver(x.v, best.v) > 0) best = x;
-  return best?.t;
+  const all = tagVersions(tags);
+  const releases = all.filter((x) => prerelease(x.version) === null);
+  return highest(releases.length ? releases : all)?.tag;
+}
+
+const FULL_SHA = /^[0-9a-f]{40}$/i;
+const SHORT_SHA = /^[0-9a-f]{7,39}$/i;
+
+/**
+ * True when `ref` is a semver range (`^1.2`, `~1.2`, `>=1.2 <2`, `1.x`, `v1`) rather than one
+ * exact version, branch or sha. resolveRef still prefers a branch or tag of exactly that name.
+ */
+export function isSemverRange(ref: string): boolean {
+  if (FULL_SHA.test(ref) || SHORT_SHA.test(ref) || valid(ref) !== null) return false;
+  return validRange(ref) !== null;
+}
+
+/** The highest semver tag satisfying `range` (prereleases only when the range names one). */
+export function maxSatisfyingTag(tags: readonly string[], range: string): string | undefined {
+  return highest(tagVersions(tags).filter((x) => satisfies(x.version, range)))?.tag;
+}
+
+/**
+ * Whether what the lock holds (`ref`, `sha`) still answers a requested ref: the same name, a sha
+ * prefix, or, for a semver range, a locked tag inside the range (`^1.2` is satisfied by `v1.3.0`).
+ */
+export function refSatisfies(wanted: string, locked: { ref?: string; sha?: string }): boolean {
+  if (locked.ref === wanted || locked.sha?.startsWith(wanted.toLowerCase())) return true;
+  return (
+    isSemverRange(wanted) && !!locked.ref && maxSatisfyingTag([locked.ref], wanted) !== undefined
+  );
+}
+
+/** Up to five semver tags around the lowest version `range` allows, highest first. */
+function nearestTags(tags: readonly string[], range: string): string[] {
+  const all = tagVersions(tags).sort((a, b) => rcompare(a.version, b.version));
+  const floor = minVersion(range)?.version;
+  if (!floor) return all.slice(0, 5).map((x) => x.tag);
+  const below = all.filter((x) => lt(x.version, floor)).slice(0, 3);
+  const above = all.filter((x) => !lt(x.version, floor));
+  return [...above.slice(Math.max(0, above.length - (5 - below.length))), ...below].map(
+    (x) => x.tag,
+  );
+}
+
+function noMatchingTag(url: string, range: string, tags: readonly string[]): PalmError {
+  const near = nearestTags(tags, range);
+  const hint = near.length ? ` (nearest: ${near.join(', ')})` : ' (it has no semver tags)';
+  return new PalmError(
+    'E_ORIGIN',
+    `No tag of ${url} satisfies "${range}"${hint}`,
+    `List every tag with: git ls-remote --tags ${url}`,
+  );
+}
+
+/**
+ * The ref to check out for a requested one. None: the latest release tag, else the default
+ * branch. A semver range (isSemverRange): a branch or tag of exactly that name, else the highest
+ * satisfying tag (E_ORIGIN naming the nearest tags when none does). A tag, branch or sha: as is,
+ * without a network call.
+ */
+export async function resolveRef(
+  url: string,
+  ref: string | undefined,
+): Promise<string | undefined> {
+  if (ref === undefined)
+    return latestSemverTag(await listRemoteTags(url)) ?? (await remoteDefaultBranch(url));
+  if (!isSemverRange(ref)) return ref;
+  const { tags, heads } = await listRemoteRefs(url);
+  if (tags.includes(ref) || heads.includes(ref)) return ref;
+  const tag = maxSatisfyingTag(tags, ref);
+  if (!tag) throw noMatchingTag(url, ref, tags);
+  return tag;
 }
 
 // ---------------------------------------------------------------------------
@@ -341,31 +362,23 @@ interface CheckoutMeta {
   url: string;
   /** Ref actually checked out (tag, branch or sha); absent when the remote HEAD was cloned. */
   ref?: string;
-  /** Ref that was requested by the origin spec; null = "latest". */
+  /** Ref that was requested by the origin spec (a tag, branch, sha or semver range); null = "latest". */
   requested: string | null;
   sha: string;
   fetchedAt: string;
 }
 
-const FULL_SHA = /^[0-9a-f]{40}$/i;
-const SHORT_SHA = /^[0-9a-f]{7,39}$/i;
+const DETACHED = ['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach'];
 
 async function fetchSha(url: string, dir: string, sha: string): Promise<void> {
   try {
-    await git(['fetch', '--depth', '1', 'origin', '--', sha], dir, url);
-    await git(
-      ['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', 'FETCH_HEAD'],
-      dir,
-      url,
-    );
-  } catch {
+    await git(['fetch', '--depth', '1', 'origin', '--', sha], remote(url, dir));
+    await git([...DETACHED, 'FETCH_HEAD'], local(url, dir));
+  } catch (e) {
+    if (isFinal(e)) throw e;
     // Servers that refuse unadvertised shas: fall back to a full fetch.
-    await git(['fetch', '--tags', 'origin'], dir, url);
-    await git(
-      ['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', sha],
-      dir,
-      url,
-    );
+    await git(['fetch', '--tags', 'origin'], remote(url, dir));
+    await git([...DETACHED, sha], local(url, dir));
   }
 }
 
@@ -373,55 +386,47 @@ async function freshClone(url: string, dir: string, ref: string | undefined): Pr
   await rm(dir, { recursive: true, force: true });
   if (ref && FULL_SHA.test(ref)) {
     await git(['init', '-q', '--', dir]);
-    await git(['remote', 'add', '--', 'origin', url], dir, url);
+    await git(['remote', 'add', '--', 'origin', url], local(url, dir));
     await fetchSha(url, dir, ref);
     return;
   }
   const args = ['-c', 'advice.detachedHead=false', 'clone', '--quiet', '--depth', '1'];
   if (ref) args.push('--branch', ref);
   try {
-    await git([...args, '--', url, dir], undefined, url);
+    await git([...args, '--', url, dir], remote(url));
   } catch (e) {
-    if (!ref || !SHORT_SHA.test(ref)) throw e;
+    if (isFinal(e) || !ref || !SHORT_SHA.test(ref)) throw e;
     await rm(dir, { recursive: true, force: true });
-    await git(['clone', '--quiet', '--', url, dir], undefined, url);
-    await git(
-      ['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', ref],
-      dir,
-      url,
-    );
+    await git(['clone', '--quiet', '--', url, dir], remote(url));
+    await git([...DETACHED, ref], local(url, dir));
   }
 }
 
 async function updateCheckout(url: string, dir: string, ref: string | undefined): Promise<void> {
-  await git(['remote', 'set-url', '--', 'origin', url], dir, url);
+  await git(['remote', 'set-url', '--', 'origin', url], local(url, dir));
   if (ref && FULL_SHA.test(ref)) {
     await fetchSha(url, dir, ref);
   } else {
-    await git(['fetch', '--quiet', '--depth', '1', 'origin', '--', ref ?? 'HEAD'], dir, url);
     await git(
-      ['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', 'FETCH_HEAD'],
-      dir,
-      url,
+      ['fetch', '--quiet', '--depth', '1', 'origin', '--', ref ?? 'HEAD'],
+      remote(url, dir),
     );
+    await git([...DETACHED, 'FETCH_HEAD'], local(url, dir));
   }
-  await git(['clean', '-ffdxq'], dir, url);
+  await git(['clean', '-ffdxq'], local(url, dir));
 }
 
 /** `git ls-remote --exit-code <url> HEAD` through the validator and the hardened wrapper (used by `palm doctor`). */
 export async function pingRemote(url: string): Promise<void> {
   validateOriginUrl(url);
   try {
-    await git(['ls-remote', '--exit-code', '--', url, 'HEAD'], undefined, url, 20_000);
+    await git(['ls-remote', '--exit-code', '--', url, 'HEAD'], {
+      ...remote(url),
+      timeoutMs: 20_000,
+    });
   } catch (e) {
     throw toPalmError(e, 'Cannot reach', url);
   }
-}
-
-/** The ref to check out when the spec pins none: latest semver tag, else the default branch. */
-async function resolveLatestRef(url: string): Promise<string | undefined> {
-  const tag = latestSemverTag(await listRemoteTags(url));
-  return tag ?? (await remoteDefaultBranch(url));
 }
 
 /** One git origin being made available in its checkout slot. */
@@ -454,6 +459,12 @@ async function readMeta(slot: CheckoutSlot): Promise<CheckoutMeta | undefined> {
   return readJsonFile<CheckoutMeta>(slot.metaFile).catch(() => undefined);
 }
 
+/** The slot's checkout when it already holds the requested ref (same url, same requested ref). */
+async function reuseCached(job: CheckoutJob): Promise<CheckoutMeta | undefined> {
+  const meta = await readMeta(job.slot);
+  return meta?.url === job.url && meta.requested === job.requested ? meta : undefined;
+}
+
 /** --offline: the cached checkout if it holds the requested ref, else E_NETWORK. */
 async function offlineCheckout(ctx: PalmContext, job: CheckoutJob): Promise<OriginCheckout> {
   const meta = await readMeta(job.slot);
@@ -479,26 +490,27 @@ async function offlineCheckout(ctx: PalmContext, job: CheckoutJob): Promise<Orig
 }
 
 /**
- * Clones or updates the slot at the wanted ref and records it. The old metadata is removed first,
- * so a fetch that dies half-way leaves "no usable checkout" rather than a stale sha; the new one
- * is written atomically once the work tree is complete.
+ * Clones or updates the slot at the wanted ref (resolveRef: ranges become a tag) and records it.
+ * The old metadata is removed first, so a fetch that dies half-way leaves "no usable checkout"
+ * rather than a stale sha; the new one is written atomically once the work tree is complete.
  */
 async function fetchInto(ctx: PalmContext, job: CheckoutJob, have: boolean): Promise<CheckoutMeta> {
   const { url, slot, requested } = job;
-  const wanted = requested ?? (await resolveLatestRef(url));
+  const wanted = await resolveRef(url, requested ?? undefined);
   ctx.log.debug(`fetching ${url}${wanted ? `#${wanted}` : ''}`);
   await rm(slot.metaFile, { force: true });
   if (have) {
     try {
       await updateCheckout(url, slot.repoDir, wanted);
     } catch (e) {
+      if (isFinal(e)) throw e;
       ctx.log.debug(`update of cached ${job.origin.alias} failed (${messageOf(e)}); re-cloning`);
       await freshClone(url, slot.repoDir, wanted);
     }
   } else {
     await freshClone(url, slot.repoDir, wanted);
   }
-  const sha = (await git(['rev-parse', 'HEAD'], slot.repoDir, url)).trim();
+  const sha = (await git(['rev-parse', 'HEAD'], local(url, slot.repoDir))).trim();
   const next: CheckoutMeta = { url, requested, sha, fetchedAt: new Date().toISOString() };
   if (wanted) next.ref = wanted;
   await writeJsonFile(slot.metaFile, next);
@@ -510,7 +522,7 @@ async function fetchInto(ctx: PalmContext, job: CheckoutJob, have: boolean): Pro
  * alias fetched it while this call waited; with `refresh`, only when that fetch finished after
  * this call started), else fetch.
  */
-async function lockedCheckout(
+async function refreshCheckout(
   ctx: PalmContext,
   job: CheckoutJob,
   opts: { refresh?: boolean; since: number },
@@ -538,11 +550,9 @@ async function gitCheckout(
 ): Promise<OriginCheckout> {
   if (ctx.flags.offline) return offlineCheckout(ctx, job);
   const since = Date.now();
-  if (!refresh) {
-    const meta = await readMeta(job.slot);
-    if (meta?.url === job.url && meta.requested === job.requested) return checkoutResult(job, meta);
-  }
-  return withCheckoutLock(job.slot.lockFile, () => lockedCheckout(ctx, job, { refresh, since }));
+  const cached = refresh ? undefined : await reuseCached(job);
+  if (cached) return checkoutResult(job, cached);
+  return withCheckoutLock(job.slot.lockFile, () => refreshCheckout(ctx, job, { refresh, since }));
 }
 
 function localCheckout(origin: Origin): OriginCheckout {
@@ -553,7 +563,7 @@ function localCheckout(origin: Origin): OriginCheckout {
     throw new PalmError(
       'E_ORIGIN',
       `Local origin "${spec.alias}" not found at ${root}`,
-      `Fix or remove it: palm origin remove ${spec.alias}`,
+      `Fix the path, or remove the origin: palm uninstall origin ${spec.alias}`,
     );
   }
   return {
@@ -565,11 +575,24 @@ function localCheckout(origin: Origin): OriginCheckout {
   };
 }
 
+/** The git origin's checkout job: its slot under `<palmHome>/cache` and the requested ref. */
+function checkoutSlot(ctx: PalmContext, origin: Origin): CheckoutJob {
+  const { spec } = origin;
+  if (!spec.url) throw new PalmError('E_ORIGIN', `Git origin "${spec.alias}" has no url`);
+  return {
+    origin,
+    url: spec.url,
+    slot: origin.checkoutSlot(cacheDir(ctx.paths)),
+    requested: spec.ref ?? null,
+  };
+}
+
 /**
  * Make an origin available on disk. Local origins are used in place; git origins are cloned into
  * their checkout slot `<palmHome>/cache/<originId>/{repo|ref-<ref>}` (Origin.checkoutSlot) at the
- * wanted ref. Aliases of one repo + root + ref share the slot, and a per-slot lock file keeps two
- * palm processes (or two aliases in one) from fetching into it at the same time (gitCheckout).
+ * wanted ref (resolveRef). Aliases of one repo + root + ref share the slot, and a per-slot lock
+ * file keeps two palm processes (or two aliases in one) from fetching into it at the same time
+ * (gitCheckout).
  */
 export async function fetchOrigin(
   ctx: PalmContext,
@@ -579,19 +602,13 @@ export async function fetchOrigin(
   assertSafeSpec(spec);
   const origin = new Origin(spec);
   if (origin.isLocal) return localCheckout(origin);
-  const url = spec.url;
-  if (!url) throw new PalmError('E_ORIGIN', `Git origin "${spec.alias}" has no url`);
-  const job: CheckoutJob = {
-    origin,
-    url,
-    slot: origin.checkoutSlot(cacheDir(ctx.paths)),
-    requested: spec.ref ?? null,
-  };
+  const job = checkoutSlot(ctx, origin);
   const result = await gitCheckout(ctx, job, opts.refresh);
   if (spec.root && !existsSync(result.root)) {
     throw new PalmError(
       'E_ORIGIN',
-      `Subdirectory "${spec.root}" not found in ${url}${result.ref ? `@${result.ref}` : ''}`,
+      `Subdirectory "${spec.root}" not found in ${job.url}${result.ref ? `@${result.ref}` : ''}`,
+      `Check the origin's root: palm describe origin ${spec.alias}`,
     );
   }
   return result;

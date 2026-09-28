@@ -195,18 +195,25 @@ export async function findPluginManifest(
   warnings?: string[],
   dirLabel = '.',
 ): Promise<PluginManifest | undefined> {
+  const prefix = dirLabel === '.' ? '' : `${dirLabel}/`;
   for (const cand of PLUGIN_MANIFEST_FILES) {
     const res = await readJson(join(dirAbs, cand.rel));
     if (!res.ok) {
       if (!res.missing)
-        warnings?.push(
-          `invalid JSON in ${dirLabel === '.' ? '' : dirLabel + '/'}${cand.rel}: ${res.error ?? ''}`.trim(),
-        );
+        warnings?.push(`invalid JSON in ${prefix}${cand.rel}: ${res.error ?? ''}`.trim());
       continue;
     }
-    if (!isRecord(res.json)) continue;
-    if (cand.format === 'agent-plugins' && !isAgentPluginsManifest(res.json)) continue;
-    return normalizeManifest(res.json, cand.format, cand.rel);
+    if (isManifestOf(cand.format, res.json))
+      return normalizeManifest(res.json, cand.format, cand.rel);
   }
   return undefined;
+}
+
+/** A JSON object, and for a root `plugin.json` one with the agent-plugins shape. */
+function isManifestOf(
+  format: PluginManifestFormat,
+  json: unknown,
+): json is Record<string, unknown> {
+  if (!isRecord(json)) return false;
+  return format !== 'agent-plugins' || isAgentPluginsManifest(json);
 }

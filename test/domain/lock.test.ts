@@ -3,8 +3,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { LockEntry } from '../../src/core/types.js';
 import { lockId } from '../../src/domain/entity-key.js';
-import { answersTo, LOCK_COMMENT, Lock } from '../../src/domain/lock.js';
+import { answersTo, filePaths, LOCK_COMMENT, Lock } from '../../src/domain/lock.js';
 import { removeDir, tempDir } from '../support/sandbox.js';
+
+/** Locked files with made-up but distinct hashes. */
+const locked = (...paths: string[]): LockEntry['files'] =>
+  paths.map((path, i) => ({ path, hash: `sha256:${i}${path.length}` }));
 
 /** Insertion order differs from file order on purpose (the writer sorts). */
 const FIXTURE_ENTRIES: LockEntry[] = [
@@ -17,9 +21,9 @@ const FIXTURE_ENTRIES: LockEntry[] = [
     sha: '0123456789abcdef0123456789abcdef01234567',
     path: 'skills/wayfinder',
     contentHash: 'sha256:aaaa',
-    installedAt: '2026-09-01T10:00:00.000Z',
+    transform: 1,
     targets: ['claude', 'codex'],
-    files: ['.claude/skills/wayfinder', '.agents/skills/wayfinder'],
+    files: locked('.claude/skills/wayfinder', '.agents/skills/wayfinder'),
   },
   {
     kind: 'plugin',
@@ -27,7 +31,7 @@ const FIXTURE_ENTRIES: LockEntry[] = [
     origin: 'obra',
     path: 'plugins/superpowers',
     contentHash: 'sha256:bbbb',
-    installedAt: '2026-09-01T10:00:01.000Z',
+    transform: 1,
     targets: ['claude'],
     files: [],
     deps: [
@@ -37,14 +41,14 @@ const FIXTURE_ENTRIES: LockEntry[] = [
   },
   {
     via: 'plugin:superpowers',
-    files: ['.claude/skills/brainstorm'],
+    files: locked('.claude/skills/brainstorm'),
     targets: ['claude'],
     kind: 'skill',
     name: 'brainstorm',
     origin: 'obra',
     path: 'plugins/superpowers/skills/brainstorm',
     contentHash: 'sha256:cccc',
-    installedAt: '2026-09-01T10:00:02.000Z',
+    transform: 1,
     merged: [],
   },
   {
@@ -55,7 +59,7 @@ const FIXTURE_ENTRIES: LockEntry[] = [
     ref: '1.0.3',
     path: 'io.github.upstash/context7',
     contentHash: 'sha256:dddd',
-    installedAt: '2026-09-01T10:00:03.000Z',
+    transform: 1,
     targets: ['claude', 'cursor'],
     files: [],
     merged: [
@@ -81,9 +85,9 @@ const FIXTURE_ENTRIES: LockEntry[] = [
     origin: 'a',
     path: 'hooks/fmt.json',
     contentHash: 'sha256:eeee',
-    installedAt: '2026-09-01T10:00:04.000Z',
+    transform: 1,
     targets: ['claude'],
-    files: ['.palm/hooks/fmt/run.sh'],
+    files: locked('.palm/hooks/fmt/run.sh'),
     merged: [
       {
         file: '.claude/settings.json',
@@ -101,9 +105,9 @@ const FIXTURE_ENTRIES: LockEntry[] = [
     origin: 'b',
     path: 'skills/alpha',
     contentHash: 'sha256:ffff',
-    installedAt: '2026-09-01T10:00:05.000Z',
+    transform: 1,
     targets: ['copilot'],
-    files: ['.github/skills/alpha'],
+    files: locked('.github/skills/alpha'),
   },
   {
     kind: 'skill',
@@ -111,9 +115,9 @@ const FIXTURE_ENTRIES: LockEntry[] = [
     origin: 'a',
     path: 'skills/alpha',
     contentHash: 'sha256:ffff',
-    installedAt: '2026-09-01T10:00:06.000Z',
+    transform: 1,
     targets: ['copilot'],
-    files: ['.github/skills/alpha'],
+    files: locked('.github/skills/alpha'),
   },
   {
     kind: 'agent',
@@ -121,14 +125,14 @@ const FIXTURE_ENTRIES: LockEntry[] = [
     origin: 'a',
     path: 'agents/reviewer.md',
     contentHash: 'sha256:1111',
-    installedAt: '2026-09-01T10:00:07.000Z',
+    transform: 1,
     targets: ['claude', 'codex', 'copilot', 'cursor'],
-    files: [
+    files: locked(
       '.claude/agents/reviewer.md',
       '.codex/agents/reviewer.toml',
       '.github/agents/reviewer.agent.md',
       '.cursor/agents/reviewer.md',
-    ],
+    ),
     deps: [{ kind: 'skill', name: 'tdd' }],
   },
   {
@@ -137,15 +141,165 @@ const FIXTURE_ENTRIES: LockEntry[] = [
     origin: 'd',
     path: 'rules/style.md',
     contentHash: 'sha256:2222',
-    installedAt: '2026-09-01T10:00:08.000Z',
+    transform: 1,
     targets: ['cursor'],
-    files: ['.cursor/rules/style.mdc'],
+    files: locked('.cursor/rules/style.mdc'),
     via: 'agent:alpha',
   },
 ];
 
-/** Written by the pre-domain writer (src/core/lockfile.ts `saveLock` at git HEAD) for FIXTURE_ENTRIES. */
+/** What `save` writes for FIXTURE_ENTRIES (lockfile v2). */
 const FIXTURE_TEXT = `${[
+  '# palm lockfile — generated, do not edit by hand.',
+  'version: 2',
+  'entries:',
+  '  - kind: skill',
+  '    name: alpha',
+  '    origin: a',
+  '    path: skills/alpha',
+  '    contentHash: sha256:ffff',
+  '    transform: 1',
+  '    targets:',
+  '      - copilot',
+  '    files:',
+  '      - path: .github/skills/alpha',
+  '        hash: sha256:020',
+  '  - kind: skill',
+  '    name: Alpha',
+  '    origin: b',
+  '    path: skills/alpha',
+  '    contentHash: sha256:ffff',
+  '    transform: 1',
+  '    targets:',
+  '      - copilot',
+  '    files:',
+  '      - path: .github/skills/alpha',
+  '        hash: sha256:020',
+  '  - kind: skill',
+  '    name: brainstorm',
+  '    origin: obra',
+  '    path: plugins/superpowers/skills/brainstorm',
+  '    contentHash: sha256:cccc',
+  '    transform: 1',
+  '    targets:',
+  '      - claude',
+  '    files:',
+  '      - path: .claude/skills/brainstorm',
+  '        hash: sha256:025',
+  '    via: plugin:superpowers',
+  '  - kind: skill',
+  '    name: wayfinder',
+  '    origin: mattpocock',
+  '    url: https://github.com/mattpocock/skills.git',
+  '    ref: v1.2.0',
+  '    sha: 0123456789abcdef0123456789abcdef01234567',
+  '    path: skills/wayfinder',
+  '    contentHash: sha256:aaaa',
+  '    transform: 1',
+  '    targets:',
+  '      - claude',
+  '      - codex',
+  '    files:',
+  '      - path: .agents/skills/wayfinder',
+  '        hash: sha256:124',
+  '      - path: .claude/skills/wayfinder',
+  '        hash: sha256:024',
+  '  - kind: agent',
+  '    name: reviewer',
+  '    origin: a',
+  '    path: agents/reviewer.md',
+  '    contentHash: sha256:1111',
+  '    transform: 1',
+  '    targets:',
+  '      - claude',
+  '      - codex',
+  '      - copilot',
+  '      - cursor',
+  '    files:',
+  '      - path: .claude/agents/reviewer.md',
+  '        hash: sha256:026',
+  '      - path: .codex/agents/reviewer.toml',
+  '        hash: sha256:127',
+  '      - path: .cursor/agents/reviewer.md',
+  '        hash: sha256:326',
+  '      - path: .github/agents/reviewer.agent.md',
+  '        hash: sha256:232',
+  '    deps:',
+  '      - kind: skill',
+  '        name: tdd',
+  '  - kind: instruction',
+  '    name: style',
+  '    origin: d',
+  '    path: rules/style.md',
+  '    contentHash: sha256:2222',
+  '    transform: 1',
+  '    targets:',
+  '      - cursor',
+  '    files:',
+  '      - path: .cursor/rules/style.mdc',
+  '        hash: sha256:023',
+  '    via: agent:alpha',
+  '  - kind: hook',
+  '    name: fmt',
+  '    origin: a',
+  '    path: hooks/fmt.json',
+  '    contentHash: sha256:eeee',
+  '    transform: 1',
+  '    targets:',
+  '      - claude',
+  '    files:',
+  '      - path: .palm/hooks/fmt/run.sh',
+  '        hash: sha256:022',
+  '    merged:',
+  '      - file: .claude/settings.json',
+  '        pointer: /hooks/PostToolUse/-',
+  '        value:',
+  '          matcher: Edit',
+  '          hooks:',
+  '            - type: command',
+  '              command: \'"$CLAUDE_PROJECT_DIR"/.palm/hooks/fmt/run.sh\'',
+  '  - kind: mcp',
+  '    name: context7',
+  '    origin: registry',
+  '    url: https://registry.modelcontextprotocol.io',
+  '    ref: 1.0.3',
+  '    path: io.github.upstash/context7',
+  '    contentHash: sha256:dddd',
+  '    transform: 1',
+  '    targets:',
+  '      - claude',
+  '      - cursor',
+  '    files: []',
+  '    merged:',
+  '      - file: .mcp.json',
+  '        pointer: /mcpServers/context7',
+  '        value:',
+  '          type: http',
+  '          url: https://mcp.context7.com/mcp',
+  '          headers:',
+  '            Authorization: Bearer ${CTX_TOKEN}',
+  '      - file: .cursor/mcp.json',
+  '        pointer: /mcpServers/context7',
+  '        value:',
+  '          url: https://mcp.context7.com/mcp',
+  '  - kind: plugin',
+  '    name: superpowers',
+  '    origin: obra',
+  '    path: plugins/superpowers',
+  '    contentHash: sha256:bbbb',
+  '    transform: 1',
+  '    targets:',
+  '      - claude',
+  '    files: []',
+  '    deps:',
+  '      - kind: skill',
+  '        name: brainstorm',
+  '      - kind: command',
+  '        name: plan',
+].join('\n')}\n`;
+
+/** A lockfile v1 as palm 0.0 wrote it (timestamps, plain file paths). */
+const V1_TEXT = `${[
   '# palm lockfile — generated, do not edit by hand.',
   'version: 1',
   'entries:',
@@ -290,9 +444,9 @@ function entry(name: string, extra: Partial<LockEntry> = {}): LockEntry {
     origin: 'o',
     path: `skills/${name}`,
     contentHash: 'sha256:x',
-    installedAt: '2026-01-01T00:00:00.000Z',
+    transform: 1,
     targets: ['claude'],
-    files: [`.claude/skills/${name}`],
+    files: [{ path: `.claude/skills/${name}`, hash: 'sha256:f' }],
     ...extra,
   };
 }
@@ -300,7 +454,7 @@ function entry(name: string, extra: Partial<LockEntry> = {}): LockEntry {
 const agent = (name: string, deps: string[], extra: Partial<LockEntry> = {}): LockEntry =>
   entry(name, {
     kind: 'agent',
-    files: [`.claude/agents/${name}.md`],
+    files: [{ path: `.claude/agents/${name}.md`, hash: 'sha256:f' }],
     deps: deps.map((d) => ({ kind: 'skill', name: d })),
     ...extra,
   });
@@ -314,7 +468,7 @@ describe('Lock file I/O', () => {
   });
   afterEach(async () => removeDir(dir));
 
-  it('writes byte-identical output to the previous writer, and load → save is stable', async () => {
+  it('writes lockfile v2 (golden), and load → save is stable', async () => {
     const built = join(dir, 'built.yaml');
     const lock = new Lock();
     for (const e of FIXTURE_ENTRIES) lock.upsert(structuredClone(e));
@@ -328,6 +482,69 @@ describe('Lock file I/O', () => {
     await loaded.save(file);
     expect(await readFile(file, 'utf8')).toBe(FIXTURE_TEXT);
     expect(FIXTURE_TEXT.startsWith(`# ${LOCK_COMMENT}\n`)).toBe(true);
+    expect(FIXTURE_TEXT).not.toMatch(/installedAt|\r|\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('is deterministic: any insertion order, saved twice, gives identical bytes', async () => {
+    const a = join(dir, 'a.yaml');
+    const b = join(dir, 'b.yaml');
+    const shuffled = [...FIXTURE_ENTRIES].reverse().map((e) => ({
+      ...structuredClone(e),
+      files: [...e.files].reverse(),
+      targets: [...e.targets].reverse(),
+    }));
+    await new Lock(structuredClone(FIXTURE_ENTRIES)).save(a);
+    await new Lock(shuffled).save(b);
+    const first = await readFile(a, 'utf8');
+    expect(await readFile(b, 'utf8')).toBe(first);
+    await (await Lock.load(a)).save(a);
+    await (await Lock.load(a)).save(a);
+    expect(await readFile(a, 'utf8')).toBe(first);
+  });
+
+  it('loads a v1 lock (timestamps, plain file paths) and saves it as v2', async () => {
+    const file = join(dir, 'palm.lock.yaml');
+    await writeFile(file, V1_TEXT);
+    const lock = await Lock.load(file);
+    const wayfinder = lock.find({ kind: 'skill', name: 'wayfinder' });
+    expect(wayfinder).toMatchObject({
+      transform: 0,
+      files: [
+        { path: '.claude/skills/wayfinder', hash: '' },
+        { path: '.agents/skills/wayfinder', hash: '' },
+      ],
+    });
+    expect(wayfinder).not.toHaveProperty('installedAt');
+    expect(lock.toJSON().version).toBe(2);
+    await lock.save(file);
+    const text = await readFile(file, 'utf8');
+    expect(text).toMatch(/^version: 2$/m);
+    expect(text).not.toContain('installedAt');
+    expect(text).toContain('      - path: .claude/skills/wayfinder\n        hash: ""\n');
+    expect(text).toContain('    transform: 0\n');
+    await (await Lock.load(file)).save(file);
+    expect(await readFile(file, 'utf8')).toBe(text);
+  });
+
+  it('lists files changed on disk since palm wrote them (edit-safe)', async () => {
+    await writeFile(join(dir, 'same.txt'), 'same');
+    await writeFile(join(dir, 'edited.txt'), 'edited by hand');
+    const hashes: Record<string, string> = {
+      [join(dir, 'same.txt')]: 'h:same',
+      [join(dir, 'edited.txt')]: 'h:edited',
+    };
+    const e = entry('x', {
+      files: [
+        { path: 'same.txt', hash: 'h:same' },
+        { path: 'edited.txt', hash: 'h:original' },
+        { path: 'missing.txt', hash: 'h:gone' },
+        { path: 'unknown.txt', hash: '' },
+      ],
+    });
+    const paths = { abs: (f: string) => join(dir, f) };
+    const changed = await Lock.modifiedFiles(e, paths, async (abs) => hashes[abs] ?? 'h:?');
+    expect(changed).toEqual(['edited.txt']);
+    expect(filePaths(e)).toEqual(['same.txt', 'edited.txt', 'missing.txt', 'unknown.txt']);
   });
 
   it('sorts one name from several origins by origin', async () => {
@@ -337,7 +554,7 @@ describe('Lock file I/O', () => {
   });
 
   it('is empty when the file is missing or empty', async () => {
-    expect((await Lock.load(join(dir, 'nope.yaml'))).toJSON()).toEqual({ version: 1, entries: [] });
+    expect((await Lock.load(join(dir, 'nope.yaml'))).toJSON()).toEqual({ version: 2, entries: [] });
     await writeFile(join(dir, 'empty.yaml'), '');
     expect((await Lock.load(join(dir, 'empty.yaml'))).size).toBe(0);
     await writeFile(join(dir, 'no-entries.yaml'), 'version: 1\n');
@@ -363,7 +580,7 @@ describe('Lock file I/O', () => {
         origin: 'o',
         path: 'p',
         contentHash: 'h',
-        installedAt: 't',
+        transform: 0,
         targets: [],
         files: [],
       },
@@ -373,7 +590,11 @@ describe('Lock file I/O', () => {
   it('rejects malformed locks', async () => {
     const cases: Array<[string, RegExp]> = [
       ['- a\n', /must be a YAML mapping/],
-      ['version: 2\nentries: []\n', /unsupported lockfile version 2/],
+      ['version: 3\nentries: []\n', /unsupported lockfile version 3/],
+      [
+        'entries:\n  - {kind: skill, name: a, origin: o, files: [{hash: x}]}\n',
+        /malformed `files`/,
+      ],
       ['entries:\n  - {kind: skill, name: a}\n', /entry 1 needs a kind, name and origin/],
       ['entries:\n  - just-a-string\n', /entry 1 needs/],
       ['entries: [a\n', /./],
@@ -436,12 +657,12 @@ describe('Lock lookups and edits', () => {
   it('serialises through toJSON (change detection by JSON.stringify)', () => {
     const lock = new Lock([entry('a')]);
     const before = JSON.stringify(lock);
-    expect(JSON.parse(before)).toEqual({ version: 1, entries: [entry('a')] });
+    expect(JSON.parse(before)).toEqual({ version: 2, entries: [entry('a')] });
     lock.upsert(entry('a'));
     expect(JSON.stringify(lock)).toBe(before);
     lock.upsert(entry('a', { contentHash: 'sha256:z' }));
     expect(JSON.stringify(lock)).not.toBe(before);
-    expect(Lock.from({ version: 1, entries: [entry('q')] }).entries).toEqual([entry('q')]);
+    expect(Lock.from({ version: 2, entries: [entry('q')] }).entries).toEqual([entry('q')]);
   });
 });
 
@@ -556,7 +777,7 @@ describe('Lock files on disk', () => {
 
   it('protects merge targets and the files of entries that stay', () => {
     const a = entry('a', { merged: [{ file: '.mcp.json', pointer: '/x', value: 1 }] });
-    const b = entry('b', { files: ['/abs/b'] });
+    const b = entry('b', { files: [{ path: '/abs/b', hash: '' }] });
     const lock = new Lock([a, b]);
     const p = paths('/root');
     expect([...lock.protectedFiles(p, [a])].sort()).toEqual(['/abs/b', '/root/.mcp.json']);

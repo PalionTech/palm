@@ -38,10 +38,13 @@ Examples:
   palm install                                   everything palm.yaml lists`,
 
   uninstall: `
+Files you changed since palm wrote them stay on disk (listed); --force removes them too.
+
 Examples:
   palm uninstall skill tdd                  remove a skill and what nothing else needs
   palm uninstall skills tdd wayfinder       several of one kind
   palm rm plugin superpowers -g             from the global scope
+  palm uninstall skill tdd --force          also delete files you edited
   palm uninstall origin pstack              unregister an origin (installed entities stay)`,
 
   get: `
@@ -61,10 +64,15 @@ Examples:
   palm describe target claude -g            where each kind goes at the global scope`,
 
   update: `
+Prints the plan first (~ updated, + added, - removed, = unchanged, x failed, and files you
+changed that an update would overwrite), then asks before applying (default No). Without a
+terminal, --yes is required.
+
 Examples:
   palm update                               everything installed in this project
   palm update skills                        every directly installed skill
   palm update skill tdd --dry-run           show the plan only
+  palm update --yes                         apply without asking (scripts, CI)
   palm update origins                       refetch and rescan every origin
   palm update origin mattpocock             one origin`,
 
@@ -122,6 +130,44 @@ export const INIT_HELP = `
 Examples:
   palm init
   palm init --target claude,codex`;
+
+export const OUTDATED_HELP = `
+Columns:
+  current    the ref palm.lock.yaml records
+  wanted     what palm.yaml's #ref resolves to now: a tag, a branch head, or the newest tag
+             in a semver range (#^1.2, #~1.2); no #ref: the latest release
+  latest     the newest release tag, else the default branch head
+Reads remote refs only (git ls-remote); the cache is never taken as current.
+
+Examples:
+  palm outdated                             every direct install in this project
+  palm outdated skills                      skills only
+  palm outdated -g --json                   global installs, as JSON`;
+
+export const WHY_HELP = `
+Examples:
+  palm why skill brainstorm                 the plugin or agent that pulled it in
+  palm why skill tdd@mattpocock             one origin's copy
+  palm why mcp docs -g --json               in the global scope, as JSON`;
+
+export const FIND_HELP = `
+The path may be absolute, ~/…, or relative to this directory or the scope root. Without -g
+the project and the global lockfile are searched. Exit 1 when no entity wrote the path.
+
+Examples:
+  palm find .claude/skills/tdd/SKILL.md     the entity that wrote it
+  palm find .mcp.json                       merged config: every entity with a fragment in it
+  palm find ~/.codex/AGENTS.md -g --json    global scope only, as JSON`;
+
+export const AUDIT_HELP = `
+Without -g the project and the global scope are scanned. Exit 1 while a critical finding
+(bidi override, tag character) remains.
+
+Examples:
+  palm audit                                scan what palm installed for hidden Unicode
+  palm audit skills tdd                     one skill
+  palm audit --strip                        remove the hidden characters it finds
+  palm audit -g --json                      the global scope only, as JSON`;
 
 export const DOCTOR_HELP = `
 Examples:

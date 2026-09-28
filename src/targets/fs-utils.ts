@@ -1,7 +1,13 @@
 import { promises as fs } from 'node:fs';
 import { messageOf, PalmError } from '../core/errors.js';
 import { shouldSkipFile } from '../domain/ignore.js';
-import { isEnoent, type WalkResult, walkFiles, writeFileAtomic } from '../lib/fs.js';
+import {
+  isEnoent,
+  resolveWriteTarget,
+  type WalkResult,
+  walkFiles,
+  writeFileAtomic,
+} from '../lib/fs.js';
 
 function ioError(action: string, p: string, e: unknown): PalmError {
   return new PalmError('E_IO', `cannot ${action} ${p}: ${messageOf(e)}`);
@@ -38,12 +44,41 @@ export async function atomicWrite(
   }
 }
 
-export async function ensureMode(file: string, mode: number): Promise<void> {
-  const current = await fs.stat(file).then(
+/**
+ * Read `file` (undefined when missing), apply the pure `transform` and write the result
+ * atomically unless it is undefined (unchanged) or `dryRun`. True when the text changed.
+ */
+export async function rewriteText(
+  file: string,
+  transform: (text: string | undefined) => string | undefined,
+  dryRun: boolean,
+): Promise<boolean> {
+  const next = transform(await readTextOrUndefined(file));
+  if (next === undefined) return false;
+  if (!dryRun) await atomicWrite(file, next);
+  return true;
+}
+
+/** Permission bits of `file` (links followed), or undefined when it cannot be stat'ed. */
+export async function statMode(file: string): Promise<number | undefined> {
+  return fs.stat(file).then(
     (st) => st.mode & 0o777,
     () => undefined,
   );
+}
+
+export async function ensureMode(file: string, mode: number): Promise<void> {
+  const current = await statMode(file);
   if (current !== undefined && current !== mode) await fs.chmod(file, mode);
+}
+
+/** The path a write to `file` lands on (the final target of a symlinked file); E_IO on failure. */
+export async function writeTargetPath(file: string): Promise<string> {
+  try {
+    return await resolveWriteTarget(file);
+  } catch (e) {
+    throw ioError('resolve', file, e);
+  }
 }
 
 /** Delete a file; missing files are fine. */

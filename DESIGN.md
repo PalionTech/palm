@@ -62,7 +62,10 @@ ancestor containing `.git`, else cwd.
 ### target locations (v1)
 
 Paths are relative to projectRoot (project scope) or `~` (global scope).
-`~/.claude` honours `$CLAUDE_CONFIG_DIR`; `~/.codex` honours `$CODEX_HOME`.
+`~/.claude` honours `$CLAUDE_CONFIG_DIR`; `~/.codex` honours `$CODEX_HOME`; `~/.copilot` honours
+`$COPILOT_HOME`; `~/.gemini` honours `$GEMINI_CLI_HOME` (as `$GEMINI_CLI_HOME/.gemini`: the
+variable replaces Gemini's home, not its config dir); `~/.config/opencode` honours
+`$XDG_CONFIG_HOME` (as `$XDG_CONFIG_HOME/opencode`). Each override is a global-scope boundary.
 
 | kind | claude | codex | copilot | cursor |
 |---|---|---|---|---|
@@ -73,6 +76,20 @@ Paths are relative to projectRoot (project scope) or `~` (global scope).
 | hook | merged into `.claude/settings.json` · `~/.claude/settings.json` | merged into `.codex/hooks.json` · `~/.codex/hooks.json` | `.github/hooks/<n>.json` · `~/.copilot/hooks/<n>.json` | merged into `.cursor/hooks.json` · `~/.cursor/hooks.json` |
 | mcp | `.mcp.json` · `~/.claude.json` (`mcpServers`) | `.codex/config.toml` · `~/.codex/config.toml` (`[mcp_servers.<n>]`) | `.vscode/mcp.json` (`servers`) · `~/.copilot/mcp-config.json` (`mcpServers`) | `.cursor/mcp.json` · `~/.cursor/mcp.json` |
 
+| kind | gemini | opencode |
+|---|---|---|
+| skill | `.agents/skills/<n>/` · `~/.agents/skills/<n>/` (shared; `$GEMINI_CLI_HOME` set → `$GEMINI_CLI_HOME/.gemini/skills/<n>/`, since Gemini then reads `$GEMINI_CLI_HOME/.agents/skills`) | `.agents/skills/<n>/` · `~/.agents/skills/<n>/` (shared; `OPENCODE_DISABLE_EXTERNAL_SKILLS` = `1`/`true` → `.opencode/skills/<n>/` · `~/.config/opencode/skills/<n>/`) |
+| agent | `.gemini/agents/<n>.md` · `~/.gemini/agents/<n>.md` (strict schema: name, description, `kind: local`, display_name, tools in Gemini names, model, temperature / max_turns / timeout_mins) | `.opencode/agents/<n>.md` · `~/.config/opencode/agents/<n>.md` (`mode: subagent`, `permission` from the tool lists, `provider/model` only; other keys stripped) |
+| instruction | managed block in `GEMINI.md` · `~/.gemini/GEMINI.md` | `.opencode/instructions/<n>.md` + item in `opencode.json#/instructions` · `~/.config/opencode/instructions/<n>.md` + absolute path in `~/.config/opencode/opencode.json#/instructions` |
+| command | `.gemini/commands/<n>.toml` · `~/.gemini/commands/<n>.toml` (`description`, `prompt`; `$ARGUMENTS` → `{{args}}`) | `.opencode/commands/<n>.md` · `~/.config/opencode/commands/<n>.md` |
+| hook | merged into `.gemini/settings.json` · `~/.gemini/settings.json` (`hooks`, Gemini event names, timeout in ms) | (no declarative hooks: skip + note) |
+| mcp | `.gemini/settings.json` · `~/.gemini/settings.json` (`mcpServers`; `{url, type: http\|sse}`, `${VAR}`) | `opencode.json` · `~/.config/opencode/opencode.json` (`mcp`; `local`/`remote`, `{env:VAR}`) |
+
+Gemini CLI and OpenCode rows were checked against docs and source on 2026-09-28 (research R7),
+not against running CLIs. Gemini CLI loads workspace settings, commands, skills, agents and MCP
+servers only in trusted folders. Plugins install as loose members for both (Gemini extensions are
+user-level only and need Gemini's installer; OpenCode plugins are JS code). The stop dirs are
+`.gemini`, `~/.gemini`, `.opencode` and `~/.config/opencode`.
 
 The shared `.agents/skills` directory is written **once** even when several
 non-Claude targets are active. Claude Code does not read `.agents/skills`, so a
@@ -89,11 +106,32 @@ Hook scripts referenced through `${CLAUDE_PLUGIN_ROOT}` are copied to
 `.palm/hooks/<n>/` (project) or `$PALM_HOME/hooks/<n>/` (global): the whole plugin
 root (scripts may read sibling files, e.g. superpowers reads
 `skills/using-superpowers/SKILL.md`) minus docs, tests, CI and top-level README-type
-files. Commands get the root substituted and, for claude/codex (cursor), the variable
-exported (`CLAUDE_PLUGIN_ROOT="…" cmd`), as the harness would for a native plugin.
+files. Commands get the root substituted and, for claude/codex/gemini (cursor), the variable
+exported (`CLAUDE_PLUGIN_ROOT="…" cmd`), as the harness would for a native plugin (Gemini CLI
+sets none, but the scripts palm converts for it come from Claude plugins).
+
+**Portable project hooks.** Project configs are committed, so a project-scope hook command
+never contains an absolute path: the plugin root becomes `<project dir>/.palm/hooks/<n>`,
+where `<project dir>` is what each harness documents (checked 2026-09-28). Global scope keeps
+the absolute `$PALM_HOME/hooks/<n>`. `.palm/hooks` is gitignored, so after a fresh clone
+`palm doctor` warns ("run `palm install` to restore hook assets after a fresh clone") and
+`palm install` re-deploys the entries whose files are missing.
+
+| harness | project dir in the command | source | status |
+|---|---|---|---|
+| claude | `$CLAUDE_PROJECT_DIR` ("the project root where the session started", exported to hook processes) | https://code.claude.com/docs/en/hooks | verified |
+| cursor | `$CURSOR_PROJECT_DIR` ("Workspace root directory", always present); project hooks also "run from the project root" | https://cursor.com/docs/agent/hooks | verified |
+| codex | `$(git rev-parse --show-toplevel 2>/dev/null \|\| pwd)`: no project-dir variable is documented; commands "run with the session `cwd`", and the docs recommend resolving repo scripts from the git top level because Codex may start in a subdirectory | https://learn.chatgpt.com/docs/hooks | idiom verified; the `pwd` fallback outside git is unverified |
+| copilot | same git top level: no project-dir variable is documented, and the default working directory of a hook without `cwd` is not stated (`cwd` itself is "relative to repository root or absolute") | https://docs.github.com/en/copilot/reference/hooks-configuration | default cwd unverified, so palm does not rely on it |
+| gemini | `$GEMINI_PROJECT_DIR`, set and expanded for hook commands (it also sets `CLAUDE_PROJECT_DIR` "for compatibility"); palm exports `CLAUDE_PLUGIN_ROOT` for converted Claude plugin scripts, which Gemini does not set | gemini-cli packages/core/src/hooks/hookRunner.ts, docs/hooks | source-verified (R7), not run |
+
+These expressions assume the palm project root is the directory the harness treats as the
+project (for codex/copilot, the git top level). A plugin root outside the project (never the
+case for `.palm/hooks`) stays absolute.
 
 Uninstall removes directories palm emptied, up to but never including the harness
-config dirs (`.claude`, `.codex`, `.cursor`, `.github`, `.vscode`, `~/.copilot`);
+config dirs (`.claude`, `.codex`, `.cursor`, `.github`, `.vscode`, `~/.copilot`, `.gemini`,
+`.opencode`, `~/.config/opencode`);
 the palm-owned containers `.agents/skills`, `.agents`, `.palm/hooks`, `.palm`
 (project) and `$PALM_HOME/hooks` go once empty.
 
@@ -102,13 +140,22 @@ segments (`[A-Za-z0-9][A-Za-z0-9._-]*`, no `..`) or the deploy is refused; a loc
 path that resolves outside the scope (project root; or home / `$PALM_HOME` /
 harness home overrides for global) is never deleted; symlinks are followed only
 when their real target stays inside the origin, so a skill cannot smuggle
-`~/.ssh/id_rsa` into `.claude/skills`; a deploy that fails half-way removes the
-files it created.
+`~/.ssh/id_rsa` into `.claude/skills`; a deploy is a transaction: merges into shared
+files are planned (computed, not written) with the whole files, conflicts are found before
+anything is written, and a failure while writing restores every file the deploy touched
+(merged files to their previous bytes and mode, created files and directories removed), so
+the scope is byte-identical afterwards.
+
+**Symlinked dotfiles.** Every write goes through `writeFileAtomic`, which writes through a
+symlinked file (temp file and rename next to the link's final target), so a dotfiles-managed
+`~/.claude/settings.json`, `~/.codex/config.toml` or a symlinked `palm.lock.yaml` stays a
+link. Symlinked parent directories (`~/.claude -> ~/dotfiles/claude`) are written into, never
+replaced.
 
 ## 3. Manifest (`palm.yaml`)
 
 ```yaml
-targets: [claude, codex]           # optional; falls back to config default / detection
+targets: [claude, codex]           # written by the first install (flag, config default, detection or pick)
 origins:                           # optional project-local origins (same shape as config, alias required)
   - { alias: mattpocock, type: git, url: https://github.com/mattpocock/skills.git }
 skills:
@@ -137,32 +184,68 @@ Dependency string grammar: `<name>[@<origin-alias>][#<ref>]`. Parse `#ref`
 first, then `@origin` only when the text after the last `@` contains no `/`.
 Names never contain `@` or `#`. A section emptied by uninstall is removed.
 
-Bare `palm install` (no args) syncs the manifest: installs missing entries,
-redeploys entries (and their dependencies) whose files were deleted by hand, and
-reports lock entries with no manifest entry (removes them with `--prune`).
-`--secrets` applies to the sync as well.
+Bare `palm install` (no args) syncs the manifest against the lock:
+
+- An entry the lock already realises as written (same origin, a ref the lock's
+  `ref`/`sha` satisfies, including semver ranges like `#^1.2`; the manifest's full
+  target set; the current `transform`) with every file on disk is left alone, with
+  no network access.
+- Otherwise a locked entry is **replayed**: its origin is read at the locked `sha`
+  (the checkout slot for that sha, fetched once if missing) and redeployed, keeping
+  the locked `ref`. A newer tag on the origin never changes what a bare install
+  deploys; `palm update` does that. Agent dependencies follow their own lock entries.
+- A dependency the lock does not have (or whose pin in palm.yaml changed) is
+  resolved fresh, like `palm install <kind> <name>`.
+- An origin alias the lock names but this machine lacks is recreated from the
+  lock's `url` (+ `root`) as a project origin in palm.yaml, with a warning; under
+  `-g` that is a failure whose hint names the URL
+  (`palm install origin <url> --alias <a> -g`).
+- `targets:` is the full set: an entry deployed to a target palm.yaml no longer
+  lists is redeployed to the remaining ones and the dropped target's files and merged
+  keys are removed (target contraction).
+- Lock entries with no manifest entry are reported (removed with `--prune`).
+  `--secrets` applies to the sync as well.
+
+`palm install --frozen` (CI): palm.yaml, palm.lock.yaml and the files must agree,
+or it fails with `E_CONFLICT` listing every difference and writes nothing. It checks
+that every manifest dependency has a direct lock entry with the same name/origin (and
+a satisfying ref when pinned), that no lock entry is extraneous or orphaned, that
+every entry has the resolved targets and the current `transform`, and that no locked
+file was edited (hash). Missing files are then restored from the locked commits
+(the only network access: fetching a locked sha that is not in the cache), and each
+restored file must hash to the lock's value. It never writes palm.yaml,
+palm.lock.yaml or config.yaml (an alias recreated from the lock lives only for the
+run).
+
+`targets:` makes a project machine-independent: the first project install writes
+the resolved set to palm.yaml when it has none (one info line says so), so the next
+developer gets the same harnesses instead of whatever their machine detects. Global
+installs write it to config.yaml the same way.
 
 ## 4. Lockfile (`palm.lock.yaml`)
 
 One entry per installed entity per scope. Everything needed to uninstall,
-detect drift, and reinstall deterministically.
+detect drift and edits, and reinstall deterministically. Version 2:
 
 ```yaml
-version: 1
+version: 2
 entries:
   - kind: skill
     name: wayfinder
     origin: mattpocock
-    url: https://github.com/mattpocock/skills.git
+    url: https://github.com/mattpocock/skills.git   # git origins: recreates a missing alias
+    root: skills                 # git origins with a subdirectory root
     ref: v1.2.3
-    sha: 3f2a...
+    sha: 3f2a...                 # bare `palm install` deploys exactly this commit
     path: skills/engineering/wayfinder
-    contentHash: sha256:...
-    installedAt: 2026-09-27T17:00:00Z
+    contentHash: sha256:...      # the entity's source content
+    transform: 1                 # TRANSFORM_VERSION the files were rendered with
     targets: [claude, codex]
     files:                       # everything palm wrote, scope-relative (project) or absolute (global)
-      - .claude/skills/wayfinder/SKILL.md
-      - .agents/skills/wayfinder/SKILL.md
+      - path: .agents/skills/wayfinder/SKILL.md
+        hash: sha256:...         # of the file as written (text hashed with LF line ends)
+      - path: .claude/skills/wayfinder/SKILL.md
+        hash: sha256:...
     merged:                      # entries palm inserted into shared files, for exact removal
       - file: .claude/settings.json
         pointer: /hooks/SessionStart
@@ -176,6 +259,29 @@ entries:
 policy are recorded as their `${VAR}` placeholder, and unmerge treats a placeholder
 as matching any text.
 
+- **No timestamps**: nothing in the lock depends on the wall clock, so two developers
+  installing the same thing produce the same file (no merge churn).
+- **Deterministic writer**: entries sorted by kind (KINDS order), name (case-insensitive),
+  origin, then name (code points, not locale); keys in a fixed order; `files` sorted by
+  path; `targets` in TARGET_IDS order; LF line ends. Saving the same lock twice gives
+  identical bytes.
+- **Per-file hashes (edit-safe)**: before overwriting or deleting a file palm wrote,
+  palm compares its on-disk hash with `files[].hash`. A file the user changed is
+  refused with `E_CONFLICT` naming the file and `--force` (the entity is recorded as a
+  failure and left as it was; the run goes on). An empty hash (lockfile v1, dry run)
+  is never treated as edited. `Lock.modifiedFiles` / engine `modifiedFiles` expose the
+  check (uninstall uses it too).
+- **`transform`**: `TRANSFORM_VERSION` (src/core/types.ts) is bumped whenever a target
+  renders the same entity to different bytes. An entry with an older transform is not
+  "unchanged": the next install re-renders it instead of leaving stale output.
+- **Partial state is recorded truthfully**: an entry lists only the targets and files
+  that succeeded; an entity whose every target failed keeps its previous entry (or
+  has none).
+- **Version 1** files (timestamps `installedAt`, `files` as plain paths) load and are
+  converted in memory (`hash: ''`, `transform: 0`); the next save writes version 2.
+  Because `transform: 0` is older than any real version, the first install after the
+  upgrade re-renders every entry and records the hashes.
+
 ## 5. Origins and the index
 
 `config.yaml`:
@@ -186,7 +292,7 @@ origins:
   - alias: mattpocock
     type: git
     url: https://github.com/mattpocock/skills.git
-    ref: v1.2.3            # optional; absent = latest semver tag if any, else default branch
+    ref: v1.2.3            # optional: tag, branch, sha or semver range (^1.2); absent = latest semver tag, else default branch
   - alias: pstack
     type: git
     url: https://github.com/cursor/plugins.git
@@ -201,19 +307,34 @@ origins:
       skills: ["skills/.curated/*"]
 ```
 
-Origin spec input forms accepted on the CLI (`palm origin add <spec>`):
+Origin spec input forms accepted on the CLI (`palm install origin <spec>`):
 `owner/repo`, `owner/repo/sub/dir`, `github:owner/repo`, any `https://`/`git@`
-URL (optionally `#ref`), a local path, or a `marketplace.json` file/URL which is
-expanded into one origin per plugin entry (`palm origin import`).
+URL (optionally `#ref`), a local path, or a `marketplace.json` file, directory or URL,
+which is expanded into one origin per plugin entry (`palm install origin <marketplace>`;
+index/marketplace.ts reads or downloads it). `palm get origins` lists them,
+`palm describe origin <alias>` shows one, `palm update origins [alias...]` refetches and
+rescans, `palm uninstall origin <alias>` unregisters. The old `palm origin add|list|remove|update|import`
+forms are hidden aliases.
 
-Every origin in `config.yaml` or a project `palm.yaml` must carry an explicit, unique `alias` matching `^[a-z0-9][a-z0-9._-]*$` (palm never derives one on load: a missing or malformed alias is `E_PARSE` naming the file and the alias `palm origin add` would derive, a clash on add is `E_CONFLICT`), and `-o/--origin` on `list`, `search` and `info` selects an origin by alias, `owner/repo[/root]`, URL or local path (`matchOrigin`/`resolveOriginQuery`).
+**Refs.** `ref` (or `#ref`) is a tag, branch or sha, or a semver range: `^1.2`, `~1.2`,
+`>=1.2 <2`, `1.x`, `v1`. A range is anything `semver.validRange` accepts that is not one exact
+version or a sha (`isSemverRange`). `resolveRef` resolves it against the remote's tags
+(`git ls-remote --tags --heads`): a branch or tag named exactly like the range wins (a `2.x`
+maintenance branch, a moving `v1` tag); otherwise the highest tag satisfying the range
+(`v`-prefixed tags allowed, prereleases only when the range names one); no match is
+`E_ORIGIN` listing the nearest tags and `git ls-remote --tags <url>` as the hint. The checkout
+records the requested range and the resolved tag (`checkout-ref-<range>.json`), the index and
+the lock the resolved tag and its sha; a later fetch with the same range is a cache hit until
+`palm update` (refresh) re-resolves it. No ref: the latest release tag, else the default branch.
+
+Every origin in `config.yaml` or a project `palm.yaml` must carry an explicit, unique `alias` matching `^[a-z0-9][a-z0-9._-]*$` (palm never derives one on load: a missing or malformed alias is `E_PARSE` naming the file and the alias `palm install origin` would derive, a clash on add is `E_CONFLICT`), and `-o/--origin` on `list`, `search` and `info` selects an origin by alias, `owner/repo[/root]`, URL or local path (`matchOrigin`/`resolveOriginQuery`).
 
 Default alias = repo name (`obra/superpowers` → `superpowers`), or the owner when
 the repo name is generic (`skills`, `plugins`, `agents`, `prompts`, `rules`, `mcp`, …:
 `mattpocock/skills` → `mattpocock`, `anthropics/skills` → `anthropics`); when the
 alias is taken, `owner-repo`. A `root` subdir aliases to its last segment, then
-`<base>-<lastSegment>`. `palm origin add … --layout kind=glob` (repeatable) stores a
-layout descriptor; `palm origin import` skips entries already registered (same
+`<base>-<lastSegment>`. `palm install origin … --layout kind=glob` (repeatable) stores a
+layout descriptor; a marketplace install skips entries already registered (same
 repo, root and ref) and indexes what it adds.
 
 `originId` (cache dir name) = sanitized `host/owner/repo[/root]` with `/` → `__`;
@@ -225,14 +346,41 @@ actually checked out, so skills without their own version take the tag's.
 **Origin URLs** pass one validator (`validateOriginUrl`) on input and when stored
 origins are loaded: `https://`, `http://` and `git://` (warning), `ssh://`,
 `file://`, `user@host:path`, absolute paths. Leading `-`, `ext::`/`fd::`/any `<x>::`
-transport, other schemes and control characters are refused. Every git call runs
-with `protocol.ext.allow=never`, `protocol.fd.allow=never`, `protocol.file.allow`
-only for local origins, and `--` before positional URLs/refs.
+transport, other schemes and control characters are refused.
+
+**Running git** (`src/core/git-exec.ts`, the only place palm spawns git):
+
+- A clean environment, built from an allow list: `PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`,
+  `LANGUAGE`, `LC_*`, `TMPDIR`, `XDG_CONFIG_HOME`, `SSH_AUTH_SOCK`, `GIT_SSH`,
+  `GIT_SSH_COMMAND`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `GIT_CONFIG_NOSYSTEM`, the proxy
+  variables (`http_proxy`, `https_proxy`, `all_proxy`, `no_proxy` and their upper-case forms)
+  and CA bundles (`GIT_SSL_CAINFO`, `GIT_SSL_CAPATH`, `SSL_CERT_FILE`, `SSL_CERT_DIR`), plus
+  `GIT_TERMINAL_PROMPT=0` and `GCM_INTERACTIVE=never`. Everything else is dropped, in
+  particular what would point git at another repository or config: `GIT_DIR`,
+  `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`,
+  `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_NAMESPACE`, `GIT_COMMON_DIR`,
+  `GIT_CEILING_DIRECTORIES`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n`,
+  `GIT_EXEC_PATH`, `GIT_TEMPLATE_DIR`, `GIT_ASKPASS`, `SSH_ASKPASS`. A palm started from a git
+  hook therefore never touches the hook's repository.
+- Every call: `-c protocol.ext.allow=never -c protocol.fd.allow=never
+  -c protocol.file.allow=<user for local origins, else never> -c credential.interactive=false`,
+  and `--` before positional URLs/refs.
+- ssh never prompts: for an ssh remote palm sets `-c core.sshCommand=<the user's global
+  core.sshCommand, or ssh> -o BatchMode=yes`; a user `GIT_SSH_COMMAND` gets `-o BatchMode=yes`
+  appended when it runs OpenSSH and has no BatchMode; `GIT_SSH` (a bare program) is left alone.
+- Timeouts: 120 s for `ls-remote`, `clone` and `fetch` (`E_NETWORK`, hint: check the network,
+  `git ls-remote <url>`), 30 s for local steps (`E_GIT`, hint: `palm cache clean`), 20 s for
+  `palm doctor`'s reachability ping. A timed-out fetch is never retried with a second clone.
 
 The index for an origin is the `ScanResult` from `scanOrigin()`, cached at
-`cache/<originId>.index.json` with the resolved sha. `palm origin update`
+`cache/<originId>.index.json` with the resolved sha. `palm update origins`
 refetches and rescans. Install reads from the cache when present, otherwise
-fetches first.
+fetches first. The cache file records `format` (`INDEX_FORMAT` in core/cache, currently 2:
+entities may carry `issues`) and a `cacheKey` (format, sha, root, layout). A file is only
+used when its shape checks out (`format` matches, `cacheKey` a string, `entities` and
+`warnings` arrays, every entity with string `kind`/`name`/`path` and an object `def`);
+anything else, including an index written by an older palm, is a cache miss and the origin
+is rescanned once, never an error.
 
 ### Scan rules (priority order)
 
@@ -246,7 +394,9 @@ fetches first.
 3. Marketplace file (`.claude-plugin/marketplace.json` > `.cursor-plugin/marketplace.json` >
    `.github/plugin/marketplace.json` > `.agents/plugins/marketplace.json`): each entry with a
    relative source becomes a `plugin` entity scanned at that path; entries with remote sources
-   are surfaced as `warnings` ("remote plugin X → add as origin"), not fetched. A single entry
+   are surfaced as `warnings`, not fetched (`remote plugin "x" (<source>) not fetched → add it
+   as an origin: palm install origin owner/repo[/path][#ref]`; a git-subdir source adds
+   `--root <path>`). A single entry
    with source `./` collapses into the root plugin. `strict:false` + `skills:[...]` = exact subset.
 4. Per-plugin manifest (`.claude-plugin/plugin.json` > `.cursor-plugin/plugin.json` >
    root `plugin.json` with agent-plugins `$schema` > `.codex-plugin/plugin.json` >
@@ -266,25 +416,70 @@ file stem minus `.agent`, `name` with spaces → `displayName`; plugin =
 manifest name → marketplace entry name → dirname; mcp = server key.
 Version = frontmatter `metadata.version` → `version` → manifest `version` → tag.
 
+**One walk.** The scanner lists the origin once (relevant files only: md/mdc/json/toml and
+`apm.yml`, ignore rules applied, in-origin symlinks followed with loop protection) and builds
+directory indexes from it: files per directory, child directories, skill directories per
+parent. Plugin defaults (`skills/*`, `agents/`, `commands/`, `rules/`), declared paths and
+the undeclared-member warning are lookups, not rescans of the file list. Declared plugin globs
+and descriptor globs run fast-glob against the index (a filesystem adapter answered from it),
+so they never walk the disk again and never match anything outside the origin or excluded by
+the layout. A marketplace plugin inside an ignored directory (`examples/x`) is walked once and
+merged into the index.
+
+### Scan issues
+
+After the rules, every entity except plugins is checked for hidden Unicode
+(`src/lib/unicode.ts` `scanHiddenUnicode`, PLAN §2 item 11): critical = bidi overrides and
+isolates (U+202A–U+202E, U+2066–U+2069), tag characters (U+E0000–U+E007F), variation
+selectors 17–256 (U+E0100–U+E01EF); warning = zero-width and other invisible format
+characters. Files checked: a skill's whole directory, walked like the deploy copy (COPY_SKIP,
+symlinks only inside the origin, so ignored subdirectories such as `examples/` inside a skill
+are included); the file of an agent, instruction, command, MCP config or hook set, and every
+hook file merged into a plugin's hook set (inline manifest hooks and MCP servers: the
+manifest). Binary files (a NUL byte in the first 8 KB) and files over 1 MB are skipped.
+
+Each affected file becomes one `Entity.issues` entry:
+
+```ts
+{ code: 'hidden-unicode', severity: 'critical' | 'warning',   // worst finding in the file
+  message: 'skills/x/SKILL.md: 2 hidden characters, first U+202E RIGHT-TO-LEFT OVERRIDE at line 8',
+  file: 'skills/x/SKILL.md' }                                  // origin-relative
+```
+
+The code point named is the first finding of the file's worst severity. Each affected entity
+also adds one line to `ScanResult.warnings`, so consumers that ignore `issues` still show it:
+`hidden-unicode: <kind> "<name>" (<worst severity>): <worst issue message>[; <n> more files]`.
+Entities without findings have no `issues` key.
+
 ## 6. Install flow (engine)
 
 ```
 palm install [<kind>] <spec>... [-g] [--from <origin>] [--target a,b] [--dry-run] [--force] [--yes]
 ```
 
-1. Resolve scope + targets (flag > manifest > config default > detection > interactive multiselect saved to manifest). The CLI first runs a pre-flight (`preflightInstall`: steps 3–5 without the picker or registry), so a name that matches nothing fails before any target prompt; `registry` as the kind word and kind-less repository specs (`owner/repo`, git URLs, paths) are usage errors pointing at `palm install origin` / `--from`; `palm install origin <spec>` registers an origin (§9).
+1. Resolve scope + targets (flag > manifest > config default > detection > interactive multiselect; the result is saved to palm.yaml / config.yaml when none is stored). Scope guards: at project scope a `projectRoot` equal to the home directory without palm.yaml or `.git` is `E_USAGE` ("run inside a project or use -g"); a project origin whose alias a user origin uses for another source is `E_CONFLICT` naming both, a local project origin outside the project is `E_ORIGIN`; under `-g` project origins are ignored. The CLI first runs a pre-flight (`preflightInstall`: steps 3–5 without the picker or registry), so a name that matches nothing fails before any target prompt; `registry` as the kind word and kind-less repository specs (`owner/repo`, git URLs, paths) are usage errors pointing at `palm install origin` / `--from`; `palm install origin <spec>` registers an origin (§9).
 2. Parse kind (singular/plural/aliases, see `kinds.ts`). If the first arg is not a kind, search all kinds.
 3. For each spec: parse `name[@origin][#ref]`; `--from` supplies/overrides origin and may be an unregistered spec (ad hoc origin, fetched but not saved unless `--save-origin`).
 4. Ensure the relevant origins are fetched and indexed (fetch lazily; `--offline` uses cache only).
 5. Match candidates: exact name within kind; if 0 → fuzzy suggestions + "add an origin" hint, exit 1; if 1 → proceed; if >1 → interactive picker showing `name  kind  origin  version  description`; non-TTY → error listing candidates with the `@origin` form to disambiguate. `--yes` picks the first only when candidates are identical content hashes.
 6. Expand composites: plugin → members; agent → referenced `skills`/`mcpServers`/`instructions` (palm's `instructions:` frontmatter extension, `name[@origin]`) queued with `via: agent:<name>`. Resolution: an explicit `@origin` → only that origin; else the agent's own origin; else the origin the dependency was installed from before (so reinstalls never turn ambiguous); else all origins (picker; non-TTY → `E_AMBIGUOUS`). A dependency already installed another way is kept as is.
-7. Materialize per target via `Target.deploy()`; collect written files + merged entries. An entry whose recorded files are missing counts as changed and is redeployed.
-8. Write lock entries (plugin/agent entries record `deps`) and manifest entries (manifest gets the direct requests only, not `via` deps).
-9. Print a summary table: what was installed where, warnings (hooks = executable code, MCP secrets placement).
+7. Executable consent: every hook (dialect, event → command) and every stdio MCP server (command + args) among the items this run will write is listed once; interactive runs confirm once (default yes, no → `E_CANCELLED`, nothing written); non-interactive runs need `--yes` (else `E_NON_INTERACTIVE`, hint naming `--yes`); `--dry-run` lists them without asking. Text entities are never gated; entries that are unchanged are not asked again.
+8. Per item (`engine/deploy.ts`): the pure `planDeployment` decides from the lock (keep / unchanged / add missing targets / full deploy replacing the previous install); refusals (hidden Unicode with severity `critical` unless `--force` (hint `palm audit --strip`), edited files unless `--force`, `--frozen` content mismatch) become failures; `resolveMcpSecrets`; `deployToTargets` (one target's error does not stop the others); `buildLockEntry` hashes every written file. An entry whose recorded files are missing counts as changed and is redeployed.
+9. The previous install is removed only **after** the new deploy succeeded, and only what the new one no longer writes (files by path; merged records by file + pointer, appended hook items also by value), so a transport change (url → command) or a failed redeploy never leaves stale keys or a half-removed entity.
+10. The lock (plugin/agent entries record `deps`) and manifest (direct requests only, not `via` deps) are saved after **every** item, and again in `finally`: a crash or Ctrl-C leaves a lock that matches the disk. SIGINT during an install sets a flag: the loop stops after the current item, saves, and throws `E_CANCELLED` (exit 130); a second Ctrl-C ends palm at once.
+11. Print a summary table, then every failure (`x kind name@origin → target: message` + hint) and the warnings.
+
+**Failures are never exit 0.** `InstallResult.failures` lists each target that failed,
+each refused entity (edited files, hidden Unicode, `--frozen`) and each origin that
+could not be fetched (a manifest dependency during sync, a lock replay); a request
+that names nothing still throws (`E_NOT_FOUND`, `E_AMBIGUOUS`) outside a sync.
+An outcome whose every target failed has status `failed`. The CLI exits 1 when
+`failures` is not empty.
 
 Collision policy: if a destination file exists and is not in the lock → refuse
 unless `--force` (then overwrite and record). If it is in the lock for the same
-entity → overwrite silently (reinstall/update).
+entity → overwrite on reinstall/update, unless its hash shows the user edited it
+(then refuse unless `--force`).
 
 Uninstall reverses: remove `files`, remove `merged` values, drop `via` deps that
 no other entry needs, update manifest. **Reference counting:** a `via` dependency
@@ -294,8 +489,16 @@ applies to dependencies a plugin/agent stopped declaring (update/sync).
 
 `--target` with an explicit value is saved (palm.yaml `targets:` for project scope,
 config.yaml for `-g`) when it differs from what is stored; an interactive pick is
-saved the same way. `--dry-run` writes no harness file, lockfile, manifest or
-config (origins are still fetched into the cache so the plan is real).
+saved the same way; any other resolved set is saved when nothing is stored.
+`palm install <kind> <name> --target x` adds targets to an installed entry; only a
+bare `palm install` treats the set as exact (contraction). `--dry-run` writes no
+harness file, lockfile, manifest or config (origins are still fetched into the cache
+so the plan is real).
+
+Scoped MCP names stay distinct: a registry server's config key is its short name,
+unless another server already holds that key, in which case it is the namespace-scoped
+`<namespace label>-<short name>` (`@a/mcp` → `mcp`, then `@b/mcp` → `b-mcp`); the key
+is recorded in palm.yaml (`name:`) and reused on every reinstall.
 
 ### Exit codes
 
@@ -382,7 +585,8 @@ Short names: `sk` skill, `ag` agent, `ins` instruction, `cmd` command, `hk` hook
 `pl` plugin, `orig` origin, `tg` target. `all` works with `get` only. A verb given a kind it
 does not take (`palm install target`) is `E_USAGE` naming a command that does work.
 
-Utilities stay top level: `init`, `doctor`, `config get|set`, `completion bash|zsh|fish`,
+Utilities stay top level: `init`, `doctor`, `outdated [kind]`, `why <kind> <name>`,
+`find <path>`, `audit [kind] [names...] [--strip]`, `config get|set`, `completion bash|zsh|fish`,
 `cache info|clean`. The old forms `palm origin add|list|remove|update|import` and
 `palm targets` are hidden aliases of `install|get|uninstall|update origin` and `get targets`.
 
@@ -406,9 +610,54 @@ Utilities stay top level: `init`, `doctor`, `config get|set`, `completion bash|z
   counts per kind, index warnings, checkout and index file. `describe target <id>`: where each
   kind goes in this scope (a dry-run deploy of a sample entity per kind, so the paths are the
   ones the target really writes, env overrides included).
-- `palm update [kind] [names...]`: refetch origins, reinstall entries whose content hash changed;
-  `--dry-run` shows the plan. `palm update origins [alias...]` refetches and rescans (all when
-  none is named); a failed origin is reported and the command exits 1.
+- `palm uninstall [kind] <names...>`: undeploy, delete what palm wrote, reverse merged config,
+  drop `via` dependencies nothing else needs (reference counted), update palm.yaml. A file the
+  user changed since palm wrote it (hash differs from the lock) is left on disk and listed as kept,
+  with the hint to repeat the command with `--force`. A target that cannot undeploy or a file that
+  cannot be removed (EACCES …) is reported with `x`, the entry stays in the lock with what is still
+  on disk, and the command exits 1.
+- `palm update [kind] [names...]`: plan first, then ask. A dependency is refreshed through the
+  root of its `via` chain. The plan refetches each origin's index once and compares the lock with
+  it, writing nothing in the scope:
+
+  ```
+  Update plan (project scope)
+  ~ updated    skill   tdd                       mattpocock  v1.0.0 (3f2a1c9) → v1.1.0 (8be01d4)
+  + added      skill   review (plugin:kit)       pstack
+  - removed    skill   old-helper (plugin:kit)   pstack
+  = unchanged  agent   reviewer                  pstack      v2.3.0
+  x failed     skill   lint                      gone        unreachable origin "gone": …
+  ! you changed these files since palm wrote them; palm overwrites them only with --force:
+      .claude/skills/tdd/SKILL.md  (skill tdd)
+  ```
+
+  `~ updated` = new content (`from → to` as ref and sha, or `content <hash>` when the ref did not
+  move), an older rendering (`transform`) or files removed by hand; `+`/`-` = members or agent
+  dependencies the new version declares / no longer declares. Nothing to change: "Nothing to
+  update.", exit 0. `--dry-run` prints the plan only. Otherwise a terminal asks `Apply N changes?`
+  (default No; No changes nothing, exit 0); without a terminal `--yes` is required, else
+  `E_NON_INTERACTIVE` naming `palm update … --yes`. Applying reinstalls the changed roots with
+  `installEntities`. Failures (an unreachable origin or registry, a root its origin no longer has,
+  a failed deploy) are listed and exit 1; a dependency its origin dropped is kept with a warning.
+  `--json`: `{ plan, outcomes, failures, warnings }`. `palm update origins [alias...]` refetches
+  and rescans (all when none is named); a failed origin is reported and the command exits 1.
+- `palm outdated [kind] [-g] [--json]`: one row per direct install, `kind name origin current
+  wanted latest`. `current` is the locked ref and sha; `wanted` what palm.yaml's `#ref` (or the
+  origin's ref) names on the remote now: a tag or branch as is, a semver range (`#^1.2`, `#~1.2`)
+  its highest matching tag, no ref the latest release; `latest` the newest release tag, else the
+  default branch. Remote refs come from `git ls-remote` (never the cache, never a fetch); registry
+  MCP servers from the registry. Local origins and ad hoc MCP servers show `-`; an unreadable
+  remote or `--offline` shows `?` with a warning. Informational: always exit 0.
+- `palm why <kind> <name[@origin]> [-g] [--json]`: `installed by` palm.yaml (section) or the
+  plugin/agent that pulled it in, the `chain` up to what palm.yaml lists
+  (`skill shared ← agent alpha ← palm.yaml (agents)`), and `needed by`: every installed plugin or
+  agent that declares it (they keep it on uninstall). An entry nothing lists gets the uninstall
+  hint.
+- `palm find <path> [-g] [--json]`: which lock entry wrote a file: the path as given (absolute,
+  `~/…`, relative to the working directory) or relative to the scope root; matches a listed file,
+  a path inside a listed directory, or a config file an entry merged a fragment into. Searches the
+  project and the global lock (only global with `-g`, or when the project would be home). Exit 1
+  when no entry owns the path, 2 when no searched scope has a lockfile.
 - `palm search [kind] <query...> [-o origin] [--refresh]`: fuzzy over all indexes; without a
   kind or origin, or with `mcp`, the MCP registry too.
 - `palm cache info` (path, size, checkouts, index files) and `palm cache clean [--yes]`
@@ -418,6 +667,20 @@ Utilities stay top level: `init`, `doctor`, `config get|set`, `completion bash|z
   (verbs, aliases, utilities, kind words, flags per verb).
 - `palm doctor` checks git, harness dirs, cache size, lock/manifest drift (registry MCP servers
   match by registry name) and origin reachability (through the same validated git wrapper).
+- `palm audit [kind] [names...] [-g] [--strip]` scans every file palm owns (each lock entry's
+  `files`, v1 path strings and v2 `{ path, hash }` alike; project and global scope, only global
+  with `-g` or when the project root is the home directory) for hidden Unicode
+  (`src/lib/unicode.ts`): critical = bidi overrides and isolates (U+202A–U+202E,
+  U+2066–U+2069), tag characters (U+E0000–U+E007F), variation selectors 17–256
+  (U+E0100–U+E01EF); warning = zero-width and other invisible format characters (Cf: U+200B–U+200F,
+  U+2060–U+2064, U+FEFF after offset 0, U+00AD, …; a ZWJ inside an emoji sequence is not
+  reported). Per file: severity counts and the first code point with line:column; it also
+  reports drift (a file missing, or its hash differing from the lock's). `--strip` removes
+  every finding from those files (a leading BOM stays), writes atomically and records the new
+  hash for files that matched the lock; `--dry-run` shows what it would remove. Lock paths
+  outside the scope are never read. Exit 0 when no critical finding is left (warnings and drift
+  are printed), 1 otherwise; `--json` is `{ scanned, files, remaining: { critical, warning },
+  drifted }`.
 
 ### Output contract
 
@@ -440,7 +703,15 @@ output goes through it.
 ## 10. Conventions
 
 - TypeScript strict, ESM, Node ≥ 22. No default exports. Named exports only.
-- Errors: throw `PalmError(code, message, hint?)`; the CLI prints `message` and `hint`, exit 1. Never `process.exit` outside `src/cli.ts`.
+- Errors: throw `PalmError(code, message, hint?)`; the CLI prints `x message` and the hint (a command to run). Never `process.exit` outside `src/cli.ts`; `src/commands/main.ts` (`EXIT`, `exitCodeFor`) maps every outcome to one exit code:
+
+  | Code | When |
+  |---|---|
+  | 0 | success, including `--help` and `--version`; warnings never change it (`palm audit` with only zero-width warnings or drift exits 0) |
+  | 1 | failure: a `PalmError` other than `E_USAGE`/`E_CANCELLED`, a failed engine outcome, or `ExitSignal(1)` from a command that printed its own report (`palm update origins` with a failed origin, `palm audit` with a critical finding left, `palm doctor` with a failed check) |
+  | 2 | usage: commander errors (unknown command, option or argument) and `E_USAGE` |
+  | 70 | internal: an unexpected exception (stack trace with `--verbose`) |
+  | 130 | cancelled: `E_CANCELLED` (Esc or Ctrl-C in a prompt, a declined confirmation); nothing more is printed |
 - All filesystem paths in function signatures are absolute unless the name ends in `Rel`.
 - No global mutable state. Pass a `PalmContext` (see types) explicitly.
 - Interactive prompts only in `src/ui/` and `src/create/`; core and engine never prompt. When a decision needs the user, engine calls `ctx.ui.pick()` / `ctx.ui.confirm()` which the CLI implements with `@clack/prompts` and tests implement with fakes.

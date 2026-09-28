@@ -7,12 +7,12 @@
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { execa } from 'execa';
 import { assertAliasFormat, Origin } from '../domain/origin.js';
 import type { OriginSet } from '../domain/origin-set.js';
 import { removeStoredOrigin, saveConfig, upsertStoredOrigin } from './config-file.js';
 import { refreshOrigins } from './context.js';
 import { PalmError } from './errors.js';
+import { runGit } from './git-exec.js';
 import { loadManifest, saveManifest } from './manifest.js';
 import { deriveAlias } from './origin-input.js';
 import { manifestPath } from './paths.js';
@@ -120,7 +120,7 @@ export async function removeOrigin(ctx: PalmContext, alias: string): Promise<voi
     throw new PalmError(
       'E_NOT_FOUND',
       `No origin with alias "${alias}"`,
-      'See `palm origin list`.',
+      'See the registered origins: `palm get origins`.',
     );
 }
 
@@ -146,7 +146,7 @@ export async function ensureMineOrigin(ctx: PalmContext): Promise<OriginSpec> {
   if (!existsSync(readme)) await writeFile(readme, MINE_README, 'utf8');
   if (!existsSync(join(dir, '.git'))) {
     try {
-      await execa('git', ['init', '-q', dir], { env: { GIT_TERMINAL_PROMPT: '0' } });
+      await runGit(['init', '-q', '--', dir]);
     } catch {
       ctx.log.debug('git init of the mine origin failed; continuing without version control');
     }

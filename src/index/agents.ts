@@ -32,46 +32,50 @@ export function parseAgentFile(absPath: string, text: string): AgentDefinition {
 
 const CURSOR_ONLY_KEYS = ['readonly', 'is_background', 'isBackground'];
 
-export function parseAgentFileDetailed(absPath: string, text: string): ParsedAgent {
+/** Format of a markdown agent file: APM, Copilot `.agent.md`, Cursor (Cursor-only keys), else Claude. */
+function markdownSourceFormat(
+  absPath: string,
+  data: Record<string, unknown>,
+): AgentDefinition['sourceFormat'] {
   const lower = absPath.toLowerCase();
-  if (lower.endsWith('.toml')) return parseCodexToml(absPath, text);
+  if (/(^|[\\/])\.apm[\\/]agents[\\/]/.test(absPath)) return 'apm-agent-md';
+  if (lower.endsWith('.agent.md') || lower.endsWith('.chatmode.md')) return 'copilot-agent-md';
+  if (CURSOR_ONLY_KEYS.some((k) => k in data)) return 'cursor-md';
+  return 'claude-md';
+}
+
+const MARKDOWN_KNOWN_KEYS = new Set([
+  'name',
+  'description',
+  'model',
+  'tools',
+  'disallowedTools',
+  'disallowed-tools',
+  'skills',
+  'mcpServers',
+  'instructions',
+  'color',
+]);
+
+/** mcpServers: string entries are dependencies; inline server objects stay in `extra`. */
+function markdownMcpServers(mcpRaw: unknown, extra: Record<string, unknown>): string[] | undefined {
+  if (Array.isArray(mcpRaw)) {
+    if (mcpRaw.some((x) => isRecord(x))) extra.mcpServers = mcpRaw;
+    return mcpRaw.map((x) => asString(x)).filter((x): x is string => x !== undefined);
+  }
+  if (typeof mcpRaw === 'string') return asList(mcpRaw);
+  if (isRecord(mcpRaw)) extra.mcpServers = mcpRaw;
+  return undefined;
+}
+
+export function parseAgentFileDetailed(absPath: string, text: string): ParsedAgent {
+  if (absPath.toLowerCase().endsWith('.toml')) return parseCodexToml(absPath, text);
 
   const split = splitFrontmatter(text);
   const data = split.hasFrontmatter ? parseFrontmatterYaml(split.raw) : {};
-  const isApm = /(^|[\\/])\.apm[\\/]agents[\\/]/.test(absPath);
-  const isAgentMd = lower.endsWith('.agent.md') || lower.endsWith('.chatmode.md');
-  let sourceFormat: AgentDefinition['sourceFormat'];
-  if (isApm) sourceFormat = 'apm-agent-md';
-  else if (isAgentMd) sourceFormat = 'copilot-agent-md';
-  else if (CURSOR_ONLY_KEYS.some((k) => k in data)) sourceFormat = 'cursor-md';
-  else sourceFormat = 'claude-md';
-
-  const known = new Set([
-    'name',
-    'description',
-    'model',
-    'tools',
-    'disallowedTools',
-    'disallowed-tools',
-    'skills',
-    'mcpServers',
-    'instructions',
-    'color',
-  ]);
   const extra: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(data)) if (!known.has(k)) extra[k] = v;
-
-  // mcpServers: string entries are dependencies; inline server objects stay in `extra`.
-  const mcpRaw = data.mcpServers;
-  let mcpServers: string[] | undefined;
-  if (Array.isArray(mcpRaw)) {
-    mcpServers = mcpRaw.map((x) => asString(x)).filter((x): x is string => x !== undefined);
-    if (mcpRaw.some((x) => isRecord(x))) extra.mcpServers = mcpRaw;
-  } else if (typeof mcpRaw === 'string') {
-    mcpServers = asList(mcpRaw);
-  } else if (isRecord(mcpRaw)) {
-    extra.mcpServers = mcpRaw;
-  }
+  for (const [k, v] of Object.entries(data)) if (!MARKDOWN_KNOWN_KEYS.has(k)) extra[k] = v;
+  const mcpServers = markdownMcpServers(data.mcpServers, extra);
 
   const { name, displayName, issues } = resolveName(absPath, asString(data.name));
   const description = asString(data.description);
@@ -85,12 +89,12 @@ export function parseAgentFileDetailed(absPath: string, text: string): ParsedAge
     tools: asList(data.tools),
     disallowedTools: asList(data.disallowedTools ?? data['disallowed-tools']),
     skills: asList(data.skills),
-    mcpServers: mcpServers && mcpServers.length > 0 ? mcpServers : undefined,
+    mcpServers: mcpServers?.length ? mcpServers : undefined,
     instructions: asList(data.instructions),
     color: asString(data.color),
     body: split.body,
     extra: Object.keys(extra).length > 0 ? extra : undefined,
-    sourceFormat,
+    sourceFormat: markdownSourceFormat(absPath, data),
   });
   return { def, issues, hasFrontmatter: split.hasFrontmatter, declaredName: asString(data.name) };
 }

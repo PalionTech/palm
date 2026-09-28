@@ -36,6 +36,10 @@ describe('palm completion', () => {
       expect.arrayContaining(['target', 'tg', 'all']),
     );
     expect(m.commands.find((c) => c.name === 'cache')?.words).toEqual(['info', 'clean']);
+    expect(m.commands.find((c) => c.name === 'why')?.words).toEqual(
+      expect.arrayContaining(['skill', 'sk', 'plugins']),
+    );
+    expect(m.commands.find((c) => c.name === 'find')?.words).toEqual([]);
     expect(m.commands.map((c) => c.name)).not.toContain('origin'); // hidden alias
     expect(m.global.flatMap((o) => o.flags)).toEqual(
       expect.arrayContaining(['-g', '--json', '--no-color']),

@@ -14,7 +14,7 @@ import { TARGET_IDS } from '../../src/core/types.js';
 import { ScopePaths } from '../../src/domain/scope-paths.js';
 import { renderAgent } from '../../src/targets/convert-agent.js';
 import { renderCommand } from '../../src/targets/convert-command.js';
-import { convertHooks } from '../../src/targets/convert-hooks.js';
+import { convertHooks, PROJECT_DIR } from '../../src/targets/convert-hooks.js';
 import { renderInstruction } from '../../src/targets/convert-instruction.js';
 import { allTargets, createTarget, getTarget } from '../../src/targets/index.js';
 import {
@@ -113,11 +113,18 @@ function entities(origin: Origin) {
 interface Expect {
   skill: string;
   agent: string;
+  /** The instruction file (or the file holding its block); null when skipped. */
   instruction: string | null;
   command: string | null;
-  hookFile: string;
+  /** The shared hooks file (copilot: the standalone file); null when hooks are skipped. */
+  hookFile: string | null;
   mcpFile: string;
+  /** OpenCode: the config whose `instructions` array lists the instruction file. */
+  instructionList?: string;
 }
+
+/** Targets that keep instructions as managed blocks in a shared markdown file. */
+const BLOCK_INSTRUCTIONS: readonly TargetId[] = ['codex', 'gemini'];
 
 /** Paths relative to scopeRoot (project) or home (global, no env overrides). */
 const PATHS: Record<TargetId, Record<Scope, Expect>> = {
@@ -193,14 +200,56 @@ const PATHS: Record<TargetId, Record<Scope, Expect>> = {
       mcpFile: '.cursor/mcp.json',
     },
   },
+  gemini: {
+    project: {
+      skill: '.agents/skills/demo',
+      agent: '.gemini/agents/demo.md',
+      instruction: 'GEMINI.md',
+      command: '.gemini/commands/demo.toml',
+      hookFile: '.gemini/settings.json',
+      mcpFile: '.gemini/settings.json',
+    },
+    global: {
+      skill: '.agents/skills/demo',
+      agent: '.gemini/agents/demo.md',
+      instruction: '.gemini/GEMINI.md',
+      command: '.gemini/commands/demo.toml',
+      hookFile: '.gemini/settings.json',
+      mcpFile: '.gemini/settings.json',
+    },
+  },
+  opencode: {
+    project: {
+      skill: '.agents/skills/demo',
+      agent: '.opencode/agents/demo.md',
+      instruction: '.opencode/instructions/demo.md',
+      instructionList: 'opencode.json',
+      command: '.opencode/commands/demo.md',
+      hookFile: null,
+      mcpFile: 'opencode.json',
+    },
+    global: {
+      skill: '.agents/skills/demo',
+      agent: '.config/opencode/agents/demo.md',
+      instruction: '.config/opencode/instructions/demo.md',
+      instructionList: '.config/opencode/opencode.json',
+      command: '.config/opencode/commands/demo.md',
+      hookFile: null,
+      mcpFile: '.config/opencode/opencode.json',
+    },
+  },
 };
 
 const ASSET_FILES = ['.claude-plugin/plugin.json', 'hooks/format.sh', 'hooks/hooks.json'];
 
+/** The key holding MCP servers in a target's JSON config. */
+function mcpKey(target: TargetId, scope: Scope): string {
+  if (target === 'opencode') return 'mcp';
+  return target === 'copilot' && scope === 'project' ? 'servers' : 'mcpServers';
+}
+
 function mcpPointer(target: TargetId, scope: Scope): string {
-  if (target === 'codex') return '/mcp_servers/gh';
-  if (target === 'copilot' && scope === 'project') return '/servers/gh';
-  return '/mcpServers/gh';
+  return target === 'codex' ? '/mcp_servers/gh' : `/${mcpKey(target, scope)}/gh`;
 }
 
 describe.each(
@@ -243,9 +292,8 @@ describe.each(
     if (P.instruction === null) {
       expect(instr).toMatchObject({ files: [], skipped: true });
       expect(instr.notes[0]).toMatch(/Cursor Settings/);
-    } else if (id === 'codex') {
-      const block = (renderInstruction(INSTR_DEF, 'codex') as { managedBlock: string })
-        .managedBlock;
+    } else if (BLOCK_INSTRUCTIONS.includes(id)) {
+      const block = (renderInstruction(INSTR_DEF, id) as { managedBlock: string }).managedBlock;
       expect(instr.files).toEqual([]);
       expect(instr.merged).toEqual([
         { file: shown(P.instruction), pointer: 'block:instruction:demo', value: block },
@@ -258,6 +306,14 @@ describe.each(
       expect(await read(abs(P.instruction))).toBe(
         (renderInstruction(INSTR_DEF, id) as { content: string }).content,
       );
+      if (P.instructionList) {
+        // project: the relative path OpenCode globs upward for; global: an absolute path
+        const listed = shown(P.instruction);
+        expect(instr.merged).toEqual([
+          { file: shown(P.instructionList), pointer: '/instructions', value: listed },
+        ]);
+        expect(await readJson(abs(P.instructionList))).toEqual({ instructions: [listed] });
+      } else expect(instr.merged).toEqual([]);
     }
     results.push({ entity: E.instruction.entity, result: instr });
 
@@ -275,36 +331,50 @@ describe.each(
     // hook
     const assetRel = '.palm/hooks/fmt';
     const hook = await deploy(E.hook);
-    const converted = convertHooks(
-      E.hook.entity.def.kind === 'hook' ? E.hook.entity.def.hooks : (undefined as never),
-      id,
-      abs(assetRel),
-      ScopePaths.at(scope, root, env),
-    ).hooks as { hooks: Record<string, unknown[]> };
-    for (const f of ASSET_FILES) expect(hook.files).toContain(shown(`${assetRel}/${f}`));
-    // Hook scripts may read plugin files (superpowers' session-start reads skills/*/SKILL.md): those are
-    // copied; docs, tests and top-level READMEs are not.
-    expect(hook.files).toContain(shown(`${assetRel}/skills/s/SKILL.md`));
-    for (const skipped of ['docs', 'tests', 'README.md'])
-      expect(await exists(abs(`${assetRel}/${skipped}`))).toBe(false);
-    expect((await fs.stat(abs(`${assetRel}/hooks/format.sh`))).mode & 0o777).toBe(0o755);
-    if (id === 'copilot') {
-      expect(hook.files).toContain(shown(P.hookFile));
-      expect(await read(abs(P.hookFile))).toBe(`${JSON.stringify(converted, null, 2)}\n`);
-      expect(hook.merged).toEqual([]);
-    } else {
-      expect(hook.merged?.map((m) => [m.file, m.pointer])).toEqual(
-        Object.keys(converted.hooks).map((ev) => [shown(P.hookFile), `/hooks/${ev}`]),
-      );
-      const onDisk = (await readJson(abs(P.hookFile))) as Record<string, unknown>;
-      expect(onDisk.hooks).toEqual(converted.hooks);
-      if (id === 'cursor') expect(onDisk.version).toBe(1);
-    }
-    const cmdText = JSON.stringify(converted);
-    if (id === 'claude' && scope === 'project')
-      expect(cmdText).toContain('$CLAUDE_PROJECT_DIR/.palm/hooks/fmt/hooks/format.sh');
-    else expect(cmdText).toContain(`${abs(assetRel)}/hooks/format.sh`);
     results.push({ entity: E.hook.entity, result: hook });
+    const hookFile = P.hookFile;
+    if (hookFile === null) {
+      expect(hook).toEqual({
+        files: [],
+        merged: [],
+        notes: ['hooks fmt: OpenCode hooks are JS plugins; not installed'],
+        skipped: true,
+      });
+      expect(await exists(abs(assetRel))).toBe(false);
+    } else {
+      const converted = convertHooks(
+        E.hook.entity.def.kind === 'hook' ? E.hook.entity.def.hooks : (undefined as never),
+        id,
+        abs(assetRel),
+        ScopePaths.at(scope, root, env),
+      ).hooks as { hooks: Record<string, unknown[]> };
+      for (const f of ASSET_FILES) expect(hook.files).toContain(shown(`${assetRel}/${f}`));
+      // Hook scripts may read plugin files (superpowers' session-start reads skills/*/SKILL.md): those are
+      // copied; docs, tests and top-level READMEs are not.
+      expect(hook.files).toContain(shown(`${assetRel}/skills/s/SKILL.md`));
+      for (const skipped of ['docs', 'tests', 'README.md'])
+        expect(await exists(abs(`${assetRel}/${skipped}`))).toBe(false);
+      expect((await fs.stat(abs(`${assetRel}/hooks/format.sh`))).mode & 0o777).toBe(0o755);
+      if (id === 'copilot') {
+        expect(hook.files).toContain(shown(hookFile));
+        expect(await read(abs(hookFile))).toBe(`${JSON.stringify(converted, null, 2)}\n`);
+        expect(hook.merged).toEqual([]);
+      } else {
+        expect(hook.merged?.map((m) => [m.file, m.pointer])).toEqual(
+          Object.keys(converted.hooks).map((ev) => [shown(hookFile), `/hooks/${ev}`]),
+        );
+        const onDisk = (await readJson(abs(hookFile))) as Record<string, unknown>;
+        expect(onDisk.hooks).toEqual(converted.hooks);
+        if (id === 'cursor') expect(onDisk.version).toBe(1);
+      }
+      const cmdText = JSON.stringify(converted);
+      // Project configs are committed: the command names the project root through the harness,
+      // never as an absolute path; global configs use the absolute asset dir.
+      if (scope === 'project') {
+        expect(cmdText).toContain(`${PROJECT_DIR[id]}/.palm/hooks/fmt/hooks/format.sh`);
+        expect(cmdText).not.toContain(root);
+      } else expect(cmdText).toContain(`${abs(assetRel)}/hooks/format.sh`);
+    }
 
     // mcp
     const mcp = await deploy(E.mcp);
@@ -319,8 +389,7 @@ describe.each(
       });
     } else {
       const doc = await readJson(abs(P.mcpFile));
-      const key = id === 'copilot' && scope === 'project' ? 'servers' : 'mcpServers';
-      expect((doc as Record<string, Record<string, unknown>>)[key]!.gh).toEqual(
+      expect((doc as Record<string, Record<string, unknown>>)[mcpKey(id, scope)]!.gh).toEqual(
         mcp.merged![0]!.value,
       );
     }
@@ -352,8 +421,9 @@ describe.each(
     }
     expect(await exists(abs(P.skill))).toBe(false);
     expect(await exists(abs(assetRel))).toBe(false);
-    if (id === 'codex') expect(await exists(abs(P.instruction!))).toBe(false);
-    if (id !== 'copilot') {
+    if (BLOCK_INSTRUCTIONS.includes(id)) expect(await exists(abs(P.instruction!))).toBe(false);
+    if (P.instructionList) expect(await exists(abs(P.instructionList))).toBe(false);
+    if (P.hookFile !== null && id !== 'copilot') {
       // Emptied event lists and the `hooks` object are pruned; a file palm alone wrote is deleted
       // (cursor keeps the `version` key palm ensured, so its file stays).
       expect(await exists(abs(P.hookFile))).toBe(id === 'cursor');
@@ -518,6 +588,22 @@ describe('undeploy keeps unrelated content', () => {
       path.join(root, '.vscode/mcp.json'),
       '{\n  // secrets\n  "inputs": [{ "id": "k", "type": "promptString" }],\n  "servers": {},\n}\n',
     );
+    const GEMINI = '# Gemini house rules\n';
+    await write(path.join(root, 'GEMINI.md'), GEMINI);
+    const geminiSettings = {
+      ui: { theme: 'GitHub' },
+      hooks: { AfterAgent: [{ hooks: [{ type: 'command', command: 'user' }] }] },
+      mcpServers: { mine: { command: 'mine' } },
+    };
+    await write(path.join(root, '.gemini/settings.json'), JSON.stringify(geminiSettings));
+    const opencodeJson = {
+      $schema: 'https://opencode.ai/config.json',
+      instructions: ['CONTRIBUTING.md'],
+      mcp: { mine: { type: 'local', command: ['mine'] } },
+    };
+    await write(path.join(root, 'opencode.json'), JSON.stringify(opencodeJson));
+    const JSONC = '{\n  // mine\n  "theme": "opencode",\n}\n';
+    await write(path.join(root, 'opencode.jsonc'), JSONC);
 
     const E = entities(origin);
     const entries: LockEntry[] = [];
@@ -557,6 +643,10 @@ describe('undeploy keeps unrelated content', () => {
     expect(await readJson(path.join(root, '.vscode/mcp.json'))).toEqual({
       inputs: [{ id: 'k', type: 'promptString' }],
     });
+    expect(await read(path.join(root, 'GEMINI.md'))).toBe(GEMINI);
+    expect(await readJson(path.join(root, '.gemini/settings.json'))).toEqual(geminiSettings);
+    expect(await readJson(path.join(root, 'opencode.json'))).toEqual(opencodeJson);
+    expect(await read(path.join(root, 'opencode.jsonc'))).toBe(JSONC); // never written
     for (const gone of [
       '.claude/agents',
       '.agents/skills',
@@ -564,6 +654,11 @@ describe('undeploy keeps unrelated content', () => {
       '.cursor/rules',
       '.palm/hooks/fmt',
       '.codex/agents',
+      '.gemini/agents',
+      '.gemini/commands',
+      '.opencode/agents',
+      '.opencode/instructions',
+      '.opencode/commands',
     ]) {
       expect(await exists(path.join(root, gone))).toBe(gone === '.github'); // `.github` is a stop dir: kept (empty)
     }
@@ -683,10 +778,32 @@ describe('detect / configDir / registry', () => {
     await write(path.join(root, 'AGENTS.md'), '');
     await write(path.join(root, '.vscode/mcp.json'), '{}');
     await fs.mkdir(path.join(root, '.cursor'));
+    await write(path.join(root, 'GEMINI.md'), '');
+    await write(path.join(root, 'opencode.json'), '{}');
     for (const t of allTargets()) expect(await t.detect('project', root, env)).toBe(true);
     await fs.mkdir(path.join(root, '.copilot'));
     expect(await getTarget('copilot').detect('global', root, env)).toBe(true);
     expect(await getTarget('cursor').detect('global', root, env)).toBe(true);
+    // gemini: `.gemini/` or GEMINI.md (project), ~/.gemini (global); opencode: `.opencode/`,
+    // opencode.json or opencode.jsonc (project), ~/.config/opencode (global)
+    const other = await tmpDir();
+    await fs.mkdir(path.join(other, '.gemini'));
+    await write(path.join(other, 'opencode.jsonc'), '{}');
+    expect(await getTarget('gemini').detect('project', other, env)).toBe(true);
+    expect(await getTarget('opencode').detect('project', other, env)).toBe(true);
+    expect(await getTarget('gemini').detect('global', root, env)).toBe(false);
+    expect(await getTarget('opencode').detect('global', root, env)).toBe(false);
+    await fs.mkdir(path.join(root, '.config/opencode'), { recursive: true });
+    expect(await getTarget('opencode').detect('global', root, env)).toBe(true);
+    expect(
+      await getTarget('gemini').detect('global', root, { ...env, GEMINI_CLI_HOME: other }),
+    ).toBe(true);
+    expect(
+      await getTarget('opencode').detect('global', root, {
+        ...env,
+        XDG_CONFIG_HOME: path.join(root, 'xdg'),
+      }),
+    ).toBe(false);
     await fs.mkdir(path.join(root, 'cc'));
     expect(
       await getTarget('claude').detect('global', root, {
@@ -713,6 +830,20 @@ describe('detect / configDir / registry', () => {
     expect(getTarget('copilot').configDir('project', '/p', env)).toBe('/p/.github');
     expect(getTarget('copilot').configDir('global', '/h', env)).toBe('/h/.copilot');
     expect(getTarget('cursor').configDir('global', '/h', env)).toBe('/h/.cursor');
+    expect(getTarget('gemini').configDir('project', '/p', env)).toBe('/p/.gemini');
+    expect(getTarget('gemini').configDir('global', '/h', env)).toBe('/h/.gemini');
+    expect(getTarget('gemini').configDir('global', '/h', { GEMINI_CLI_HOME: '/g' })).toBe(
+      '/g/.gemini',
+    );
+    expect(getTarget('opencode').configDir('project', '/p', env)).toBe('/p/.opencode');
+    expect(getTarget('opencode').configDir('global', '/h', env)).toBe('/h/.config/opencode');
+    expect(getTarget('opencode').configDir('global', '/h', { XDG_CONFIG_HOME: '/x' })).toBe(
+      '/x/opencode',
+    );
+    // the overrides only apply to the global scope
+    expect(getTarget('opencode').configDir('project', '/p', { XDG_CONFIG_HOME: '/x' })).toBe(
+      '/p/.opencode',
+    );
   });
 
   it('getTarget / allTargets', async () => {
@@ -721,6 +852,8 @@ describe('detect / configDir / registry', () => {
       ['codex', 'Codex'],
       ['copilot', 'GitHub Copilot'],
       ['cursor', 'Cursor'],
+      ['gemini', 'Gemini CLI'],
+      ['opencode', 'OpenCode'],
     ]);
     expect(() => getTarget('vim' as TargetId)).toThrowError(/unknown target/);
     const root = await tmpDir();

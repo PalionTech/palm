@@ -83,7 +83,7 @@ describe('parseMarketplace (real marketplace files)', () => {
       ref: 'main',
       root: 'plugins/agent-sdk-dev',
     });
-    expect(byAlias['asana']).toMatchObject({ root: 'external_plugins/asana' });
+    expect(byAlias.asana).toMatchObject({ root: 'external_plugins/asana' });
     expect(byAlias['clangd-lsp']).toMatchObject({ root: 'plugins/clangd-lsp' });
   });
 

@@ -1,0 +1,2362 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`scanOrigin snapshot per fixture > anthropics-skills-like 1`] = `
+{
+  "detected": "marketplace",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Spreadsheet creation, editing, and analysis.",
+          "license": "Proprietary. LICENSE.txt has complete terms",
+          "name": "xlsx",
+        },
+      },
+      "description": "Spreadsheet creation, editing, and analysis.",
+      "kind": "skill",
+      "name": "xlsx",
+      "origin": "anthropics-skills",
+      "path": "skills/xlsx",
+      "plugin": "document-skills",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "PDF manipulation toolkit.",
+          "license": "Proprietary. LICENSE.txt has complete terms",
+          "name": "pdf",
+        },
+      },
+      "description": "PDF manipulation toolkit.",
+      "kind": "skill",
+      "name": "pdf",
+      "origin": "anthropics-skills",
+      "path": "skills/pdf",
+      "plugin": "document-skills",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": ".claude-plugin/marketplace.json",
+        "members": [
+          {
+            "kind": "skill",
+            "name": "xlsx",
+          },
+          {
+            "kind": "skill",
+            "name": "pdf",
+          },
+        ],
+      },
+      "description": "Document processing suite",
+      "kind": "plugin",
+      "name": "document-skills",
+      "origin": "anthropics-skills",
+      "path": ".",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Create visual art in .png and .pdf documents.",
+          "name": "canvas-design",
+        },
+      },
+      "description": "Create visual art in .png and .pdf documents.",
+      "kind": "skill",
+      "name": "canvas-design",
+      "origin": "anthropics-skills",
+      "path": "skills/canvas-design",
+      "plugin": "example-skills",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": ".claude-plugin/marketplace.json",
+        "members": [
+          {
+            "kind": "skill",
+            "name": "canvas-design",
+          },
+        ],
+      },
+      "description": "Example skills",
+      "kind": "plugin",
+      "name": "example-skills",
+      "origin": "anthropics-skills",
+      "path": ".",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Not part of any marketplace plugin.",
+          "name": "internal-only",
+        },
+      },
+      "description": "Not part of any marketplace plugin.",
+      "kind": "skill",
+      "name": "internal-only",
+      "origin": "anthropics-skills",
+      "path": "skills/internal-only",
+    },
+  ],
+  "warnings": [
+    "skipped skills/skeleton/SKILL.md: skill template",
+    "plugins "document-skills", "example-skills" at . do not declare 1 skill (internal-only); indexed standalone",
+  ],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > apm-like 1`] = `
+{
+  "detected": "apm",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Fix lint errors.",
+          "name": "lint-fix",
+        },
+      },
+      "description": "Fix lint errors.",
+      "kind": "skill",
+      "name": "lint-fix",
+      "origin": "apm",
+      "path": ".apm/skills/lint-fix",
+      "plugin": "my-apm-pkg",
+      "version": "1.0.0",
+    },
+    {
+      "def": {
+        "agent": {
+          "body": "Review carefully.
+",
+          "description": "Reviews pull requests",
+          "name": "reviewer",
+          "sourceFormat": "apm-agent-md",
+          "tools": [
+            "read",
+            "search",
+          ],
+        },
+        "kind": "agent",
+      },
+      "description": "Reviews pull requests",
+      "kind": "agent",
+      "name": "reviewer",
+      "origin": "apm",
+      "path": ".apm/agents/reviewer.agent.md",
+      "plugin": "my-apm-pkg",
+      "version": "1.0.0",
+    },
+    {
+      "def": {
+        "instruction": {
+          "alwaysApply": false,
+          "body": "Prefer const.
+",
+          "description": "TS style",
+          "globs": [
+            "**/*.ts",
+          ],
+          "name": "typescript",
+          "sourceFormat": "instructions-md",
+        },
+        "kind": "instruction",
+      },
+      "description": "TS style",
+      "kind": "instruction",
+      "name": "typescript",
+      "origin": "apm",
+      "path": ".apm/instructions/typescript.instructions.md",
+      "plugin": "my-apm-pkg",
+      "version": "1.0.0",
+    },
+    {
+      "def": {
+        "command": {
+          "body": "Cut a release now.
+",
+          "description": "Cut a release",
+          "name": "release",
+          "sourceFormat": "prompt-md",
+        },
+        "kind": "command",
+      },
+      "description": "Cut a release",
+      "kind": "command",
+      "name": "release",
+      "origin": "apm",
+      "path": ".apm/prompts/release.prompt.md",
+      "plugin": "my-apm-pkg",
+      "version": "1.0.0",
+    },
+    {
+      "def": {
+        "hooks": {
+          "dialect": "claude",
+          "name": "format-on-save",
+          "pluginRootRel": ".",
+          "raw": {
+            "hooks": {
+              "PostToolUse": [
+                {
+                  "hooks": [
+                    {
+                      "command": "npx prettier --write "$CLAUDE_FILE_PATHS"",
+                      "type": "command",
+                    },
+                  ],
+                  "matcher": "Write|Edit",
+                },
+              ],
+            },
+          },
+        },
+        "kind": "hook",
+      },
+      "kind": "hook",
+      "name": "format-on-save",
+      "origin": "apm",
+      "path": ".apm/hooks/format-on-save.json",
+      "plugin": "my-apm-pkg",
+      "version": "1.0.0",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": "apm.yml",
+        "members": [
+          {
+            "kind": "skill",
+            "name": "lint-fix",
+          },
+          {
+            "kind": "agent",
+            "name": "reviewer",
+          },
+          {
+            "kind": "instruction",
+            "name": "typescript",
+          },
+          {
+            "kind": "command",
+            "name": "release",
+          },
+          {
+            "kind": "hook",
+            "name": "format-on-save",
+          },
+        ],
+      },
+      "description": "A sample APM package",
+      "kind": "plugin",
+      "name": "my-apm-pkg",
+      "origin": "apm",
+      "path": ".",
+      "version": "1.0.0",
+    },
+  ],
+  "warnings": [],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > awesome-copilot-like 1`] = `
+{
+  "detected": "marketplace",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Suggest relevant agents.",
+          "name": "suggest-awesome-github-copilot-agents",
+        },
+      },
+      "description": "Suggest relevant agents.",
+      "kind": "skill",
+      "name": "suggest-awesome-github-copilot-agents",
+      "origin": "awesome-copilot",
+      "path": "skills/suggest-awesome-github-copilot-agents",
+      "plugin": "awesome-copilot",
+      "version": "1.1.0",
+    },
+    {
+      "def": {
+        "agent": {
+          "body": "Your sole task is to find and pull relevant prompts.
+",
+          "description": "Meta agentic project creation assistant",
+          "displayName": "Meta Agentic Project Scaffold",
+          "model": "GPT-4.1",
+          "name": "meta-agentic-project-scaffold",
+          "sourceFormat": "copilot-agent-md",
+          "tools": [
+            "changes",
+            "codebase",
+            "fetch",
+          ],
+        },
+        "kind": "agent",
+      },
+      "description": "Meta agentic project creation assistant",
+      "kind": "agent",
+      "name": "meta-agentic-project-scaffold",
+      "origin": "awesome-copilot",
+      "path": "agents/meta-agentic-project-scaffold.agent.md",
+      "plugin": "awesome-copilot",
+      "version": "1.1.0",
+    },
+    {
+      "def": {
+        "kind": "mcp",
+        "mcp": {
+          "args": [
+            "run",
+            "-i",
+            "--rm",
+            "ghcr.io/microsoft/mcp-dotnet-samples/awesome-copilot:latest",
+          ],
+          "command": "docker",
+          "name": "awesome-copilot",
+          "source": {
+            "ref": "awesome-copilot",
+            "type": "origin",
+            "version": "1.1.0",
+          },
+          "transport": "stdio",
+        },
+      },
+      "kind": "mcp",
+      "name": "awesome-copilot",
+      "origin": "awesome-copilot",
+      "path": "plugins/awesome-copilot/mcp.json",
+      "plugin": "awesome-copilot",
+      "version": "1.1.0",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": "plugins/awesome-copilot/plugin.json",
+        "members": [
+          {
+            "kind": "skill",
+            "name": "suggest-awesome-github-copilot-agents",
+          },
+          {
+            "kind": "agent",
+            "name": "meta-agentic-project-scaffold",
+          },
+          {
+            "kind": "mcp",
+            "name": "awesome-copilot",
+          },
+        ],
+      },
+      "description": "Meta prompts that help you discover Copilot resources.",
+      "kind": "plugin",
+      "name": "awesome-copilot",
+      "origin": "awesome-copilot",
+      "path": "plugins/awesome-copilot",
+      "version": "1.1.0",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Guides Qdrant scaling decisions.",
+          "name": "qdrant-scaling",
+        },
+      },
+      "description": "Guides Qdrant scaling decisions.",
+      "kind": "skill",
+      "name": "qdrant-scaling",
+      "origin": "awesome-copilot",
+      "path": "skills/qdrant-scaling",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Diagnoses horizontal scaling: 'vertical or horizontal?', 'how many nodes?'",
+          "dirName": "horizontal-scaling",
+          "name": "qdrant-horizontal-scaling",
+          "parent": "qdrant-scaling",
+        },
+      },
+      "description": "Diagnoses horizontal scaling: 'vertical or horizontal?', 'how many nodes?'",
+      "kind": "skill",
+      "name": "qdrant-horizontal-scaling",
+      "origin": "awesome-copilot",
+      "path": "skills/qdrant-scaling/scaling-data-volume/horizontal-scaling",
+    },
+    {
+      "def": {
+        "agent": {
+          "body": "You are an expert C#/.NET developer.
+",
+          "description": "An agent designed to assist with .NET projects.",
+          "displayName": "C# Expert",
+          "extra": {
+            "mcp-servers": {
+              "nuget": {
+                "args": [
+                  "NuGet.Mcp.Server",
+                ],
+                "command": "dnx",
+                "type": "local",
+              },
+            },
+          },
+          "name": "c-sharp-expert",
+          "sourceFormat": "copilot-agent-md",
+        },
+        "kind": "agent",
+      },
+      "description": "An agent designed to assist with .NET projects.",
+      "kind": "agent",
+      "name": "c-sharp-expert",
+      "origin": "awesome-copilot",
+      "path": "agents/CSharpExpert.agent.md",
+    },
+    {
+      "def": {
+        "instruction": {
+          "alwaysApply": true,
+          "body": "# Accessibility
+
+Use semantic HTML.
+",
+          "description": "Web accessibility standards",
+          "name": "a11y",
+          "sourceFormat": "instructions-md",
+        },
+        "kind": "instruction",
+      },
+      "description": "Web accessibility standards",
+      "kind": "instruction",
+      "name": "a11y",
+      "origin": "awesome-copilot",
+      "path": "instructions/a11y.instructions.md",
+    },
+    {
+      "def": {
+        "instruction": {
+          "alwaysApply": false,
+          "body": "Use type hints.
+",
+          "description": "Python conventions",
+          "globs": [
+            "**/*.py",
+            "**/*.pyi",
+          ],
+          "name": "python",
+          "sourceFormat": "instructions-md",
+        },
+        "kind": "instruction",
+      },
+      "description": "Python conventions",
+      "kind": "instruction",
+      "name": "python",
+      "origin": "awesome-copilot",
+      "path": "instructions/python.instructions.md",
+    },
+    {
+      "def": {
+        "hooks": {
+          "dialect": "copilot",
+          "name": "license-checker",
+          "pluginRootRel": "hooks/license-checker",
+          "raw": {
+            "hooks": {
+              "sessionEnd": [
+                {
+                  "bash": ".github/hooks/license-checker/check.sh",
+                  "cwd": ".",
+                  "env": {
+                    "LICENSE_MODE": "warn",
+                  },
+                  "timeoutSec": 60,
+                  "type": "command",
+                },
+              ],
+            },
+            "version": 1,
+          },
+        },
+        "kind": "hook",
+      },
+      "kind": "hook",
+      "name": "license-checker",
+      "origin": "awesome-copilot",
+      "path": "hooks/license-checker/hooks.json",
+    },
+  ],
+  "warnings": [
+    "remote plugin "agent-council" (github:Avyayalaya/agent-council#v0.1.3) not fetched → add it as an origin: palm install origin Avyayalaya/agent-council#v0.1.3",
+    "remote plugin "anarlog" (github:fastrepl/anarlog/agent-plugins/anarlog@259b68866a7d) not fetched → add it as an origin: palm install origin fastrepl/anarlog/agent-plugins/anarlog",
+    "skills/qdrant-scaling/scaling-data-volume/horizontal-scaling/SKILL.md: frontmatter name "qdrant-horizontal-scaling" differs from directory "horizontal-scaling"; keeping "qdrant-horizontal-scaling"",
+  ],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > caveman-like 1`] = `
+{
+  "detected": "marketplace",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Ultra-compressed communication mode.",
+          "name": "caveman",
+        },
+      },
+      "description": "Ultra-compressed communication mode.",
+      "kind": "skill",
+      "name": "caveman",
+      "origin": "caveman",
+      "path": "skills/caveman",
+      "plugin": "caveman",
+      "version": "2.7.0",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Terse commit messages.",
+          "name": "caveman-commit",
+        },
+      },
+      "description": "Terse commit messages.",
+      "kind": "skill",
+      "name": "caveman-commit",
+      "origin": "caveman",
+      "path": "skills/caveman-commit",
+      "plugin": "caveman",
+      "version": "2.7.0",
+    },
+    {
+      "def": {
+        "agent": {
+          "body": "Build.
+",
+          "description": "Builds things tersely.",
+          "name": "cavecrew-builder",
+          "sourceFormat": "claude-md",
+          "tools": [
+            "Read",
+            "Edit",
+            "Bash",
+          ],
+        },
+        "kind": "agent",
+      },
+      "description": "Builds things tersely.",
+      "kind": "agent",
+      "name": "cavecrew-builder",
+      "origin": "caveman",
+      "path": "agents/cavecrew-builder.md",
+      "plugin": "caveman",
+      "version": "2.7.0",
+    },
+    {
+      "def": {
+        "command": {
+          "argumentHint": "[--dry-run|--force]",
+          "body": "Write the rule files.
+",
+          "description": "Drop the caveman rule into the repo",
+          "name": "caveman-init",
+          "sourceFormat": "claude-md",
+        },
+        "kind": "command",
+      },
+      "description": "Drop the caveman rule into the repo",
+      "kind": "command",
+      "name": "caveman-init",
+      "origin": "caveman",
+      "path": "commands/caveman-init.md",
+      "plugin": "caveman",
+      "version": "2.7.0",
+    },
+    {
+      "def": {
+        "command": {
+          "body": "Switch to caveman {{args}} mode.",
+          "description": "Switch caveman level",
+          "name": "caveman",
+          "sourceFormat": "gemini-toml",
+        },
+        "kind": "command",
+      },
+      "description": "Switch caveman level",
+      "kind": "command",
+      "name": "caveman",
+      "origin": "caveman",
+      "path": "commands/caveman.toml",
+      "plugin": "caveman",
+      "version": "2.7.0",
+    },
+    {
+      "def": {
+        "hooks": {
+          "dialect": "claude",
+          "name": "caveman",
+          "pluginRootRel": ".",
+          "raw": {
+            "hooks": {
+              "SessionStart": [
+                {
+                  "hooks": [
+                    {
+                      "command": "node "\${CLAUDE_PLUGIN_ROOT}/src/hooks/activate.js"",
+                      "timeout": 30,
+                      "type": "command",
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        "kind": "hook",
+      },
+      "kind": "hook",
+      "name": "caveman",
+      "origin": "caveman",
+      "path": ".claude-plugin/plugin.json",
+      "plugin": "caveman",
+      "version": "2.7.0",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": ".claude-plugin/plugin.json",
+        "members": [
+          {
+            "kind": "skill",
+            "name": "caveman",
+          },
+          {
+            "kind": "skill",
+            "name": "caveman-commit",
+          },
+          {
+            "kind": "agent",
+            "name": "cavecrew-builder",
+          },
+          {
+            "kind": "command",
+            "name": "caveman-init",
+          },
+          {
+            "kind": "command",
+            "name": "caveman",
+          },
+          {
+            "kind": "hook",
+            "name": "caveman",
+          },
+        ],
+      },
+      "description": "Ultra-compressed communication mode.",
+      "kind": "plugin",
+      "name": "caveman",
+      "origin": "caveman",
+      "path": ".",
+      "version": "2.7.0",
+    },
+  ],
+  "warnings": [
+    "duplicate command "caveman-init" at commands/caveman-init.toml ignored (already indexed from commands/caveman-init.md)",
+    "duplicate skill "caveman" at plugins/caveman/skills/caveman ignored (already indexed from skills/caveman)",
+  ],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > claude-plugins-official-like 1`] = `
+{
+  "detected": "marketplace",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "allowedTools": [
+            "Read",
+            "Grep",
+            "WebFetch",
+          ],
+          "description": "Helps with Agent SDK questions.",
+          "metadata": {
+            "author": "anthropic",
+            "version": "1.10",
+          },
+          "name": "sdk-helper",
+          "version": "1.10",
+        },
+      },
+      "description": "Helps with Agent SDK questions.",
+      "kind": "skill",
+      "name": "sdk-helper",
+      "origin": "claude-plugins-official",
+      "path": "plugins/agent-sdk-dev/skills/sdk-helper",
+      "plugin": "agent-sdk-dev",
+      "version": "1.10",
+    },
+    {
+      "def": {
+        "agent": {
+          "body": "You are a Python Agent SDK application verifier.
+",
+          "color": "green",
+          "description": "Use this agent to verify a Python Agent SDK app. Examples: <example>Context: user created an app</example>",
+          "mcpServers": [
+            "context7",
+          ],
+          "model": "sonnet",
+          "name": "agent-sdk-verifier-py",
+          "skills": [
+            "sdk-helper",
+          ],
+          "sourceFormat": "claude-md",
+          "tools": [
+            "Read",
+            "Grep",
+            "Glob",
+            "Bash(python -m pytest:*)",
+          ],
+        },
+        "kind": "agent",
+      },
+      "description": "Use this agent to verify a Python Agent SDK app. Examples: <example>Context: user created an app</example>",
+      "kind": "agent",
+      "name": "agent-sdk-verifier-py",
+      "origin": "claude-plugins-official",
+      "path": "plugins/agent-sdk-dev/agents/agent-sdk-verifier-py.md",
+      "plugin": "agent-sdk-dev",
+      "version": "1.0.0",
+    },
+    {
+      "def": {
+        "command": {
+          "argumentHint": "[project-name]",
+          "body": "You are tasked with helping the user create a new Claude Agent SDK application.
+",
+          "description": "Create and setup a new Claude Agent SDK application",
+          "name": "new-sdk-app",
+          "sourceFormat": "claude-md",
+        },
+        "kind": "command",
+      },
+      "description": "Create and setup a new Claude Agent SDK application",
+      "kind": "command",
+      "name": "new-sdk-app",
+      "origin": "claude-plugins-official",
+      "path": "plugins/agent-sdk-dev/commands/new-sdk-app.md",
+      "plugin": "agent-sdk-dev",
+      "version": "1.0.0",
+    },
+    {
+      "def": {
+        "hooks": {
+          "dialect": "claude",
+          "name": "agent-sdk-dev",
+          "pluginRootRel": "plugins/agent-sdk-dev",
+          "raw": {
+            "description": "Guard edits",
+            "hooks": {
+              "PreToolUse": [
+                {
+                  "hooks": [
+                    {
+                      "command": "python3 \${CLAUDE_PLUGIN_ROOT}/hooks/guard.py",
+                      "timeout": 10,
+                      "type": "command",
+                    },
+                  ],
+                  "matcher": "Write|Edit",
+                },
+              ],
+            },
+          },
+        },
+        "kind": "hook",
+      },
+      "kind": "hook",
+      "name": "agent-sdk-dev",
+      "origin": "claude-plugins-official",
+      "path": "plugins/agent-sdk-dev/hooks/hooks.json",
+      "plugin": "agent-sdk-dev",
+      "version": "1.0.0",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": "plugins/agent-sdk-dev/.claude-plugin/plugin.json",
+        "members": [
+          {
+            "kind": "skill",
+            "name": "sdk-helper",
+          },
+          {
+            "kind": "agent",
+            "name": "agent-sdk-verifier-py",
+          },
+          {
+            "kind": "command",
+            "name": "new-sdk-app",
+          },
+          {
+            "kind": "hook",
+            "name": "agent-sdk-dev",
+          },
+        ],
+      },
+      "description": "Agent SDK dev kit",
+      "kind": "plugin",
+      "name": "agent-sdk-dev",
+      "origin": "claude-plugins-official",
+      "path": "plugins/agent-sdk-dev",
+      "version": "1.0.0",
+    },
+    {
+      "def": {
+        "kind": "mcp",
+        "mcp": {
+          "headers": {
+            "Authorization": "Bearer \${GITHUB_PERSONAL_ACCESS_TOKEN}",
+          },
+          "name": "github",
+          "secrets": [
+            {
+              "format": "Bearer {value}",
+              "header": "Authorization",
+              "in": "header",
+              "name": "GITHUB_PERSONAL_ACCESS_TOKEN",
+              "required": true,
+            },
+          ],
+          "source": {
+            "ref": "claude-plugins-official",
+            "type": "origin",
+          },
+          "transport": "http",
+          "url": "https://api.githubcopilot.com/mcp/",
+        },
+      },
+      "kind": "mcp",
+      "name": "github",
+      "origin": "claude-plugins-official",
+      "path": "external_plugins/github/.mcp.json",
+      "plugin": "github",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": "external_plugins/github/.claude-plugin/plugin.json",
+        "members": [
+          {
+            "kind": "mcp",
+            "name": "github",
+          },
+        ],
+      },
+      "description": "Official GitHub MCP server",
+      "kind": "plugin",
+      "name": "github",
+      "origin": "claude-plugins-official",
+      "path": "external_plugins/github",
+    },
+    {
+      "def": {
+        "kind": "mcp",
+        "mcp": {
+          "headers": {
+            "Authorization": "\${CONTEXT7_API_KEY:-}",
+          },
+          "name": "context7",
+          "secrets": [
+            {
+              "header": "Authorization",
+              "in": "header",
+              "name": "CONTEXT7_API_KEY",
+              "required": false,
+            },
+          ],
+          "source": {
+            "ref": "claude-plugins-official",
+            "type": "origin",
+          },
+          "transport": "http",
+          "url": "https://mcp.context7.com/mcp",
+        },
+      },
+      "kind": "mcp",
+      "name": "context7",
+      "origin": "claude-plugins-official",
+      "path": "external_plugins/context7/.mcp.json",
+      "plugin": "context7",
+    },
+    {
+      "def": {
+        "kind": "mcp",
+        "mcp": {
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-filesystem",
+            ".",
+          ],
+          "command": "npx",
+          "env": {
+            "FS_TOKEN": "\${FS_TOKEN}",
+          },
+          "name": "fs",
+          "secrets": [
+            {
+              "in": "env",
+              "name": "FS_TOKEN",
+              "required": true,
+            },
+          ],
+          "source": {
+            "ref": "claude-plugins-official",
+            "type": "origin",
+          },
+          "transport": "stdio",
+        },
+      },
+      "kind": "mcp",
+      "name": "fs",
+      "origin": "claude-plugins-official",
+      "path": "external_plugins/context7/.mcp.json",
+      "plugin": "context7",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": "external_plugins/context7/.claude-plugin/plugin.json",
+        "members": [
+          {
+            "kind": "mcp",
+            "name": "context7",
+          },
+          {
+            "kind": "mcp",
+            "name": "fs",
+          },
+        ],
+      },
+      "description": "Context7 docs lookup",
+      "kind": "plugin",
+      "name": "context7",
+      "origin": "claude-plugins-official",
+      "path": "external_plugins/context7",
+    },
+  ],
+  "warnings": [
+    "plugin clangd-lsp: lspServers not supported by palm (ignored)",
+    "plugin "clangd-lsp" at plugins/clangd-lsp has no installable components; skipped",
+    "remote plugin "42crunch" (https://github.com/42Crunch-AI/claude-plugins.git (plugins/api-security-testing)@faf5305385de) not fetched → add it as an origin: palm install origin https://github.com/42Crunch-AI/claude-plugins.git#v1.5.5 --root plugins/api-security-testing",
+    "remote plugin "agentforce-adlc" (https://github.com/SalesforceAIResearch/agentforce-adlc.git@09bf1539d41f) not fetched → add it as an origin: palm install origin https://github.com/SalesforceAIResearch/agentforce-adlc.git",
+    "plugin "npm-plugin": unsupported source npm:@acme/plugin; skipped",
+  ],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > codex-agent-like 1`] = `
+{
+  "detected": "convention",
+  "entities": [
+    {
+      "def": {
+        "kind": "mcp",
+        "mcp": {
+          "args": [
+            "-y",
+            "server-fs",
+          ],
+          "command": "npx",
+          "name": "local-fs",
+          "source": {
+            "ref": "codex-agent",
+            "type": "origin",
+          },
+          "transport": "stdio",
+        },
+      },
+      "kind": "mcp",
+      "name": "local-fs",
+      "origin": "codex-agent",
+      "path": ".mcp.json",
+    },
+    {
+      "def": {
+        "agent": {
+          "body": "Review code like an owner.
+Prioritize correctness, security, behavior regressions.
+",
+          "description": "PR reviewer focused on correctness and security.",
+          "extra": {
+            "mcp_servers": {
+              "docs": {
+                "url": "https://example.com/mcp",
+              },
+            },
+            "model_reasoning_effort": "high",
+            "sandbox_mode": "read-only",
+          },
+          "mcpServers": [
+            "docs",
+          ],
+          "model": "gpt-5.4",
+          "name": "reviewer",
+          "sourceFormat": "codex-toml",
+        },
+        "kind": "agent",
+      },
+      "description": "PR reviewer focused on correctness and security.",
+      "kind": "agent",
+      "name": "reviewer",
+      "origin": "codex-agent",
+      "path": "agents/reviewer.toml",
+    },
+    {
+      "def": {
+        "command": {
+          "body": "Review {{args}} carefully.",
+          "description": "Review the diff",
+          "name": "review",
+          "sourceFormat": "gemini-toml",
+        },
+        "kind": "command",
+      },
+      "description": "Review the diff",
+      "kind": "command",
+      "name": "review",
+      "origin": "codex-agent",
+      "path": "commands/review.toml",
+    },
+    {
+      "def": {
+        "command": {
+          "argumentHint": "[--dry-run]",
+          "body": "Ship the change.
+",
+          "description": "Ship it",
+          "name": "ship",
+          "sourceFormat": "claude-md",
+        },
+        "kind": "command",
+      },
+      "description": "Ship it",
+      "kind": "command",
+      "name": "ship",
+      "origin": "codex-agent",
+      "path": "commands/ship.md",
+    },
+    {
+      "def": {
+        "hooks": {
+          "dialect": "gemini",
+          "name": "codex-agent",
+          "pluginRootRel": ".",
+          "raw": {
+            "hooks": {
+              "BeforeTool": [
+                {
+                  "hooks": [
+                    {
+                      "command": "./check.sh",
+                      "type": "command",
+                    },
+                  ],
+                  "matcher": "write_file",
+                },
+              ],
+            },
+          },
+        },
+        "kind": "hook",
+      },
+      "kind": "hook",
+      "name": "codex-agent",
+      "origin": "codex-agent",
+      "path": "hooks/hooks.json",
+    },
+    {
+      "def": {
+        "command": {
+          "body": "Explain the selection.
+",
+          "description": "Explain code",
+          "name": "explain",
+          "sourceFormat": "prompt-md",
+        },
+        "kind": "command",
+      },
+      "description": "Explain code",
+      "kind": "command",
+      "name": "explain",
+      "origin": "codex-agent",
+      "path": "prompts/explain.prompt.md",
+    },
+    {
+      "def": {
+        "instruction": {
+          "alwaysApply": false,
+          "body": "Use 2 spaces.
+",
+          "description": "Style",
+          "globs": [
+            "src/**/*.ts",
+          ],
+          "name": "style",
+          "sourceFormat": "mdc",
+        },
+        "kind": "instruction",
+      },
+      "description": "Style",
+      "kind": "instruction",
+      "name": "style",
+      "origin": "codex-agent",
+      "path": "rules/style.mdc",
+    },
+  ],
+  "warnings": [
+    "skipped agents/partial.md: agent file without name/description frontmatter",
+  ],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > cursor-monorepo-like 1`] = `
+{
+  "detected": "marketplace",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Route work through the pstack workflow.",
+          "name": "poteto-mode",
+        },
+      },
+      "description": "Route work through the pstack workflow.",
+      "kind": "skill",
+      "name": "poteto-mode",
+      "origin": "cursor-monorepo",
+      "path": "pstack/skills/poteto-mode",
+      "plugin": "pstack",
+      "version": "0.14.2",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Use only when the user explicitly asks for TDD.",
+          "extra": {
+            "disable-model-invocation": true,
+          },
+          "name": "tdd",
+        },
+      },
+      "description": "Use only when the user explicitly asks for TDD.",
+      "kind": "skill",
+      "name": "tdd",
+      "origin": "cursor-monorepo",
+      "path": "pstack/skills/tdd",
+      "plugin": "pstack",
+      "version": "0.14.2",
+    },
+    {
+      "def": {
+        "agent": {
+          "body": "# Comment Sicko
+
+I hate comments.
+",
+          "description": "A deranged comment-hater that savors deletion.",
+          "displayName": "Comment Sicko",
+          "name": "comment-sicko",
+          "sourceFormat": "cursor-md",
+        },
+        "kind": "agent",
+      },
+      "description": "A deranged comment-hater that savors deletion.",
+      "kind": "agent",
+      "name": "comment-sicko",
+      "origin": "cursor-monorepo",
+      "path": "pstack/agents/comment-sicko.md",
+      "plugin": "pstack",
+      "version": "0.14.2",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": "pstack/.cursor-plugin/plugin.json",
+        "members": [
+          {
+            "kind": "skill",
+            "name": "poteto-mode",
+          },
+          {
+            "kind": "skill",
+            "name": "tdd",
+          },
+          {
+            "kind": "agent",
+            "name": "comment-sicko",
+          },
+        ],
+      },
+      "description": "if you want to go fast, go deep first.",
+      "kind": "plugin",
+      "name": "pstack",
+      "origin": "cursor-monorepo",
+      "path": "pstack",
+      "version": "0.14.2",
+    },
+    {
+      "def": {
+        "kind": "mcp",
+        "mcp": {
+          "name": "ahrefs",
+          "source": {
+            "ref": "cursor-monorepo",
+            "type": "origin",
+            "version": "1.0.0",
+          },
+          "transport": "http",
+          "url": "https://api.ahrefs.com/mcp/mcp",
+        },
+      },
+      "kind": "mcp",
+      "name": "ahrefs",
+      "origin": "cursor-monorepo",
+      "path": "third_party/ahrefs/mcp.json",
+      "plugin": "ahrefs",
+      "version": "1.0.0",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": "third_party/ahrefs/.cursor-plugin/plugin.json",
+        "members": [
+          {
+            "kind": "mcp",
+            "name": "ahrefs",
+          },
+        ],
+      },
+      "description": "Research keywords.",
+      "kind": "plugin",
+      "name": "ahrefs",
+      "origin": "cursor-monorepo",
+      "path": "third_party/ahrefs",
+      "version": "1.0.0",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Watch CI and fix failures.",
+          "name": "ci-watch",
+        },
+      },
+      "description": "Watch CI and fix failures.",
+      "kind": "skill",
+      "name": "ci-watch",
+      "origin": "cursor-monorepo",
+      "path": "team-kit/skills/ci-watch",
+      "plugin": "cursor-team-kit",
+      "version": "1.2.0",
+    },
+    {
+      "def": {
+        "agent": {
+          "body": "Watch CI.
+",
+          "description": "Watches CI runs.",
+          "extra": {
+            "readonly": true,
+          },
+          "model": "fast",
+          "name": "ci-watcher",
+          "sourceFormat": "cursor-md",
+        },
+        "kind": "agent",
+      },
+      "description": "Watches CI runs.",
+      "kind": "agent",
+      "name": "ci-watcher",
+      "origin": "cursor-monorepo",
+      "path": "team-kit/agents/ci-watcher.md",
+      "plugin": "cursor-team-kit",
+      "version": "1.2.0",
+    },
+    {
+      "def": {
+        "instruction": {
+          "alwaysApply": true,
+          "body": "# No inline imports
+
+Always place imports at the top.
+",
+          "description": "Keep imports at top of file",
+          "name": "no-inline-imports",
+          "sourceFormat": "mdc",
+        },
+        "kind": "instruction",
+      },
+      "description": "Keep imports at top of file",
+      "kind": "instruction",
+      "name": "no-inline-imports",
+      "origin": "cursor-monorepo",
+      "path": "team-kit/rules/no-inline-imports.mdc",
+      "plugin": "cursor-team-kit",
+      "version": "1.2.0",
+    },
+    {
+      "def": {
+        "instruction": {
+          "alwaysApply": false,
+          "body": "Use exhaustive switches.
+",
+          "description": "TypeScript conventions",
+          "globs": [
+            "**/*.ts",
+            "**/*.tsx",
+          ],
+          "name": "typescript",
+          "sourceFormat": "mdc",
+        },
+        "kind": "instruction",
+      },
+      "description": "TypeScript conventions",
+      "kind": "instruction",
+      "name": "typescript",
+      "origin": "cursor-monorepo",
+      "path": "team-kit/rules/typescript.mdc",
+      "plugin": "cursor-team-kit",
+      "version": "1.2.0",
+    },
+    {
+      "def": {
+        "hooks": {
+          "dialect": "cursor",
+          "name": "cursor-team-kit",
+          "pluginRootRel": "team-kit",
+          "raw": {
+            "hooks": {
+              "afterFileEdit": [
+                {
+                  "command": "bash "\${CURSOR_PLUGIN_ROOT}/hooks/mark.sh"",
+                },
+              ],
+              "subagentStop": [
+                {
+                  "command": "bash ./hooks/record.sh",
+                  "matcher": "^advisor$",
+                },
+              ],
+            },
+            "version": 1,
+          },
+        },
+        "kind": "hook",
+      },
+      "kind": "hook",
+      "name": "cursor-team-kit",
+      "origin": "cursor-monorepo",
+      "path": "team-kit/hooks/hooks.json",
+      "plugin": "cursor-team-kit",
+      "version": "1.2.0",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": "team-kit/.cursor-plugin/plugin.json",
+        "members": [
+          {
+            "kind": "skill",
+            "name": "ci-watch",
+          },
+          {
+            "kind": "skill",
+            "name": "tdd",
+          },
+          {
+            "kind": "agent",
+            "name": "ci-watcher",
+          },
+          {
+            "kind": "instruction",
+            "name": "no-inline-imports",
+          },
+          {
+            "kind": "instruction",
+            "name": "typescript",
+          },
+          {
+            "kind": "hook",
+            "name": "cursor-team-kit",
+          },
+        ],
+      },
+      "description": "Internal team workflows.",
+      "kind": "plugin",
+      "name": "cursor-team-kit",
+      "origin": "cursor-monorepo",
+      "path": "team-kit",
+      "version": "1.2.0",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Configure Benny.",
+          "name": "setup-benny",
+        },
+      },
+      "description": "Configure Benny.",
+      "kind": "skill",
+      "name": "setup-benny",
+      "origin": "cursor-monorepo",
+      "path": "pstack/automations/benny/skills/setup-benny",
+    },
+  ],
+  "warnings": [
+    "pstack/skills/poteto-mode/SKILL.md: frontmatter name "Poteto Mode" is not a valid slug; using "poteto-mode"",
+    "duplicate skill "tdd" at team-kit/skills/tdd ignored (already indexed from pstack/skills/tdd)",
+    "remote plugin "far-away" (github:acme/far-away#v1.0.0) not fetched → add it as an origin: palm install origin acme/far-away#v1.0.0",
+    "plugin "missing-dir": source directory does-not-exist not found; skipped",
+    "plugin "pstack" at pstack does not declare 1 skill (setup-benny); indexed standalone",
+  ],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > descriptor-like 1`] = `
+{
+  "detected": "convention",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Alpha skill.",
+          "name": "alpha",
+        },
+      },
+      "description": "Alpha skill.",
+      "kind": "skill",
+      "name": "alpha",
+      "origin": "descriptor",
+      "path": "catalog/skills/alpha",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Beta skill whose frontmatter name differs.",
+          "dirName": "beta",
+          "name": "beta-renamed",
+        },
+      },
+      "description": "Beta skill whose frontmatter name differs.",
+      "kind": "skill",
+      "name": "beta-renamed",
+      "origin": "descriptor",
+      "path": "catalog/skills/beta",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Gamma skill (excluded by the descriptor).",
+          "name": "gamma",
+        },
+      },
+      "description": "Gamma skill (excluded by the descriptor).",
+      "kind": "skill",
+      "name": "gamma",
+      "origin": "descriptor",
+      "path": "catalog/skills/gamma",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Not matched by the descriptor globs.",
+          "name": "ignored-by-descriptor",
+        },
+      },
+      "description": "Not matched by the descriptor globs.",
+      "kind": "skill",
+      "name": "ignored-by-descriptor",
+      "origin": "descriptor",
+      "path": "other/skills/ignored-by-descriptor",
+    },
+    {
+      "def": {
+        "agent": {
+          "body": "x
+",
+          "description": "would be found by convention only",
+          "name": "conventional",
+          "sourceFormat": "claude-md",
+        },
+        "kind": "agent",
+      },
+      "description": "would be found by convention only",
+      "kind": "agent",
+      "name": "conventional",
+      "origin": "descriptor",
+      "path": "agents/conventional.md",
+    },
+  ],
+  "warnings": [
+    "catalog/skills/beta/SKILL.md: frontmatter name "beta-renamed" differs from directory "beta"; keeping "beta-renamed"",
+  ],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > descriptor-like with a layout descriptor 1`] = `
+{
+  "detected": "descriptor",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Alpha skill.",
+          "name": "alpha",
+        },
+      },
+      "description": "Alpha skill.",
+      "kind": "skill",
+      "name": "alpha",
+      "origin": "descriptor",
+      "path": "catalog/skills/alpha",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Beta skill whose frontmatter name differs.",
+          "dirName": "beta",
+          "name": "beta-renamed",
+        },
+      },
+      "description": "Beta skill whose frontmatter name differs.",
+      "kind": "skill",
+      "name": "beta-renamed",
+      "origin": "descriptor",
+      "path": "catalog/skills/beta",
+    },
+    {
+      "def": {
+        "agent": {
+          "body": "Review.
+",
+          "description": "Reviews code",
+          "name": "reviewer",
+          "sourceFormat": "claude-md",
+        },
+        "kind": "agent",
+      },
+      "description": "Reviews code",
+      "kind": "agent",
+      "name": "reviewer",
+      "origin": "descriptor",
+      "path": "catalog/people/reviewer.md",
+    },
+    {
+      "def": {
+        "agent": {
+          "body": "Help.
+",
+          "description": "helper agent living in a tests dir",
+          "name": "helper",
+          "sourceFormat": "claude-md",
+        },
+        "kind": "agent",
+      },
+      "description": "helper agent living in a tests dir",
+      "kind": "agent",
+      "name": "helper",
+      "origin": "descriptor",
+      "path": "catalog/tests/helper.md",
+    },
+  ],
+  "warnings": [
+    "catalog/skills/beta/SKILL.md: frontmatter name "beta-renamed" differs from directory "beta"; keeping "beta-renamed"",
+  ],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > hidden-unicode-like 1`] = `
+{
+  "detected": "convention",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Formats invoices.",
+          "name": "bidi-override",
+        },
+      },
+      "description": "Formats invoices.",
+      "issues": [
+        {
+          "code": "hidden-unicode",
+          "file": "skills/bidi-override/SKILL.md",
+          "message": "skills/bidi-override/SKILL.md: 1 hidden character, first U+202E RIGHT-TO-LEFT OVERRIDE at line 8",
+          "severity": "critical",
+        },
+      ],
+      "kind": "skill",
+      "name": "bidi-override",
+      "origin": "hidden-unicode",
+      "path": "skills/bidi-override",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "A family of emoji is fine.",
+          "name": "clean",
+        },
+      },
+      "description": "A family of emoji is fine.",
+      "kind": "skill",
+      "name": "clean",
+      "origin": "hidden-unicode",
+      "path": "skills/clean",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Greets people.",
+          "name": "zero-width",
+        },
+      },
+      "description": "Greets people.",
+      "issues": [
+        {
+          "code": "hidden-unicode",
+          "file": "skills/zero-width/SKILL.md",
+          "message": "skills/zero-width/SKILL.md: 1 hidden character, first U+200B ZERO WIDTH SPACE at line 8",
+          "severity": "warning",
+        },
+      ],
+      "kind": "skill",
+      "name": "zero-width",
+      "origin": "hidden-unicode",
+      "path": "skills/zero-width",
+    },
+    {
+      "def": {
+        "agent": {
+          "body": "Review the diff.󠁉󠁧󠁮󠁯󠁲󠁥
+",
+          "description": "Reviews code.",
+          "name": "tagged",
+          "sourceFormat": "claude-md",
+        },
+        "kind": "agent",
+      },
+      "description": "Reviews code.",
+      "issues": [
+        {
+          "code": "hidden-unicode",
+          "file": "agents/tagged.md",
+          "message": "agents/tagged.md: 6 hidden characters, first U+E0049 TAG LATIN CAPITAL LETTER I at line 6",
+          "severity": "critical",
+        },
+      ],
+      "kind": "agent",
+      "name": "tagged",
+      "origin": "hidden-unicode",
+      "path": "agents/tagged.md",
+    },
+  ],
+  "warnings": [
+    "hidden-unicode: skill "bidi-override" (critical): skills/bidi-override/SKILL.md: 1 hidden character, first U+202E RIGHT-TO-LEFT OVERRIDE at line 8",
+    "hidden-unicode: skill "zero-width" (warning): skills/zero-width/SKILL.md: 1 hidden character, first U+200B ZERO WIDTH SPACE at line 8",
+    "hidden-unicode: agent "tagged" (critical): agents/tagged.md: 6 hidden characters, first U+E0049 TAG LATIN CAPITAL LETTER I at line 6",
+  ],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > marketplaces 1`] = `
+{
+  "detected": "empty",
+  "entities": [],
+  "warnings": [],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > mattpocock-like 1`] = `
+{
+  "detected": "marketplace",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Test-driven development with red-green-refactor.",
+          "name": "tdd",
+        },
+      },
+      "description": "Test-driven development with red-green-refactor.",
+      "kind": "skill",
+      "name": "tdd",
+      "origin": "mattpocock",
+      "path": "skills/engineering/tdd",
+      "plugin": "mattpocock-skills",
+      "version": "1.2.3",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Interview the user relentlessly about a plan.",
+          "name": "grill-me",
+        },
+      },
+      "description": "Interview the user relentlessly about a plan.",
+      "kind": "skill",
+      "name": "grill-me",
+      "origin": "mattpocock",
+      "path": "skills/engineering/grill-me",
+      "plugin": "mattpocock-skills",
+      "version": "1.2.3",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Write a handoff note for the next session.",
+          "name": "handoff",
+        },
+      },
+      "description": "Write a handoff note for the next session.",
+      "kind": "skill",
+      "name": "handoff",
+      "origin": "mattpocock",
+      "path": "skills/productivity/handoff",
+      "plugin": "mattpocock-skills",
+      "version": "1.2.3",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": ".claude-plugin/plugin.json",
+        "members": [
+          {
+            "kind": "skill",
+            "name": "tdd",
+          },
+          {
+            "kind": "skill",
+            "name": "grill-me",
+          },
+          {
+            "kind": "skill",
+            "name": "handoff",
+          },
+        ],
+      },
+      "description": "Matt Pocock's agent skills for real engineering.",
+      "kind": "plugin",
+      "name": "mattpocock-skills",
+      "origin": "mattpocock",
+      "path": ".",
+      "version": "1.2.3",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "An old skill kept for reference.",
+          "name": "old-thing",
+        },
+      },
+      "description": "An old skill kept for reference.",
+      "kind": "skill",
+      "name": "old-thing",
+      "origin": "mattpocock",
+      "path": "skills/deprecated/old-thing",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Block dangerous git commands.",
+          "name": "git-guardrails",
+        },
+      },
+      "description": "Block dangerous git commands.",
+      "kind": "skill",
+      "name": "git-guardrails",
+      "origin": "mattpocock",
+      "path": "skills/misc/git-guardrails",
+    },
+  ],
+  "warnings": [
+    "plugin "mattpocock-skills" at . does not declare 2 skills (old-thing, git-guardrails); indexed standalone",
+  ],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > nested-plugins-like 1`] = `
+{
+  "detected": "plugin-manifest",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Alpha skill.",
+          "name": "alpha-skill",
+        },
+      },
+      "description": "Alpha skill.",
+      "kind": "skill",
+      "name": "alpha-skill",
+      "origin": "nested-plugins",
+      "path": "plugins/alpha/skills/alpha-skill",
+      "plugin": "alpha",
+      "version": "0.1.0",
+    },
+    {
+      "def": {
+        "command": {
+          "body": "Go now.
+",
+          "description": "Go",
+          "name": "go",
+          "sourceFormat": "claude-md",
+        },
+        "kind": "command",
+      },
+      "description": "Go",
+      "kind": "command",
+      "name": "go",
+      "origin": "nested-plugins",
+      "path": "plugins/alpha/commands/go.md",
+      "plugin": "alpha",
+      "version": "0.1.0",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": "plugins/alpha/.claude-plugin/plugin.json",
+        "members": [
+          {
+            "kind": "skill",
+            "name": "alpha-skill",
+          },
+          {
+            "kind": "command",
+            "name": "go",
+          },
+        ],
+      },
+      "kind": "plugin",
+      "name": "alpha",
+      "origin": "nested-plugins",
+      "path": "plugins/alpha",
+      "version": "0.1.0",
+    },
+    {
+      "def": {
+        "command": {
+          "body": "Say hello.",
+          "description": "Say hello",
+          "name": "hello",
+          "sourceFormat": "gemini-toml",
+        },
+        "kind": "command",
+      },
+      "description": "Say hello",
+      "kind": "command",
+      "name": "hello",
+      "origin": "nested-plugins",
+      "path": "plugins/beta/commands/hello.toml",
+      "plugin": "beta",
+      "version": "0.2.0",
+    },
+    {
+      "def": {
+        "kind": "mcp",
+        "mcp": {
+          "name": "beta-server",
+          "source": {
+            "ref": "nested-plugins",
+            "type": "origin",
+            "version": "0.2.0",
+          },
+          "transport": "http",
+          "url": "https://beta.example.com/mcp",
+        },
+      },
+      "kind": "mcp",
+      "name": "beta-server",
+      "origin": "nested-plugins",
+      "path": "plugins/beta/gemini-extension.json",
+      "plugin": "beta",
+      "version": "0.2.0",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": "plugins/beta/gemini-extension.json",
+        "members": [
+          {
+            "kind": "command",
+            "name": "hello",
+          },
+          {
+            "kind": "mcp",
+            "name": "beta-server",
+          },
+        ],
+      },
+      "kind": "plugin",
+      "name": "beta",
+      "origin": "nested-plugins",
+      "path": "plugins/beta",
+      "version": "0.2.0",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "A standalone skill.",
+          "name": "loose",
+        },
+      },
+      "description": "A standalone skill.",
+      "kind": "skill",
+      "name": "loose",
+      "origin": "nested-plugins",
+      "path": "skills/loose",
+    },
+  ],
+  "warnings": [],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > openai-like 1`] = `
+{
+  "detected": "convention",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Fix failing GitHub Actions checks.",
+          "name": "gh-fix-ci",
+        },
+      },
+      "description": "Fix failing GitHub Actions checks.",
+      "kind": "skill",
+      "name": "gh-fix-ci",
+      "origin": "openai",
+      "path": "skills/.curated/gh-fix-ci",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Turn Notion specs into tickets.",
+          "name": "notion-spec",
+        },
+      },
+      "description": "Turn Notion specs into tickets.",
+      "kind": "skill",
+      "name": "notion-spec",
+      "origin": "openai",
+      "path": "skills/.curated/notion-spec",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Experimental.",
+          "name": "beta-thing",
+        },
+      },
+      "description": "Experimental.",
+      "kind": "skill",
+      "name": "beta-thing",
+      "origin": "openai",
+      "path": "skills/.experimental/beta-thing",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Create new skills.",
+          "name": "skill-creator",
+        },
+      },
+      "description": "Create new skills.",
+      "kind": "skill",
+      "name": "skill-creator",
+      "origin": "openai",
+      "path": "skills/.system/skill-creator",
+    },
+  ],
+  "warnings": [],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > openai-like with a layout descriptor 1`] = `
+{
+  "detected": "descriptor",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Fix failing GitHub Actions checks.",
+          "name": "gh-fix-ci",
+        },
+      },
+      "description": "Fix failing GitHub Actions checks.",
+      "kind": "skill",
+      "name": "gh-fix-ci",
+      "origin": "openai",
+      "path": "skills/.curated/gh-fix-ci",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Turn Notion specs into tickets.",
+          "name": "notion-spec",
+        },
+      },
+      "description": "Turn Notion specs into tickets.",
+      "kind": "skill",
+      "name": "notion-spec",
+      "origin": "openai",
+      "path": "skills/.curated/notion-spec",
+    },
+  ],
+  "warnings": [],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > root-skill-like 1`] = `
+{
+  "detected": "convention",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "allowedTools": [
+            "Bash",
+            "Read",
+            "WebSearch",
+          ],
+          "description": "Research what happened in the last 30 days.",
+          "dirName": "root-skill-like",
+          "extra": {
+            "argument-hint": "[topic]",
+            "user-invocable": true,
+          },
+          "metadata": {
+            "openclaw": "{"emoji":"📅"}",
+          },
+          "name": "last30days",
+          "version": "2.1.0",
+        },
+      },
+      "description": "Research what happened in the last 30 days.",
+      "kind": "skill",
+      "name": "last30days",
+      "origin": "root-skill",
+      "path": ".",
+      "version": "2.1.0",
+    },
+  ],
+  "warnings": [],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > superpowers-like 1`] = `
+{
+  "detected": "marketplace",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Use before any creative work: explore intent, requirements and design.",
+          "name": "brainstorming",
+        },
+      },
+      "description": "Use before any creative work: explore intent, requirements and design.",
+      "kind": "skill",
+      "name": "brainstorming",
+      "origin": "superpowers",
+      "path": "skills/brainstorming",
+      "plugin": "superpowers",
+      "version": "6.4.2",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Use when implementing any feature or bugfix, before writing implementation code.",
+          "name": "test-driven-development",
+        },
+      },
+      "description": "Use when implementing any feature or bugfix, before writing implementation code.",
+      "kind": "skill",
+      "name": "test-driven-development",
+      "origin": "superpowers",
+      "path": "skills/test-driven-development",
+      "plugin": "superpowers",
+      "version": "6.4.2",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Use when creating or editing skills.",
+          "name": "writing-skills",
+        },
+      },
+      "description": "Use when creating or editing skills.",
+      "kind": "skill",
+      "name": "writing-skills",
+      "origin": "superpowers",
+      "path": "skills/writing-skills",
+      "plugin": "superpowers",
+      "version": "6.4.2",
+    },
+    {
+      "def": {
+        "hooks": {
+          "dialect": "claude",
+          "name": "superpowers",
+          "pluginRootRel": ".",
+          "raw": {
+            "hooks": {
+              "SessionStart": [
+                {
+                  "hooks": [
+                    {
+                      "async": false,
+                      "command": ""\${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start",
+                      "type": "command",
+                    },
+                  ],
+                  "matcher": "startup|clear|compact",
+                },
+              ],
+            },
+          },
+        },
+        "kind": "hook",
+      },
+      "kind": "hook",
+      "name": "superpowers",
+      "origin": "superpowers",
+      "path": "hooks/hooks.json",
+      "plugin": "superpowers",
+      "version": "6.4.2",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": ".claude-plugin/plugin.json",
+        "members": [
+          {
+            "kind": "skill",
+            "name": "brainstorming",
+          },
+          {
+            "kind": "skill",
+            "name": "test-driven-development",
+          },
+          {
+            "kind": "skill",
+            "name": "writing-skills",
+          },
+          {
+            "kind": "hook",
+            "name": "superpowers",
+          },
+        ],
+      },
+      "description": "Core skills library for Claude Code",
+      "kind": "plugin",
+      "name": "superpowers",
+      "origin": "superpowers",
+      "path": ".",
+      "version": "6.4.2",
+    },
+  ],
+  "warnings": [],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > vercel-like 1`] = `
+{
+  "detected": "convention",
+  "entities": [
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Deploy the current project.",
+          "dirName": "Deploy To Vercel",
+          "name": "deploy-to-vercel",
+        },
+      },
+      "description": "Deploy the current project.",
+      "kind": "skill",
+      "name": "deploy-to-vercel",
+      "origin": "vercel",
+      "path": "skills/Deploy To Vercel",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "React performance guidelines from Vercel.",
+          "dirName": "react-best-practices",
+          "license": "MIT",
+          "metadata": {
+            "author": "vercel",
+            "version": "1.0.0",
+          },
+          "name": "vercel-react-best-practices",
+          "version": "1.0.0",
+        },
+      },
+      "description": "React performance guidelines from Vercel.",
+      "kind": "skill",
+      "name": "vercel-react-best-practices",
+      "origin": "vercel",
+      "path": "skills/react-best-practices",
+      "version": "1.0.0",
+    },
+    {
+      "def": {
+        "kind": "skill",
+        "skill": {
+          "description": "Review UI code for web interface guidelines.",
+          "name": "web-design-guidelines",
+        },
+      },
+      "description": "Review UI code for web interface guidelines.",
+      "kind": "skill",
+      "name": "web-design-guidelines",
+      "origin": "vercel",
+      "path": "skills/web-design-guidelines",
+    },
+  ],
+  "warnings": [
+    "skills/Deploy To Vercel/SKILL.md: frontmatter name "Deploy To Vercel" is not a valid slug; using "deploy-to-vercel"",
+    "skills/react-best-practices/SKILL.md: frontmatter name "vercel-react-best-practices" differs from directory "react-best-practices"; keeping "vercel-react-best-practices"",
+  ],
+}
+`;
+
+exports[`scanOrigin snapshot per fixture > voltagent-like 1`] = `
+{
+  "detected": "marketplace",
+  "entities": [
+    {
+      "def": {
+        "agent": {
+          "body": "You are a senior API designer.
+",
+          "description": "API architecture expert",
+          "model": "sonnet",
+          "name": "api-designer",
+          "sourceFormat": "claude-md",
+          "tools": [
+            "Read",
+            "Write",
+            "Edit",
+            "Bash",
+            "Glob",
+            "Grep",
+          ],
+        },
+        "kind": "agent",
+      },
+      "description": "API architecture expert",
+      "kind": "agent",
+      "name": "api-designer",
+      "origin": "voltagent",
+      "path": "categories/01-core-development/api-designer.md",
+      "plugin": "voltagent-core-dev",
+      "version": "1.0.4",
+    },
+    {
+      "def": {
+        "agent": {
+          "body": "You are a backend developer.
+",
+          "description": "Senior backend engineer",
+          "name": "backend-developer",
+          "sourceFormat": "claude-md",
+          "tools": [
+            "Read",
+            "Write",
+          ],
+        },
+        "kind": "agent",
+      },
+      "description": "Senior backend engineer",
+      "kind": "agent",
+      "name": "backend-developer",
+      "origin": "voltagent",
+      "path": "categories/01-core-development/backend-developer.md",
+      "plugin": "voltagent-core-dev",
+      "version": "1.0.4",
+    },
+    {
+      "def": {
+        "kind": "plugin",
+        "manifestPath": "categories/01-core-development/.claude-plugin/plugin.json",
+        "members": [
+          {
+            "kind": "agent",
+            "name": "api-designer",
+          },
+          {
+            "kind": "agent",
+            "name": "backend-developer",
+          },
+        ],
+      },
+      "kind": "plugin",
+      "name": "voltagent-core-dev",
+      "origin": "voltagent",
+      "path": "categories/01-core-development",
+      "version": "1.0.4",
+    },
+  ],
+  "warnings": [
+    "plugin voltagent-core-dev: declared agent path "./missing.md" not found",
+  ],
+}
+`;

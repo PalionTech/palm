@@ -41,6 +41,9 @@ export function fileTargetLabel(file: string): TargetId | 'shared .agents' | 'ot
   if (/(^|\/)\.codex(\/|$)/.test(f) || /(^|\/)AGENTS\.md$/.test(f)) return 'codex';
   if (/(^|\/)(\.github|\.copilot|\.vscode)\//.test(f)) return 'copilot';
   if (/(^|\/)\.cursor\//.test(f)) return 'cursor';
+  if (/(^|\/)\.gemini\//.test(f) || /(^|\/)GEMINI\.md$/.test(f)) return 'gemini';
+  if (/(^|\/)(\.opencode|\.config\/opencode)\//.test(f) || /(^|\/)opencode\.json$/.test(f))
+    return 'opencode';
   return 'other';
 }
 
@@ -115,7 +118,7 @@ async function originSpecOf(ctx: PalmContext, alias: string): Promise<OriginSpec
 function printFiles(out: Output, lock: LockEntry): void {
   out.out();
   out.out(`  ${pc.dim('targets'.padEnd(12))}${lock.targets.join(', ')}`);
-  for (const [label, files] of groupFiles(lock.files)) {
+  for (const [label, files] of groupFiles(lock.files.map((f) => f.path))) {
     out.out(`  ${pc.bold(label)}`);
     for (const f of files) out.out(`    ${f}`);
   }
@@ -163,7 +166,7 @@ async function describeEntity(ctx: PalmContext, out: Output, kind: Kind, inv: In
   const scope = scopeOf(o);
   const origin = await originFilter(ctx, o.origin, ref.origin);
   const { getEntityInfo } = await import('../engine/query.js');
-  const info: EntityInfo = await getEntityInfo(ctx, kind, ref.name, { origin, scope });
+  const info: EntityInfo = await getEntityInfo(ctx, { kind, name: ref.name }, { origin, scope });
   if (!info.entity && !info.lock)
     throw new PalmError(
       'E_NOT_FOUND',

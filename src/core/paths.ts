@@ -28,6 +28,18 @@ export function resolvePaths(cwd: string, env: NodeJS.ProcessEnv): PalmPaths {
   return { palmHome, home, projectRoot, cwd: absCwd };
 }
 
+/**
+ * True when the project scope would be the home directory itself without the user having made it
+ * a palm project: `paths.projectRoot` is the home of `env` and there is no palm.yaml there. A
+ * `.git` in home (a dotfiles repository) does not count as a marker, since project-scope files
+ * would then land in the harnesses' global dirs. Commands refuse project scope in this case
+ * ("run inside a project or use -g").
+ */
+export function isHomeAsProject(paths: PalmPaths, env: NodeJS.ProcessEnv): boolean {
+  const home = homeOf(env);
+  return resolve(paths.projectRoot) === home && !existsSync(join(home, MANIFEST_FILE));
+}
+
 // Facades over ScopePaths, kept while the remaining callers move to `ScopePaths.of(ctx, scope)`.
 
 export function scopeRoot(paths: PalmPaths, scope: Scope): string {

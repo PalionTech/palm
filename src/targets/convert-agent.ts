@@ -13,11 +13,26 @@
  *   allowed). `mcp-servers` is a map of definitions in Copilot, so names are dropped.
  * - cursor  `.md`: name, description, model (not a Claude alias; `inherit` kept),
  *   readonly when tools exist and none of them writes.
+ * - gemini  `.md`: Gemini's agent schema is `.strict()` ("any unknown key fails the whole
+ *   file"), so only name (`^[a-z0-9-_]+$`), description, kind: local, display_name, tools
+ *   (Gemini names, tool-names.ts), model (not a Claude model) and temperature / max_turns /
+ *   timeout_mins from `extra`. Gemini's `mcp_servers` holds inline server *definitions*, so
+ *   referenced servers stay global and become `mcp_<server>_*` tools (R7 §3).
+ * - opencode `.md`: description, mode: subagent, model (`provider/model-id` only), color
+ *   (hex or theme name), `permission` from the tool lists, and temperature / top_p / steps /
+ *   variant / hidden from `extra`. OpenCode moves unknown keys into `options` "passed through
+ *   directly to the provider as model options", so everything else is stripped (R7 §3).
  */
 import { stringify as tomlStringify } from 'smol-toml';
 import type { AgentDefinition, TargetId } from '../core/types.js';
 import { normalizeBody, stringifyFrontmatter } from '../lib/frontmatter.js';
 import { withoutUndefined } from '../lib/object.js';
+import {
+  geminiTool,
+  hasToolArgument,
+  opencodePermission,
+  opencodeServerPattern,
+} from './tool-names.js';
 
 const CLAUDE_ALIAS = /^(opus|sonnet|haiku|inherit|opusplan|default|best)(\[[^\]]*\])?$/i;
 const CLAUDE_ID = /^(claude[-_.]|anthropic[/.])/i;
@@ -46,6 +61,10 @@ const COPILOT_EXTRA = [
   'mcp-servers',
 ];
 const CURSOR_EXTRA = ['is_background', 'readonly'];
+const GEMINI_EXTRA = ['temperature', 'max_turns', 'timeout_mins'];
+const OPENCODE_EXTRA = ['temperature', 'top_p', 'steps', 'variant', 'hidden'];
+/** OpenCode colors: `#RRGGBB` or a theme color (packages/core/src/v1/config/agent.ts). */
+const OPENCODE_COLOR = /^(#[0-9a-fA-F]{6}|primary|secondary|accent|success|warning|error|info)$/;
 const CLAUDE_KNOWN = [
   'name',
   'description',
@@ -94,7 +113,13 @@ function pickExtra(
   return { kept, dropped };
 }
 
-type RenderedAgent = { fileName: string; content: string; dropped: string[] };
+type RenderedAgent = {
+  fileName: string;
+  content: string;
+  dropped: string[];
+  /** Changes worth reporting that drop nothing (a renamed agent). */
+  notes?: string[];
+};
 
 /** The list fields of a definition, undefined when empty. */
 interface AgentLists {
@@ -218,11 +243,108 @@ function renderCursor(def: AgentDefinition, lists: AgentLists): RenderedAgent {
   return { fileName: `${def.name}.md`, content: stringifyFrontmatter(fm, def.body), dropped };
 }
 
+/** Gemini agent names must match `^[a-z0-9-_]+$`: lowercased, anything else becomes `-`. */
+function geminiName(name: string, notes: string[]): string {
+  const slug = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+  if (slug !== name)
+    notes.push(`name "${name}" written as "${slug}" (Gemini agent names are [a-z0-9-_])`);
+  return slug;
+}
+
+/**
+ * Gemini `tools`: each entry in Gemini's name, then `activate_skill` when skills are listed
+ * ("Skills reach the agent through the `activate_skill` tool") and `mcp_<server>_*` per
+ * referenced server. Undefined (inherit every tool) when the definition lists none.
+ */
+function geminiTools(lists: AgentLists, dropped: string[]): string[] | undefined {
+  if (!lists.tools) return undefined;
+  const out = new Set<string>();
+  for (const entry of lists.tools) {
+    const mapped = geminiTool(entry);
+    if (!mapped) dropped.push(`tools: ${entry} (no Gemini CLI equivalent)`);
+    else if (hasToolArgument(entry)) dropped.push(`tools: ${entry} restriction (all of ${mapped})`);
+    if (mapped) out.add(mapped);
+  }
+  if (lists.skills) out.add('activate_skill');
+  for (const server of lists.mcpServers ?? []) out.add(`mcp_${server}_*`);
+  return [...out];
+}
+
+function renderGemini(def: AgentDefinition, lists: AgentLists): RenderedAgent {
+  const dropped: string[] = [];
+  const notes: string[] = [];
+  const name = geminiName(def.name, notes);
+  const model = keepModel(def.model, isClaudeModel, dropped);
+  const tools = geminiTools(lists, dropped);
+  dropFields(def, lists, ['disallowedTools', 'skills', 'color'], dropped);
+  const kept = keepExtra(def, GEMINI_EXTRA, dropped);
+  const fm = {
+    name,
+    description: def.description,
+    kind: 'local',
+    display_name: def.displayName,
+    tools,
+    model,
+    ...kept,
+  };
+  const content = stringifyFrontmatter(fm, def.body);
+  return { fileName: `${def.name}.md`, content, dropped, notes };
+}
+
+/** Allow `key` in an OpenCode permission block; entries without an equivalent are dropped. */
+function allowTool(perm: Record<string, unknown>, entry: string, dropped: string[]): void {
+  const key = opencodePermission(entry);
+  if (!key) dropped.push(`tools: ${entry} (no OpenCode equivalent)`);
+  else if (hasToolArgument(entry)) dropped.push(`tools: ${entry} restriction (all of ${key})`);
+  if (key) perm[key] = 'allow';
+}
+
+/**
+ * OpenCode `permission` (R7 §3): a tool list becomes `"*": "deny"` plus an `allow` per tool,
+ * per referenced MCP server (`<server>_*`) and per listed skill (`skill: {<name>: allow}`);
+ * disallowedTools become `deny` entries. Later rules win in OpenCode, so denials come last.
+ */
+function opencodePermissions(
+  lists: AgentLists,
+  dropped: string[],
+): Record<string, unknown> | undefined {
+  const perm: Record<string, unknown> = {};
+  if (lists.tools) {
+    perm['*'] = 'deny';
+    for (const entry of lists.tools) allowTool(perm, entry, dropped);
+    for (const server of lists.mcpServers ?? []) perm[opencodeServerPattern(server)] = 'allow';
+    if (lists.skills && perm.skill !== 'allow')
+      perm.skill = Object.fromEntries(lists.skills.map((s) => [s, 'allow']));
+  }
+  for (const entry of lists.disallowedTools ?? []) {
+    const key = opencodePermission(entry);
+    if (key) perm[key] = 'deny';
+    else dropped.push(`disallowedTools: ${entry} (no OpenCode equivalent)`);
+  }
+  return Object.keys(perm).length ? perm : undefined;
+}
+
+function renderOpencode(def: AgentDefinition, lists: AgentLists): RenderedAgent {
+  const dropped: string[] = [];
+  // OpenCode models are `provider/model-id`: Claude aliases and bare ids name no provider.
+  const model = keepModel(def.model, (m) => !m.includes('/'), dropped);
+  const color = def.color && OPENCODE_COLOR.test(def.color) ? def.color : undefined;
+  if (def.color && !color) dropped.push(`color (${def.color})`);
+  const permission = opencodePermissions(lists, dropped);
+  // Skills are not preloaded; with a tool list they are allowed through `permission.skill`.
+  dropFields(def, lists, ['skills'], dropped);
+  const kept = keepExtra(def, OPENCODE_EXTRA, dropped);
+  const fm = { description: def.description, mode: 'subagent', model, color, permission, ...kept };
+  return { fileName: `${def.name}.md`, content: stringifyFrontmatter(fm, def.body), dropped };
+}
+
 const RENDERERS: Record<TargetId, (def: AgentDefinition, lists: AgentLists) => RenderedAgent> = {
   claude: renderClaude,
   codex: renderCodex,
   copilot: renderCopilot,
   cursor: renderCursor,
+  gemini: renderGemini,
+  opencode: renderOpencode,
 };
 
 export function renderAgent(def: AgentDefinition, target: TargetId): RenderedAgent {

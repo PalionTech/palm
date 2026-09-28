@@ -116,7 +116,7 @@ const CASES: Case[] = [
     warnings: [
       /poteto-mode\/SKILL\.md: frontmatter name "Poteto Mode" is not a valid slug; using "poteto-mode"/,
       /duplicate skill "tdd" at team-kit\/skills\/tdd ignored \(already indexed from pstack\/skills\/tdd\)/,
-      /remote plugin "far-away" \(github:acme\/far-away#v1\.0\.0\) not fetched → add it as an origin: palm origin add acme\/far-away#v1\.0\.0/,
+      /remote plugin "far-away" \(github:acme\/far-away#v1\.0\.0\) not fetched → add it as an origin: palm install origin acme\/far-away#v1\.0\.0/,
       /plugin "missing-dir": source directory does-not-exist not found; skipped/,
       /plugin "pstack" at pstack does not declare 1 skill \(setup-benny\)/,
     ],
@@ -170,7 +170,7 @@ const CASES: Case[] = [
       /plugin clangd-lsp: lspServers not supported by palm \(ignored\)/,
       /plugin "clangd-lsp" at plugins\/clangd-lsp has no installable components; skipped/,
       /remote plugin "42crunch" \(https:\/\/github\.com\/42Crunch-AI\/claude-plugins\.git \(plugins\/api-security-testing\)@faf5305385de\) not fetched/,
-      /remote plugin "agentforce-adlc" .* palm origin add https:\/\/github\.com\/SalesforceAIResearch\/agentforce-adlc\.git$/,
+      /remote plugin "agentforce-adlc" .* palm install origin https:\/\/github\.com\/SalesforceAIResearch\/agentforce-adlc\.git$/,
       /plugin "npm-plugin": unsupported source npm:@acme\/plugin; skipped/,
     ],
   },

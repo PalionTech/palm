@@ -4,8 +4,8 @@
 #   scripts/e2e.sh
 #
 # Every run builds dist/ (unless PALM_BIN is set), creates a fresh sandbox and points HOME /
-# PALM_HOME into it, so the real ~/.palm, ~/.claude, ~/.codex, ~/.copilot, ~/.cursor and
-# ~/.claude.json are never touched. Prints PASS/FAIL per step; exits 1 when any step failed.
+# PALM_HOME into it, so the real ~/.palm, ~/.claude, ~/.codex, ~/.copilot, ~/.cursor, ~/.gemini,
+# ~/.config/opencode and ~/.claude.json are never touched. Prints PASS/FAIL per step; exits 1 when any step failed.
 #
 # Environment:
 #   PALM_E2E_ROOT     where run-XXXXXX sandboxes are created   (default: ${TMPDIR:-/tmp}/palm-e2e)
@@ -30,7 +30,7 @@ SB="$(cd "$(mktemp -d "$ROOT/run-XXXXXX")" && pwd -P)"
 # --- sandbox -----------------------------------------------------------------------------
 export HOME="$SB/home"
 export PALM_HOME="$SB/home/.palm"
-unset CLAUDE_CONFIG_DIR CODEX_HOME COPILOT_HOME XDG_CONFIG_HOME
+unset CLAUDE_CONFIG_DIR CODEX_HOME COPILOT_HOME XDG_CONFIG_HOME GEMINI_CLI_HOME OPENCODE_DISABLE_EXTERNAL_SKILLS
 export CI=1 NO_COLOR=1 GIT_TERMINAL_PROMPT=0
 if [[ "$HOME" == "$REAL_HOME" || "$HOME" != "$SB/"* ]]; then
   echo "refusing to run: HOME=$HOME is not inside the sandbox $SB" >&2
@@ -38,11 +38,14 @@ if [[ "$HOME" == "$REAL_HOME" || "$HOME" != "$SB/"* ]]; then
 fi
 P1="$SB/proj"    # claude + codex project
 P4="$SB/proj4"   # claude + codex + copilot + cursor project
+P5="$SB/proj5"   # gemini + opencode project
 mkdir -p "$HOME" "$P1/.claude" "$P1/.codex" "$P4/.claude" "$P4/.codex" "$P4/.cursor" "$P4/.github"
+mkdir -p "$P5/.gemini" "$P5/.opencode"
 : >"$P4/.github/copilot-instructions.md"
 # Each project is its own git root, so palm never climbs into an enclosing repository.
 git init -q "$P1"
 git init -q "$P4"
+git init -q "$P5"
 
 LOG="$SB/e2e.log"
 : >"$LOG"
@@ -285,6 +288,10 @@ s09_mcp() {
   js "$P1/.mcp.json" '!JSON.stringify(d.mcpServers.context7).match(/\$\{[A-Z0-9_]+\}/)'
   js_toml "$P1/.codex/config.toml" 'd.mcp_servers.context7.url.startsWith("https://")'
   contains "$P1/palm.yaml" "io.github.upstash/context7"
+  # a stdio server runs a command on this machine: without a terminal it needs --yes
+  run_fails "$P1" install mcp fs -- npx -y @modelcontextprotocol/server-filesystem .
+  has "rerun with --yes"
+  js "$P1/.mcp.json" '!d.mcpServers.fs'
   run "$P1" install mcp fs -y -- npx -y @modelcontextprotocol/server-filesystem .
   js "$P1/.mcp.json" 'd.mcpServers.fs.command === "npx" && d.mcpServers.fs.args.join(" ") === "-y @modelcontextprotocol/server-filesystem ."'
   js_toml "$P1/.codex/config.toml" 'd.mcp_servers.fs.command === "npx"'
@@ -323,6 +330,19 @@ s11_sync() {
   run "$P1" install
   has "restored missing files"
   file "$P1/.claude/skills/unslop/SKILL.md"
+  contains "$P1/palm.yaml" "targets: [claude, codex]"
+  js_yaml "$P1/palm.lock.yaml" 'd.version === 2 && d.entries.every(e => e.transform === 1 && !("installedAt" in e) && e.files.every(f => f.hash.startsWith("sha256:")))'
+  # --frozen: nothing to do; a hand edit is a difference; a deleted file is restored from the lock
+  run "$P1" install --frozen
+  has "unchanged"
+  echo "local edit" >>"$P1/.claude/skills/unslop/SKILL.md"
+  run_fails "$P1" install --frozen
+  has "changed since palm wrote it"
+  rm -rf "$P1/.claude/skills/unslop"
+  cp "$P1/palm.lock.yaml" "$SB/lock.before"
+  run "$P1" install --frozen
+  file "$P1/.claude/skills/unslop/SKILL.md"
+  cmp -s "$P1/palm.lock.yaml" "$SB/lock.before" || fail "--frozen rewrote palm.lock.yaml"
 }
 
 s12_update_doctor() {
@@ -363,6 +383,7 @@ s13_uninstall() {
 s14_global() {
   mkdir -p "$HOME/.claude" "$HOME/.codex"
   run "$P1" install -g skill unslop -y
+  has "saved targets claude, codex to config.yaml"
   file "$HOME/.claude/skills/unslop/SKILL.md"
   file "$HOME/.agents/skills/unslop/SKILL.md"
   nofile "$P1/.claude/skills/unslop"
@@ -384,8 +405,11 @@ s15_four_targets() {
   has "claude"
   has "copilot"
   has "cursor"
-  run "$P4" install skill unslop@pstack -y
+  # -g in step 14 saved its detected targets to config.yaml, the default for projects without
+  # their own; this project names its four, and they are saved to its palm.yaml
+  run "$P4" install skill unslop@pstack -y -t claude,codex,copilot,cursor
   has "claude,codex,copilot,cursor"
+  contains "$P4/palm.yaml" "targets: [claude, codex, copilot, cursor]"
   file "$P4/.claude/skills/unslop/SKILL.md"
   file "$P4/.agents/skills/unslop/SKILL.md"
   run "$P4" install agent comment-sicko@pstack -y
@@ -408,7 +432,45 @@ s15_four_targets() {
   nofile "$P4/.cursor/rules"
 }
 
-s16_real_home_untouched() {
+# Frontmatter keys of a markdown file, comma-joined (for key allowlist checks).
+fm_keys() { (cd "$REPO" && node --input-type=module -e 'import {parse} from "yaml"; import fs from "node:fs"; const t=fs.readFileSync(process.argv[1],"utf8"); console.log(Object.keys(parse(t.split(/^---$/m)[1])).join(","))' "$1"); }
+
+s16_gemini_opencode() {
+  # Needs the pstack origin (step 01) and awesome-copilot (step 15).
+  run "$P5" install skill unslop@pstack --target gemini,opencode -y
+  has "gemini,opencode"
+  file "$P5/.agents/skills/unslop/SKILL.md"
+  nofile "$P5/.claude"
+  run "$P5" install agent comment-sicko@pstack --target gemini,opencode -y
+  file "$P5/.gemini/agents/comment-sicko.md"
+  file "$P5/.opencode/agents/comment-sicko.md"
+  # Gemini rejects agent files with unknown keys; OpenCode passes them to the model provider.
+  local keys
+  keys="$(fm_keys "$P5/.gemini/agents/comment-sicko.md")"
+  node -e 'const ok=new Set(["kind","name","description","display_name","tools","mcp_servers","model","temperature","max_turns","timeout_mins"]); if (!process.argv[1].split(",").every((k)=>ok.has(k))) process.exit(1)' "$keys" || fail "gemini agent has non-schema keys: $keys"
+  keys="$(fm_keys "$P5/.opencode/agents/comment-sicko.md")"
+  node -e 'const ok=new Set(["description","mode","model","color","permission","temperature","top_p","steps","variant","hidden"]); if (!process.argv[1].split(",").every((k)=>ok.has(k))) process.exit(1)' "$keys" || fail "opencode agent has stray keys: $keys"
+  contains "$P5/.opencode/agents/comment-sicko.md" "mode: subagent"
+  run "$P5" install instruction playwright-typescript@awesome-copilot --target gemini,opencode -y
+  contains "$P5/GEMINI.md" "<!-- palm:begin instruction:playwright-typescript -->"
+  file "$P5/.opencode/instructions/playwright-typescript.md"
+  js "$P5/opencode.json" 'd.instructions.includes(".opencode/instructions/playwright-typescript.md")'
+  run "$P5" install mcp docs --target gemini,opencode -y --url https://example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
+  js "$P5/.gemini/settings.json" 'd.mcpServers.docs.type === "http" && d.mcpServers.docs.headers.Authorization === "Bearer ${DOCS_TOKEN}"'
+  js "$P5/opencode.json" 'd.mcp.docs.type === "remote" && d.mcp.docs.headers.Authorization === "Bearer {env:DOCS_TOKEN}" && d.mcp.docs.oauth === false'
+  run "$P5" describe target opencode
+  has ".opencode/commands/<name>.md"
+  has "OpenCode hooks are JS plugins"
+  run "$P5" uninstall instruction playwright-typescript
+  nofile "$P5/GEMINI.md"
+  nofile "$P5/.opencode/instructions"
+  js "$P5/opencode.json" '!d.instructions && !!d.mcp.docs'
+  run "$P5" uninstall mcp docs
+  nofile "$P5/opencode.json"
+  nofile "$P5/.gemini/settings.json"
+}
+
+s17_real_home_untouched() {
   # The sandbox never leaked: nothing palm-shaped appeared under the real home during this run.
   [[ "$(find "$REAL_HOME/.palm" -newer "$LOG" -print -quit 2>/dev/null)" == "" ]] || fail "the real ~/.palm changed during the run"
 }
@@ -433,12 +495,13 @@ step "07 install agent comment-sicko (valid Codex TOML)" s07_agent
 step "08 install plugin superpowers (hooks merged, script runs)" s08_plugin_hooks
 step "09 install mcp: registry context7, ad hoc stdio fs, ad hoc http docs" s09_mcp
 step "10 get, get skills, describe skill/agent/target, get all, cache info" s10_get_describe
-step "11 bare install is a no-op; restores a deleted skill" s11_sync
+step "11 bare install is a no-op; restores a deleted skill; lock v2; --frozen" s11_sync
 step "12 update --dry-run (no duplicates), doctor clean" s12_update_doctor
 step "13 uninstall plugin/agent/mcp/skills; settings.json restored" s13_uninstall
 step "14 global scope: skill + mcp into sandbox home, uninstall" s14_global
 step "15 four targets: skill, agent, instruction, mcp" s15_four_targets
-step "16 real home untouched" s16_real_home_untouched
+step "16 gemini + opencode: skill, agent, instruction, mcp, uninstall" s16_gemini_opencode
+step "17 real home untouched" s17_real_home_untouched
 
 echo
 echo "== summary =="

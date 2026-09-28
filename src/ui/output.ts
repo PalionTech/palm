@@ -328,7 +328,15 @@ function printOutcomes(out: Output, outcomes: InstallOutcome[]): void {
     for (const note of o.notes) out.out(`${symbol('info')} ${pc.bold(o.entry.name)}: ${note}`);
 }
 
-/** Status table of an install/update/sync; result warnings join the collected warnings. */
+/** Each failure on stderr: `✗ kind name@origin → target: message`, then its hint. */
+export function printFailures(out: Output, failures: InstallResult['failures'] | undefined): void {
+  for (const f of failures ?? []) {
+    const who = `${f.kind} ${f.name}${f.origin ? `@${f.origin}` : ''}${f.target ? ` → ${f.target}` : ''}`;
+    out.error(`${who}: ${f.message}`, f.hint);
+  }
+}
+
+/** Status table of an install/update/sync, then its failures; result warnings join the collected warnings. */
 export function printInstallSummary(
   out: Output,
   result: InstallResult,
@@ -336,10 +344,12 @@ export function printInstallSummary(
 ): void {
   const targets = opts.targets.length ? opts.targets.join(', ') : 'no targets';
   if (result.outcomes.length === 0) {
-    out.hint(`Nothing to install (${opts.scope} scope → ${targets}).`);
+    if (!result.failures?.length)
+      out.hint(`Nothing to install (${opts.scope} scope → ${targets}).`);
   } else {
     out.out(`${pc.bold(opts.scope)} scope → ${pc.bold(targets)}`);
     printOutcomes(out, result.outcomes);
   }
+  printFailures(out, result.failures);
   for (const w of result.warnings) out.warn(w);
 }

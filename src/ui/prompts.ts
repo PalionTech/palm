@@ -1,7 +1,10 @@
-import type { Writable } from 'node:stream';
+import type { Readable, Writable } from 'node:stream';
 import * as p from '@clack/prompts';
 import { PalmError } from '../core/errors.js';
 import type { PickOption, UI } from '../core/types.js';
+
+/** What a secret prompt echoes for each typed character. */
+const SECRET_MASK = '•';
 
 /** Above this many options, pickers switch to type-to-filter (autocomplete) prompts. */
 const AUTOCOMPLETE_THRESHOLD = 8;
@@ -72,19 +75,24 @@ function fixTerminalSize(): void {
   if (!(typeof stdout.rows === 'number' && stdout.rows > 0)) stdout.rows = 24;
 }
 
+/** Streams the prompts read and write (default: the process's stdin and stdout). */
+interface PromptIO {
+  input?: Readable;
+  output?: Writable;
+}
+
 class ClackUI implements MultilineUI {
   readonly isInteractive = true;
   private readonly unwrap: ReturnType<typeof unwrapFor>;
 
-  constructor(private readonly output: Writable | undefined) {
-    this.unwrap = unwrapFor(output);
+  constructor(private readonly io: PromptIO) {
+    this.unwrap = unwrapFor(io.output);
   }
 
   async pick<T>(message: string, options: PickOption<T>[]): Promise<T> {
     if (options.length === 0) throw new PalmError('E_USAGE', `nothing to choose from: ${message}`);
-    const output = this.output;
     if (options.length <= AUTOCOMPLETE_THRESHOLD)
-      return this.unwrap(await p.select<T>({ message, options: toClack(options), output }));
+      return this.unwrap(await p.select<T>({ message, options: toClack(options), ...this.io }));
     return this.unwrap(
       await p.autocomplete<T>({
         message,
@@ -92,7 +100,7 @@ class ClackUI implements MultilineUI {
         maxItems: 10,
         placeholder: 'type to filter',
         filter,
-        output,
+        ...this.io,
       }),
     );
   }
@@ -101,20 +109,20 @@ class ClackUI implements MultilineUI {
     if (options.length === 0) return [];
     const base = { message, options: toClack(options), initialValues: initial, required: false };
     if (options.length <= AUTOCOMPLETE_THRESHOLD)
-      return this.unwrap(await p.multiselect<T>({ ...base, output: this.output }));
+      return this.unwrap(await p.multiselect<T>({ ...base, ...this.io }));
     return this.unwrap(
       await p.autocompleteMultiselect<T>({
         ...base,
         maxItems: 12,
         placeholder: 'type to filter, space to toggle',
         filter,
-        output: this.output,
+        ...this.io,
       }),
     );
   }
 
   async confirm(message: string, initial = true): Promise<boolean> {
-    return this.unwrap(await p.confirm({ message, initialValue: initial, output: this.output }));
+    return this.unwrap(await p.confirm({ message, initialValue: initial, ...this.io }));
   }
 
   async text(
@@ -132,7 +140,7 @@ class ClackUI implements MultilineUI {
         placeholder: o.placeholder,
         initialValue: o.initial,
         validate: validate ? (v: string | undefined) => validate(v ?? '') : undefined,
-        output: this.output,
+        ...this.io,
       }),
     );
     return value ?? '';
@@ -145,18 +153,19 @@ class ClackUI implements MultilineUI {
         placeholder: o.placeholder,
         initialValue: o.initial,
         showSubmit: true,
-        output: this.output,
+        ...this.io,
       }),
     );
     return value ?? '';
   }
 
+  /** Masked input: each typed character echoes as SECRET_MASK, never as itself. */
   async secret(message: string): Promise<string> {
-    return this.unwrap(await p.password({ message, output: this.output })) ?? '';
+    return this.unwrap(await p.password({ message, mask: SECRET_MASK, ...this.io })) ?? '';
   }
 
   spinner(message: string) {
-    const s = p.spinner({ output: this.output });
+    const s = p.spinner({ output: this.io.output });
     s.start(message);
     return {
       stop: (msg?: string) => s.stop(msg),
@@ -165,9 +174,9 @@ class ClackUI implements MultilineUI {
   }
 }
 
-export function createClackUI(opts: { output?: Writable } = {}): MultilineUI {
+export function createClackUI(opts: PromptIO = {}): MultilineUI {
   fixTerminalSize();
-  return new ClackUI(opts.output);
+  return new ClackUI(opts);
 }
 
 export function createNonInteractiveUI(): UI {

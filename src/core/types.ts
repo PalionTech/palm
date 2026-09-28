@@ -23,9 +23,17 @@ export const KINDS: readonly Kind[] = [
   'plugin',
 ] as const;
 
-export type TargetId = 'claude' | 'codex' | 'copilot' | 'cursor';
+export type TargetId = 'claude' | 'codex' | 'copilot' | 'cursor' | 'gemini' | 'opencode';
 
-export const TARGET_IDS: readonly TargetId[] = ['claude', 'codex', 'copilot', 'cursor'] as const;
+/** Every target, in detection order. */
+export const TARGET_IDS: readonly TargetId[] = [
+  'claude',
+  'codex',
+  'copilot',
+  'cursor',
+  'gemini',
+  'opencode',
+] as const;
 
 export type Scope = 'project' | 'global';
 
@@ -68,7 +76,7 @@ export interface OriginSpec {
   /** Subdirectory inside the repo that is the real origin root. */
   root?: string;
   layout?: LayoutDescriptor;
-  /** Free-form note shown in `palm origin list`. */
+  /** Free-form note shown in `palm get origins`. */
   description?: string;
 }
 
@@ -220,13 +228,26 @@ export interface Entity {
     | { kind: 'hook'; hooks: HookSet }
     | { kind: 'mcp'; mcp: McpServerConfig }
     | { kind: 'plugin'; members: EntityRef[]; manifestPath?: string };
+  /** Problems found in the entity's files during the scan (hidden Unicode); absent when none. */
+  issues?: EntityIssue[];
+}
+
+/** A problem the scanner found in one of an entity's files (DESIGN §5, "Scan issues"). */
+export interface EntityIssue {
+  /** Stable machine-readable code, e.g. `hidden-unicode`. */
+  code: string;
+  severity: 'critical' | 'warning';
+  /** One line naming the file and what was found. */
+  message: string;
+  /** Origin-relative file the issue is in. */
+  file?: string;
 }
 
 export interface ScanResult {
   entities: Entity[];
   /** Human-readable notes: remote marketplace entries not fetched, name mismatches, skipped files. */
   warnings: string[];
-  /** Which detection rule fired (for `palm origin list --verbose`). */
+  /** Which detection rule fired (for `palm get origins --verbose`). */
   detected: 'descriptor' | 'apm' | 'marketplace' | 'plugin-manifest' | 'convention' | 'empty';
 }
 
@@ -287,18 +308,42 @@ export interface MergedRecord {
   value: unknown;
 }
 
+/**
+ * Version of palm's rendering of entities into harness files. Bump it when a target writes
+ * different bytes for the same entity (renderers, layouts, merge formats): lock entries record
+ * the version their files were rendered with, and the next install re-renders any entry with
+ * an older one instead of reporting it unchanged. Entries migrated from lockfile v1 carry 0.
+ */
+export const TRANSFORM_VERSION = 1;
+
+/** One file palm wrote for an entry, with the hash of what it wrote. */
+export interface LockedFile {
+  /** Scope-relative (project) or absolute (global) path. */
+  path: string;
+  /**
+   * `sha256:<hex>` of the file as written (text hashed with LF line ends, like `hashPath`);
+   * empty when unknown (migrated from lockfile v1, or a dry run). Palm refuses to overwrite
+   * or delete a file whose on-disk hash differs from this one unless `--force`.
+   */
+  hash: string;
+}
+
 export interface LockEntry {
   kind: Kind;
   name: string;
   origin: string;
+  /** git origins: clone URL, so another machine can recreate a missing alias. */
   url?: string;
+  /** git origins: subdirectory that is the origin root (`OriginSpec.root`). */
+  root?: string;
   ref?: string;
   sha?: string;
   path: string;
   contentHash: string;
-  installedAt: string;
+  /** `TRANSFORM_VERSION` the files were rendered with (0: migrated from lockfile v1). */
+  transform: number;
   targets: TargetId[];
-  files: string[];
+  files: LockedFile[];
   merged?: MergedRecord[];
   /** `plugin:<name>` or `agent:<name>` when installed as a dependency. */
   via?: string;
@@ -310,8 +355,9 @@ export interface LockEntry {
   deps?: EntityRef[];
 }
 
+/** palm.lock.yaml. Version 2: per-file hashes, `transform`, no timestamps. v1 files load and convert. */
 export interface Lockfile {
-  version: 1;
+  version: 2;
   entries: LockEntry[];
 }
 
@@ -415,13 +461,30 @@ export interface InstallOptions {
 
 export interface InstallOutcome {
   entry: LockEntry;
-  status: 'installed' | 'updated' | 'unchanged' | 'skipped';
+  /** `failed`: nothing (or not everything) was deployed; the matching `failures` say why. */
+  status: 'installed' | 'updated' | 'unchanged' | 'skipped' | 'failed';
   notes: string[];
+}
+
+/** One thing an install could not do. The run continues; the CLI exits 1 when any exist. */
+export interface InstallFailure {
+  /** The entity's kind, or `origin` when an origin could not be fetched for a kind-less request. */
+  kind: Kind | 'origin';
+  name: string;
+  origin: string;
+  /** The target that failed, when the failure is one target's. */
+  target?: TargetId;
+  /** A PalmError code (`E_CONFLICT`, `E_TARGET`, `E_ORIGIN`, …), `E_INTERNAL` for anything else. */
+  code: string;
+  message: string;
+  hint?: string;
 }
 
 export interface InstallResult {
   outcomes: InstallOutcome[];
   warnings: string[];
+  /** Per-entity/target failures (never thrown): the lock records only what succeeded. */
+  failures: InstallFailure[];
 }
 
 // ---------------------------------------------------------------------------

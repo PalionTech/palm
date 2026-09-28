@@ -44,10 +44,13 @@ describe('installEntities', () => {
       name: 'wayfinder',
       origin: 'a',
       path: 'skills/wayfinder',
+      transform: 1,
       targets: ['claude', 'codex'],
-      files: ['.claude/skill/wayfinder.txt', '.codex/skill/wayfinder.txt'],
+      files: [{ path: '.claude/skill/wayfinder.txt' }, { path: '.codex/skill/wayfinder.txt' }],
     });
+    expect(lock.entries[0]!).not.toHaveProperty('installedAt');
     expect(lock.entries[0]!.contentHash).toMatch(/^sha256:/);
+    for (const f of lock.entries[0]!.files) expect(f.hash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect((await manifestOf(w)).skills).toEqual(['wayfinder@a']);
   });
 
@@ -72,7 +75,8 @@ describe('installEntities', () => {
       w.deps,
     );
     expect(updated.outcomes[0]!.status).toBe('updated');
-    expect(w.calls.undeploy).toHaveLength(1);
+    // the new files replace the old ones in place: nothing stale is left to undeploy
+    expect(w.calls.undeploy).toHaveLength(0);
     expect(w.calls.deploy).toHaveLength(2);
     expect(existsSync(join(w.sb.project, '.claude/skill/wayfinder.txt'))).toBe(true);
 
@@ -160,7 +164,7 @@ describe('installEntities', () => {
     ).catch((e) => e);
     expect(err).toMatchObject({ code: 'E_NOT_FOUND' });
     expect(err.hint).toContain('wayfinder@a');
-    expect(err.hint).toContain('palm origin add');
+    expect(err.hint).toContain('palm install origin');
     await expect(
       installEntities(
         w.ctx,
@@ -292,7 +296,7 @@ describe('installEntities', () => {
     expect((await loadLock(join(w.sb.palmHome, 'palm.lock.yaml'))).entries).toHaveLength(1);
   });
 
-  it('keeps going when one target fails, rethrows when all fail', async () => {
+  it('records a failed target and goes on; all targets failing is a failed outcome, not a throw', async () => {
     w = await makeWorld({ failFor: ['codex'] });
     const r = await installEntities(
       w.ctx,
@@ -300,32 +304,45 @@ describe('installEntities', () => {
       { scope: 'project', targets: ['claude', 'codex'] },
       w.deps,
     );
+    expect(r.outcomes[0]!.status).toBe('installed');
     expect(r.outcomes[0]!.entry.targets).toEqual(['claude']);
-    expect(r.warnings.some((m) => m.includes('codex is broken'))).toBe(true);
-    await expect(
-      installEntities(
-        w.ctx,
-        [{ kind: 'skill', spec: 'wayfinder' }],
-        { scope: 'project', targets: ['codex'] },
-        w.deps,
-      ),
-    ).rejects.toMatchObject({ code: 'E_TARGET' });
-    // what succeeded before the failure is still recorded
-    expect((await lockOf(w)).entries.map((e) => e.name)).toEqual(['tdd']);
+    expect(r.failures).toEqual([
+      {
+        kind: 'skill',
+        name: 'tdd',
+        origin: 'a',
+        target: 'codex',
+        code: 'E_TARGET',
+        message: 'codex is broken',
+      },
+    ]);
+    const all = await installEntities(
+      w.ctx,
+      [{ kind: 'skill', spec: 'wayfinder' }],
+      { scope: 'project', targets: ['codex'] },
+      w.deps,
+    );
+    expect(all.outcomes[0]!.status).toBe('failed');
+    expect(all.failures).toMatchObject([{ name: 'wayfinder', target: 'codex', code: 'E_TARGET' }]);
+    // the lock lists only what succeeded: tdd on claude, no wayfinder; nothing was added to palm.yaml
+    const lock = await lockOf(w);
+    expect(lock.entries.map((e) => [e.name, e.targets])).toEqual([['tdd', ['claude']]]);
+    expect((await manifestOf(w)).skills).toEqual(['tdd@a']);
   });
 
   it('refuses unmanaged files unless forced', async () => {
     w = await makeWorld();
     await mkdir(join(w.sb.project, '.claude/skill'), { recursive: true });
     await writeFile(join(w.sb.project, '.claude/skill/tdd.txt'), 'mine');
-    await expect(
-      installEntities(
-        w.ctx,
-        [{ kind: 'skill', spec: 'tdd' }],
-        { scope: 'project', targets: ['claude'] },
-        w.deps,
-      ),
-    ).rejects.toMatchObject({ code: 'E_CONFLICT' });
+    const refused = await installEntities(
+      w.ctx,
+      [{ kind: 'skill', spec: 'tdd' }],
+      { scope: 'project', targets: ['claude'] },
+      w.deps,
+    );
+    expect(refused.outcomes[0]!.status).toBe('failed');
+    expect(refused.failures).toMatchObject([{ code: 'E_CONFLICT', target: 'claude' }]);
+    expect(existsSync(join(w.sb.project, 'palm.lock.yaml'))).toBe(false);
     w.ctx.flags.force = true;
     const r = await installEntities(
       w.ctx,

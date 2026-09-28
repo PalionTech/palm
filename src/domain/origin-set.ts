@@ -2,7 +2,7 @@ import { PalmError } from '../core/errors.js';
 import type { OriginSpec } from '../core/types.js';
 import { assertAliasFormat, Origin } from './origin.js';
 
-/** `user`: config.yaml (`palm origin add`); `project`: the project's palm.yaml (`--project`). */
+/** `user`: config.yaml (`palm install origin`); `project`: the project's palm.yaml (`--project`). */
 export type OriginLayer = 'user' | 'project';
 
 /** A project origin that reuses a user alias for a different repository or directory. */
@@ -126,7 +126,7 @@ export class OriginSet {
       throw new PalmError(
         'E_CONFLICT',
         `Origin alias "${spec.alias}" is already used by ${clash.describe()}`,
-        'Pick another alias with --alias <name>, or remove the existing one with `palm origin remove`.',
+        'Pick another alias with --alias <name>, or remove the existing one with `palm uninstall origin <alias>`.',
       );
     }
     return layer === 'user'
@@ -148,7 +148,7 @@ export class OriginSet {
       `No origin matches "${query}"`,
       aliases.length
         ? `Registered origins: ${aliases.join(', ')}. Use an alias, owner/repo[/root], the URL or the local path.`
-        : 'No origins are registered; add one with `palm origin add owner/repo`.',
+        : 'No origins are registered; add one with `palm install origin owner/repo`.',
     );
   }
 }

@@ -12,7 +12,8 @@ import {
   TARGET_IDS,
 } from '../core/types.js';
 import { ScopePaths } from '../domain/scope-paths.js';
-import { pathExists } from '../lib/fs.js';
+import { isWithin, pathExists } from '../lib/fs.js';
+import { isSafeName } from '../lib/names.js';
 import { type Output, symbol } from '../ui/output.js';
 import type { App } from './app.js';
 import { dirSize, formatBytes } from './disk.js';
@@ -122,11 +123,21 @@ async function checkTargets(ctx: PalmContext): Promise<Check[]> {
 
 const SCOPES: readonly Scope[] = ['project', 'global'];
 
+/** The copied-scripts dir of a hook entry that has one (`.palm/hooks/<n>`, `$PALM_HOME/hooks/<n>`). */
+function hookAssetDir(sp: ScopePaths, e: LockEntry): string | undefined {
+  if (e.kind !== 'hook' || !isSafeName(e.name)) return undefined;
+  const dir = sp.hooksAssetDir(e.name);
+  return e.files.some((f) => isWithin(sp.abs(f.path), dir)) ? dir : undefined;
+}
+
+/** Missing files of `e`; hook assets are left to `hookAssets`, which names the fix. */
 async function missingFiles(sp: ScopePaths, e: LockEntry): Promise<string | undefined> {
+  const assets = hookAssetDir(sp, e);
+  const files = e.files.filter((f) => !assets || !isWithin(sp.abs(f.path), assets));
   const missing: string[] = [];
-  for (const f of e.files) if (!(await pathExists(sp.abs(f)))) missing.push(f);
+  for (const { path } of files) if (!(await pathExists(sp.abs(path)))) missing.push(path);
   if (!missing.length) return undefined;
-  return `${e.kind} ${e.name}: ${missing.length}/${e.files.length} files missing (e.g. ${missing[0]})`;
+  return `${e.kind} ${e.name}: ${missing.length}/${files.length} files missing (e.g. ${missing[0]})`;
 }
 
 /** Lock entries whose files are gone, and manifest entries that are not installed, in one scope. */
@@ -166,6 +177,39 @@ async function scopeDrift(ctx: PalmContext, scope: Scope): Promise<Check> {
 
 async function checkDrift(ctx: PalmContext): Promise<Check[]> {
   return Promise.all(SCOPES.map((scope) => scopeDrift(ctx, scope)));
+}
+
+/**
+ * Hook scripts live outside the committed configs (`.palm/hooks` is gitignored), so a fresh
+ * clone has the hook entries but not their scripts. One check per scope with hook assets.
+ */
+async function hookAssets(ctx: PalmContext, scope: Scope): Promise<Check | undefined> {
+  const { loadLock } = await import('../core/lockfile.js');
+  const sp = ScopePaths.of(ctx, scope);
+  const dirs = (await loadLock(sp.lockFile)).entries
+    .map((e) => hookAssetDir(sp, e))
+    .filter((d): d is string => d !== undefined);
+  if (dirs.length === 0) return undefined;
+  const missing: string[] = [];
+  for (const d of dirs) if (!(await pathExists(d))) missing.push(sp.lockForm(d));
+  const name = `${scope} scope`;
+  if (!missing.length)
+    return {
+      group: 'hooks',
+      name,
+      status: 'ok',
+      detail: `${plural(dirs.length, 'hook asset dir')} present`,
+    };
+  const fix =
+    scope === 'global'
+      ? 'run `palm install -g` to restore hook assets'
+      : 'run `palm install` to restore hook assets after a fresh clone';
+  return { group: 'hooks', name, status: 'warn', detail: `missing ${missing.join(', ')}; ${fix}` };
+}
+
+async function checkHookAssets(ctx: PalmContext): Promise<Check[]> {
+  const checks = await Promise.all(SCOPES.map((scope) => hookAssets(ctx, scope)));
+  return checks.filter((c): c is Check => c !== undefined);
 }
 
 async function checkOrigin(spec: OriginSpec): Promise<Check> {
@@ -236,13 +280,17 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
-/** `palm doctor`: git, node, palm home, harness detection, lock drift, origin reachability. */
+/**
+ * `palm doctor`: git, node, palm home, harness detection, lock drift, hook assets, origin
+ * reachability.
+ */
 export async function run(inv: Invocation, app: App): Promise<void> {
   const ctx = await makeContext(app, inv.opts as GlobalOptions, { interactive: false });
   const checks: Check[] = [await checkGit(), checkNode()];
   checks.push(...(await safely('palm', () => checkPalmHome(ctx))));
   checks.push(...(await safely('targets', () => checkTargets(ctx))));
   checks.push(...(await safely('lock', () => checkDrift(ctx))));
+  checks.push(...(await safely('hooks', () => checkHookAssets(ctx))));
   checks.push(...(await originChecks(ctx)));
   const failed = checks.filter((c) => c.status === 'fail').length;
   const warned = checks.filter((c) => c.status === 'warn').length;

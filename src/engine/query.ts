@@ -16,12 +16,6 @@ import { Lock } from '../domain/lock.js';
 import { ScopePaths } from '../domain/scope-paths.js';
 import { type EngineDeps, resolveEngineDeps } from './deps.js';
 
-/**
- * A user-supplied name selects an entry by name, or a registry MCP server by registry name.
- * @deprecated prefer `Lock.select` / `answersTo` (domain/lock).
- */
-export { answersTo as nameMatchesEntry } from '../domain/lock.js';
-
 // ---------------------------------------------------------------------------
 // Shared helpers (also used by install/update)
 // ---------------------------------------------------------------------------
@@ -80,8 +74,8 @@ export class IndexSession {
         'E_ORIGIN',
         `Unknown origin "${alias}"`,
         known.length
-          ? `Known origins: ${known.join(', ')}. Add one with \`palm origin add <owner/repo>\`.`
-          : 'Add one with `palm origin add <owner/repo>`.',
+          ? `Known origins: ${known.join(', ')}. Add one: palm install origin <owner/repo>`
+          : 'Add one: palm install origin <owner/repo>',
       );
     }
     return this.get(ref ? { ...spec, ref } : spec);
@@ -100,7 +94,7 @@ export class IndexSession {
   }
 }
 
-export function sourceOf(si: SourcedIndex): CandidateSource {
+function sourceOf(si: SourcedIndex): CandidateSource {
   const s: CandidateSource = { spec: si.spec, index: si.index, root: si.index.root };
   if (si.spec.type === 'git' && si.spec.url) s.url = si.spec.url;
   if (si.index.ref) s.ref = si.index.ref;
@@ -139,6 +133,15 @@ function levenshtein(a: string, b: string): number {
   return prev[b.length] ?? 0;
 }
 
+/** How close `name` is to the query `q` (lower-cased): edit distance, 0–1 for substrings; undefined when far. */
+function closeness(q: string, name: string): number | undefined {
+  const n = name.toLowerCase();
+  const d = levenshtein(q, n);
+  const sub = n.includes(q) || q.includes(n);
+  if (sub) return Math.min(d, 1);
+  return d <= 3 ? d : undefined;
+}
+
 /** Up to `limit` names close to `name` (edit distance ≤ 3 or substring). */
 export function suggestNames(
   pool: SourcedIndex[],
@@ -148,18 +151,12 @@ export function suggestNames(
 ): string[] {
   const q = name.toLowerCase();
   const scored = new Map<string, number>();
-  for (const si of pool) {
-    for (const e of si.index.entities) {
-      if (kind !== undefined && e.kind !== kind) continue;
-      const n = e.name.toLowerCase();
-      const d = levenshtein(q, n);
-      const sub = n.includes(q) || q.includes(n);
-      if (d <= 3 || sub) {
-        const label = `${e.name}@${e.origin}`;
-        const score = sub ? Math.min(d, 1) : d;
-        if ((scored.get(label) ?? Number.POSITIVE_INFINITY) > score) scored.set(label, score);
-      }
-    }
+  const entities = pool.flatMap((si) => si.index.entities);
+  for (const e of entities) {
+    const score = kind === undefined || e.kind === kind ? closeness(q, e.name) : undefined;
+    const label = `${e.name}@${e.origin}`;
+    if (score !== undefined && (scored.get(label) ?? Number.POSITIVE_INFINITY) > score)
+      scored.set(label, score);
   }
   return [...scored.entries()]
     .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
@@ -180,6 +177,26 @@ export async function listInstalled(
   return kind ? entries.filter((e) => e.kind === kind) : entries;
 }
 
+/** What a user names on the command line: kind (optional), name, origin (optional). */
+export interface EntityQuery {
+  kind?: Kind | undefined;
+  name: string;
+  origin?: string | undefined;
+}
+
+/** E_NOT_FOUND for a query that names nothing installed in the scope, with the command that lists what is. */
+export function notInstalled(q: EntityQuery, scope: Scope): PalmError {
+  const what = q.kind ? `${q.kind} "${q.name}"` : `"${q.name}"`;
+  const from = q.origin ? ` from ${q.origin}` : '';
+  const where = scope === 'global' ? 'globally' : 'in this project';
+  const list = `palm get${q.kind ? ` ${q.kind}s` : ''}${scope === 'global' ? ' -g' : ''}`;
+  return new PalmError(
+    'E_NOT_FOUND',
+    `${what}${from} is not installed ${where}`,
+    `see what is installed: ${list}${scope === 'global' ? '' : ' (add -g for global installs)'}`,
+  );
+}
+
 async function poolFor(
   session: IndexSession,
   opts: { origin?: string; from?: OriginSpec },
@@ -191,17 +208,16 @@ async function poolFor(
 
 export async function findCandidates(
   ctx: PalmContext,
-  kind: Kind | undefined,
-  name: string,
+  query: { kind?: Kind | undefined; name: string },
   opts: { origin?: string; from?: OriginSpec; refresh?: boolean },
   deps?: Partial<EngineDeps>,
 ): Promise<Entity[]> {
   const d = await resolveEngineDeps(deps);
   const session = new IndexSession(ctx, d.scan, !!opts.refresh);
-  return candidatesIn(await poolFor(session, opts), kind, name).map((c) => c.entity);
+  return candidatesIn(await poolFor(session, opts), query.kind, query.name).map((c) => c.entity);
 }
 
-export function scoreEntity(e: Entity, query: string): number {
+function scoreEntity(e: Entity, query: string): number {
   const q = query.trim().toLowerCase();
   if (!q) return 0;
   const n = e.name.toLowerCase();
@@ -280,13 +296,37 @@ export function duplicateWarnings(
   });
 }
 
+export interface EntityInfo {
+  entity?: Entity;
+  lock?: LockEntry;
+  deps: EntityRef[];
+  warnings: string[];
+}
+
+/** The indexed entity the query names (first origin that has it) and its duplicate-name warnings. */
+async function indexedEntity(
+  ctx: PalmContext,
+  query: { kind: Kind; name: string; origin?: string | undefined },
+  deps: Partial<EngineDeps> | undefined,
+): Promise<{ entity?: Entity; warnings: string[] }> {
+  const d = await resolveEngineDeps(deps);
+  const session = new IndexSession(ctx, d.scan);
+  const pool = await poolFor(session, query.origin ? { origin: query.origin } : {});
+  const first = candidatesIn(pool, query.kind, query.name)[0];
+  if (!first) return { warnings: [] };
+  const warnings = first.source.index
+    ? duplicateWarnings(first.source.index, query.kind, first.entity.name)
+    : [];
+  return { entity: first.entity, warnings };
+}
+
 export async function getEntityInfo(
   ctx: PalmContext,
-  kind: Kind,
-  name: string,
-  opts: { origin?: string; scope: Scope },
+  query: { kind: Kind; name: string },
+  opts: { origin?: string | undefined; scope: Scope },
   deps?: Partial<EngineDeps>,
-): Promise<{ entity?: Entity; lock?: LockEntry; deps: EntityRef[]; warnings: string[] }> {
+): Promise<EntityInfo> {
+  const { kind, name } = query;
   const installed = await Lock.load(ScopePaths.of(ctx, opts.scope).lockFile);
   const lock =
     installed.find({ kind, name }, opts.origin) ??
@@ -294,20 +334,14 @@ export async function getEntityInfo(
   const origin =
     opts.origin ??
     (lock && lock.origin !== 'registry' && lock.origin !== 'adhoc' ? lock.origin : undefined);
-  let entity: Entity | undefined;
-  const warnings: string[] = [];
+  let found: { entity?: Entity; warnings: string[] } = { warnings: [] };
   try {
-    const d = await resolveEngineDeps(deps);
-    const session = new IndexSession(ctx, d.scan);
-    const cands = candidatesIn(await poolFor(session, { origin }), kind, lock?.name ?? name);
-    const first = cands[0];
-    entity = first?.entity;
-    if (first?.source.index)
-      warnings.push(...duplicateWarnings(first.source.index, kind, first.entity.name));
+    found = await indexedEntity(ctx, { kind, name: lock?.name ?? name, origin }, deps);
   } catch (e) {
     if (!lock) throw e;
     ctx.log.debug(`index lookup for ${kind} ${name} failed: ${messageOf(e)}`);
   }
+  const { entity, warnings } = found;
   const depRefs = entity ? entityDeps(entity) : (lock?.deps ?? []);
   return { ...(entity ? { entity } : {}), ...(lock ? { lock } : {}), deps: depRefs, warnings };
 }

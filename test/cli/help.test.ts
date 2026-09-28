@@ -32,6 +32,16 @@ describe('--help (dist)', () => {
     },
   );
 
+  it.each([['outdated'], ['why'], ['find'], ['audit']])('palm %s --help', async (utility) => {
+    const text = await help(utility);
+    expect(text).toMatchSnapshot();
+    const examples = text
+      .slice(text.indexOf('Examples:'))
+      .split('\n')
+      .filter((l) => l.startsWith(`  palm ${utility}`));
+    expect(examples.length).toBeGreaterThanOrEqual(3);
+  });
+
   it('palm install mcp --help shows the ad hoc forms and the name grammar', async () => {
     const text = await help('install', 'mcp');
     expect(text).toContain('palm install mcp <name> [--env K=V]... -- <command> [args...]');

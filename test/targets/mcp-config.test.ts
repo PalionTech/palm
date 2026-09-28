@@ -49,7 +49,7 @@ describe('renderMcp env-ref', () => {
   });
 
   it('Copilot CLI (global) uses type local and tools ["*"]', () => {
-    expect(renderMcpEntry(STDIO, 'copilot', 'env-ref', {}, { scope: 'global' })).toEqual({
+    expect(renderMcpEntry(STDIO, 'copilot', 'env-ref', { scope: 'global' })).toEqual({
       type: 'local',
       command: 'npx',
       args: ['-y', '@x/gh'],
@@ -57,13 +57,9 @@ describe('renderMcp env-ref', () => {
       tools: ['*'],
     });
     expect(
-      renderMcpEntry(
-        { name: 's', transport: 'sse', url: 'https://s' },
-        'copilot',
-        'literal',
-        {},
-        { scope: 'global' },
-      ),
+      renderMcpEntry({ name: 's', transport: 'sse', url: 'https://s' }, 'copilot', 'literal', {
+        scope: 'global',
+      }),
     ).toEqual({
       type: 'sse',
       url: 'https://s',
@@ -111,21 +107,21 @@ describe('renderMcp env-ref', () => {
 describe('renderMcp literal', () => {
   const values = { GITHUB_TOKEN: 'ghp_1', DOCS_TOKEN: 'd0c' };
   it('substitutes values in every harness', () => {
-    expect(renderMcpEntry(STDIO, 'claude', 'literal', values)).toMatchObject({
+    expect(renderMcpEntry(STDIO, 'claude', 'literal', { values })).toMatchObject({
       env: { GITHUB_TOKEN: 'ghp_1' },
     });
-    expect(renderMcpEntry(STDIO, 'cursor', 'literal', values)).toMatchObject({
+    expect(renderMcpEntry(STDIO, 'cursor', 'literal', { values })).toMatchObject({
       env: { GITHUB_TOKEN: 'ghp_1' },
     });
-    expect(renderMcpEntry(HTTP, 'copilot', 'literal', values)).toMatchObject({
+    expect(renderMcpEntry(HTTP, 'copilot', 'literal', { values })).toMatchObject({
       headers: { Authorization: 'Bearer d0c' },
     });
-    expect(renderMcpEntry(STDIO, 'codex', 'literal', values)).toEqual({
+    expect(renderMcpEntry(STDIO, 'codex', 'literal', { values })).toEqual({
       command: 'npx',
       args: ['-y', '@x/gh'],
       env: { GITHUB_TOKEN: 'ghp_1', LOG: 'debug' },
     });
-    expect(renderMcpEntry(HTTP, 'codex', 'literal', values)).toEqual({
+    expect(renderMcpEntry(HTTP, 'codex', 'literal', { values })).toEqual({
       url: 'https://example.com/mcp',
       http_headers: { Authorization: 'Bearer d0c', 'X-Team': 'core' },
     });
@@ -269,10 +265,10 @@ describe('renderMcp optional secrets, args and runtime variables', () => {
 
   it('literal: a provided optional value is written', () => {
     expect(
-      renderMcpEntry(CTX7, 'claude', 'literal', { CONTEXT7_AUTHORIZATION: 'Bearer k' }),
+      renderMcpEntry(CTX7, 'claude', 'literal', { values: { CONTEXT7_AUTHORIZATION: 'Bearer k' } }),
     ).toMatchObject({ headers: { Authorization: 'Bearer k' } });
     expect(
-      renderMcpEntry(CTX7, 'codex', 'literal', { CONTEXT7_AUTHORIZATION: 'Bearer k' }),
+      renderMcpEntry(CTX7, 'codex', 'literal', { values: { CONTEXT7_AUTHORIZATION: 'Bearer k' } }),
     ).toMatchObject({ http_headers: { Authorization: 'Bearer k' } });
   });
 
@@ -285,7 +281,7 @@ describe('renderMcp optional secrets, args and runtime variables', () => {
 
   it('literal: placeholders in args are substituted for every target, Codex included', () => {
     for (const target of ['claude', 'cursor', 'copilot', 'codex'] as const) {
-      const r = renderMcp(ARGS, target, 'literal', { PG_DSN: 'postgres://x' });
+      const r = renderMcp(ARGS, target, 'literal', { values: { PG_DSN: 'postgres://x' } });
       expect((r.entry as { args: string[] }).args).toEqual(['-y', 'pg-mcp', '--dsn=postgres://x']);
       expect(r.envRefs).toEqual([]);
     }

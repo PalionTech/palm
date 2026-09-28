@@ -16,13 +16,17 @@ import {
   type VerbSpec,
 } from './grammar.js';
 import {
+  AUDIT_HELP,
   CACHE_HELP,
   COMPLETION_HELP,
   CONFIG_HELP,
   DOCTOR_HELP,
+  FIND_HELP,
   INIT_HELP,
+  OUTDATED_HELP,
   ROOT_HELP,
   VERB_HELP,
+  WHY_HELP,
 } from './help.js';
 
 export interface ProgramOptions {
@@ -169,7 +173,11 @@ function installOptions(cmd: Command): void {
     .option('--from <origin>', 'take the entities from this origin spec without registering it')
     .option('--save-origin', 'register the --from origin')
     .option('--secrets <policy>', 'MCP secrets: env-ref (project default) or literal (-g default)')
-    .option('--prune', 'no names only: remove installed entries no longer in palm.yaml');
+    .option('--prune', 'no names only: remove installed entries no longer in palm.yaml')
+    .option(
+      '--frozen',
+      'no names only: install exactly what palm.lock.yaml records; fail on any difference, write nothing',
+    );
   cmd.optionsGroup('Ad hoc MCP server options:');
   cmd
     .option('--url <url>', 'HTTP/SSE endpoint')
@@ -244,6 +252,50 @@ function registerCache(program: Command, dispatch: Dispatch): void {
   clean.action(utility('cache clean', dispatch));
 }
 
+const KIND_WORDS =
+  'skill, agent, instruction, command, hook, mcp, plugin (plurals and short names work)';
+
+/** `outdated`, `why`, `find` and `audit`: questions about what is installed. */
+function registerInspection(program: Command, dispatch: Dispatch): void {
+  program
+    .command('outdated')
+    .summary('show current, wanted and latest refs')
+    .description(
+      'Show, for each direct install, the locked ref, the ref palm.yaml wants now and the latest release.',
+    )
+    .argument('[kind]', `${KIND_WORDS}; omit it for every kind`)
+    .addHelpText('after', OUTDATED_HELP)
+    .action(utility('outdated', dispatch));
+  program
+    .command('why')
+    .summary('show why an entity is installed')
+    .description(
+      'Show why an entity is installed: palm.yaml, or the plugin or agent that pulled it in, and what still needs it.',
+    )
+    .argument('<kind>', KIND_WORDS)
+    .argument('<name>', 'name[@origin]')
+    .addHelpText('after', WHY_HELP)
+    .action(utility('why', dispatch));
+  program
+    .command('find')
+    .summary('show which entity wrote a file')
+    .description('Show which installed entity wrote a file (or merged a fragment into it).')
+    .argument('<path>', 'file or directory palm wrote')
+    .addHelpText('after', FIND_HELP)
+    .action(utility('find', dispatch));
+  program
+    .command('audit')
+    .summary('scan installed files for hidden Unicode')
+    .description(
+      'Scan the files palm installed for hidden Unicode (bidi overrides, tag characters, zero-width characters) and for changes since install.',
+    )
+    .argument('[kind]', `${KIND_WORDS}; omit it for every kind`)
+    .argument('[names...]', 'only these entities')
+    .option('--strip', 'remove the hidden characters from the files')
+    .addHelpText('after', AUDIT_HELP)
+    .action(utility('audit', dispatch));
+}
+
 function registerUtilities(program: Command, dispatch: Dispatch): void {
   const init = program
     .command('init')
@@ -259,6 +311,7 @@ function registerUtilities(program: Command, dispatch: Dispatch): void {
     )
     .addHelpText('after', DOCTOR_HELP);
   doctor.action(utility('doctor', dispatch));
+  registerInspection(program, dispatch);
   registerConfig(program, dispatch);
   const completion = program
     .command('completion')

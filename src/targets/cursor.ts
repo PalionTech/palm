@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { pathExists } from '../lib/fs.js';
-import type { TargetLayout, TargetSpec } from './base.js';
+import type { TargetLayout, TargetSpec } from './layout.js';
 import { sharedSkillsRoot } from './shared-skills.js';
 
 export const cursorSpec: TargetSpec = {
@@ -17,7 +17,7 @@ export const cursorSpec: TargetSpec = {
         paths.scope === 'project'
           ? { dir: path.join(base, 'rules') }
           : {
-              skip: 'Cursor user rules live in Cursor Settings → Rules, not in files; instruction skipped (install without -g for .cursor/rules)',
+              skip: 'Cursor user rules live in Cursor Settings → Rules, not in files; instruction skipped (for .cursor/rules: `palm install instruction <name>` without -g)',
             },
       commands: { dir: path.join(base, 'commands') },
       hooks: { mergeFile: path.join(base, 'hooks.json'), versioned: true },

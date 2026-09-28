@@ -47,7 +47,7 @@ function stringEntryError(raw: string, baseDir: string, where: string): OriginAl
   return new OriginAliasError(
     'E_PARSE',
     `${where}: origin ${raw} has no alias`,
-    `write it as a mapping and add \`alias: ${parsed.alias}\`, e.g. \`- ${flowMapping(parsed)}\` (palm derives that name with \`palm origin add\`)`,
+    `write it as a mapping and add \`alias: ${parsed.alias}\`, e.g. \`- ${flowMapping(parsed)}\` (palm derives that name with \`palm install origin\`)`,
   );
 }
 
@@ -101,7 +101,7 @@ export function normalizeStoredOrigin(raw: unknown, baseDir: string, where: stri
     throw new OriginAliasError(
       'E_PARSE',
       `${where}: origin ${String(local ? raw.path : raw.url)} has no alias`,
-      `add \`alias: ${deriveAlias(spec, [])}\` (palm derives that name with \`palm origin add\`)`,
+      `add \`alias: ${deriveAlias(spec, [])}\` (palm derives that name with \`palm install origin\`)`,
     );
   }
   assertAliasFormat(alias, 'E_PARSE', where);

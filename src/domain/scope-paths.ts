@@ -18,7 +18,25 @@ const HARNESS_HOME_ENV = {
   claude: 'CLAUDE_CONFIG_DIR',
   codex: 'CODEX_HOME',
   copilot: 'COPILOT_HOME',
+  // GEMINI_CLI_HOME replaces the *home* Gemini CLI resolves `.gemini` against, not the config
+  // dir: `$GEMINI_CLI_HOME/.gemini` (gemini-cli packages/core/src/utils/paths.ts).
+  gemini: 'GEMINI_CLI_HOME',
+  // OpenCode's global config is `$XDG_CONFIG_HOME/opencode` (opencode packages/core/src/global.ts).
+  opencode: 'XDG_CONFIG_HOME',
 } as const satisfies Partial<Record<TargetId, string>>;
+
+type OverridableTarget = keyof typeof HARNESS_HOME_ENV;
+
+/** The config dir below an override's value (the value itself for claude/codex/copilot). */
+const OVERRIDE_SUBDIR: Partial<Record<OverridableTarget, string>> = {
+  gemini: '.gemini',
+  opencode: 'opencode',
+};
+
+/** The default global config dir below the home directory, when it is not `.<id>`. */
+const GLOBAL_DEFAULT: Partial<Record<TargetId, string[]>> = {
+  opencode: ['.config', 'opencode'],
+};
 
 /**
  * A directory from an environment value: `~` and `~/x` expand against `home`, anything
@@ -49,7 +67,8 @@ export class ScopePaths {
    * @param root project root (project scope) or home directory (global scope); lock paths
    *   are relative to it at project scope.
    * @param palmHome palm's home (global manifest, lock and hook assets).
-   * @param env resolves CLAUDE_CONFIG_DIR / CODEX_HOME / COPILOT_HOME.
+   * @param env resolves CLAUDE_CONFIG_DIR / CODEX_HOME / COPILOT_HOME / GEMINI_CLI_HOME /
+   *   XDG_CONFIG_HOME.
    */
   constructor(
     readonly scope: Scope,
@@ -105,17 +124,21 @@ export class ScopePaths {
 
   /**
    * A harness's config dir: `<root>/.<id>` at project scope; at global scope the
-   * CLAUDE_CONFIG_DIR / CODEX_HOME / COPILOT_HOME override when set, else `~/.<id>`.
+   * CLAUDE_CONFIG_DIR / CODEX_HOME / COPILOT_HOME / `$GEMINI_CLI_HOME/.gemini` /
+   * `$XDG_CONFIG_HOME/opencode` override when set, else `~/.<id>` (`~/.config/opencode`).
    */
   harnessHome(id: TargetId): string {
-    const def = path.join(this.root, `.${id}`);
-    if (this.scope === 'project' || id === 'cursor') return def;
+    if (this.scope === 'project') return path.join(this.root, `.${id}`);
+    const def = path.join(this.root, ...(GLOBAL_DEFAULT[id] ?? [`.${id}`]));
+    if (id === 'cursor') return def;
     return this.harnessOverride(id) ?? def;
   }
 
   /** The env override of a harness's global config dir, when one is set. */
-  harnessOverride(id: Exclude<TargetId, 'cursor'>): string | undefined {
-    return expandHomeDir(this.env[HARNESS_HOME_ENV[id]], this.root);
+  harnessOverride(id: OverridableTarget): string | undefined {
+    const dir = expandHomeDir(this.env[HARNESS_HOME_ENV[id]], this.root);
+    const sub = OVERRIDE_SUBDIR[id];
+    return dir && sub ? path.join(dir, sub) : dir;
   }
 
   /** Absolute form of a lock path (scope-relative at project scope, absolute at global). */
@@ -134,7 +157,7 @@ export class ScopePaths {
    */
   boundaries(): string[] {
     if (this.scope === 'project') return [this.root];
-    const overrides = (Object.keys(HARNESS_HOME_ENV) as Array<keyof typeof HARNESS_HOME_ENV>)
+    const overrides = (Object.keys(HARNESS_HOME_ENV) as OverridableTarget[])
       .map((id) => this.harnessOverride(id))
       .filter((d): d is string => d !== undefined);
     return [this.root, this.palmHome, ...overrides];

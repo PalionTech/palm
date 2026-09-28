@@ -5,19 +5,19 @@ src/commands/grammar.ts: UTILITIES, verbSpec, resourceLabel
 src/commands/origin-view.ts: readCachedIndex
 src/commands/program.ts: collect, createRootProgram
 src/core/cache.ts: loadDefaultScan
+src/core/git-exec.ts: isLocalRepoUrl
 src/core/hash.ts: stableStringify
 src/core/kinds.ts: isKind
 src/core/manifest.ts: isMcpManifestEntry, loadYaml, deepEqual
 src/create/shared.ts: canUseEditor, promptLongText
+src/domain/lock.ts: LOCK_VERSION
+src/domain/merged-record.ts: blockPointer
 src/engine/deps.ts: defaultEngineDeps
-src/engine/install.ts: defaultSecretPolicy, mcpManifestEntry, contentHashOf
-src/engine/query.ts: nameMatchesEntry, sourceOf, scoreEntity
-src/engine/sync.ts: adhocConfig
-src/engine/uninstall.ts: absScopeFile, protectedFiles, collectDependents, manifestLists, planRemoval, reparent
+src/engine/install.ts: assertProjectRoot
 src/index/detect.ts: hasLayoutGlobs
 src/index/files.ts: isRelevantFile
 src/index/ignore.ts: expandExcludes
-src/index/marketplace.ts: MARKETPLACE_FILES, marketplaceRootFor, parseMarketplaceJson, normalizeGitUrl
+src/index/marketplace.ts: MARKETPLACE_FILES, parseMarketplaceJson, normalizeGitUrl
 src/index/mcp.ts: mcpServerMap
 src/index/plugin-manifest.ts: PLUGIN_MANIFEST_FILES, isAgentPluginsManifest, normalizeManifest
 src/index/util.ts: GLOB_CHARS
@@ -28,11 +28,10 @@ src/targets/managed-block.ts: beginMarker, endMarker, renderBlock, findManagedBl
 src/targets/toml-merge.ts: removeTableText, appendTableText
 src/ui/output.ts: SYMBOLS
 test/engine/world.ts: fakeScan, REGISTRY
-Unused exported types (7)
+Unused exported types (6)
 src/commands/origin.ts: OriginCliOptions
 src/commands/targets.ts: TargetSource
 src/core/config.ts: ParseOriginOptions
 src/core/kinds.ts: ResourceKind
-src/engine/uninstall.ts: RemovalPlan
 src/index/skills.ts: SkillIssue
 src/mcp/serverjson.ts: ServerJsonInput, ServerJsonKeyValueInput, ServerJsonArgument, ServerJsonTransport, ServerJsonPackage

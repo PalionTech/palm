@@ -136,8 +136,10 @@ describe('updateEntities', () => {
       w.deps,
     );
     expect(r.outcomes.map((o) => o.entry.name)).toEqual(['superpowers', 'brainstorm']);
+    // plan first: nothing changed, so nothing is reinstalled and the lock is not rewritten
+    expect(r.outcomes.every((o) => o.status === 'unchanged')).toBe(true);
     const after = await loadLock(lockFile);
-    expect(after.entries.find((e) => e.name === 'brainstorm')!.via).toBe('plugin:superpowers');
+    expect(after.entries.find((e) => e.name === 'brainstorm')!.via).toBe('plugin:SuperPowers');
   });
 
   it('drops members a plugin no longer declares, but keeps unresolved agent deps', async () => {

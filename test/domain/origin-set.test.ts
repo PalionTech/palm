@@ -104,7 +104,7 @@ describe('OriginSet.resolveQuery', () => {
     expect(() => OriginSet.of().resolveQuery('x')).toThrow(
       expect.objectContaining({
         code: 'E_NOT_FOUND',
-        hint: 'No origins are registered; add one with `palm origin add owner/repo`.',
+        hint: 'No origins are registered; add one with `palm install origin owner/repo`.',
       }),
     );
   });

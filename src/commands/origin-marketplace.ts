@@ -1,14 +1,20 @@
 /**
- * `palm install origin <marketplace.json | URL>` (and the old `palm origin import`): every
- * plugin a marketplace lists becomes an origin. Each is fetched and indexed before it is saved.
+ * `palm install origin <marketplace.json | directory | URL>` (and the hidden old
+ * `palm origin import`): every plugin a marketplace lists becomes an origin. Each is fetched and
+ * indexed before it is saved. Reading, downloading and expanding the marketplace is
+ * src/index/marketplace.ts; this module picks the entries and saves them.
  */
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { stat } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import { messageOf, PalmError } from '../core/errors.js';
 import type { OriginIndex, OriginSpec, PalmContext } from '../core/types.js';
 import type { Output } from '../ui/output.js';
 import { describeLocation, indexOrigin, kindCounts } from './origin.js';
+
+/** Directory a marketplace file's relative sources resolve against (index/marketplace `marketplaceRootFor`). */
+export { marketplaceRootFor as marketplaceRootDir } from '../index/marketplace.js';
+
+const HTTP_URL = /^https?:\/\//i;
 
 /**
  * For a marketplace.json URL, the raw download URL plus the repo it belongs to.
@@ -37,21 +43,7 @@ export function marketplaceUrlBase(url: string): {
       relPath: rest.join('/'),
     };
   }
-  return { rawUrl: url, base: {}, relPath: basename(u.pathname) || 'marketplace.json' };
-}
-
-/** Directory a marketplace file's relative sources resolve against. */
-export function marketplaceRootDir(file: string): string {
-  const dir = dirname(file);
-  const parent = basename(dir);
-  if (parent === '.claude-plugin' || parent === '.cursor-plugin') return dirname(dir);
-  if (
-    (parent === 'plugin' && basename(dirname(dir)) === '.github') ||
-    (parent === 'plugins' && basename(dirname(dir)) === '.agents')
-  ) {
-    return dirname(dirname(dir));
-  }
-  return dir;
+  return { rawUrl: url, base: {}, relPath: u.pathname.split('/').pop() || 'marketplace.json' };
 }
 
 /**
@@ -61,59 +53,42 @@ export function marketplaceRootDir(file: string): string {
 export async function isMarketplaceInput(cwd: string, input: string): Promise<boolean> {
   if (/marketplace\.json$/i.test(input)) return true;
   if (!/\.json$/i.test(input)) return false;
-  if (/^https?:\/\//i.test(input)) return true;
-  try {
-    const json = JSON.parse(await readFile(resolve(cwd, input), 'utf8')) as { plugins?: unknown };
-    return Array.isArray(json.plugins);
-  } catch {
-    return false;
+  if (HTTP_URL.test(input)) return true;
+  const { readMarketplace } = await import('../index/marketplace.js');
+  return readMarketplace(resolve(cwd, input)).then(
+    () => true,
+    () => false,
+  );
+}
+
+/**
+ * What to hand to `parseMarketplace`: the raw URL of a remote marketplace (index/marketplace
+ * downloads it and derives the repository, ref and root from GitHub URLs), or the local file,
+ * found under a directory when a directory is given.
+ */
+async function marketplaceSource(ctx: PalmContext, input: string): Promise<string> {
+  if (HTTP_URL.test(input)) {
+    if (ctx.flags.offline)
+      throw new PalmError(
+        'E_NETWORK',
+        'cannot download a marketplace file with --offline',
+        `run it online: palm install origin ${input}`,
+      );
+    return marketplaceUrlBase(input).rawUrl;
   }
-}
-
-interface MarketplaceFile {
-  file: string;
-  base: { url?: string; path?: string; ref?: string };
-  tmp?: string;
-}
-
-async function downloadMarketplace(ctx: PalmContext, input: string): Promise<MarketplaceFile> {
-  if (ctx.flags.offline)
-    throw new PalmError(
-      'E_NETWORK',
-      'cannot download a marketplace file with --offline',
-      `palm install origin ${input}`,
-    );
-  const m = marketplaceUrlBase(input);
-  const res = await fetch(m.rawUrl).catch((e: unknown) => {
-    throw new PalmError('E_NETWORK', `could not download ${m.rawUrl}: ${messageOf(e)}`);
-  });
-  if (!res.ok)
-    throw new PalmError('E_NETWORK', `could not download ${m.rawUrl}: HTTP ${res.status}`);
-  const tmp = await mkdtemp(join(tmpdir(), 'palm-marketplace-'));
-  const file = join(tmp, m.relPath);
-  await mkdir(dirname(file), { recursive: true });
-  await writeFile(file, await res.text());
-  return { file, base: m.base, tmp };
-}
-
-async function localMarketplace(ctx: PalmContext, input: string): Promise<MarketplaceFile> {
   const abs = resolve(ctx.paths.cwd, input);
   const st = await stat(abs).catch(() => undefined);
   if (!st)
     throw new PalmError('E_NOT_FOUND', `no such file or directory: ${abs}`, `ls ${dirname(abs)}`);
-  let file = abs;
-  if (st.isDirectory()) {
-    const { findMarketplaceFile } = await import('../index/marketplace.js');
-    const found = await findMarketplaceFile(abs);
-    if (!found)
-      throw new PalmError(
-        'E_NOT_FOUND',
-        `no marketplace.json under ${abs}`,
-        `point at the file: palm install origin ${join(input, '.claude-plugin', 'marketplace.json')}`,
-      );
-    file = found;
-  }
-  return { file, base: { path: marketplaceRootDir(file) } };
+  if (!st.isDirectory()) return abs;
+  const { findMarketplaceFile } = await import('../index/marketplace.js');
+  const found = await findMarketplaceFile(abs);
+  if (found) return found;
+  throw new PalmError(
+    'E_NOT_FOUND',
+    `no marketplace.json under ${abs}`,
+    `point at the file: palm install origin ${join(input, '.claude-plugin', 'marketplace.json')}`,
+  );
 }
 
 async function chooseEntries(ctx: PalmContext, origins: OriginSpec[]): Promise<OriginSpec[]> {
@@ -192,23 +167,16 @@ export async function importMarketplace(
   out: Output,
   opts: { input: string; project: boolean },
 ): Promise<void> {
-  const { input } = opts;
-  const source = /^https?:\/\//i.test(input)
-    ? await downloadMarketplace(ctx, input)
-    : await localMarketplace(ctx, input);
-  try {
-    const { parseMarketplace } = await import('../index/marketplace.js');
-    const { origins, warnings } = await parseMarketplace(source.file, source.base);
-    for (const w of warnings) out.warn(w);
-    if (origins.length === 0) {
-      out.warn('the marketplace lists no plugins palm can add');
-      if (out.jsonMode) out.json({ added: [], existing: [], skipped: [] });
-      return;
-    }
-    const result = await addEntries(ctx, await chooseEntries(ctx, origins), opts.project);
-    printImport(out, result, ctx.flags.dryRun);
-    if (!out.jsonMode && result.added.length) out.hint('list them with: palm get origins');
-  } finally {
-    if (source.tmp) await rm(source.tmp, { recursive: true, force: true });
+  const source = await marketplaceSource(ctx, opts.input);
+  const { parseMarketplace } = await import('../index/marketplace.js');
+  const { origins, warnings } = await parseMarketplace(source, {});
+  for (const w of warnings) out.warn(w);
+  if (origins.length === 0) {
+    out.warn('the marketplace lists no plugins palm can add');
+    if (out.jsonMode) out.json({ added: [], existing: [], skipped: [] });
+    return;
   }
+  const result = await addEntries(ctx, await chooseEntries(ctx, origins), opts.project);
+  printImport(out, result, ctx.flags.dryRun);
+  if (!out.jsonMode && result.added.length) out.hint('list them with: palm get origins');
 }

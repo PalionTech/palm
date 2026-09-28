@@ -13,7 +13,7 @@ const entry = (kind: Kind, name: string, origin: string): LockEntry => ({
   origin,
   path: name,
   contentHash: 'sha256:0',
-  installedAt: '2026-01-01T00:00:00.000Z',
+  transform: 1,
   targets: ['claude'],
   files: [],
 });

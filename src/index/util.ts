@@ -107,15 +107,6 @@ export function dirDepth(rel: string): number {
   return rel.split('/').length - 1;
 }
 
-/**
- * True when `rel` equals `dir` or lies underneath it ('' contains everything). For origin-relative
- * posix paths; absolute paths use `isWithin` from lib/fs (much slower in the scanner's loops).
- */
-export function isWithinRel(rel: string, dir: string): boolean {
-  if (dir === '') return true;
-  return rel === dir || rel.startsWith(`${dir}/`);
-}
-
 /** Display form of a relative directory: '' → '.'. */
 export function displayRel(rel: string): string {
   return rel === '' ? '.' : rel;

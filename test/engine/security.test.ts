@@ -14,11 +14,14 @@ const entry = (over: Partial<LockEntry>): LockEntry => ({
   origin: 'a',
   path: 'skills/x',
   contentHash: 'sha256:0',
-  installedAt: '2026-01-01T00:00:00Z',
+  transform: 1,
   targets: ['claude'],
   files: [],
   ...over,
 });
+
+const locked = (...paths: string[]): LockEntry['files'] =>
+  paths.map((path) => ({ path, hash: '' }));
 
 describe('lockfile paths can never make palm delete outside the scope', () => {
   let w: World;
@@ -37,8 +40,8 @@ describe('lockfile paths can never make palm delete outside the scope', () => {
     await mkdir(join(w.sb.project, '.claude/skill'), { recursive: true });
     await writeFile(join(w.sb.project, '.claude/skill/x.txt'), 'x');
     await saveLock(join(w.sb.project, 'palm.lock.yaml'), {
-      version: 1,
-      entries: [entry({ files: ['../victim/data', '.claude/skill/x.txt', '..'] })],
+      version: 2,
+      entries: [entry({ files: locked('../victim/data', '.claude/skill/x.txt', '..') })],
     });
 
     const r = await uninstallEntities(
@@ -50,7 +53,7 @@ describe('lockfile paths can never make palm delete outside the scope', () => {
     expect(await readFile(join(dir, 'data'), 'utf8')).toBe('keep me');
     expect(existsSync(join(w.sb.project, '.claude/skill/x.txt'))).toBe(false);
     expect(r.warnings.join('\n')).toMatch(
-      /ignored lock paths outside the project scope: \.\.\/victim\/data, \.\./,
+      /ignored lock paths outside the project scope: \.\., \.\.\/victim\/data/,
     );
   });
 
@@ -58,8 +61,8 @@ describe('lockfile paths can never make palm delete outside the scope', () => {
     w = await makeWorld();
     const dir = await victim();
     await saveLock(join(w.sb.palmHome, 'palm.lock.yaml'), {
-      version: 1,
-      entries: [entry({ files: [join(dir, 'data'), join(w.sb.home, '..', 'victim')] })],
+      version: 2,
+      entries: [entry({ files: locked(join(dir, 'data'), join(w.sb.home, '..', 'victim')) })],
     });
     await uninstallEntities(w.ctx, [{ kind: 'skill', name: 'x' }], { scope: 'global' }, w.deps);
     expect(await readFile(join(dir, 'data'), 'utf8')).toBe('keep me');
@@ -70,7 +73,7 @@ describe('lockfile paths can never make palm delete outside the scope', () => {
     w.deps.getTarget = (await import('../../src/targets/index.js')).getTarget;
     const dir = await victim();
     await saveLock(join(w.sb.project, 'palm.lock.yaml'), {
-      version: 1,
+      version: 2,
       entries: [
         entry({ kind: 'hook', name: '../../../victim', targets: ['claude', 'codex'], files: [] }),
       ],

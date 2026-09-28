@@ -23,10 +23,10 @@ The first command writes the skill for Claude Code and Codex, and saves `targets
 | `codex` | Codex | `.codex/` or `AGENTS.md` | supported |
 | `copilot` | GitHub Copilot | `.github/copilot-instructions.md`, `.github/agents/` or `.vscode/mcp.json` | supported |
 | `cursor` | Cursor | `.cursor/` | supported |
-| `gemini` | Gemini CLI | not yet | planned for 1.0 |
-| `opencode` | OpenCode | not yet | planned for 1.0 |
+| `gemini` | Gemini CLI | `.gemini/` or `GEMINI.md` | supported |
+| `opencode` | OpenCode | `.opencode/`, `opencode.json` or `opencode.jsonc` | supported |
 
-For the global scope, palm detects a harness by its home directory: `~/.claude`, `~/.codex`, `~/.copilot` or `~/.cursor`.
+For the global scope, palm detects a harness by its home directory: `~/.claude`, `~/.codex`, `~/.copilot`, `~/.cursor`, `~/.gemini` or `~/.config/opencode`.
 
 ## How palm picks targets
 
@@ -40,16 +40,17 @@ palm takes the first of these that gives an answer:
 
 Commit `palm.yaml` with `targets:` so every clone installs for the same harnesses.
 
-## One skill folder for three harnesses
+## One shared skill folder
 
-Codex, GitHub Copilot and Cursor all read skills from `.agents/skills`.
-palm writes that folder once, however many of the three are active.
+Codex, GitHub Copilot, Cursor, Gemini CLI and OpenCode all read skills from `.agents/skills`.
+palm writes that folder once, however many of the five are active.
 Claude Code reads only `.claude/skills`, so a skill for `claude` gets its own copy.
 
 ## Combinations a harness does not support
 
 Some harnesses have no place for a kind at one scope.
 Codex has no project-level prompts, Copilot has no user-level prompt files, and Cursor has no user-level rules.
+OpenCode has no declarative hooks, so palm skips hooks for `opencode`.
 palm skips those combinations and says so in the install summary.
 The [targets matrix](/palm/reference/targets-matrix/) marks each one.
 

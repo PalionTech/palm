@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { ScopePaths } from '../domain/scope-paths.js';
 import { pathExists } from '../lib/fs.js';
-import type { TargetLayout, TargetSpec } from './base.js';
+import type { TargetLayout, TargetSpec } from './layout.js';
 
 /** User MCP config: `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json` when set. */
 export function claudeUserConfig(paths: ScopePaths): string {

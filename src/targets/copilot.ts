@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { ScopePaths } from '../domain/scope-paths.js';
 import { pathExists } from '../lib/fs.js';
-import type { TargetLayout, TargetSpec } from './base.js';
+import type { TargetLayout, TargetSpec } from './layout.js';
 import { sharedSkillsRoot } from './shared-skills.js';
 
 function projectLayout(paths: ScopePaths): TargetLayout {
@@ -35,7 +35,7 @@ function globalLayout(paths: ScopePaths): TargetLayout {
     agentsDir: path.join(home, 'agents'),
     instructions: { dir: path.join(home, 'instructions') },
     commands: {
-      skip: 'Copilot has no user-level prompt files; command skipped (install without -g for .github/prompts)',
+      skip: 'Copilot has no user-level prompt files; command skipped (for .github/prompts: `palm install command <name>` without -g)',
     },
     hooks: { dir: path.join(home, 'hooks') },
     mcp: { json: mcpFile, path: ['mcpServers'] },

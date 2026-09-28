@@ -1,6 +1,13 @@
 import { existsSync } from 'node:fs';
 import { PalmError } from '../core/errors.js';
-import { KINDS, type Kind, type LockEntry, type Lockfile } from '../core/types.js';
+import {
+  KINDS,
+  type Kind,
+  type LockEntry,
+  type LockedFile,
+  type Lockfile,
+  TARGET_IDS,
+} from '../core/types.js';
 import { isRecord, withoutUndefined } from '../lib/object.js';
 import { writeYamlFile } from '../lib/yaml.js';
 import { entityId, isViaKind, lockId, Via } from './entity-key.js';
@@ -28,52 +35,102 @@ export interface RemovalPlan {
 
 export const LOCK_COMMENT = 'palm lockfile — generated, do not edit by hand.';
 
+/** The lockfile version palm writes. Version 1 files are read and converted in memory. */
+export const LOCK_VERSION = 2;
+
 const KEY_ORDER: Array<keyof LockEntry> = [
   'kind',
   'name',
   'origin',
   'url',
+  'root',
   'ref',
   'sha',
   'path',
   'contentHash',
-  'installedAt',
+  'transform',
   'targets',
   'files',
   'merged',
   'via',
+  'deps',
 ];
 
-/** The keys in KEY_ORDER, then any others; undefined values and an empty `merged` dropped. */
+/** The paths an entry's `files` list, in order. */
+export function filePaths(entry: Pick<LockEntry, 'files'>): string[] {
+  return entry.files.map((f) => f.path);
+}
+
+/** `{ path, hash }` in that key order; sorted by path, one per path. */
+function orderFiles(files: readonly LockedFile[]): LockedFile[] {
+  const byPath = new Map<string, LockedFile>();
+  for (const f of files)
+    if (!byPath.has(f.path)) byPath.set(f.path, { path: f.path, hash: f.hash });
+  return [...byPath.values()].sort((a, b) => compareText(a.path, b.path));
+}
+
+/** The keys in KEY_ORDER, then any others; undefined values and an empty `merged`/`deps` dropped. */
 function orderEntry(e: LockEntry): Record<string, unknown> {
-  const ordered = Object.fromEntries(KEY_ORDER.map((k) => [k, e[k]]));
-  const out: Record<string, unknown> = withoutUndefined({ ...ordered, ...e });
-  if (Array.isArray(out.merged) && out.merged.length === 0) delete out.merged;
+  const normal: LockEntry = {
+    ...e,
+    targets: TARGET_IDS.filter((t) => e.targets.includes(t)),
+    files: orderFiles(e.files),
+  };
+  const ordered = Object.fromEntries(KEY_ORDER.map((k) => [k, normal[k]]));
+  const out: Record<string, unknown> = withoutUndefined({ ...ordered, ...normal });
+  for (const k of ['merged', 'deps'] as const)
+    if (Array.isArray(out[k]) && (out[k] as unknown[]).length === 0) delete out[k];
   return out;
 }
 
+/** Code-point order (locale-independent, so every machine writes the same lock). */
+function compareText(a: string, b: string): number {
+  return Number(a > b) - Number(a < b);
+}
+
+/** Kind (KINDS order), name (any case), origin, then name: code points, so every machine sorts alike. */
 function byKindNameOrigin(a: LockEntry, b: LockEntry): number {
   return (
     KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind) ||
-    a.name.localeCompare(b.name) ||
-    a.origin.localeCompare(b.origin)
+    compareText(a.name.toLowerCase(), b.name.toLowerCase()) ||
+    compareText(a.origin, b.origin) ||
+    compareText(a.name, b.name)
   );
 }
 
+function badEntry(file: string, i: number, why: string): PalmError {
+  return new PalmError(
+    'E_PARSE',
+    `${file}: entry ${i + 1} ${why}`,
+    'Restore the lockfile from version control, or delete it and run `palm install`',
+  );
+}
+
+/** One `files` item: v2 `{ path, hash }`, or a v1 path string (hash unknown). */
+function lockedFile(file: string, i: number, raw: unknown): LockedFile {
+  if (typeof raw === 'string') return { path: raw, hash: '' };
+  if (isRecord(raw) && typeof raw.path === 'string')
+    return { path: raw.path, hash: typeof raw.hash === 'string' ? raw.hash : '' };
+  throw badEntry(file, i, 'has a malformed `files` item');
+}
+
+/** A loaded entry in the v2 shape: files as `{ path, hash }`, `transform` set, `installedAt` gone. */
+function normalizeEntry(file: string, i: number, raw: unknown): LockEntry {
+  if (!isRecord(raw) || [raw.kind, raw.name, raw.origin].some((v) => typeof v !== 'string'))
+    throw badEntry(file, i, 'needs a kind, name and origin');
+  const { installedAt: _dropped, ...rest } = raw;
+  const files = Array.isArray(raw.files) ? raw.files : [];
+  return {
+    ...(rest as unknown as LockEntry),
+    transform: typeof raw.transform === 'number' ? raw.transform : 0,
+    targets: Array.isArray(raw.targets) ? (raw.targets as LockEntry['targets']) : [],
+    files: files.map((f) => lockedFile(file, i, f)),
+  };
+}
+
 function validEntries(file: string, raw: unknown): LockEntry[] {
-  const entries = Array.isArray(raw) ? (raw as LockEntry[]) : [];
-  for (const [i, e] of entries.entries()) {
-    if (!isRecord(e) || [e.kind, e.name, e.origin].some((v) => typeof v !== 'string')) {
-      throw new PalmError(
-        'E_PARSE',
-        `${file}: entry ${i + 1} needs a kind, name and origin`,
-        'Restore the lockfile from version control, or delete it and run `palm install`',
-      );
-    }
-    e.targets ??= [];
-    e.files ??= [];
-  }
-  return entries;
+  const entries = Array.isArray(raw) ? raw : [];
+  return entries.map((e, i) => normalizeEntry(file, i, e));
 }
 
 /** A user-supplied name selects an entry by name, or a registry MCP server by registry name. */
@@ -116,7 +173,7 @@ export class Lock {
     const data = await loadYaml(file);
     if (data === undefined || data === null) return new Lock();
     if (!isRecord(data)) throw new PalmError('E_PARSE', `${file} must be a YAML mapping`);
-    if (data.version !== undefined && data.version !== 1) {
+    if (data.version !== undefined && data.version !== 1 && data.version !== LOCK_VERSION) {
       throw new PalmError(
         'E_PARSE',
         `${file}: unsupported lockfile version ${String(data.version)}`,
@@ -126,14 +183,18 @@ export class Lock {
     return new Lock(validEntries(file, data.entries));
   }
 
-  /** Writes the lock sorted by kind, name and origin, keys in canonical order, as a fresh document. */
+  /**
+   * Writes the lock as lockfile v2, deterministically: entries sorted by kind, name and origin,
+   * keys in canonical order, files sorted by path, targets in TARGET_IDS order, LF line ends,
+   * no timestamps, as a fresh document. Saving the same lock twice gives identical bytes.
+   */
   async save(file: string): Promise<void> {
-    const entries = this.entries.sort(byKindNameOrigin).map(orderEntry);
-    await writeYamlFile(
-      file,
-      { version: 1, entries },
-      { preserveFrom: false, comment: LOCK_COMMENT },
-    );
+    await writeYamlFile(file, this.toData(), { preserveFrom: false, comment: LOCK_COMMENT });
+  }
+
+  /** The document `save` writes. */
+  private toData(): { version: number; entries: Array<Record<string, unknown>> } {
+    return { version: LOCK_VERSION, entries: this.entries.sort(byKindNameOrigin).map(orderEntry) };
   }
 
   /** Every entry, in order (a new array). */
@@ -146,7 +207,7 @@ export class Lock {
   }
 
   toJSON(): Lockfile {
-    return { version: 1, entries: this.entries };
+    return { version: 2, entries: this.entries };
   }
 
   /** The entry for the entity from `origin`, or (no origin) the first from any origin. */
@@ -329,14 +390,34 @@ export class Lock {
     const out = new Set<string>();
     for (const e of this.byKey.values()) {
       for (const m of e.merged ?? []) out.add(paths.abs(m.file));
-      if (!gone.has(lockId(e))) for (const f of e.files) out.add(paths.abs(f));
+      if (!gone.has(lockId(e))) for (const f of e.files) out.add(paths.abs(f.path));
     }
     return out;
   }
 
   /** True when every file the entry lists still exists (a deleted file makes a reinstall redeploy). */
   static filesPresent(entry: LockEntry, paths: LockPaths): boolean {
-    return entry.files.every((f) => existsSync(paths.abs(f)));
+    return entry.files.every((f) => existsSync(paths.abs(f.path)));
+  }
+
+  /**
+   * The entry's files that were changed on disk since palm wrote them (edit-safe overwrite and
+   * delete): present, with a recorded hash, and hashing (`hashOf`, e.g. core/hash `hashPath`)
+   * to something else. Missing files and files without a hash (lockfile v1) never count.
+   */
+  static async modifiedFiles(
+    entry: Pick<LockEntry, 'files'>,
+    paths: LockPaths,
+    hashOf: (abs: string) => Promise<string>,
+  ): Promise<string[]> {
+    const out: string[] = [];
+    for (const f of entry.files) {
+      const abs = paths.abs(f.path);
+      if (!f.hash || !existsSync(abs)) continue;
+      const now = await hashOf(abs).catch(() => undefined);
+      if (now !== undefined && now !== f.hash) out.push(f.path);
+    }
+    return out;
   }
 
   /** Every file the entry and whatever it pulled in wrote is still on disk. */

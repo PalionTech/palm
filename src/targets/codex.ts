@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { pathExists } from '../lib/fs.js';
-import type { TargetLayout, TargetSpec } from './base.js';
+import type { TargetLayout, TargetSpec } from './layout.js';
 import { sharedSkillsRoot } from './shared-skills.js';
 
 export const codexSpec: TargetSpec = {
@@ -15,11 +15,11 @@ export const codexSpec: TargetSpec = {
       configDir: base,
       skillsDir: skills.dir,
       agentsDir: path.join(base, 'agents'),
-      instructions: { agentsMd },
+      instructions: { blockFile: agentsMd },
       commands:
         paths.scope === 'project'
           ? {
-              skip: 'Codex has no project-scoped custom prompts; command skipped (install with -g for ~/.codex/prompts)',
+              skip: 'Codex has no project-scoped custom prompts; command skipped (for ~/.codex/prompts: `palm install command <name> -g`)',
             }
           : { dir: path.join(base, 'prompts') },
       hooks: { mergeFile: path.join(base, 'hooks.json') },

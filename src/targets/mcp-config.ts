@@ -3,9 +3,12 @@
  *
  * Placeholders: `${VAR}` / `${env:VAR}` / `${VAR:-default}` tokens in command, args, url,
  * env values and header values.
- * - `env-ref`: rewritten to the harness syntax (claude and Copilot CLI `${VAR}`, cursor and
- *   VS Code `${env:VAR}`). Claude rejects a config whose `${VAR}` is unset and has no
- *   default, so optional secrets become `${VAR:-}` (a declared default is kept).
+ * - `env-ref`: rewritten to the harness syntax (claude, gemini and Copilot CLI `${VAR}`, cursor
+ *   and VS Code `${env:VAR}`, opencode `{env:VAR}`). Claude rejects a config whose `${VAR}` is
+ *   unset and has no default, and Gemini CLI keeps such a token literally ("an unset var
+ *   without a default stays literal", R7 §7), so for both optional secrets become `${VAR:-}` (a
+ *   declared default is kept). OpenCode has no default syntax (unset is `""`): a non-empty
+ *   declared default is lost (noted).
  * - `literal`: replaced by `values[VAR]`; else by the token's default; an optional secret
  *   without a value drops its env entry / header (args and URLs get an empty string);
  *   a required one without a value stays an env reference (with a note).
@@ -17,6 +20,12 @@
  * - cursor:  `{ command, args, env, url, headers }`
  * - copilot: project (`.vscode/mcp.json` servers) `{ type: stdio|http|sse, ... }`;
  *            global (`~/.copilot/mcp-config.json`) `{ type: local|http|sse, ..., tools: ["*"] }`
+ * - gemini:  `{ command, args, env, cwd }` / `{ url, type: http|sse, headers }` in
+ *            settings.json `mcpServers`: `httpUrl` is "deprecated… migrate to 'url' with
+ *            'type: "http"'" (packages/core/src/tools/mcp-client.ts)
+ * - opencode: `{ type: local, command: [cmd, ...args], cwd, environment, enabled }` /
+ *            `{ type: remote, url, headers, oauth: false (header auth), enabled }` in
+ *            opencode.json `mcp`; http and sse are both `remote` (StreamableHTTP, then SSE)
  * - codex:   TOML table: stdio `command,args,cwd,env,env_vars`; http `url,
  *            bearer_token_env_var, http_headers, env_http_headers`. SSE unsupported.
  *            Codex expands nothing in command/args/url: under env-ref a token there is a
@@ -74,6 +83,8 @@ class RenderState {
   readonly notes = new Set<string>();
   readonly envRefs = new Set<string>();
   constructor(
+    /** The server's name (for hints). */
+    readonly name: string,
     readonly policy: SecretPolicy,
     readonly values: Record<string, string>,
     readonly optional: Set<string>,
@@ -163,10 +174,42 @@ function claudeRef(v: string, def: string | undefined, optional: boolean): strin
   return fallback === undefined ? envRef(v) : envRef(v, 'dollar-default', fallback);
 }
 
-interface JsonStyle {
+/** A JSON harness and the scope (it selects the Copilot format). */
+interface JsonTarget {
   target: Exclude<TargetId, 'codex'>;
-  /** `${env:VAR}` (Cursor, VS Code) instead of `${VAR}`. */
-  envColon: boolean;
+  scope: Scope;
+}
+
+/**
+ * How a harness writes an environment reference: `${VAR}` with `${VAR:-}` for optional
+ * secrets (claude, gemini), plain `${VAR}` (Copilot CLI), `${env:VAR}` (Cursor, VS Code) or
+ * `{env:VAR}` (OpenCode).
+ */
+type RefStyle = 'dollar-default' | 'dollar' | 'env-colon' | 'opencode';
+
+function refStyleOf({ target, scope }: JsonTarget): RefStyle {
+  if (target === 'claude' || target === 'gemini') return 'dollar-default';
+  if (target === 'opencode') return 'opencode';
+  return target === 'copilot' && scope === 'global' ? 'dollar' : 'env-colon';
+}
+
+/** The reference to `v` (with its declared default `def`) in `style`. */
+function harnessRef(style: RefStyle, v: string, def: string | undefined, st: RenderState): string {
+  switch (style) {
+    case 'dollar-default':
+      return claudeRef(v, def, st.optional.has(v));
+    case 'dollar':
+      return envRef(v);
+    case 'env-colon':
+      return envRef(v, 'env-colon');
+    case 'opencode':
+      // `{env:VAR}` is "" when unset, which is what an empty `${VAR:-}` default means anyway.
+      if (def)
+        st.notes.add(
+          `OpenCode has no default syntax: ${v} is empty when unset (default "${def}" dropped)`,
+        );
+      return `{env:${v}}`;
+  }
 }
 
 /**
@@ -177,7 +220,7 @@ interface JsonStyle {
 function rewriteJson(
   s: string,
   at: { where: string; canDrop: boolean },
-  style: JsonStyle,
+  style: RefStyle,
   st: RenderState,
 ): string | typeof DROP {
   let dropped = false;
@@ -190,20 +233,82 @@ function rewriteJson(
     }
     if (fallback !== undefined) return fallback;
     st.missing(v);
-    if (style.envColon) return envRef(v, 'env-colon');
-    return style.target === 'claude' ? claudeRef(v, def, st.optional.has(v)) : envRef(v);
+    return harnessRef(style, v, def, st);
   });
   return dropped ? DROP : out;
 }
 
+/** A stdio server's rendered fields. */
+interface StdioParts {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+function stdioEntry(
+  t: JsonTarget,
+  p: StdioParts,
+  cwd: string | undefined,
+): Record<string, unknown> {
+  switch (t.target) {
+    case 'cursor':
+      return withoutUndefined({ ...p });
+    case 'gemini':
+      return withoutUndefined({ ...p, cwd });
+    case 'opencode':
+      return withoutUndefined({
+        type: 'local',
+        command: [p.command, ...(p.args ?? [])],
+        cwd,
+        environment: p.env,
+        enabled: true,
+      });
+    case 'copilot':
+      if (t.scope === 'global') return withoutUndefined({ type: 'local', ...p, tools: ['*'] });
+  }
+  return withoutUndefined({ type: 'stdio', ...p });
+}
+
+/** An HTTP/SSE server's rendered fields; `headerAuth` when a header carries the credentials. */
+interface HttpParts {
+  url: string;
+  headers?: Record<string, string>;
+  transport: 'http' | 'sse';
+  headerAuth: boolean;
+}
+
+function httpEntry(t: JsonTarget, p: HttpParts): Record<string, unknown> {
+  const { url, headers, transport: type } = p;
+  switch (t.target) {
+    case 'cursor':
+      return withoutUndefined({ url, headers });
+    case 'gemini':
+      return withoutUndefined({ url, type, headers });
+    case 'opencode': {
+      // OpenCode starts an OAuth flow for remote servers unless told not to (R7 §7).
+      const oauth = p.headerAuth ? { oauth: false } : {};
+      return withoutUndefined({ type: 'remote', url, headers, ...oauth, enabled: true });
+    }
+    case 'copilot':
+      if (t.scope === 'global') return withoutUndefined({ type, url, headers, tools: ['*'] });
+  }
+  return withoutUndefined({ type, url, headers });
+}
+
+/** True when the server authenticates through a header (Authorization or a header secret). */
+function usesHeaderAuth(cfg: McpServerConfig, headers: Record<string, string>): boolean {
+  return (
+    Object.keys(headers).some((h) => /^authorization$/i.test(h)) ||
+    (cfg.secrets ?? []).some((s) => s.in === 'header')
+  );
+}
+
 function renderJsonEntry(
   cfg: McpServerConfig,
-  target: Exclude<TargetId, 'codex'>,
-  scope: Scope,
+  t: JsonTarget,
   st: RenderState,
 ): Record<string, unknown> {
-  const copilotCli = target === 'copilot' && scope === 'global';
-  const style: JsonStyle = { target, envColon: target !== 'claude' && !copilotCli };
+  const style = refStyleOf(t);
   const scalar = (s: string, where: string): string =>
     rewriteJson(s, { where, canDrop: false }, style, st) as string;
   const mapValues = (
@@ -218,27 +323,26 @@ function renderJsonEntry(
     return Object.keys(out).length ? out : undefined;
   };
   const { env, headers } = withSecretPlaceholders(cfg);
-  if (cfg.cwd) st.notes.add(`cwd (${cfg.cwd}) is not supported in ${target} MCP config; dropped`);
+  const keepsCwd = cfg.transport === 'stdio' && (t.target === 'gemini' || t.target === 'opencode');
+  if (cfg.cwd && !keepsCwd)
+    st.notes.add(`cwd (${cfg.cwd}) is not supported in ${t.target} MCP config; dropped`);
 
   if (cfg.transport === 'stdio') {
-    const base = {
+    const parts = {
       command: scalar(requireField(cfg, 'command'), 'command'),
       args: cfg.args?.length ? cfg.args.map((a) => scalar(a, 'args')) : undefined,
       env: mapValues(env, 'env'),
     };
-    if (target === 'cursor') return withoutUndefined(base);
-    if (copilotCli) return withoutUndefined({ type: 'local', ...base, tools: ['*'] });
-    return withoutUndefined({ type: 'stdio', ...base });
+    return stdioEntry(t, parts, keepsCwd ? cfg.cwd : undefined);
   }
-
-  const base = {
+  const rendered = mapValues(headers, 'header');
+  if (!rendered) st.notes.add(OAUTH_NOTE);
+  return httpEntry(t, {
     url: scalar(requireField(cfg, 'url'), 'url'),
-    headers: mapValues(headers, 'header'),
-  };
-  if (!base.headers) st.notes.add(OAUTH_NOTE);
-  if (target === 'cursor') return withoutUndefined(base);
-  if (copilotCli) return withoutUndefined({ type: cfg.transport, ...base, tools: ['*'] });
-  return withoutUndefined({ type: cfg.transport, ...base });
+    headers: rendered,
+    transport: cfg.transport,
+    headerAuth: rendered !== undefined && usesHeaderAuth(cfg, headers),
+  });
 }
 
 /** Codex expands nothing in command/args/url: substitute known values (literal), else keep the token (with a note). */
@@ -249,7 +353,7 @@ function codexLiteral(s: string, field: string, st: RenderState): string {
     if (typeof fallback === 'string') return fallback;
     st.envRefs.add(v);
     st.notes.add(
-      `Codex does not expand environment variables in ${field}: ${plainRefs(raw)} is passed literally (install with --secrets literal to substitute it)`,
+      `Codex does not expand environment variables in ${field}: ${plainRefs(raw)} is passed literally (to substitute it: palm install mcp ${st.name} --secrets literal)`,
     );
     return undefined;
   });
@@ -364,17 +468,25 @@ function renderCodexTable(
   return cfg.transport === 'stdio' ? codexStdio(cfg, env, st) : codexHttp(cfg, headers, st);
 }
 
-/** Full render with notes and the env vars to export. `scope` only matters for copilot. */
+/** Secret values (policy `literal`) and the scope (it selects the Copilot format). */
+export interface RenderMcpOptions {
+  values?: Record<string, string>;
+  /** project (default): VS Code `.vscode/mcp.json`; global: Copilot CLI. Only matters for copilot. */
+  scope?: Scope;
+}
+
+/** Full render with notes and the env vars to export. */
 export function renderMcp(
   cfg: McpServerConfig,
   target: TargetId,
   policy: SecretPolicy,
-  values: Record<string, string> = {},
-  scope: Scope = 'project',
+  opts: RenderMcpOptions = {},
 ): RenderedMcp {
-  const st = new RenderState(policy, values, optionalSecretNames(cfg));
+  const st = new RenderState(cfg.name, policy, opts.values ?? {}, optionalSecretNames(cfg));
   const entry =
-    target === 'codex' ? renderCodexTable(cfg, st) : renderJsonEntry(cfg, target, scope, st);
+    target === 'codex'
+      ? renderCodexTable(cfg, st)
+      : renderJsonEntry(cfg, { target, scope: opts.scope ?? 'project' }, st);
   return { entry, notes: [...st.notes], envRefs: [...st.envRefs] };
 }
 
@@ -387,8 +499,7 @@ export function renderMcpEntry(
   cfg: McpServerConfig,
   target: TargetId,
   policy: SecretPolicy,
-  values?: Record<string, string>,
-  opts?: { scope?: Scope },
+  opts?: RenderMcpOptions,
 ): unknown {
-  return renderMcp(cfg, target, policy, values, opts?.scope).entry;
+  return renderMcp(cfg, target, policy, opts).entry;
 }

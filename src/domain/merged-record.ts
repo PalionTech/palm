@@ -6,6 +6,7 @@
  * | type         | written by                        | stored pointer              | value            |
  * |--------------|-----------------------------------|-----------------------------|------------------|
  * | `json-item`  | hook entries appended to an array | `/hooks/<event>`            | the item         |
+ * | `json-item`  | OpenCode instruction file paths   | `/instructions`             | the path         |
  * | `json-key`   | MCP servers set as an object key  | `/mcpServers/<name>`, …     | the key's value  |
  * | `toml-table` | Codex `[mcp_servers.<name>]`      | `/mcp_servers/<name>`       | the table        |
  * | `md-block`   | `<!-- palm:begin <id> -->` blocks | `block:<id>`                | the block text   |
@@ -23,6 +24,9 @@ const BLOCK_POINTER_PREFIX = 'block:';
 
 /** Pointer segment under which JSON hook files keep their per-event arrays. */
 const HOOKS_KEY = 'hooks';
+
+/** Top-level array OpenCode lists instruction files in (`opencode.json#/instructions`). */
+const INSTRUCTIONS_KEY = 'instructions';
 
 /** An item appended to the JSON array at `path`; removal deletes the first deep-equal item. */
 export interface JsonItemRecord {
@@ -69,8 +73,8 @@ function invalid(stored: StoredMergedRecord, why: string): PalmError {
 
 /**
  * The union form of a lockfile record. `block:` pointers are markdown blocks, `.toml` files
- * hold tables, JSON pointers of the form `/hooks/<event>` name hook arrays, and any other
- * JSON pointer names an object key. The root pointer and malformed pointers are E_INTERNAL.
+ * hold tables, JSON pointers of the form `/hooks/<event>` name hook arrays, `/instructions`
+ * names OpenCode's instruction list, and any other JSON pointer names an object key. The root pointer and malformed pointers are E_INTERNAL.
  */
 export function parseMergedRecord(stored: StoredMergedRecord): MergedRecord {
   const { file, pointer, value } = stored;
@@ -89,6 +93,8 @@ export function parseMergedRecord(stored: StoredMergedRecord): MergedRecord {
   if (path.length === 0) throw invalid(stored, 'pointer names the whole file');
   if (file.endsWith('.toml')) return { type: 'toml-table', file, path, value };
   if (path.length === 2 && path[0] === HOOKS_KEY) return { type: 'json-item', file, path, value };
+  if (path.length === 1 && path[0] === INSTRUCTIONS_KEY)
+    return { type: 'json-item', file, path, value };
   return { type: 'json-key', file, path, value };
 }
 

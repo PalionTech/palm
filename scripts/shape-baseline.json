@@ -1,17 +1,6 @@
 {
   "note": "Function-shape baseline (scripts/check-shape.mjs): violations per file of body > 60 lines, > 4 params, nesting > 4. May only go down; lower it with `node scripts/check-shape.mjs --update`.",
   "files": {
-    "src/engine/deps.ts": 1,
-    "src/engine/install.ts": 2,
-    "src/engine/query.ts": 2,
-    "src/engine/uninstall.ts": 1,
-    "src/index/files.ts": 2,
-    "src/index/marketplace.ts": 1,
-    "src/index/scan.ts": 4,
-    "src/index/skills.ts": 1,
-    "src/mcp/adhoc.ts": 1,
-    "src/mcp/serverjson.ts": 1,
-    "src/targets/base.ts": 1,
-    "src/targets/mcp-config.ts": 2
+    "src/mcp/adhoc.ts": 1
   }
 }
