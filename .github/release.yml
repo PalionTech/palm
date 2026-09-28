@@ -1,0 +1,18 @@
+# Categories for GitHub's generated release notes, keyed to the repository labels.
+# Changesets writes the main release text from CHANGELOG.md; these apply when notes are generated.
+changelog:
+  categories:
+    - title: Breaking changes
+      labels: [breaking]
+    - title: Security
+      labels: [security]
+    - title: Features
+      labels: [type/feature]
+    - title: Bug fixes
+      labels: [type/bug]
+    - title: Documentation
+      labels: [type/docs]
+    - title: Maintenance
+      labels: [type/chore]
+    - title: Other changes
+      labels: ['*']

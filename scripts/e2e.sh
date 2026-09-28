@@ -3,20 +3,26 @@
 #
 #   scripts/e2e.sh
 #
-# Every run builds dist/, creates a fresh sandbox and points HOME / PALM_HOME into it, so
-# the real ~/.palm, ~/.claude, ~/.codex, ~/.copilot, ~/.cursor and ~/.claude.json are
-# never touched. Prints PASS/FAIL per step; exits 1 when any step failed.
+# Every run builds dist/ (unless PALM_BIN is set), creates a fresh sandbox and points HOME /
+# PALM_HOME into it, so the real ~/.palm, ~/.claude, ~/.codex, ~/.copilot, ~/.cursor and
+# ~/.claude.json are never touched. Prints PASS/FAIL per step; exits 1 when any step failed.
 #
 # Environment:
 #   PALM_E2E_ROOT     where run-XXXXXX sandboxes are created   (default: ${TMPDIR:-/tmp}/palm-e2e)
-#   PALM_E2E_CATALOG  marketplace.json for the import step     (default: Max's catalog; step skipped when missing)
+#   PALM_E2E_CATALOG  marketplace.json for the import step     (no default; skipped when unset)
+#   PALM_BIN          palm executable to test, e.g. `palm` from a global install of the packed
+#                     tarball (resolved via PATH); step 00 then smoke-tests it instead of building
 #   PALM_E2E_KEEP=1   keep the sandbox after a fully passing run
 #   PALM_E2E_TSX=1    run the TypeScript sources through tsx instead of dist/cli.js
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 REAL_HOME="$HOME"
-CATALOG="${PALM_E2E_CATALOG:-/Users/max/github/SKILLS/.claude-plugin/marketplace.json}"
+CATALOG="${PALM_E2E_CATALOG:-}"
+PALM_BIN="${PALM_BIN:-}"
+if [[ -n "$PALM_BIN" ]]; then
+  PALM_BIN="$(command -v "$PALM_BIN")" || { echo "PALM_BIN not found on PATH" >&2; exit 99; }
+fi
 ROOT="${PALM_E2E_ROOT:-${TMPDIR:-/tmp}/palm-e2e}"
 mkdir -p "$ROOT"
 SB="$(cd "$(mktemp -d "$ROOT/run-XXXXXX")" && pwd -P)"
@@ -49,7 +55,9 @@ palm() {
     echo "unsafe environment: HOME=$HOME PALM_HOME=$PALM_HOME" >&2
     exit 99
   fi
-  if [[ "${PALM_E2E_TSX:-}" == 1 ]]; then
+  if [[ -n "$PALM_BIN" ]]; then
+    "$PALM_BIN" "$@"
+  elif [[ "${PALM_E2E_TSX:-}" == 1 ]]; then
     "$REPO/node_modules/.bin/tsx" "$REPO/src/cli.ts" "$@"
   else
     node "$REPO/dist/cli.js" "$@"
@@ -120,17 +128,20 @@ skip() {
 
 # --- steps -------------------------------------------------------------------------------
 s00_build() {
-  (cd "$REPO" && npm run build --silent >/dev/null 2>&1) || fail "npm run build failed"
-  head -1 "$REPO/dist/cli.js" | grep -qx '#!/usr/bin/env node' || fail "dist/cli.js has no shebang"
-  [[ -x "$REPO/dist/cli.js" ]] || fail "dist/cli.js is not executable"
-  OUT="$("$REPO/dist/cli.js" --version)"
-  [[ "$OUT" == "$(node -p "require('$REPO/package.json').version")" ]] || fail "dist --version printed $OUT"
-  OUT="$(node "$REPO/dist/cli.js" --help)"
+  if [[ -z "$PALM_BIN" ]]; then
+    (cd "$REPO" && npm run build --silent >/dev/null 2>&1) || fail "npm run build failed"
+    head -1 "$REPO/dist/cli.js" | grep -qx '#!/usr/bin/env node' || fail "dist/cli.js has no shebang"
+    [[ -x "$REPO/dist/cli.js" ]] || fail "dist/cli.js is not executable"
+    OUT="$("$REPO/node_modules/.bin/tsx" "$REPO/src/cli.ts" --version)"
+    [[ -n "$OUT" ]] || fail "tsx src/cli.ts --version printed nothing"
+  fi
+  local bin="${PALM_BIN:-$REPO/dist/cli.js}"
+  OUT="$("$bin" --version)"
+  [[ "$OUT" == "$(node -p "require('$REPO/package.json').version")" ]] || fail "$bin --version printed $OUT"
+  OUT="$(palm --help)"
   has "install|i"
   has "origin"
-  OUT="$("$REPO/node_modules/.bin/tsx" "$REPO/src/cli.ts" --version)"
-  [[ -n "$OUT" ]] || fail "tsx src/cli.ts --version printed nothing"
-  OUT="$(node "$REPO/dist/cli.js" install --help)"
+  OUT="$(palm install --help)"
   has "palm install mcp fs -- npx"
   has "--url https://example.com/mcp"
   has "name[@origin][#ref]"
@@ -385,12 +396,16 @@ s16_real_home_untouched() {
 }
 
 # --- run ---------------------------------------------------------------------------------
-step "00 build + dist smoke (shebang, --version, --help, install --help)" s00_build
+if [[ -n "$PALM_BIN" ]]; then
+  step "00 installed palm smoke ($PALM_BIN: --version, --help, install --help)" s00_build
+else
+  step "00 build + dist smoke (shebang, --version, --help, install --help)" s00_build
+fi
 step "01 origin add ×5, layout descriptor, origin list [--verbose]" s01_origins
-if [[ -f "$CATALOG" ]]; then
+if [[ -n "$CATALOG" && -f "$CATALOG" ]]; then
   step "02 origin import marketplace.json (local origin read-only, dedupe)" s02_import
 else
-  skip "02 origin import marketplace.json" "no catalog at $CATALOG"
+  skip "02 origin import marketplace.json" "PALM_E2E_CATALOG unset or missing: ${CATALOG:-none}"
 fi
 step "03 search tdd / unslop / --kind mcp context7, list --available" s03_search
 step "04 install skill unslop → claude + codex" s04_install_skill

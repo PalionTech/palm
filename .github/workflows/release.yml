@@ -1,0 +1,74 @@
+# Release with Changesets and npm trusted publishing (OIDC). No npm token is stored anywhere.
+#
+# How it works: every push to main runs changesets/action. While .changeset/ holds pending
+# changesets, the action opens or updates a "Version Packages" pull request that bumps the
+# version and writes CHANGELOG.md. Merging that pull request runs this workflow again with no
+# changesets left, so the action runs `changeset publish`: npm publishes with provenance, and
+# the action pushes the v<version> tag and creates the GitHub Release.
+#
+# One-time setup (a trusted publisher can only be attached to a package that already exists):
+#   1. Publish 0.1.0 by hand from a clean checkout of the "Version Packages" branch
+#      (changeset-release/main), which already has version 0.1.0 and the CHANGELOG entry:
+#        npm ci && npm run verify && npm publish --provenance=false
+#      Provenance needs a CI identity, so the manual publish turns it off; every later
+#      release from this workflow has it.
+#   2. Link this workflow as the package's trusted publisher, either with
+#        npm trust github @paliontech/palm --repo PalionTech/palm --file release.yml \
+#          --env npm --allow-publish
+#      or on npmjs.com: package Settings > Trusted publishing > GitHub Actions, organization
+#      PalionTech, repository palm, workflow filename release.yml, environment npm.
+#   3. On npmjs.com, package Settings > Publishing access: choose "Require two-factor
+#      authentication and disallow tokens", then revoke any old npm tokens.
+#   4. Merge the "Version Packages" pull request. This workflow sees 0.1.0 already on npm and
+#      skips it; tag v0.1.0 and create its GitHub Release by hand this once.
+#
+# Requirements this workflow relies on: the `npm` environment (deployments from main only),
+# "Allow GitHub Actions to create and approve pull requests" in the repository settings, and
+# npm >= 11.5.1 for OIDC (Node 24 ships it). A `v*` tag ruleset that limits tag creation to
+# admins blocks the tag push from this workflow; see .github/rulesets/README.md.
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    if: ${{ github.repository == 'PalionTech/palm' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: npm
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history lets the GitHub changelog link each entry to its commit and PR.
+          fetch-depth: 0
+
+      # No dependency cache in the release job: a poisoned cache must not reach a publish.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install and verify
+        run: npm ci && npm run verify
+
+      - name: Version pull request or publish
+        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          publish-script: npx changeset publish
+          create-github-releases: true

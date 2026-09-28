@@ -1,0 +1,49 @@
+name: Feature request
+description: Suggest a new command, option, target or origin layout.
+labels: [type/feature, status/needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For open-ended ideas or questions, start a
+        [discussion](https://github.com/PalionTech/palm/discussions) instead.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: >-
+        What should palm do? Show the command you would like to run and what it should change
+        on disk.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+      description: What have you tried, and how do other tools handle this?
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - CLI (commands, flags, output)
+        - Targets (harness file formats and locations)
+        - Index (scanning origins)
+        - MCP servers
+        - Engine (install, update, uninstall, lockfile)
+        - Not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I would like to open a pull request for this.

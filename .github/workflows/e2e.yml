@@ -1,0 +1,101 @@
+# Nightly end-to-end run of scripts/e2e.sh against real public repositories. It tests the
+# packed tarball installed globally (PALM_BIN=palm, found on PATH), not the checkout's dist/.
+# A failure opens one issue titled "Nightly e2e failed", or comments on it if it is still open.
+name: e2e
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    name: e2e (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # The e2e script reads package.json and parses TOML/YAML with the repo's dependencies.
+      - run: npm ci
+
+      - name: Build and pack
+        run: |
+          npm run build
+          mkdir -p "$RUNNER_TEMP/pack"
+          npm pack --pack-destination "$RUNNER_TEMP/pack"
+
+      - name: Install the tarball globally into a temporary prefix
+        run: |
+          prefix="$RUNNER_TEMP/palm-global"
+          tarball="$(ls "$RUNNER_TEMP"/pack/*.tgz)"
+          (cd "$RUNNER_TEMP" && npm install --global --prefix "$prefix" "$tarball")
+          echo "$prefix/bin" >> "$GITHUB_PATH"
+
+      - name: Run scripts/e2e.sh against the installed palm
+        env:
+          PALM_BIN: palm
+          PALM_E2E_ROOT: ${{ runner.temp }}/palm-e2e
+        run: |
+          command -v palm
+          palm --version
+          bash scripts/e2e.sh
+
+      - name: Upload the e2e log
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-log-${{ matrix.os }}
+          path: ${{ runner.temp }}/palm-e2e/*/e2e.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  report:
+    name: report failure
+    needs: [e2e]
+    if: ${{ failure() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the "Nightly e2e failed" issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SERVER: ${{ github.server_url }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          title="Nightly e2e failed"
+          RUN_URL="$SERVER/$GH_REPO/actions/runs/$RUN_ID"
+          body="The e2e run failed on \`$SHA\` ($EVENT): $RUN_URL
+
+          The step log for each OS is attached to the run as an artifact (e2e-log-<os>)."
+          number="$(gh issue list --state open --limit 200 --json number,title \
+            --jq "map(select(.title == \"$title\")) | first | .number // empty")"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$body"
+          else
+            number="$(gh issue create --title "$title" --body "$body" | sed 's#.*/##')"
+            gh issue edit "$number" --add-label "type/bug" || true
+          fi

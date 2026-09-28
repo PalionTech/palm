@@ -1,0 +1,34 @@
+# Weekly dependency updates. Minor and patch bumps are grouped; majors get their own PR.
+# A 7-day cooldown skips releases younger than a week, which keeps freshly published (and
+# possibly compromised) versions out.
+version: 2
+updates:
+  - package-ecosystem: npm
+    # The CLI at the root and the documentation site in docs/ have separate lockfiles.
+    directories: [/, /docs]
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+    labels: [type/chore]
+    commit-message:
+      prefix: deps
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    groups:
+      actions-minor-and-patch:
+        update-types: [minor, patch]
+    labels: [type/chore]
+    commit-message:
+      prefix: ci

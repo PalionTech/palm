@@ -1,6 +1,6 @@
 {
   "name": "@paliontech/palm",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "palm — package manager for agent resources: skills, agents, instructions, hooks, MCP servers and plugins, installed into Claude Code, Codex, Copilot and Cursor.",
   "keywords": [
     "agent-skills",
@@ -55,6 +55,8 @@
     "knip": "knip --no-exit-code",
     "bench": "node scripts/bench-scan.mjs",
     "verify": "npm run lint && npm run typecheck && npm run check:shape && npm run test && npm run build",
+    "changeset": "changeset",
+    "release": "changeset publish",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
@@ -68,10 +70,13 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
+    "@changesets/changelog-github": "^1.0.1",
+    "@changesets/cli": "^3.0.3",
     "@types/node": "^24.0.0",
     "@vitest/coverage-v8": "~3.2.7",
     "fast-check": "^4.10.2",
     "knip": "^6.38.0",
+    "publint": "^0.3.24",
     "tsdown": "^0.23.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",

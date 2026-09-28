@@ -1,0 +1,85 @@
+name: Bug report
+description: palm did something wrong or failed with an error.
+labels: [type/bug, status/needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please search
+        [open issues](https://github.com/PalionTech/palm/issues) first. Security problems go
+        to a [private report](https://github.com/PalionTech/palm/security/advisories/new),
+        not here.
+  - type: input
+    id: version
+    attributes:
+      label: palm version
+      description: Output of `palm --version`.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      description: palm supports macOS and Linux. Windows is untested.
+      options:
+        - macOS
+        - Linux
+        - Windows (untested)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version and Node.js version
+      placeholder: macOS 26.1, Node 24.21.0
+  - type: checkboxes
+    id: harnesses
+    attributes:
+      label: Harnesses involved
+      description: Which targets was palm installing into?
+      options:
+        - label: Claude Code
+        - label: Codex
+        - label: GitHub Copilot
+        - label: Cursor
+        - label: Gemini CLI
+        - label: opencode
+        - label: None or not relevant
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran, and the directory it ran in if that matters.
+      render: shell
+      placeholder: palm install skill tdd@mattpocock -y
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: What happened instead, including the full error message.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `palm doctor --json`
+      description: Run it in the same directory. Remove anything you consider private.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: verbose
+    attributes:
+      label: Log with `--verbose`
+      description: Run the failing command again with `--verbose` and paste the output.
+      render: shell
