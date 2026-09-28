@@ -1,12 +1,13 @@
-import type { Command } from 'commander';
+/** `palm config get|set`: palm's global settings in config.yaml. */
 import pc from 'picocolors';
 import type { PalmConfig } from '../core/types.js';
+import type { App } from './app.js';
+import type { Invocation } from './grammar.js';
 import {
   type GlobalOptions,
   makeContext,
   parseSecretPolicy,
   parseTargetList,
-  printJson,
   usage,
 } from './shared.js';
 
@@ -20,7 +21,10 @@ export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
 function assertKey(key: string): ConfigKey {
   if ((CONFIG_KEYS as readonly string[]).includes(key)) return key as ConfigKey;
-  throw usage(`unknown config key "${key}"`, `keys: ${CONFIG_KEYS.join(', ')}`);
+  throw usage(
+    `unknown config key "${key}"`,
+    `see every key: palm config get   (keys: ${CONFIG_KEYS.join(', ')})`,
+  );
 }
 
 export function getConfigValue(cfg: PalmConfig, key: ConfigKey): string | undefined {
@@ -70,51 +74,41 @@ export function setConfigValue(cfg: PalmConfig, key: ConfigKey, raw: string): Pa
   return next;
 }
 
-export function registerConfig(program: Command): void {
-  const config = program
-    .command('config')
-    .summary('read or change global settings')
-    .description(`Read or change palm's global config (${CONFIG_KEYS.join(', ')}).`);
+async function configGet(inv: Invocation, app: App): Promise<void> {
+  const g = inv.opts as GlobalOptions;
+  const ctx = await makeContext(app, g);
+  const { loadConfig } = await import('../core/config.js');
+  const cfg = await loadConfig(ctx.paths);
+  const out = app.out;
+  const [key] = inv.names;
+  if (key !== undefined) {
+    const k = assertKey(key);
+    const v = getConfigValue(cfg, k);
+    if (out.jsonMode) out.json({ [k]: v ?? null });
+    else if (v !== undefined) out.out(v);
+    return;
+  }
+  const all = Object.fromEntries(CONFIG_KEYS.map((k) => [k, getConfigValue(cfg, k) ?? null]));
+  if (out.jsonMode) return out.json(all);
+  for (const [k, v] of Object.entries(all)) out.out(`${k.padEnd(16)}${v ?? pc.dim('(unset)')}`);
+}
 
-  config
-    .command('get')
-    .description('Print one config value, or all of them.')
-    .argument('[key]', CONFIG_KEYS.join(' | '))
-    .action(async (key: string | undefined, _opts: unknown, cmd: Command) => {
-      const g = cmd.optsWithGlobals<GlobalOptions>();
-      const ctx = await makeContext(g);
-      const { loadConfig } = await import('../core/config.js');
-      const cfg = await loadConfig(ctx.paths);
-      if (key !== undefined) {
-        const k = assertKey(key);
-        const v = getConfigValue(cfg, k);
-        if (g.json) return printJson({ [k]: v ?? null });
-        if (v !== undefined) console.log(v);
-        return;
-      }
-      const all = Object.fromEntries(CONFIG_KEYS.map((k) => [k, getConfigValue(cfg, k) ?? null]));
-      if (g.json) return printJson(all);
-      for (const [k, v] of Object.entries(all))
-        console.log(`${k.padEnd(16)}${v ?? pc.dim('(unset)')}`);
-    });
+async function configSet(inv: Invocation, app: App): Promise<void> {
+  const g = inv.opts as GlobalOptions;
+  const [key = '', value = ''] = inv.names;
+  const k = assertKey(key);
+  const ctx = await makeContext(app, g);
+  const { loadConfig, saveConfig } = await import('../core/config.js');
+  const next = setConfigValue(await loadConfig(ctx.paths), k, value);
+  const shown = getConfigValue(next, k);
+  if (app.out.jsonMode) app.out.json({ [k]: shown ?? null, dryRun: ctx.flags.dryRun });
+  if (ctx.flags.dryRun) return app.out.hint(`dry run: would set ${k} = ${shown ?? '(unset)'}`);
+  await saveConfig(ctx.paths, next);
+  app.out.updated(shown === undefined ? `unset ${k}` : `${k} = ${shown}`);
+}
 
-  config
-    .command('set')
-    .description('Set a config value (an empty value unsets it).')
-    .argument('<key>', CONFIG_KEYS.join(' | '))
-    .argument('<value>', 'targets: comma list; secrets.*: env-ref | literal; mcpRegistryUrl: URL')
-    .action(async (key: string, value: string, _opts: unknown, cmd: Command) => {
-      const g = cmd.optsWithGlobals<GlobalOptions>();
-      const k = assertKey(key);
-      const ctx = await makeContext(g);
-      const { loadConfig, saveConfig } = await import('../core/config.js');
-      const next = setConfigValue(await loadConfig(ctx.paths), k, value);
-      const shown = getConfigValue(next, k);
-      if (ctx.flags.dryRun) {
-        console.log(`would set ${k} = ${shown ?? '(unset)'}`);
-        return;
-      }
-      await saveConfig(ctx.paths, next);
-      ctx.log.success(shown === undefined ? `unset ${k}` : `${k} = ${shown}`);
-    });
+/** `palm config get [key]` and `palm config set <key> <value>`. */
+export async function run(inv: Invocation, app: App): Promise<void> {
+  if (inv.command === 'config set') return configSet(inv, app);
+  return configGet(inv, app);
 }

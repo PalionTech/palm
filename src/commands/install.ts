@@ -1,9 +1,8 @@
+/** `palm install [kind] [names...]` (aliases `add`, `i`); `install origin` lives in origin.ts. */
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { Command } from 'commander';
 import pc from 'picocolors';
 import { PalmError } from '../core/errors.js';
-import { parseDepRef } from '../core/manifest.js';
 import type {
   EngineDeps,
   InstallRequest,
@@ -16,19 +15,22 @@ import type {
   SecretPolicy,
   TargetId,
 } from '../core/types.js';
-import { printInstallSummary } from '../ui/output.js';
+import { DepRef } from '../domain/dep-ref.js';
+import { type Output, outputOf, printInstallSummary } from '../ui/output.js';
+import type { App } from './app.js';
+import { type Invocation, usage } from './grammar.js';
+import { installOrigin } from './origin.js';
+import { parseArgv } from './program.js';
 import {
-  collect,
-  createRootProgram,
+  ExitSignal,
+  entityKind,
+  entries,
+  failureCount,
   type GlobalOptions,
   makeContext,
   parseSecretPolicy,
   parseTargetList,
-  printJson,
   scopeOf,
-  splitKindArgs,
-  splitPassthrough,
-  usage,
 } from './shared.js';
 
 export interface AdhocMcpArgs {
@@ -65,15 +67,17 @@ interface InstallCliOptions extends GlobalOptions {
   header?: string[];
   env?: string[];
   transport?: string;
+  alias?: string;
+  ref?: string;
+  root?: string;
+  layout?: string[];
+  project?: boolean;
 }
 
 const ADHOC_HINT =
   'palm install mcp <name> -- <command> [args...]   or   palm install mcp <name> --url <url> [--header K=V]';
-
-/** Words people reach for that name a place to install from, not something to install. */
-const NOT_KINDS = new Set(['origin', 'origins', 'registry']);
-const ORIGIN_ADD_HINT = 'register a repository with: palm origin add <owner/repo | url | path>';
 const REPO_PREFIX = /^(?:https?:\/\/|ssh:\/\/|git:\/\/|file:\/\/|git@|github:|gitlab:)/i;
+const ORIGIN_ONLY = ['alias', 'ref', 'root', 'layout', 'project'] as const;
 
 /**
  * True when a spec names a repository or path rather than an entity: a git URL, `github:`/`gitlab:`,
@@ -86,13 +90,12 @@ export function looksLikeRepoRef(spec: string): boolean {
     return true;
   let name: string;
   try {
-    name = parseDepRef(s).name;
+    name = DepRef.parse(s).name;
   } catch {
     return false;
   }
-  if (!name.includes('/')) return false;
-  const first = name.split('/')[0]!;
-  if (first.startsWith('@')) return false; // npm-style scope: leave it to the registry / not-found path
+  const first = name.split('/')[0] ?? '';
+  if (!name.includes('/') || first.startsWith('@')) return false; // npm scope: registry / not found
   return first.startsWith('.') || !first.includes('.');
 }
 
@@ -100,7 +103,7 @@ export function repoRefError(spec: string): PalmError {
   return new PalmError(
     'E_USAGE',
     `"${spec}" is a repository, not an entity name`,
-    `register it: palm origin add ${spec}   or take one entity from it: palm install skill <name> --from ${spec}`,
+    `register it: palm install origin ${spec}   or take one entity from it: palm install skill <name> --from ${spec}`,
   );
 }
 
@@ -113,282 +116,248 @@ function isDirectory(ctx: PalmContext, spec: string): boolean {
   }
 }
 
-/** Pure interpretation of already-tokenised install arguments. */
-export function interpretInstallArgs(
-  positional: string[],
+function adhocArgs(
+  kind: Kind | undefined,
+  specs: string[],
   opts: InstallCliOptions,
   passthrough: string[],
-): ParsedInstallArgs {
-  const first = positional[0]?.toLowerCase();
-  if (first && NOT_KINDS.has(first)) {
+): AdhocMcpArgs | undefined {
+  const headers = opts.header ?? [];
+  const env = opts.env ?? [];
+  const requested =
+    passthrough.length > 0 ||
+    !!opts.url ||
+    headers.length > 0 ||
+    env.length > 0 ||
+    !!opts.transport;
+  if (!requested) return undefined;
+  if (kind !== 'mcp')
     throw usage(
-      `${first} is not an installable kind`,
-      first === 'registry'
-        ? `${ORIGIN_ADD_HINT}; MCP registry servers install with: palm install mcp <registry-name>`
-        : ORIGIN_ADD_HINT,
+      '`--`, --url, --header, --env and --transport define an ad hoc MCP server and need the mcp kind',
+      ADHOC_HINT,
     );
-  }
-  const { kind, rest: specs } = splitKindArgs(positional);
+  if (specs.length !== 1) throw usage('an ad hoc MCP server needs exactly one name', ADHOC_HINT);
+  if (passthrough.length === 0 && !opts.url)
+    throw usage('an ad hoc MCP server needs a command after `--` or --url', ADHOC_HINT);
+  if (passthrough.length > 0 && opts.url)
+    throw usage('give either a command after `--` or --url, not both', ADHOC_HINT);
+  const command = passthrough.length ? passthrough : undefined;
+  return { name: specs[0] ?? '', command, url: opts.url, headers, env, transport: opts.transport };
+}
+
+function checkKindAndSpecs(kind: Kind | undefined, specs: string[], opts: InstallCliOptions): void {
+  if (specs[0]?.toLowerCase() === 'registry' && !kind)
+    throw usage(
+      'registry is not an installable kind',
+      'MCP registry servers install with: palm install mcp <registry-name>',
+    );
   if (!kind) {
     const repo = specs.find(looksLikeRepoRef);
     if (repo) throw repoRefError(repo);
   }
-  const headers = opts.header ?? [];
-  const env = opts.env ?? [];
-  const adhocRequested =
-    passthrough.length > 0 ||
-    Boolean(opts.url) ||
-    headers.length > 0 ||
-    env.length > 0 ||
-    Boolean(opts.transport);
+  const originOnly = ORIGIN_ONLY.filter((k) => opts[k] !== undefined);
+  if (originOnly.length)
+    throw usage(
+      `--${originOnly.join(', --')} only apply to origins`,
+      `palm install origin <spec> --${originOnly[0]} …`,
+    );
+}
 
-  let adhoc: AdhocMcpArgs | undefined;
-  if (adhocRequested) {
-    if (kind !== 'mcp')
-      throw usage(
-        '`--`, --url, --header, --env and --transport define an ad hoc MCP server and need the mcp kind',
-        ADHOC_HINT,
-      );
-    if (specs.length !== 1) throw usage('an ad hoc MCP server needs exactly one name', ADHOC_HINT);
-    if (passthrough.length === 0 && !opts.url)
-      throw usage('an ad hoc MCP server needs a command after `--` or --url', ADHOC_HINT);
-    if (passthrough.length > 0 && opts.url)
-      throw usage('give either a command after `--` or --url, not both', ADHOC_HINT);
-    adhoc = {
-      name: specs[0]!,
-      command: passthrough.length ? passthrough : undefined,
-      url: opts.url,
-      headers,
-      env,
-      transport: opts.transport,
-    };
-  }
-
-  const mode = specs.length === 0 ? 'sync' : 'install';
-  if (mode === 'sync' && kind) {
+function checkMode(mode: 'install' | 'sync', kind: Kind | undefined, opts: InstallCliOptions) {
+  if (mode === 'sync' && kind)
     throw usage(
       `name the ${kind} to install`,
-      'run `palm install` with no arguments to install everything listed in palm.yaml',
+      `palm install ${kind} <name>   (or palm install with no arguments for everything in palm.yaml)`,
     );
-  }
   if (opts.prune && mode !== 'sync')
-    throw usage('--prune only applies to a bare `palm install` (manifest sync)');
-  if (opts.saveOrigin && !opts.from) throw usage('--save-origin needs --from <origin>');
+    throw usage(
+      '--prune only applies to a bare `palm install` (manifest sync)',
+      'palm install --prune',
+    );
+  if (opts.saveOrigin && !opts.from)
+    throw usage(
+      '--save-origin needs --from <origin>',
+      'palm install skill <name> --from owner/repo --save-origin',
+    );
+}
 
-  const global: GlobalOptions = {
-    global: opts.global,
-    target: opts.target,
-    dryRun: opts.dryRun,
-    force: opts.force,
-    yes: opts.yes,
-    offline: opts.offline,
-    verbose: opts.verbose,
-    json: opts.json,
-  };
-
+/** Pure interpretation of an install invocation (entity kinds; origins go to origin.ts). */
+export function interpretInstallArgs(inv: Invocation, passthrough: string[]): ParsedInstallArgs {
+  const opts = inv.opts as InstallCliOptions;
+  const kind = entityKind(inv.resource, 'install');
+  const specs = inv.names;
+  checkKindAndSpecs(kind, specs, opts);
+  const adhoc = adhocArgs(kind, specs, opts, passthrough);
+  const mode = specs.length === 0 ? 'sync' : 'install';
+  checkMode(mode, kind, opts);
+  const { from, saveOrigin, secrets, prune, url, header, env, transport, ...global } = opts;
   return {
     mode,
     kind,
     specs,
-    from: opts.from,
-    saveOrigin: Boolean(opts.saveOrigin),
-    secrets: parseSecretPolicy(opts.secrets),
-    prune: Boolean(opts.prune),
+    from,
+    saveOrigin: Boolean(saveOrigin),
+    secrets: parseSecretPolicy(secrets),
+    prune: Boolean(prune),
     adhoc,
     scope: scopeOf(global),
-    targets: parseTargetList(opts.target),
+    targets: parseTargetList(global.target),
     global,
   };
 }
 
-export function registerInstall(
-  program: Command,
-  passthrough: string[],
-  handler: (parsed: ParsedInstallArgs) => void | Promise<void> = runInstall,
-): void {
-  program
-    .command('install')
-    .aliases(['i', 'add'])
-    .summary('install skills, agents, MCP servers, plugins… (no args: everything in palm.yaml)')
-    .description(
-      'Install entities from your origins into the active targets. With no arguments, install everything palm.yaml lists.',
-    )
-    .argument(
-      '[kind]',
-      'skill, agent, instruction, command, hook, mcp or plugin (plurals ok); omit to search all kinds',
-    )
-    .argument('[specs...]', 'name[@origin][#ref]')
-    .option(
-      '--from <origin>',
-      'take the entities from this origin spec (owner/repo, URL, path) without registering it',
-    )
-    .option('--save-origin', 'register the --from origin')
-    .option(
-      '--secrets <policy>',
-      'MCP secret placement: env-ref (project default) or literal (-g default)',
-    )
-    .option('--prune', 'bare install only: remove installed entries no longer in palm.yaml')
-    .option('--url <url>', 'ad hoc MCP server: HTTP/SSE endpoint')
-    .option('--header <K=V>', 'ad hoc MCP server: HTTP header (repeatable)', collect)
-    .option('--env <K=V>', 'ad hoc MCP server: environment variable (repeatable)', collect)
-    .option('--transport <t>', 'ad hoc MCP server: stdio, http or sse')
-    .addHelpText(
-      'after',
-      `
-Spec grammar: name[@origin][#ref]
-  name       entity name (skill dir / agent file / MCP server key / plugin name)
-  @origin    origin alias from \`palm origin list\` (needed when several origins have the name)
-  #ref       tag, branch or commit of that origin (default: its latest semver tag)
-  MCP registry servers go by their registry name: palm install mcp io.github.upstash/context7
-
-Ad hoc MCP servers (no origin needed):
-  palm install mcp <name> [--env K=V]... -- <command> [args...]
-  palm install mcp <name> --url <url> [--header K=V]... [--transport http|sse]
-  \${VAR} in values stays an environment reference (env-ref) or is filled in (literal).
-
-Examples:
-  palm install                                   install everything in palm.yaml
-  palm install skill wayfinder@mattpocock
-  palm install skills tdd grill-me               several of one kind
-  palm install wayfinder                         search every kind
-  palm install skill tdd@mattpocock#v1.2.3       pin a tag
-  palm i agent reviewer -g --target claude,codex
-  palm install plugin superpowers                all its skills, hooks, agents…
-  palm install mcp fs -- npx -y @modelcontextprotocol/server-filesystem .
-  palm install mcp docs --url https://example.com/mcp --header "Authorization=Bearer \${DOCS_TOKEN}"`,
-    )
-    .action((kind: string | undefined, specs: string[], _opts: unknown, cmd: Command) => {
-      const positional = [...(kind === undefined ? [] : [kind]), ...specs];
-      return handler(
-        interpretInstallArgs(positional, cmd.optsWithGlobals<InstallCliOptions>(), passthrough),
-      );
-    });
-}
-
-/** Parse a full user argv (e.g. `['i', 'agent', 'x', '-g']`) exactly as the CLI would, without running anything. */
+/** Parse a full user argv (e.g. `['i', 'agent', 'x', '-g']`) exactly as the CLI would. */
 export function parseInstallArgs(argv: string[]): ParsedInstallArgs {
-  const { args, passthrough } = splitPassthrough(argv);
-  let parsed: ParsedInstallArgs | undefined;
-  const program = createRootProgram().configureOutput({ writeOut: () => {}, writeErr: () => {} });
-  registerInstall(program, passthrough, (p) => {
-    parsed = p;
-  });
-  program.parse(args, { from: 'user' });
-  if (!parsed) throw usage(`not an install command: ${argv.join(' ')}`);
-  return parsed;
+  const { invocation, passthrough } = parseArgv(argv);
+  if (invocation.command !== 'install' || invocation.resource === 'origin')
+    throw usage(`not an entity install command: ${argv.join(' ')}`);
+  return interpretInstallArgs(invocation, passthrough);
 }
 
-export async function runInstall(parsed: ParsedInstallArgs): Promise<void> {
-  await installWithContext(await makeContext(parsed.global), parsed);
+export async function run(inv: Invocation, app: App): Promise<void> {
+  if (inv.resource === 'origin') return installOrigin(inv, app);
+  const parsed = interpretInstallArgs(inv, app.passthrough);
+  const ctx = await makeContext(app, parsed.global);
+  await installWithContext(ctx, parsed, { out: app.out, deps: app.deps });
+}
+
+interface InstallRun {
+  ctx: PalmContext;
+  parsed: ParsedInstallArgs;
+  out: Output;
+  deps?: Partial<EngineDeps>;
 }
 
 /** `palm install` against a given context (tests pass a sandbox context and fake UI). */
 export async function installWithContext(
   ctx: PalmContext,
   parsed: ParsedInstallArgs,
-  deps?: Partial<EngineDeps>,
+  opts: { out?: Output; deps?: Partial<EngineDeps> } = {},
 ): Promise<void> {
-  const g = parsed.global;
+  const r: InstallRun = { ctx, parsed, out: opts.out ?? outputOf(ctx.log), deps: opts.deps };
+  if (parsed.mode === 'sync') return syncInstall(r);
+  const { result, targets } = await installRequests(r);
+  finishInstall(r, result, targets);
+}
+
+async function resolveTargetsFor(r: InstallRun): Promise<TargetId[]> {
   const { resolveTargets } = await import('../engine/resolve-targets.js');
+  return resolveTargets(
+    r.ctx,
+    { scope: r.parsed.scope, flag: r.parsed.targets, save: true },
+    r.deps,
+  );
+}
 
-  if (parsed.mode === 'sync') {
-    const targets: TargetId[] = await resolveTargets(
-      ctx,
-      { scope: parsed.scope, flag: parsed.targets, save: true },
-      deps,
-    );
-    const { syncManifest } = await import('../engine/sync.js');
-    const result: InstallResult & { extraneous: LockEntry[] } = await syncManifest(
-      ctx,
-      {
-        scope: parsed.scope,
-        prune: parsed.prune,
-        targets,
-        ...(parsed.secrets ? { secretPolicy: parsed.secrets } : {}),
-      },
-      deps,
-    );
-    if (g.json) return printJson(result);
-    printInstallSummary(result, { scope: parsed.scope, targets });
-    if (result.extraneous.length) {
-      console.log('');
-      const names = result.extraneous.map((e) => `${e.kind} ${e.name}`).join(', ');
-      if (parsed.prune)
-        console.log(
-          `${pc.green('✓')} removed ${result.extraneous.length} entr${result.extraneous.length === 1 ? 'y' : 'ies'} not in palm.yaml: ${names}`,
-        );
-      else
-        console.log(
-          pc.yellow(`⚠ installed but not in palm.yaml: ${names}`) +
-            pc.dim('\n  run `palm install --prune` to remove them'),
-        );
-    }
-    if (g.dryRun) console.log(pc.dim(`\n${DRY_RUN_NOTE}`));
-    return;
+async function syncInstall(r: InstallRun): Promise<void> {
+  const targets = await resolveTargetsFor(r);
+  const { syncManifest } = await import('../engine/sync.js');
+  const { parsed } = r;
+  const result: InstallResult & { extraneous: LockEntry[] } = await syncManifest(
+    r.ctx,
+    {
+      scope: parsed.scope,
+      prune: parsed.prune,
+      targets,
+      ...(parsed.secrets ? { secretPolicy: parsed.secrets } : {}),
+    },
+    r.deps,
+  );
+  finishInstall(r, result, targets);
+  if (!result.extraneous.length || r.out.jsonMode) return;
+  const names = result.extraneous.map((e) => `${e.kind} ${e.name}`).join(', ');
+  const n = entries(result.extraneous.length);
+  if (parsed.prune) r.out.removed(`${n} not in palm.yaml: ${names}`);
+  else
+    r.out.warn(`installed but not in palm.yaml: ${names}; remove them with: palm install --prune`);
+}
+
+/** Print (or buffer as JSON) the result; exit 1 when the engine reports failures. */
+function finishInstall(r: InstallRun, result: InstallResult, targets: TargetId[]): void {
+  const { out, parsed } = r;
+  if (out.jsonMode) out.json(result);
+  else printInstallSummary(out, result, { scope: parsed.scope, targets });
+  if (parsed.global.dryRun && !out.jsonMode) out.hint(`\n${DRY_RUN_NOTE}`);
+  const failed = failureCount(result);
+  if (failed) {
+    if (!out.jsonMode) out.error(`${failed} of ${result.outcomes.length} failed; see above`);
+    throw new ExitSignal(1);
   }
+}
 
-  let from: OriginSpec | undefined;
-  if (parsed.from) {
-    const { parseOriginInput, addOrigin } = await import('../core/config.js');
-    from = parseOriginInput(parsed.from);
-    if (parsed.saveOrigin) {
-      if (ctx.flags.dryRun) {
-        ctx.log.info(`dry run: would register origin ${from.alias}`);
-      } else {
-        from = await addOrigin(ctx, from, { scope: parsed.scope });
-        ctx.log.success(`registered origin ${from.alias}`);
-      }
-    }
-  }
+async function buildRequests(r: InstallRun, from: OriginSpec | undefined) {
+  const { parsed } = r;
+  if (!parsed.adhoc)
+    return parsed.specs.map((spec): InstallRequest => ({ kind: parsed.kind, spec, from }));
+  const { parseAdhocMcp } = await import('../mcp/adhoc.js');
+  const a = parsed.adhoc;
+  const adhocMcp = parseAdhocMcp(a.name, {
+    command: a.command,
+    url: a.url,
+    headers: a.headers,
+    env: a.env,
+    transport: a.transport,
+  });
+  return [{ kind: 'mcp', spec: a.name, adhocMcp } satisfies InstallRequest];
+}
 
-  let requests: InstallRequest[];
-  if (parsed.adhoc) {
-    const { parseAdhocMcp } = await import('../mcp/adhoc.js');
-    const a = parsed.adhoc;
-    const adhocMcp = parseAdhocMcp(a.name, {
-      command: a.command,
-      url: a.url,
-      headers: a.headers,
-      env: a.env,
-      transport: a.transport,
-    });
-    requests = [{ kind: 'mcp', spec: a.name, adhocMcp }];
-  } else {
-    requests = parsed.specs.map((spec) => ({ kind: parsed.kind, spec, from }));
-  }
-
-  // Names must resolve before targets are asked for, so bad input fails before any prompt.
-  const { installEntities, preflightInstall } = await import('../engine/install.js');
+/** Names resolve before targets are asked for, so bad input fails before any prompt. */
+async function preflight(r: InstallRun, requests: InstallRequest[]): Promise<void> {
+  const { preflightInstall } = await import('../engine/install.js');
   // A kind-less name that matches nothing but is a local directory was meant as an origin.
-  const dirs = parsed.kind
+  const dirs = r.parsed.kind
     ? []
-    : requests.filter((r) => typeof r.spec === 'string' && isDirectory(ctx, r.spec));
-  for (const r of dirs) {
+    : requests.filter((q) => typeof q.spec === 'string' && isDirectory(r.ctx, q.spec));
+  for (const q of dirs) {
     try {
-      await preflightInstall(ctx, [r], deps);
+      await preflightInstall(r.ctx, [q], r.deps);
     } catch (e) {
-      throw e instanceof PalmError && e.code === 'E_NOT_FOUND' ? repoRefError(r.spec as string) : e;
+      throw e instanceof PalmError && e.code === 'E_NOT_FOUND' ? repoRefError(String(q.spec)) : e;
     }
   }
   await preflightInstall(
-    ctx,
-    dirs.length ? requests.filter((r) => !dirs.includes(r)) : requests,
-    deps,
+    r.ctx,
+    requests.filter((q) => !dirs.includes(q)),
+    r.deps,
   );
-  const targets: TargetId[] = await resolveTargets(
-    ctx,
-    { scope: parsed.scope, flag: parsed.targets, save: true },
-    deps,
-  );
-  const result: InstallResult = await installEntities(
-    ctx,
+}
+
+/** `--from <spec> --save-origin`: register the origin once its entities resolved. */
+async function saveFromOrigin(r: InstallRun, from: OriginSpec): Promise<OriginSpec> {
+  if (r.ctx.flags.dryRun) {
+    r.ctx.log.info(`dry run: would register origin ${from.alias}`);
+    return from;
+  }
+  const { addOrigin } = await import('../core/config.js');
+  const saved = await addOrigin(r.ctx, from, { scope: r.parsed.scope });
+  r.out.added(`origin ${pc.bold(saved.alias)}`);
+  return saved;
+}
+
+async function installRequests(
+  r: InstallRun,
+): Promise<{ result: InstallResult; targets: TargetId[] }> {
+  const { parsed } = r;
+  let from: OriginSpec | undefined;
+  if (parsed.from) {
+    const { parseOriginInput } = await import('../core/config.js');
+    from = parseOriginInput(parsed.from, { cwd: r.ctx.paths.cwd });
+  }
+  const requests = await buildRequests(r, from);
+  await preflight(r, requests);
+  if (from && parsed.saveOrigin) {
+    const saved = await saveFromOrigin(r, from);
+    for (const q of requests) if (q.from) q.from = saved;
+  }
+  const targets = await resolveTargetsFor(r);
+  const { installEntities } = await import('../engine/install.js');
+  const result = await installEntities(
+    r.ctx,
     requests,
     { scope: parsed.scope, targets, secretPolicy: parsed.secrets },
-    deps,
+    r.deps,
   );
-  if (g.json) return printJson(result);
-  printInstallSummary(result, { scope: parsed.scope, targets });
-  if (g.dryRun) console.log(pc.dim(`\n${DRY_RUN_NOTE}`));
+  return { result, targets };
 }
 
 /** What --dry-run does and does not touch (origins are still fetched so the plan is real). */

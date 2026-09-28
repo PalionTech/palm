@@ -13,11 +13,10 @@
  */
 import { parse, stringify } from 'smol-toml';
 import { messageOf, PalmError } from '../core/errors.js';
-import type { MergedRecord } from '../core/types.js';
-import { formatPointer } from '../lib/json-pointer.js';
+import type { TomlTableRecord } from '../domain/merged-record.js';
 import { deepEqual, isRecord } from '../lib/object.js';
 import { atomicWrite, readTextOrUndefined } from './fs-utils.js';
-import { containsAll, recordedPath } from './recorded.js';
+import { containsAll } from './recorded.js';
 
 export interface TomlMergeOptions {
   dryRun: boolean;
@@ -60,12 +59,12 @@ function setPath(doc: Table, p: readonly string[], value: unknown, file: string)
     }
     node = node[seg] as Table;
   });
-  node[p[p.length - 1]!] = value;
+  node[p.at(-1) as string] = value;
 }
 
 function deletePath(doc: Table, p: readonly string[]): void {
   const parent = getPath(doc, p.slice(0, -1));
-  if (isRecord(parent)) delete parent[p[p.length - 1]!];
+  if (isRecord(parent)) delete parent[p.at(-1) as string];
 }
 
 /** Drop ancestors of `p` that became empty tables (`mcp_servers = {}` after removing the last server). */
@@ -87,58 +86,50 @@ export interface TomlHeader {
   array: boolean;
 }
 
+function skipWs(s: string, i: number): number {
+  let j = i;
+  while (s[j] === ' ' || s[j] === '\t') j++;
+  return j;
+}
+
+/** A `"basic"` key starting at `s[i]`, with its escapes decoded. */
+function readBasicKey(s: string, i: number): { seg: string; end: number } | undefined {
+  let j = i + 1;
+  while (j < s.length && s[j] !== '"') j += s[j] === '\\' ? 2 : 1;
+  if (j >= s.length) return undefined;
+  try {
+    return { seg: JSON.parse(s.slice(i, j + 1)) as string, end: j + 1 };
+  } catch {
+    return undefined;
+  }
+}
+
+/** One dotted-key segment starting at `s[i]`: bare, `"basic"` or `'literal'`. */
+function readKey(s: string, i: number): { seg: string; end: number } | undefined {
+  if (s[i] === '"') return readBasicKey(s, i);
+  if (s[i] === "'") {
+    const j = s.indexOf("'", i + 1);
+    return j < 0 ? undefined : { seg: s.slice(i + 1, j), end: j + 1 };
+  }
+  const m = /^[A-Za-z0-9_-]+/.exec(s.slice(i));
+  return m ? { seg: m[0], end: i + m[0].length } : undefined;
+}
+
 /** Parse a `[a."b".c]` or `[[a.b]]` header line; undefined for any other line. */
 export function parseTomlHeader(line: string): TomlHeader | undefined {
-  let s = line.trim();
-  let array = false;
-  if (s.startsWith('[[')) {
-    array = true;
-    s = s.slice(2);
-  } else if (s.startsWith('[')) s = s.slice(1);
-  else return undefined;
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('[')) return undefined;
+  const array = trimmed.startsWith('[[');
+  const s = trimmed.slice(array ? 2 : 1);
   const path: string[] = [];
-  let i = 0;
-  const skipWs = (): void => {
-    while (s[i] === ' ' || s[i] === '\t') i++;
-  };
+  let i = skipWs(s, 0);
   for (;;) {
-    skipWs();
-    if (s[i] === '"') {
-      let j = i + 1;
-      let buf = '"';
-      while (j < s.length && s[j] !== '"') {
-        if (s[j] === '\\') {
-          buf += s[j]! + (s[j + 1] ?? '');
-          j += 2;
-          continue;
-        }
-        buf += s[j];
-        j++;
-      }
-      if (j >= s.length) return undefined;
-      try {
-        path.push(JSON.parse(buf + '"') as string);
-      } catch {
-        return undefined;
-      }
-      i = j + 1;
-    } else if (s[i] === "'") {
-      const j = s.indexOf("'", i + 1);
-      if (j < 0) return undefined;
-      path.push(s.slice(i + 1, j));
-      i = j + 1;
-    } else {
-      const m = /^[A-Za-z0-9_-]+/.exec(s.slice(i));
-      if (!m) return undefined;
-      path.push(m[0]);
-      i += m[0].length;
-    }
-    skipWs();
-    if (s[i] === '.') {
-      i++;
-      continue;
-    }
-    break;
+    const key = readKey(s, i);
+    if (!key) return undefined;
+    path.push(key.seg);
+    i = skipWs(s, key.end);
+    if (s[i] !== '.') break;
+    i = skipWs(s, i + 1);
   }
   const close = array ? ']]' : ']';
   if (!s.startsWith(close, i)) return undefined;
@@ -168,27 +159,27 @@ export function removeTableText(text: string, tablePath: readonly string[]): str
   }
   if (!removed) return text;
   const joined = out.join('\n');
-  return joined.trim() === '' ? '' : joined.replace(/\s*$/, '') + '\n';
+  return joined.trim() === '' ? '' : `${joined.replace(/\s*$/, '')}\n`;
 }
 
 /** Append `[tablePath]` (stringified by smol-toml) after one blank line. */
 export function appendTableText(text: string, tablePath: readonly string[], value: Table): string {
   const fragment = stringify(nest(tablePath, value));
   if (text.trim() === '') return fragment;
-  return text.replace(/\n*$/, '\n') + '\n' + fragment;
+  return `${text.replace(/\n*$/, '\n')}\n${fragment}`;
 }
 
-/** Set table `tablePath` to `value` in `file`. Record pointer: `/<seg>/<seg>` (e.g. `/mcp_servers/fs`). */
+/** Set table `tablePath` to `value` in `file` (stored pointer: `/mcp_servers/fs`). */
 export async function mergeTomlTable(
   file: string,
   tablePath: string[],
   value: Record<string, unknown>,
   opts: TomlMergeOptions,
-): Promise<MergedRecord> {
+): Promise<TomlTableRecord> {
   const text = (await readTextOrUndefined(file)) ?? '';
   const doc = parseToml(text, file);
   const current = getPath(doc, tablePath);
-  const record: MergedRecord = { file, pointer: formatPointer(tablePath), value };
+  const record: TomlTableRecord = { type: 'toml-table', file, path: [...tablePath], value };
   if (deepEqual(current, value)) return record;
   if (current !== undefined && opts.onConflict === 'error') {
     throw new PalmError(
@@ -212,12 +203,12 @@ export async function mergeTomlTable(
   return record;
 }
 
-/** Remove the table recorded by `record` (pointer `/mcp_servers/<name>`). Missing file/table is a no-op. */
-export async function unmergeTomlTable(file: string, record: MergedRecord): Promise<void> {
+/** Remove the table recorded by `record` (`['mcp_servers', name]`). Missing file/table is a no-op. */
+export async function unmergeTomlTable(file: string, record: TomlTableRecord): Promise<void> {
   const text = await readTextOrUndefined(file);
   if (text === undefined || text.trim() === '') return;
   const doc = parseToml(text, file);
-  const tablePath = recordedPath(record.pointer);
+  const tablePath = record.path;
   if (tablePath.length === 0) return;
   const current = getPath(doc, tablePath);
   if (current === undefined || !containsAll(current, record.value)) return;

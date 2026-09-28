@@ -52,6 +52,7 @@ describe('manifest deps', () => {
     expect(m.skills).toEqual(['a@y#v1', 'b@x']);
     m = removeDep(m, 'skill', 'A');
     expect(m.skills).toEqual(['b@x']);
+    expect(removeDep(m, 'skill', 'nope')).toBe(m); // unchanged: the same object
     expect(listDeps(m, 'skill')).toEqual([{ name: 'b', origin: 'x' }]);
   });
 

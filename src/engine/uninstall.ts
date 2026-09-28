@@ -2,32 +2,25 @@ import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { messageOf, PalmError } from '../core/errors.js';
-import { loadLock, removeEntry, saveLock, upsertEntry } from '../core/lockfile.js';
-import {
-  isMcpManifestEntry,
-  listDeps,
-  loadManifest,
-  removeDep,
-  saveManifest,
-} from '../core/manifest.js';
-import { lockPath, manifestPath, safeScopePath, scopeRoot } from '../core/paths.js';
 import {
   KINDS,
   type Kind,
   type LockEntry,
   type Lockfile,
-  type Manifest,
+  type Manifest as ManifestData,
   type PalmContext,
   type Scope,
 } from '../core/types.js';
+import { lockId, Via } from '../domain/entity-key.js';
+import { Lock, type RemovalPlan } from '../domain/lock.js';
+import { Manifest } from '../domain/manifest.js';
+import { ScopePaths } from '../domain/scope-paths.js';
 import { isWithin, removeEmptyParents } from '../lib/fs.js';
 import { type EngineDeps, resolveEngineDeps } from './deps.js';
-import { nameMatchesEntry } from './query.js';
 
-function entryKey(e: { kind: Kind; name: string; origin: string }): string {
-  return `${e.kind}\0${e.name.toLowerCase()}\0${e.origin}`;
-}
+export type { RemovalPlan } from '../domain/lock.js';
 
+/** @deprecated prefer `ScopePaths.abs`. */
 export function absScopeFile(root: string, file: string): string {
   return isAbsolute(file) ? file : join(root, file);
 }
@@ -43,8 +36,8 @@ function levelBelow(base: string, file: string, depth: number): string | undefin
  * pruning stops two levels below the scope root (`.claude/skills`) and one level below palm's
  * home (`~/.palm/hooks`), whichever lets more go.
  */
-async function pruneEmptyDirs(ctx: PalmContext, root: string, file: string): Promise<void> {
-  const stops = [levelBelow(root, file, 2), levelBelow(ctx.paths.palmHome, file, 1)];
+async function pruneEmptyDirs(paths: ScopePaths, file: string): Promise<void> {
+  const stops = [levelBelow(paths.root, file, 2), levelBelow(paths.palmHome, file, 1)];
   const stop = stops
     .filter((d): d is string => d !== undefined)
     .sort((a, b) => a.length - b.length)[0];
@@ -57,40 +50,61 @@ async function pruneEmptyDirs(ctx: PalmContext, root: string, file: string): Pro
  * Harness config dirs (`.claude`, `.codex`, `.cursor`, `.github`, `.vscode`) are never removed.
  * Each is `{ dir, top }`: `dir` and its parents up to and including `top`.
  */
-function palmContainers(
-  ctx: PalmContext,
-  scope: Scope,
-  root: string,
-): Array<{ dir: string; top: string }> {
-  const agents = join(root, '.agents');
-  const hooks =
-    scope === 'project'
-      ? { dir: join(root, '.palm', 'hooks'), top: join(root, '.palm') }
-      : { dir: join(ctx.paths.palmHome, 'hooks'), top: join(ctx.paths.palmHome, 'hooks') };
-  return [{ dir: join(agents, 'skills'), top: agents }, hooks];
+function palmContainers(paths: ScopePaths): Array<{ dir: string; top: string }> {
+  const agents = join(paths.root, '.agents');
+  const hooksTop = paths.scope === 'project' ? paths.palmDir : paths.hooksDir;
+  return [
+    { dir: join(agents, 'skills'), top: agents },
+    { dir: paths.hooksDir, top: hooksTop },
+  ];
 }
 
-async function pruneContainers(
-  ctx: PalmContext,
-  scope: Scope,
-  root: string,
-  touched: string[],
-): Promise<void> {
-  for (const { dir, top } of palmContainers(ctx, scope, root)) {
+async function pruneContainers(paths: ScopePaths, touched: string[]): Promise<void> {
+  for (const { dir, top } of palmContainers(paths)) {
     // removeEmptyParents starts at the parent of its first argument, i.e. at `dir`.
     if (touched.some((f) => isWithin(f, top)))
       await removeEmptyParents(join(dir, '_'), dirname(top));
   }
 }
 
-/** Absolute paths that must survive removal: shared merge targets and files owned by entries that stay. */
+/**
+ * Absolute paths that must survive removal: shared merge targets and files owned by entries
+ * that stay. `leaving` holds lock ids (`lockId`).
+ * @deprecated prefer `Lock.protectedFiles`.
+ */
 export function protectedFiles(root: string, lock: Lockfile, leaving: Set<string>): Set<string> {
-  const out = new Set<string>();
-  for (const e of lock.entries) {
-    for (const m of e.merged ?? []) out.add(absScopeFile(root, m.file));
-    if (!leaving.has(entryKey(e))) for (const f of e.files) out.add(absScopeFile(root, f));
+  const gone = lock.entries.filter((e) => leaving.has(lockId(e)));
+  return Lock.from(lock).protectedFiles({ abs: (f) => absScopeFile(root, f) }, gone);
+}
+
+/** Deletes one file or directory palm owns, then the empty directories above it. */
+async function removeOwned(paths: ScopePaths, abs: string, warnings: string[]): Promise<void> {
+  if (existsSync(abs)) {
+    try {
+      await rm(abs, { recursive: true, force: true });
+    } catch (e) {
+      warnings.push(`could not remove ${abs}: ${messageOf(e)}`);
+      return;
+    }
   }
-  return out;
+  await pruneEmptyDirs(paths, abs);
+}
+
+/** Removes the entry's files that stay inside the scope and are not protected; returns them all. */
+async function removeFiles(
+  paths: ScopePaths,
+  files: string[],
+  protect: Set<string>,
+  warnings: string[],
+): Promise<string[]> {
+  const touched: string[] = [];
+  for (const f of files) {
+    const abs = paths.safeAbs(f);
+    if (!abs) continue; // never delete outside the scope, whatever the lockfile says
+    touched.push(abs);
+    if (!protect.has(abs)) await removeOwned(paths, abs, warnings);
+  }
+  return touched;
 }
 
 /**
@@ -105,196 +119,104 @@ export async function undeployEntries(
   protect: Set<string>,
   warnings: string[],
 ): Promise<void> {
-  const root = scopeRoot(ctx.paths, scope);
+  const paths = ScopePaths.of(ctx, scope);
   const touched: string[] = [];
   for (const entry of entries) {
-    const outside = entry.files.filter((f) => !safeScopePath(ctx.paths, scope, f, ctx.env));
+    const outside = entry.files.filter((f) => !paths.safeAbs(f));
     if (outside.length)
       warnings.push(
         `${entry.kind} ${entry.name}: ignored lock paths outside the ${scope} scope: ${outside.join(', ')}`,
       );
     for (const id of entry.targets) {
       try {
-        await deps.getTarget(id).undeploy(entry, scope, root, ctx.flags.dryRun, ctx.env);
+        await deps.getTarget(id).undeploy(entry, scope, paths.root, ctx.flags.dryRun, ctx.env);
       } catch (e) {
         warnings.push(`${entry.kind} ${entry.name} → ${id}: ${messageOf(e)}`);
       }
     }
-    if (ctx.flags.dryRun) continue;
-    for (const f of entry.files) {
-      const abs = safeScopePath(ctx.paths, scope, f, ctx.env);
-      if (!abs) continue; // never delete outside the scope, whatever the lockfile says
-      touched.push(abs);
-      if (protect.has(abs)) continue;
-      if (existsSync(abs)) {
-        try {
-          await rm(abs, { recursive: true, force: true });
-        } catch (e) {
-          warnings.push(`could not remove ${abs}: ${messageOf(e)}`);
-          continue;
-        }
-      }
-      await pruneEmptyDirs(ctx, root, abs);
-    }
+    if (!ctx.flags.dryRun)
+      touched.push(...(await removeFiles(paths, entry.files, protect, warnings)));
   }
-  if (!ctx.flags.dryRun) await pruneContainers(ctx, scope, root, touched);
+  if (!ctx.flags.dryRun) await pruneContainers(paths, touched);
 }
 
-/** Entries installed as dependencies of `parents` (transitively), without descending into `kept`. */
+/**
+ * Entries installed as dependencies of `parents` (transitively), without descending into
+ * `kept` (lock ids, see `LockKey.id`). See `Lock.dependentsOf`.
+ */
 export function collectDependents(
   lock: Lockfile,
   parents: LockEntry[],
   kept: Set<string> = new Set(),
 ): LockEntry[] {
-  const seen = new Map<string, LockEntry>();
-  const queue = [...parents];
-  while (queue.length) {
-    const e = queue.shift()!;
-    const key = entryKey(e);
-    if (seen.has(key) || kept.has(key)) continue;
-    seen.set(key, e);
-    if (e.kind === 'plugin' || e.kind === 'agent') {
-      const via = `${e.kind}:${e.name}`;
-      for (const d of lock.entries) if (d.via === via) queue.push(d);
-    }
-  }
-  return [...seen.values()];
-}
-
-function sameName(a: string, b: string): boolean {
-  return a.toLowerCase() === b.toLowerCase();
-}
-
-/** True when the manifest lists `e` directly (registry MCP servers also match by registry name). */
-export function manifestLists(
-  manifest: Manifest | undefined,
-  e: Pick<LockEntry, 'kind' | 'name' | 'origin' | 'path'>,
-): boolean {
-  if (!manifest) return false;
-  return listDeps(manifest, e.kind).some(
-    (d) =>
-      sameName(d.name, e.name) ||
-      (e.kind === 'mcp' &&
-        e.origin === 'registry' &&
-        ((isMcpManifestEntry(d) && !!d.registry && sameName(d.registry, e.path)) ||
-          sameName(d.name, e.path))),
-  );
-}
-
-export interface RemovalPlan {
-  /** Entries to undeploy and drop from the lock. */
-  removed: LockEntry[];
-  /** `via` dependencies that stay because another entry still needs them, with their new `via` (undefined = now direct). */
-  kept: Array<{ entry: LockEntry; via?: string }>;
+  return Lock.from(lock).dependentsOf(parents, kept);
 }
 
 /**
- * Reference-counted removal (DESIGN §6 "drop `via` deps that no other entry needs").
- * Starting from `roots`, follow `via` links; a dependency stays when the manifest lists it
- * directly or when an entry that is not being removed lists it in `deps`. With
- * `checkRoots` the roots themselves are subject to the same check (orphaned dependencies).
+ * True when the manifest lists `e` directly (registry MCP servers also match by registry name).
+ * @deprecated prefer `Manifest.lists`.
  */
+export function manifestLists(
+  manifest: ManifestData | undefined,
+  e: Pick<LockEntry, 'kind' | 'name' | 'origin' | 'path'>,
+): boolean {
+  return !!manifest && Manifest.of(manifest).lists(e);
+}
+
+/** Reference-counted removal over plain lock data. See `Lock.planRemoval`. */
 export function planRemoval(
   lock: Lockfile,
   roots: LockEntry[],
-  opts: { manifest?: Manifest; checkRoots?: boolean } = {},
+  opts: { manifest?: ManifestData; checkRoots?: boolean } = {},
 ): RemovalPlan {
-  const rootKeys = new Set(roots.map(entryKey));
-  const keptKeys = new Set<string>();
-  const newVia = new Map<string, string | undefined>();
-  let removed: LockEntry[] = [];
-  for (;;) {
-    removed = collectDependents(lock, roots, keptKeys);
-    const removing = new Set(removed.map(entryKey));
-    let changed = false;
-    for (const c of removed) {
-      const key = entryKey(c);
-      if (rootKeys.has(key) && !opts.checkRoots) continue;
-      if (!c.via && !rootKeys.has(key)) continue;
-      if (manifestLists(opts.manifest, c)) {
-        keptKeys.add(key);
-        newVia.set(key, undefined);
-        changed = true;
-        continue;
-      }
-      const parent = lock.entries.find(
-        (p) =>
-          !removing.has(entryKey(p)) &&
-          (p.deps ?? []).some((d) => d.kind === c.kind && sameName(d.name, c.name)),
-      );
-      if (parent) {
-        keptKeys.add(key);
-        newVia.set(key, `${parent.kind}:${parent.name}`);
-        changed = true;
-      }
-    }
-    if (!changed) break;
-  }
-  const kept = lock.entries
-    .filter((e) => keptKeys.has(entryKey(e)))
-    .map((entry) => {
-      const via = newVia.get(entryKey(entry));
-      return via ? { entry, via } : { entry };
-    });
-  return { removed, kept };
+  const manifest = opts.manifest ? Manifest.of(opts.manifest) : undefined;
+  return Lock.from(lock).planRemoval(roots, {
+    listed: (e) => !!manifest?.lists(e),
+    checkRoots: !!opts.checkRoots,
+  });
 }
 
 /** Apply the `via` changes of a removal plan to the lock. */
 export function reparent(lock: Lockfile, kept: RemovalPlan['kept']): Lockfile {
-  let out = lock;
-  for (const k of kept) {
-    const next: LockEntry = { ...k.entry };
-    if (k.via) next.via = k.via;
-    else delete next.via;
-    out = upsertEntry(out, next);
-  }
-  return out;
+  return Lock.from(lock).reparent(kept).toJSON();
 }
 
-export async function uninstallEntities(
-  ctx: PalmContext,
-  refs: Array<{ kind?: Kind; name: string; origin?: string }>,
-  opts: { scope: Scope },
-  depsIn?: Partial<EngineDeps>,
-): Promise<{ removed: LockEntry[]; warnings: string[] }> {
-  const deps = await resolveEngineDeps(depsIn, { targets: true });
-  const lockFile = lockPath(ctx.paths, opts.scope);
-  const manFile = manifestPath(ctx.paths, opts.scope);
-  let lock = await loadLock(lockFile);
-  let manifest = await loadManifest(manFile);
-  const manifestBefore = JSON.stringify(manifest);
-  const warnings: string[] = [];
+type RemovalRef = { kind?: Kind; name: string; origin?: string };
 
+function notInstalled(ref: RemovalRef, scope: Scope): PalmError {
+  return new PalmError(
+    'E_NOT_FOUND',
+    `${ref.kind ?? 'Nothing'} named "${ref.name}"${ref.origin ? ` from ${ref.origin}` : ''} is ${ref.kind ? 'not ' : ''}installed${scope === 'global' ? ' globally' : ' in this project'}`,
+    scope === 'global' ? 'See `palm list -g`.' : 'See `palm list` (add -g for global installs).',
+  );
+}
+
+/**
+ * The lock entries the refs name; a ref that names nothing installed but a manifest entry
+ * goes to `manifestOnly` (one item per kind, one warning per ref). Throws E_NOT_FOUND, or
+ * E_AMBIGUOUS when a name spans kinds.
+ */
+function selectForRemoval(
+  lock: Lock,
+  manifest: Manifest,
+  refs: RemovalRef[],
+  scope: Scope,
+): {
+  selected: LockEntry[];
+  manifestOnly: Array<{ kind: Kind; name: string }>;
+  warnings: string[];
+} {
   const selected: LockEntry[] = [];
   const manifestOnly: Array<{ kind: Kind; name: string }> = [];
+  const warnings: string[] = [];
   for (const ref of refs) {
-    const matches = lock.entries.filter(
-      (e) =>
-        (!ref.kind || e.kind === ref.kind) &&
-        nameMatchesEntry(e, ref.name) &&
-        (!ref.origin || e.origin === ref.origin),
-    );
+    const matches = lock.select(ref);
     if (matches.length === 0) {
-      const lower = ref.name.toLowerCase();
-      const kinds = (ref.kind ? [ref.kind] : KINDS).filter((k) =>
-        listDeps(manifest, k).some(
-          (d) =>
-            d.name.toLowerCase() === lower ||
-            ('registry' in d && d.registry?.toLowerCase() === lower),
-        ),
-      );
-      if (kinds.length) {
-        for (const k of kinds) manifestOnly.push({ kind: k, name: ref.name });
-        warnings.push(`${ref.name} was not installed; removed it from the manifest`);
-        continue;
-      }
-      throw new PalmError(
-        'E_NOT_FOUND',
-        `${ref.kind ?? 'Nothing'} named "${ref.name}"${ref.origin ? ` from ${ref.origin}` : ''} is ${ref.kind ? 'not ' : ''}installed${opts.scope === 'global' ? ' globally' : ' in this project'}`,
-        opts.scope === 'global'
-          ? 'See `palm list -g`.'
-          : 'See `palm list` (add -g for global installs).',
-      );
+      const kinds = (ref.kind ? [ref.kind] : KINDS).filter((k) => manifest.hasDep(k, ref.name));
+      if (!kinds.length) throw notInstalled(ref, scope);
+      for (const k of kinds) manifestOnly.push({ kind: k, name: ref.name });
+      warnings.push(`${ref.name} was not installed; removed it from the manifest`);
+      continue;
     }
     const kinds = [...new Set(matches.map((m) => m.kind))];
     if (kinds.length > 1) {
@@ -306,49 +228,62 @@ export async function uninstallEntities(
     }
     selected.push(...matches);
   }
+  return { selected, manifestOnly, warnings };
+}
 
-  const plan = planRemoval(lock, selected, { manifest });
-  const removed = plan.removed;
-  const leaving = new Set(removed.map(entryKey));
-  for (const s of selected) {
-    const users = lock.entries.filter(
-      (p) =>
-        !leaving.has(entryKey(p)) &&
-        (p.deps ?? []).some((d) => d.kind === s.kind && sameName(d.name, s.name)),
-    );
-    if (users.length)
-      warnings.push(
-        `${users.map((u) => `${u.kind} ${u.name}`).join(', ')} still reference${users.length === 1 ? 's' : ''} ${s.kind} ${s.name}`,
-      );
-  }
-  const root = scopeRoot(ctx.paths, opts.scope);
-  await undeployEntries(
-    ctx,
-    deps,
-    opts.scope,
-    removed,
-    protectedFiles(root, lock, leaving),
-    warnings,
-  );
-  lock = reparent(lock, plan.kept);
-  for (const k of plan.kept)
-    warnings.push(
-      `kept ${k.entry.kind} ${k.entry.name}: ${k.via ? `still needed by ${k.via.replace(':', ' ')}` : 'listed in the manifest'}`,
-    );
+/** Warnings for selected entries that entries which stay still list in `deps`. */
+function stillUsedWarnings(lock: Lock, selected: LockEntry[], removed: LockEntry[]): string[] {
+  const leaving = new Set(removed.map(lockId));
+  return selected.flatMap((s) => {
+    const users = lock.usersOf(s, leaving);
+    if (!users.length) return [];
+    const who = users.map((u) => `${u.kind} ${u.name}`).join(', ');
+    return [`${who} still reference${users.length === 1 ? 's' : ''} ${s.kind} ${s.name}`];
+  });
+}
 
+function keptWarning(k: RemovalPlan['kept'][number]): string {
+  const via = k.via ? Via.parse(k.via) : undefined;
+  const why = via ? `still needed by ${via.kind} ${via.name}` : 'listed in the manifest';
+  return `kept ${k.entry.kind} ${k.entry.name}: ${why}`;
+}
+
+/** Drops removed direct installs (registry MCP servers also by registry name) from the manifest. */
+function forgetRemoved(manifest: Manifest, removed: LockEntry[]): void {
   for (const e of removed) {
-    lock = removeEntry(lock, e.kind, e.name, e.origin);
-    if (!e.via) {
-      manifest = removeDep(manifest, e.kind, e.name);
-      if (e.kind === 'mcp' && e.origin === 'registry')
-        manifest = removeDep(manifest, e.kind, e.path);
-    }
+    if (e.via) continue;
+    manifest.removeDep(e.kind, e.name);
+    if (e.kind === 'mcp' && e.origin === 'registry') manifest.removeDep(e.kind, e.path);
   }
-  for (const m of manifestOnly) manifest = removeDep(manifest, m.kind, m.name);
+}
+
+export async function uninstallEntities(
+  ctx: PalmContext,
+  refs: RemovalRef[],
+  opts: { scope: Scope },
+  depsIn?: Partial<EngineDeps>,
+): Promise<{ removed: LockEntry[]; warnings: string[] }> {
+  const deps = await resolveEngineDeps(depsIn, { targets: true });
+  const paths = ScopePaths.of(ctx, opts.scope);
+  const lock = await Lock.load(paths.lockFile);
+  const manifest = await Manifest.load(paths.manifestFile);
+  const manifestBefore = JSON.stringify(manifest);
+
+  const { selected, manifestOnly, warnings } = selectForRemoval(lock, manifest, refs, opts.scope);
+  const { removed, kept } = lock.planRemoval(selected, { listed: (e) => manifest.lists(e) });
+  warnings.push(...stillUsedWarnings(lock, selected, removed));
+  const protect = lock.protectedFiles(paths, removed);
+  await undeployEntries(ctx, deps, opts.scope, removed, protect, warnings);
+  warnings.push(...kept.map(keptWarning));
+
+  lock.reparent(kept);
+  for (const e of removed) lock.remove(e);
+  forgetRemoved(manifest, removed);
+  for (const m of manifestOnly) manifest.removeDep(m.kind, m.name);
 
   if (!ctx.flags.dryRun) {
-    if (removed.length || plan.kept.length) await saveLock(lockFile, lock);
-    if (JSON.stringify(manifest) !== manifestBefore) await saveManifest(manFile, manifest);
+    if (removed.length || kept.length) await lock.save(paths.lockFile);
+    if (JSON.stringify(manifest) !== manifestBefore) await manifest.save(paths.manifestFile);
   }
   return { removed, warnings };
 }

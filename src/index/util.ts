@@ -37,11 +37,9 @@ export function asList(v: unknown, opts: { whitespace?: boolean } = {}): string[
   }
   const s = asString(v);
   if (s === undefined) return undefined;
-  const parts = s.includes(',')
-    ? splitOutsideParens(s, ',')
-    : opts.whitespace
-      ? splitOutsideParens(s, ' ')
-      : [s];
+  let parts = [s];
+  if (s.includes(',')) parts = splitOutsideParens(s, ',');
+  else if (opts.whitespace) parts = splitOutsideParens(s, ' ');
   return parts.map((p) => p.trim()).filter((p) => p !== '');
 }
 
@@ -115,7 +113,7 @@ export function dirDepth(rel: string): number {
  */
 export function isWithinRel(rel: string, dir: string): boolean {
   if (dir === '') return true;
-  return rel === dir || rel.startsWith(dir + '/');
+  return rel === dir || rel.startsWith(`${dir}/`);
 }
 
 /** Display form of a relative directory: '' → '.'. */
@@ -127,23 +125,6 @@ export const GLOB_CHARS = /[*?[\]{}!]/;
 
 export function hasGlobChars(p: string): boolean {
   return GLOB_CHARS.test(p);
-}
-
-const DOC_NAMES = new Set([
-  'readme.md',
-  'changelog.md',
-  'license.md',
-  'contributing.md',
-  'code_of_conduct.md',
-  'security.md',
-  'agents.md',
-  'claude.md',
-  'gemini.md',
-]);
-
-/** Repository documentation files that never count as entities even inside `agents/`, `commands/` … */
-export function isDocFile(fileName: string): boolean {
-  return DOC_NAMES.has(fileName.toLowerCase());
 }
 
 /** Semver-looking tag → version string without a leading `v`. */

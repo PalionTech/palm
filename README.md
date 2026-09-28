@@ -20,9 +20,12 @@ palm --version
 
 ## Quick start
 
+Every command has the same shape: `palm <verb> [kind] [names...] [flags]`.
+
 ```sh
-palm origin add mattpocock/skills           # a repo becomes an origin (alias: mattpocock)
-palm origin add cursor/plugins/pstack --alias pstack
+palm install origin mattpocock/skills        # a repo becomes an origin (alias: mattpocock)
+palm install origin cursor/plugins/pstack --alias pstack
+palm get skills --available                  # what your origins offer
 palm search tdd                              # find things across all origins
 palm install skill tdd@mattpocock            # into every harness detected in this project
 palm install skill unslop -g                 # -g: into your home directory instead
@@ -32,6 +35,8 @@ palm install agent comment-sicko             # plus the skills and MCP servers t
 palm install mcp io.github.upstash/context7  # from the MCP registry
 palm install mcp fs -- npx -y @modelcontextprotocol/server-filesystem .
 palm install mcp docs --url https://example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
+palm get                                     # what is installed here
+palm describe skill tdd                      # origin, version, files per harness
 palm create agent                            # wizard: writes it into your "mine" origin, then installs it
 palm install                                 # later, or on another machine: install what palm.yaml lists
 palm uninstall plugin superpowers
@@ -40,30 +45,56 @@ palm uninstall plugin superpowers
 palm works out the targets in this order: `--target claude,codex` (saved to
 `palm.yaml` / the global config), `targets:` in `palm.yaml`, the global default,
 the harness directories it finds (`.claude/`, `.codex/` or `AGENTS.md`,
-`.github/copilot-instructions.md`, `.cursor/`), then a prompt.
+`.github/copilot-instructions.md`, `.cursor/`), then a prompt. `palm get targets`
+shows the result and where it came from.
 
 ## Commands
 
-| Command | What it does |
+| Verb | Aliases | What it does |
+|---|---|---|
+| `palm install [kind] <name[@origin][#ref]>...` | `add`, `i` | Install entities; with no names install everything in `palm.yaml` (files deleted by hand are redeployed; `--prune` removes extras). |
+| `palm install origin <spec>` | | Register an origin: `owner/repo`, `owner/repo/sub/dir`, a git URL, a local path, or a `marketplace.json`. It is fetched and indexed first; nothing is saved when that fails. |
+| `palm uninstall [kind] <name>...` | `remove`, `rm`, `delete` | Remove entities, reverse merged config, drop dependencies nothing else needs. `uninstall origin <alias>` unregisters an origin. |
+| `palm get [kind] [name...]` | `list`, `ls` | What is installed; `--available` lists what your origins offer; `-o` keeps one origin. `get origins`, `get targets`, `get all`. |
+| `palm describe <kind> <name>` | `info` | One entity (origin, version, dependencies, files per harness), `describe origin <alias>` or `describe target <id>` (where each kind goes). |
+| `palm update [kind] [name...]` | `up` | Refetch origins, reinstall what changed; `--dry-run` shows the plan. `update origins [alias...]` refreshes indexes. |
+| `palm create <kind> [name]` | `new` | Author a skill, agent, instruction or command in `~/.palm/mine`, then install it. |
+| `palm search [kind] <query>` | | Search names and descriptions; with no kind, or `mcp`, the MCP registry too. |
+
+Kinds: `skill` (`sk`), `agent` (`ag`), `instruction` (`ins`), `command` (`cmd`),
+`hook` (`hk`), `mcp`, `plugin` (`pl`), `origin` (`orig`), `target` (`tg`), and `all`
+for `palm get`. Plurals work too (`palm get skills`, `palm install skills a b`).
+Without a kind, palm searches every entity kind.
+
+| Utility | What it does |
 |---|---|
-| `palm install [kind] <name[@origin][#ref]>...` (`i`, `add`) | Install entities; with no arguments install everything in `palm.yaml` (redeploying files deleted by hand; `--prune` removes extras). |
-| `palm uninstall [kind] <name>...` (`remove`, `rm`) | Remove entities, reverse merged config, drop dependencies nothing else needs. |
-| `palm list [kind] [-o origin]` (`ls`) | What is installed; `--available` lists what your origins offer, grouped by origin; `-o` keeps one origin (alias, `owner/repo[/root]`, URL or path; installed view also `mine`, `registry`, `adhoc`). |
-| `palm search <query> [--kind k] [--origin o]` | Search names and descriptions; `--kind mcp` also searches the MCP registry. |
-| `palm info <kind> <name[@origin]>` | Origin, version, dependencies, files per harness. |
-| `palm update [kind] [name]...` (`up`) | Refetch origins, reinstall what changed; `--dry-run` shows the plan. |
-| `palm origin add\|list\|remove\|update\|import` | Manage origins; `import` expands a `marketplace.json`. |
-| `palm create agent\|skill\|instruction\|command [name]` (`new`) | Author a new entity in `~/.palm/mine`, then install it. |
 | `palm init` | Write `palm.yaml` (targets) for this project. |
-| `palm targets` | Which harnesses are active, and why. |
-| `palm config get\|set <key> [value]` | Global settings: `targets`, `secrets.project`, `secrets.global`, `mcpRegistryUrl`. |
 | `palm doctor` | Check git, Node, harness dirs, lockfile drift and origin reachability. |
+| `palm config get\|set <key> [value]` | Global settings: `targets`, `secrets.project`, `secrets.global`, `mcpRegistryUrl`. |
+| `palm completion bash\|zsh\|fish` | Print a shell completion script (`palm completion --help` shows how to install it). |
+| `palm cache info\|clean` | Size of the origin cache, or remove it (`--yes`); origins stay registered. |
 
 Global flags: `-g/--global`, `-t/--target`, `--dry-run`, `--force` (overwrite files
-palm does not own), `-y/--yes`, `--offline` (cache only), `--verbose`, `--json`
-(errors too: `{ "error": { "code", "message", "hint" } }`).
+palm does not own), `-y/--yes`, `--offline` (cache only), `--verbose`, `--json`,
+`--no-color` (or `NO_COLOR=1`).
 
-Kinds accept plurals (`palm install skills a b`). Without a kind, palm searches all kinds.
+### Output and exit codes
+
+Status lines start with a symbol: `+` added, `-` removed, `~` updated, `=` unchanged,
+`x` error, `!` warning, `i` info. Warnings are collected and printed once at the end.
+With `--json`, stdout carries one JSON document and nothing else (lists come as
+`{ "items": [...] }`, every document has `warnings`, errors are
+`{ "error": { "code", "message", "hint" } }`); every other line goes to stderr.
+
+| Exit code | Meaning |
+|---|---|
+| 0 | success |
+| 1 | failure (including an install where some target failed) |
+| 2 | usage error |
+| 130 | cancelled at a prompt |
+| 70 | internal error (`--verbose` prints the stack trace) |
+
+The old forms `palm origin add|list|remove|update|import` and `palm targets` still work.
 
 ## Where things go
 
@@ -131,9 +162,10 @@ entries:
 ## Origins
 
 An origin is a git repository (optionally a subdirectory, at a ref) or a local
-directory. `palm origin add` accepts `owner/repo`, `owner/repo/sub/dir`,
+directory. `palm install origin` accepts `owner/repo`, `owner/repo/sub/dir`,
 `github:owner/repo`, any `https://` or `git@` URL with an optional `#ref`, a local
-path, or a `marketplace.json` (same as `palm origin import`). Without a ref palm
+path, or a `marketplace.json` (each plugin it lists becomes an origin). palm fetches
+and indexes the origin before it saves it, so a typo is reported and never stored. Without a ref palm
 uses the latest semver tag, else the default branch. The alias defaults to the repo
 name, or the owner when the repo name is generic (`mattpocock/skills` →
 `mattpocock`).
@@ -146,7 +178,7 @@ then plain conventions (`**/SKILL.md`, `agents/*.md`, `*.instructions.md`,
 layout descriptor:
 
 ```sh
-palm origin add openai/skills --alias openai-curated --layout 'skills=skills/.curated/*'
+palm install origin openai/skills --alias openai-curated --layout 'skills=skills/.curated/*'
 ```
 
 which is stored in `~/.palm/config.yaml`:
@@ -202,8 +234,8 @@ origins:
 - No project-level Codex prompts, no user-level Copilot prompt files and no Cursor user
   rules exist, so those combinations are skipped with a note.
 - When two plugins in one origin ship the same name, only the first is indexed
-  (`palm info` and `palm list --available` show the warning).
-- Remote marketplace entries are reported, not fetched: add them with `palm origin add`.
+  (`palm describe` and `palm get --available` show the warning).
+- Remote marketplace entries are reported, not fetched: add them with `palm install origin`.
 - Only one registry (your configured origins plus the MCP registry); no remote palm index.
 - Windows has not been tested.
 

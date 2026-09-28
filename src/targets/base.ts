@@ -1,6 +1,12 @@
 /**
- * Generic Target implementation. Each harness supplies a `TargetLayout` (where each
- * kind goes at a scope) and a detect function; deploy/undeploy logic is shared.
+ * Generic Target implementation. Each harness supplies a `TargetSpec`: where each kind goes
+ * at a scope (`TargetLayout`) and how to detect it; deploy/undeploy logic is shared.
+ *
+ * A deploy has two halves. The kind handlers fill a `DeployPlan` (files to write with their
+ * content, merged records, notes; no IO), and a `Writer` applies the plan's file writes under
+ * the collision policy, rolling back the files it created when a later step fails. Merges
+ * into shared files (JSON, TOML, AGENTS.md blocks) are still applied by the handlers as
+ * they go; moving them into the plan is the next step.
  */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -9,21 +15,29 @@ import type {
   DeployInput,
   DeployResult,
   Entity,
+  HookSet,
   LockEntry,
-  MergedRecord,
   Scope,
+  MergedRecord as StoredMergedRecord,
   Target,
   TargetId,
 } from '../core/types.js';
-import { isWithin, pathExists, removeEmptyParents, toPosix } from '../lib/fs.js';
+import { HOOK_ASSET_SKIP_FILE, HOOK_ASSET_SKIP_TOP } from '../domain/ignore.js';
+import {
+  blockPointer,
+  type MergedRecord,
+  parseMergedRecord,
+  toStored,
+} from '../domain/merged-record.js';
+import { ScopePaths } from '../domain/scope-paths.js';
+import { isWithin, pathExists, removeEmptyParents } from '../lib/fs.js';
 import { stringifyJson } from '../lib/json.js';
-import { escapeSegment, joinPointer } from '../lib/json-pointer.js';
+import { formatPointer } from '../lib/json-pointer.js';
 import { isSafeName } from '../lib/names.js';
 import { renderAgent } from './convert-agent.js';
 import { renderCommand } from './convert-command.js';
 import { convertHooks, referencesPluginRoot } from './convert-hooks.js';
 import { renderInstruction } from './convert-instruction.js';
-import { type Env, effectiveEnv, hooksAssetDir, palmHooksRoot } from './env.js';
 import {
   atomicWrite,
   ensureMode,
@@ -32,8 +46,8 @@ import {
   removeDirIfExists,
   removeFileIfExists,
 } from './fs-utils.js';
-import { ensureJsonKey, mergeJsonFile, unmergeJsonFile } from './json-merge.js';
-import { BLOCK_POINTER_PREFIX, removeManagedBlock, upsertManagedBlock } from './managed-block.js';
+import { appendJsonItem, ensureJsonKey, setJsonKey, unmergeJsonFile } from './json-merge.js';
+import { removeManagedBlock, upsertManagedBlock } from './managed-block.js';
 import { renderMcp } from './mcp-config.js';
 import { redactSecrets } from './recorded.js';
 import { mergeTomlTable, unmergeTomlTable } from './toml-merge.js';
@@ -55,7 +69,8 @@ export interface TargetLayout {
   commands: { dir: string } | { skip: string };
   /** Merge into a shared hooks file, or write a standalone `<name>.json` into `dir`. */
   hooks: { mergeFile: string; versioned?: boolean } | { dir: string };
-  mcp: { json: string; pointer: string } | { toml: string };
+  /** MCP servers: keys of the JSON object at `path`, or `[mcp_servers.<name>]` TOML tables. */
+  mcp: { json: string; path: string[] } | { toml: string };
   /** Directories this target writes files into (claims them at undeploy). */
   roots: CleanupRoot[];
   /** Shared files outside `roots` this target merges into. */
@@ -65,37 +80,11 @@ export interface TargetLayout {
 export interface TargetSpec {
   id: TargetId;
   displayName: string;
-  layout(scope: Scope, scopeRoot: string, env: Env): TargetLayout;
-  detect(scope: Scope, scopeRoot: string, env: Env): Promise<boolean>;
+  layout(paths: ScopePaths): TargetLayout;
+  detect(paths: ScopePaths): Promise<boolean>;
 }
 
 type OnConflict = 'overwrite' | 'error';
-
-/** Plugin-root entries never copied with hook scripts: docs, tests, CI and repository furniture. */
-const HOOK_ASSET_SKIP_TOP = [
-  '.github',
-  '.gitlab',
-  '.vscode',
-  '.idea',
-  'docs',
-  'doc',
-  'website',
-  'site',
-  'test',
-  'tests',
-  '__tests__',
-  'spec',
-  'fixtures',
-  'examples',
-  'example',
-  'evals',
-  'assets',
-  'media',
-  'images',
-  'screenshots',
-];
-const HOOK_ASSET_SKIP_FILE =
-  /^(README|CHANGELOG|CHANGES|HISTORY|RELEASE[-_]NOTES|CONTRIBUTING|CODE_OF_CONDUCT|SECURITY)(\.[a-z]+)?$/i;
 
 /** Entity names become file and directory names: refuse anything that could leave its directory. */
 function assertSafeEntityName(entity: Entity): void {
@@ -114,135 +103,39 @@ interface PlannedWrite {
   mode?: number;
 }
 
-/** Per-deploy bookkeeping: collision policy, lock-form paths, notes. */
-class DeployCtx {
+type CheckedWrite = PlannedWrite & { exists: boolean };
+
+/** What one deploy produces: files to write, merged records and notes. Bookkeeping only, no IO. */
+class DeployPlan {
+  /** Writes not yet applied by the Writer. */
+  readonly writes: PlannedWrite[] = [];
+  /** Deployed files, lock form. */
   readonly files: string[] = [];
-  readonly merged: MergedRecord[] = [];
+  /** Merged records, lock form. */
+  readonly merged: StoredMergedRecord[] = [];
   readonly notes: string[] = [];
-  private readonly owned: Set<string>;
-  private readonly planned: PlannedWrite[] = [];
-  /** Files this deploy created (did not exist before), for rollback when a later write fails. */
-  private readonly created: string[] = [];
 
-  constructor(
-    readonly input: DeployInput,
-    readonly env: Env,
-  ) {
-    this.owned = new Set(input.ownedFiles.map((f) => this.ownedKey(f)));
-  }
-
-  get scope(): Scope {
-    return this.input.scope;
-  }
-
-  abs(f: string): string {
-    return path.isAbsolute(f) ? f : path.join(this.input.scopeRoot, f);
-  }
-
-  /** Lock form: scope-relative (posix) for project scope, absolute for global. */
-  display(abs: string): string {
-    return this.input.scope === 'project' ? toPosix(path.relative(this.input.scopeRoot, abs)) : abs;
-  }
-
-  /** ownedFiles entries may be `file` or `file#pointer` (merged entries). */
-  private ownedKey(f: string): string {
-    const hash = f.indexOf('#');
-    return hash < 0 ? this.abs(f) : `${this.abs(f.slice(0, hash))}#${f.slice(hash + 1)}`;
-  }
-
-  isOwned(abs: string, pointer?: string): boolean {
-    return this.owned.has(abs) || (pointer !== undefined && this.owned.has(`${abs}#${pointer}`));
-  }
-
-  /** Conflict mode for a merged entry: overwrite when forced or owned (file or file#pointer). */
-  onConflict(abs: string, pointer: string): OnConflict {
-    return this.input.force || this.isOwned(abs, pointer) ? 'overwrite' : 'error';
-  }
+  constructor(readonly paths: ScopePaths) {}
 
   note(msg: string): void {
     if (!this.notes.includes(msg)) this.notes.push(msg);
   }
 
-  addFile(abs: string): void {
-    const d = this.display(abs);
-    if (!this.files.includes(d)) this.files.push(d);
-  }
-
-  addMerged(rec: MergedRecord): void {
-    this.merged.push({ ...rec, file: this.display(rec.file) });
-  }
-
-  plan(abs: string, data: string | Buffer, mode?: number): void {
-    this.planned.push({
+  write(abs: string, data: string | Buffer, mode?: number): void {
+    this.writes.push({
       abs,
       data: typeof data === 'string' ? Buffer.from(data, 'utf8') : data,
       mode,
     });
   }
 
-  /**
-   * Check every planned write against the collision policy before anything is
-   * written: identical content → no-op; foreign different file → E_CONFLICT unless
-   * forced or owned. Returns the writes that are actually needed.
-   */
-  private async checkPlanned(): Promise<Array<PlannedWrite & { exists: boolean }>> {
-    const needed: Array<PlannedWrite & { exists: boolean }> = [];
-    for (const w of this.planned) {
-      let existing: Buffer | undefined;
-      try {
-        existing = await readFileOrUndefined(w.abs);
-      } catch {
-        throw new PalmError(
-          'E_CONFLICT',
-          `refusing to overwrite ${this.display(w.abs)} (not a regular file)`,
-          'move it aside and retry',
-        );
-      }
-      if (existing?.equals(w.data)) {
-        needed.push({ ...w, exists: true });
-        continue;
-      }
-      if (existing && !this.input.force && !this.isOwned(w.abs)) {
-        throw new PalmError(
-          'E_CONFLICT',
-          `refusing to overwrite ${this.display(w.abs)}`,
-          'rerun with --force',
-        );
-      }
-      needed.push({ ...w, exists: false });
-    }
-    return needed;
+  addFile(abs: string): void {
+    const f = this.paths.lockForm(abs);
+    if (!this.files.includes(f)) this.files.push(f);
   }
 
-  private checked?: Array<PlannedWrite & { exists: boolean }>;
-
-  async check(): Promise<void> {
-    this.checked = await this.checkPlanned();
-  }
-
-  /** Perform planned writes (after check()); identical files only get their mode fixed. */
-  async flush(): Promise<void> {
-    const writes = this.checked ?? (await this.checkPlanned());
-    for (const w of writes) {
-      if (!this.input.dryRun) {
-        if (w.exists) {
-          if (w.mode !== undefined) await ensureMode(w.abs, w.mode);
-        } else {
-          const existed = await pathExists(w.abs);
-          await atomicWrite(w.abs, w.data, w.mode);
-          if (!existed) this.created.push(w.abs);
-        }
-      }
-      this.addFile(w.abs);
-    }
-    this.planned.length = 0;
-    this.checked = undefined;
-  }
-
-  /** Remove the files this deploy created, so a failed deploy leaves nothing untracked behind. */
-  async rollback(): Promise<void> {
-    for (const f of this.created.splice(0).reverse())
-      await removeFileIfExists(f).catch(() => undefined);
+  addMerged(rec: MergedRecord): void {
+    this.merged.push(toStored({ ...rec, file: this.paths.lockForm(rec.file) }));
   }
 
   result(skipped?: boolean): DeployResult {
@@ -253,6 +146,111 @@ class DeployCtx {
       ...(skipped ? { skipped: true } : {}),
     };
   }
+}
+
+/**
+ * Applies a plan's writes under the collision policy: identical content is a no-op, a
+ * foreign different file is E_CONFLICT unless forced or owned by the entity. Remembers the
+ * files it created so a failed deploy leaves nothing untracked behind.
+ */
+class Writer {
+  private readonly owned: Set<string>;
+  private readonly created: string[] = [];
+  private checked?: CheckedWrite[];
+
+  constructor(
+    private readonly input: DeployInput,
+    private readonly plan: DeployPlan,
+  ) {
+    this.owned = new Set(input.ownedFiles.map((f) => this.ownedKey(f)));
+  }
+
+  /** ownedFiles entries may be `file` or `file#pointer` (merged entries). */
+  private ownedKey(f: string): string {
+    const hash = f.indexOf('#');
+    const { paths } = this.plan;
+    return hash < 0 ? paths.abs(f) : `${paths.abs(f.slice(0, hash))}#${f.slice(hash + 1)}`;
+  }
+
+  private isOwned(abs: string, pointer?: string): boolean {
+    return this.owned.has(abs) || (pointer !== undefined && this.owned.has(`${abs}#${pointer}`));
+  }
+
+  /** Conflict mode for a merged entry: overwrite when forced or owned (file or file#pointer). */
+  onConflict(abs: string, pointer: string): OnConflict {
+    return this.input.force || this.isOwned(abs, pointer) ? 'overwrite' : 'error';
+  }
+
+  private async checkOne(w: PlannedWrite): Promise<CheckedWrite> {
+    const shown = this.plan.paths.lockForm(w.abs);
+    let existing: Buffer | undefined;
+    try {
+      existing = await readFileOrUndefined(w.abs);
+    } catch {
+      throw new PalmError(
+        'E_CONFLICT',
+        `refusing to overwrite ${shown} (not a regular file)`,
+        'move it aside and retry',
+      );
+    }
+    if (existing?.equals(w.data)) return { ...w, exists: true };
+    if (existing && !this.input.force && !this.isOwned(w.abs))
+      throw new PalmError('E_CONFLICT', `refusing to overwrite ${shown}`, 'rerun with --force');
+    return { ...w, exists: false };
+  }
+
+  private async checkAll(): Promise<CheckedWrite[]> {
+    const out: CheckedWrite[] = [];
+    for (const w of this.plan.writes) out.push(await this.checkOne(w));
+    return out;
+  }
+
+  /** Check every planned write against the collision policy before anything is written. */
+  async check(): Promise<void> {
+    this.checked = await this.checkAll();
+  }
+
+  private async apply(w: CheckedWrite): Promise<void> {
+    if (w.exists) {
+      if (w.mode !== undefined) await ensureMode(w.abs, w.mode);
+      return;
+    }
+    const existed = await pathExists(w.abs);
+    await atomicWrite(w.abs, w.data, w.mode);
+    if (!existed) this.created.push(w.abs);
+  }
+
+  /** Perform the planned writes (checked first); identical files only get their mode fixed. */
+  async flush(): Promise<void> {
+    const writes = this.checked ?? (await this.checkAll());
+    for (const w of writes) {
+      if (!this.input.dryRun) await this.apply(w);
+      this.plan.addFile(w.abs);
+    }
+    this.plan.writes.length = 0;
+    this.checked = undefined;
+  }
+
+  /** Remove the files this deploy created. */
+  async rollback(): Promise<void> {
+    for (const f of this.created.splice(0).reverse())
+      await removeFileIfExists(f).catch(() => undefined);
+  }
+}
+
+/** One deploy call: its input, paths and layout, the plan being built and its writer. */
+interface Job {
+  input: DeployInput;
+  paths: ScopePaths;
+  layout: TargetLayout;
+  plan: DeployPlan;
+  writer: Writer;
+}
+
+/** Flush the planned writes and return the plan's result. */
+async function commit(job: Job): Promise<DeployResult> {
+  await job.writer.flush();
+  return job.plan.result();
 }
 
 function defOf<K extends Entity['def']['kind']>(
@@ -267,99 +265,178 @@ function defOf<K extends Entity['def']['kind']>(
   return entity.def as Extract<Entity['def'], { kind: K }>;
 }
 
+/**
+ * Copy the plugin root a hook's commands reference into `assetDir` (the whole root: scripts
+ * may read sibling files such as skills/<name>/SKILL.md), minus documentation, tests and CI
+ * material that no hook runs.
+ */
+async function planHookAssets(job: Job, hooks: HookSet, assetDir: string): Promise<void> {
+  const { entity, originRoot, absPath } = job.input;
+  const src =
+    hooks.pluginRootRel !== undefined
+      ? path.resolve(originRoot, hooks.pluginRootRel)
+      : path.dirname(absPath);
+  const boundary = isWithin(absPath, originRoot) ? originRoot : path.dirname(absPath);
+  if (!isWithin(src, boundary)) {
+    throw new PalmError(
+      'E_PARSE',
+      `hooks ${entity.name}: plugin root ${src} lies outside the origin ${boundary}`,
+    );
+  }
+  if (!(await pathExists(src))) {
+    job.plan.note(`hooks ${entity.name}: plugin root ${src} not found; commands may fail`);
+    return;
+  }
+  const { files, skipped } = await listCopyFiles(src, { skipTop: HOOK_ASSET_SKIP_TOP, boundary });
+  for (const f of files) {
+    if (!f.rel.includes('/') && HOOK_ASSET_SKIP_FILE.test(f.rel)) continue;
+    job.plan.write(path.join(assetDir, ...f.rel.split('/')), await fs.readFile(f.abs), f.mode);
+  }
+  if (skipped.length)
+    job.plan.note(
+      `hooks ${entity.name}: not copied (symlink leaving the origin, or broken): ${skipped.join(', ')}`,
+    );
+  job.plan.note(`hook scripts copied to ${job.paths.lockForm(assetDir)}`);
+}
+
+/** Append every converted hook entry to the shared hooks file, one record per entry. */
+async function mergeHookEvents(
+  job: Job,
+  hooks: { mergeFile: string; versioned?: boolean },
+  events: Record<string, unknown[]>,
+): Promise<void> {
+  const { dryRun } = job.input;
+  const file = hooks.mergeFile;
+  if (hooks.versioned) await ensureJsonKey(file, ['version'], 1, { dryRun });
+  for (const [event, items] of Object.entries(events)) {
+    for (const item of items)
+      job.plan.addMerged(await appendJsonItem(file, ['hooks', event], item, { dryRun }));
+  }
+}
+
+/** Remove what one merged record put into its file. */
+function unmerge(rec: MergedRecord): Promise<void> {
+  switch (rec.type) {
+    case 'md-block':
+      return removeManagedBlock(rec.file, rec.id);
+    case 'toml-table':
+      return unmergeTomlTable(rec.file, rec);
+    case 'json-item':
+    case 'json-key':
+      return unmergeJsonFile(rec.file, rec);
+  }
+}
+
+/** The innermost root strictly containing `abs`. */
+function rootOf(roots: readonly CleanupRoot[], abs: string): CleanupRoot | undefined {
+  return roots
+    .filter((r) => abs !== r.dir && isWithin(abs, r.dir))
+    .sort((a, b) => b.dir.length - a.dir.length)[0];
+}
+
 export class GenericTarget implements Target {
   readonly id: TargetId;
   readonly displayName: string;
 
   constructor(
     private readonly spec: TargetSpec,
-    private readonly boundEnv?: Env,
+    private readonly boundEnv?: NodeJS.ProcessEnv,
   ) {
     this.id = spec.id;
     this.displayName = spec.displayName;
   }
 
+  /** Paths for a call: its env, else the env bound by createTarget(), else process.env. */
+  private paths(scope: Scope, scopeRoot: string, env?: NodeJS.ProcessEnv): ScopePaths {
+    return ScopePaths.at(scope, scopeRoot, env ?? this.boundEnv ?? process.env);
+  }
+
   detect(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): Promise<boolean> {
-    return this.spec.detect(scope, scopeRoot, env);
+    return this.spec.detect(ScopePaths.at(scope, scopeRoot, env));
   }
 
   configDir(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): string {
-    return this.spec.layout(scope, scopeRoot, env).configDir;
+    return this.spec.layout(ScopePaths.at(scope, scopeRoot, env)).configDir;
   }
 
   async deploy(input: DeployInput): Promise<DeployResult> {
     assertSafeEntityName(input.entity);
-    const env = effectiveEnv(input.scope, input.scopeRoot, input.env, this.boundEnv);
-    const layout = this.spec.layout(input.scope, input.scopeRoot, env);
-    const ctx = new DeployCtx(input, env);
+    const paths = this.paths(input.scope, input.scopeRoot, input.env);
+    const plan = new DeployPlan(paths);
+    const job: Job = {
+      input,
+      paths,
+      layout: this.spec.layout(paths),
+      plan,
+      writer: new Writer(input, plan),
+    };
     try {
-      return await this.deployKind(ctx, layout);
+      return await this.deployKind(job);
     } catch (e) {
-      await ctx.rollback();
+      await job.writer.rollback();
       throw e;
     }
   }
 
-  private async deployKind(ctx: DeployCtx, layout: TargetLayout): Promise<DeployResult> {
-    const input = ctx.input;
-    switch (input.entity.def.kind) {
+  private async deployKind(job: Job): Promise<DeployResult> {
+    switch (job.input.entity.def.kind) {
       case 'skill':
-        return this.deploySkill(ctx, layout);
+        return this.deploySkill(job);
       case 'agent':
-        return this.deployAgent(ctx, layout);
+        return this.deployAgent(job);
       case 'instruction':
-        return this.deployInstruction(ctx, layout);
+        return this.deployInstruction(job);
       case 'command':
-        return this.deployCommand(ctx, layout);
+        return this.deployCommand(job);
       case 'hook':
-        return this.deployHook(ctx, layout);
+        return this.deployHook(job);
       case 'mcp':
-        return this.deployMcp(ctx, layout);
+        return this.deployMcp(job);
       case 'plugin':
-        ctx.note(`plugin ${input.entity.name}: members are installed individually`);
-        return ctx.result(true);
+        job.plan.note(`plugin ${job.input.entity.name}: members are installed individually`);
+        return job.plan.result(true);
     }
   }
 
-  private async deploySkill(ctx: DeployCtx, layout: TargetLayout): Promise<DeployResult> {
-    const { entity, absPath, originRoot } = ctx.input;
-    const dest = path.join(layout.skillsDir, entity.name);
+  private async deploySkill(job: Job): Promise<DeployResult> {
+    const { entity, absPath, originRoot } = job.input;
+    const dest = path.join(job.layout.skillsDir, entity.name);
     // Links may point anywhere inside the origin (shared references), never outside it.
     const boundary = isWithin(absPath, originRoot) ? originRoot : absPath;
     const { files, skipped } = await listCopyFiles(absPath, { boundary }).catch((e: unknown) => {
       throw new PalmError('E_IO', `skill ${entity.name}: cannot read ${absPath}: ${messageOf(e)}`);
     });
     if (skipped.length)
-      ctx.note(
+      job.plan.note(
         `skill ${entity.name}: not copied (symlink leaving the origin, or broken): ${skipped.join(', ')}`,
       );
     if (files.length === 0)
       throw new PalmError('E_NOT_FOUND', `skill ${entity.name}: no files in ${absPath}`);
     for (const f of files)
-      ctx.plan(path.join(dest, ...f.rel.split('/')), await fs.readFile(f.abs), f.mode);
-    await ctx.flush();
-    return ctx.result();
+      job.plan.write(path.join(dest, ...f.rel.split('/')), await fs.readFile(f.abs), f.mode);
+    return commit(job);
   }
 
-  private async deployAgent(ctx: DeployCtx, layout: TargetLayout): Promise<DeployResult> {
-    const { agent } = defOf(ctx.input.entity, 'agent');
-    const r = renderAgent({ ...agent, name: ctx.input.entity.name }, this.id);
-    const dest = path.join(layout.agentsDir, r.fileName);
-    ctx.plan(dest, r.content);
-    await ctx.flush();
+  private async deployAgent(job: Job): Promise<DeployResult> {
+    const { agent } = defOf(job.input.entity, 'agent');
+    const r = renderAgent({ ...agent, name: job.input.entity.name }, this.id);
+    const dest = path.join(job.layout.agentsDir, r.fileName);
+    job.plan.write(dest, r.content);
+    await job.writer.flush();
     if (r.dropped.length)
-      ctx.note(
-        `${ctx.display(dest)}: dropped ${r.dropped.join(', ')} (not supported by ${this.displayName})`,
+      job.plan.note(
+        `${job.paths.lockForm(dest)}: dropped ${r.dropped.join(', ')} (not supported by ${this.displayName})`,
       );
-    return ctx.result();
+    return job.plan.result();
   }
 
-  private async deployInstruction(ctx: DeployCtx, layout: TargetLayout): Promise<DeployResult> {
-    const { instruction } = defOf(ctx.input.entity, 'instruction');
-    const name = ctx.input.entity.name;
+  private async deployInstruction(job: Job): Promise<DeployResult> {
+    const { instruction } = defOf(job.input.entity, 'instruction');
+    const { layout, plan } = job;
+    const name = job.input.entity.name;
     if ('skip' in layout.instructions) {
-      ctx.note(layout.instructions.skip);
-      return ctx.result(true);
+      plan.note(layout.instructions.skip);
+      return plan.result(true);
     }
     const r = renderInstruction({ ...instruction, name }, this.id);
     if ('managedBlock' in r) {
@@ -369,143 +446,89 @@ export class GenericTarget implements Target {
           : path.join(layout.instructions.dir, 'AGENTS.md');
       const id = `instruction:${name}`;
       const rec = await upsertManagedBlock(file, id, r.managedBlock, {
-        dryRun: ctx.input.dryRun,
-        onConflict: ctx.onConflict(file, `${BLOCK_POINTER_PREFIX}${id}`),
-        displayFile: ctx.display(file),
+        dryRun: job.input.dryRun,
+        onConflict: job.writer.onConflict(file, blockPointer(id)),
+        displayFile: job.paths.lockForm(file),
       });
-      ctx.addMerged(rec);
-      return ctx.result();
+      plan.addMerged(rec);
+      return plan.result();
     }
     if (!('dir' in layout.instructions))
       throw new PalmError('E_INTERNAL', `${this.id}: no instruction directory`);
-    ctx.plan(path.join(layout.instructions.dir, r.fileName), r.content);
-    await ctx.flush();
-    return ctx.result();
+    plan.write(path.join(layout.instructions.dir, r.fileName), r.content);
+    return commit(job);
   }
 
-  private async deployCommand(ctx: DeployCtx, layout: TargetLayout): Promise<DeployResult> {
-    const { command } = defOf(ctx.input.entity, 'command');
-    if ('skip' in layout.commands) {
-      ctx.note(layout.commands.skip);
-      return ctx.result(true);
+  private async deployCommand(job: Job): Promise<DeployResult> {
+    const { command } = defOf(job.input.entity, 'command');
+    const { commands } = job.layout;
+    if ('skip' in commands) {
+      job.plan.note(commands.skip);
+      return job.plan.result(true);
     }
-    const r = renderCommand({ ...command, name: ctx.input.entity.name }, this.id);
-    ctx.plan(path.join(layout.commands.dir, r.fileName), r.content);
-    await ctx.flush();
-    return ctx.result();
+    const r = renderCommand({ ...command, name: job.input.entity.name }, this.id);
+    job.plan.write(path.join(commands.dir, r.fileName), r.content);
+    return commit(job);
   }
 
-  private async deployHook(ctx: DeployCtx, layout: TargetLayout): Promise<DeployResult> {
-    const { hooks } = defOf(ctx.input.entity, 'hook');
-    const { entity, scope, scopeRoot, originRoot, absPath, dryRun } = ctx.input;
-    const assetDir = hooksAssetDir(scope, scopeRoot, ctx.env, entity.name);
-    const converted = convertHooks(hooks, this.id, assetDir, scope);
+  private async deployHook(job: Job): Promise<DeployResult> {
+    const { hooks } = defOf(job.input.entity, 'hook');
+    const { entity } = job.input;
+    const { layout, plan } = job;
+    const assetDir = job.paths.hooksAssetDir(entity.name);
+    const converted = convertHooks(hooks, this.id, assetDir, job.paths);
     if (converted.dropped.length)
-      ctx.note(
+      plan.note(
         `hooks ${entity.name}: dropped for ${this.displayName}: ${converted.dropped.join('; ')}`,
       );
     const events = (converted.hooks as { hooks: Record<string, unknown[]> }).hooks;
     if (Object.values(events).every((items) => items.length === 0)) {
-      ctx.note(`hooks ${entity.name}: nothing ${this.displayName} can run`);
-      return ctx.result(true);
+      plan.note(`hooks ${entity.name}: nothing ${this.displayName} can run`);
+      return plan.result(true);
     }
-
-    if (referencesPluginRoot(hooks.raw)) {
-      const src =
-        hooks.pluginRootRel !== undefined
-          ? path.resolve(originRoot, hooks.pluginRootRel)
-          : path.dirname(absPath);
-      const boundary = isWithin(absPath, originRoot) ? originRoot : path.dirname(absPath);
-      if (!isWithin(src, boundary)) {
-        throw new PalmError(
-          'E_PARSE',
-          `hooks ${entity.name}: plugin root ${src} lies outside the origin ${boundary}`,
-        );
-      }
-      if (await pathExists(src)) {
-        // The whole plugin root (scripts may read sibling files such as skills/*/SKILL.md),
-        // minus documentation, tests and CI material that no hook runs.
-        const { files, skipped } = await listCopyFiles(src, {
-          skipTop: HOOK_ASSET_SKIP_TOP,
-          boundary,
-        });
-        for (const f of files) {
-          if (!f.rel.includes('/') && HOOK_ASSET_SKIP_FILE.test(f.rel)) continue;
-          ctx.plan(path.join(assetDir, ...f.rel.split('/')), await fs.readFile(f.abs), f.mode);
-        }
-        if (skipped.length)
-          ctx.note(
-            `hooks ${entity.name}: not copied (symlink leaving the origin, or broken): ${skipped.join(', ')}`,
-          );
-        ctx.note(`hook scripts copied to ${ctx.display(assetDir)}`);
-      } else {
-        ctx.note(`hooks ${entity.name}: plugin root ${src} not found; commands may fail`);
-      }
-    }
-
+    if (referencesPluginRoot(hooks.raw)) await planHookAssets(job, hooks, assetDir);
     if ('dir' in layout.hooks) {
-      ctx.plan(path.join(layout.hooks.dir, `${entity.name}.json`), stringifyJson(converted.hooks));
-      await ctx.flush();
-      return ctx.result();
+      plan.write(
+        path.join(layout.hooks.dir, `${entity.name}.json`),
+        stringifyJson(converted.hooks),
+      );
+      return commit(job);
     }
-
-    await ctx.check();
-    const file = layout.hooks.mergeFile;
-    if (layout.hooks.versioned) await ensureJsonKey(file, '', 'version', 1, { dryRun });
-    for (const [event, items] of Object.entries(events)) {
-      for (const item of items) {
-        ctx.addMerged(
-          await mergeJsonFile(file, `/hooks/${escapeSegment(event)}`, undefined, item, {
-            dryRun,
-            displayFile: ctx.display(file),
-          }),
-        );
-      }
-    }
-    await ctx.flush();
-    return ctx.result();
+    await job.writer.check();
+    await mergeHookEvents(job, layout.hooks, events);
+    return commit(job);
   }
 
-  private async deployMcp(ctx: DeployCtx, layout: TargetLayout): Promise<DeployResult> {
-    const { mcp } = defOf(ctx.input.entity, 'mcp');
-    const { secretPolicy, secretValues, scope, dryRun } = ctx.input;
-    const key = mcp.name || ctx.input.entity.name;
+  private async deployMcp(job: Job): Promise<DeployResult> {
+    const { mcp } = defOf(job.input.entity, 'mcp');
+    const { secretPolicy, secretValues, scope, dryRun } = job.input;
+    const { layout, plan } = job;
+    const key = mcp.name || job.input.entity.name;
     const r = renderMcp({ ...mcp, name: key }, this.id, secretPolicy, secretValues ?? {}, scope);
-    for (const n of r.notes) ctx.note(n);
-    if (!r.entry) return ctx.result(true);
+    for (const n of r.notes) plan.note(n);
+    if (!r.entry) return plan.result(true);
     const file = 'toml' in layout.mcp ? layout.mcp.toml : layout.mcp.json;
     const created = !(await pathExists(file));
-    let rec: MergedRecord;
-    if ('toml' in layout.mcp) {
-      rec = await mergeTomlTable(file, ['mcp_servers', key], r.entry, {
-        dryRun,
-        onConflict: ctx.onConflict(file, `/mcp_servers/${escapeSegment(key)}`),
-        displayFile: ctx.display(file),
-      });
-    } else {
-      const { pointer } = layout.mcp;
-      rec = await mergeJsonFile(file, pointer, key, r.entry, {
-        dryRun,
-        onConflict: ctx.onConflict(file, joinPointer(pointer, key)),
-        displayFile: ctx.display(file),
-      });
-    }
+    const keyPath = 'toml' in layout.mcp ? ['mcp_servers', key] : [...layout.mcp.path, key];
+    const opts = {
+      dryRun,
+      onConflict: job.writer.onConflict(file, formatPointer(keyPath)),
+      displayFile: job.paths.lockForm(file),
+    };
+    const rec =
+      'toml' in layout.mcp
+        ? await mergeTomlTable(file, keyPath, r.entry, opts)
+        : await setJsonKey(file, keyPath, r.entry, opts);
     // The lockfile (and --json output) records placeholders, never literal secret values.
-    ctx.addMerged({ ...rec, value: redactSecrets(rec.value, secretValues) });
+    plan.addMerged({ ...rec, value: redactSecrets(rec.value, secretValues) });
     // User-level MCP configs and anything holding literal secrets: private to the user when palm creates them.
-    if (
-      created &&
-      !dryRun &&
-      (scope === 'global' ||
-        (secretPolicy === 'literal' && Object.keys(secretValues ?? {}).length > 0))
-    ) {
-      await ensureMode(file, 0o600);
-    }
+    const literal = secretPolicy === 'literal' && Object.keys(secretValues ?? {}).length > 0;
+    if (created && !dryRun && (scope === 'global' || literal)) await ensureMode(file, 0o600);
     if (r.envRefs.length)
-      ctx.note(
+      plan.note(
         `MCP ${key}: export ${r.envRefs.join(', ')} in the environment ${this.displayName} runs in`,
       );
-    return ctx.result();
+    return plan.result();
   }
 
   /**
@@ -521,39 +544,27 @@ export class GenericTarget implements Target {
     dryRun: boolean,
     env?: NodeJS.ProcessEnv,
   ): Promise<void> {
-    const e = effectiveEnv(scope, scopeRoot, env, this.boundEnv);
-    const layout = this.spec.layout(scope, scopeRoot, e);
-    const palmRoot = palmHooksRoot(scope, scopeRoot, e);
-    const roots = [...layout.roots, palmRoot];
-    const toAbs = (f: string): string => (path.isAbsolute(f) ? f : path.join(scopeRoot, f));
-    const rootOf = (abs: string): CleanupRoot | undefined =>
-      roots
-        .filter((r) => abs !== r.dir && isWithin(abs, r.dir))
-        .sort((a, b) => b.dir.length - a.dir.length)[0];
-
+    if (dryRun) return;
+    const paths = this.paths(scope, scopeRoot, env);
+    const layout = this.spec.layout(paths);
+    const roots = [...layout.roots, { dir: paths.hooksDir, stop: paths.palmDir }];
     for (const f of entry.files) {
-      const abs = toAbs(f);
-      const root = rootOf(abs);
-      if (!root || dryRun) continue;
+      const abs = paths.abs(f);
+      const root = rootOf(roots, abs);
+      if (!root) continue;
       await removeFileIfExists(abs);
       await removeEmptyParents(abs, root.stop);
     }
-
-    for (const rec of entry.merged ?? []) {
-      const abs = toAbs(rec.file);
+    for (const stored of entry.merged ?? []) {
+      const abs = paths.abs(stored.file);
       const claimed =
         layout.mergedFiles.includes(abs) || layout.roots.some((r) => isWithin(abs, r.dir));
-      if (!claimed || dryRun) continue;
-      if (rec.pointer.startsWith(BLOCK_POINTER_PREFIX))
-        await removeManagedBlock(abs, rec.pointer.slice(BLOCK_POINTER_PREFIX.length));
-      else if (abs.endsWith('.toml')) await unmergeTomlTable(abs, rec);
-      else await unmergeJsonFile(abs, rec);
+      if (claimed) await unmerge(parseMergedRecord({ ...stored, file: abs }));
     }
-
-    if (entry.kind === 'hook' && !dryRun && isSafeName(entry.name)) {
-      const dir = hooksAssetDir(scope, scopeRoot, e, entry.name);
+    if (entry.kind === 'hook' && isSafeName(entry.name)) {
+      const dir = paths.hooksAssetDir(entry.name);
       await removeDirIfExists(dir);
-      await removeEmptyParents(dir, palmRoot.stop);
+      await removeEmptyParents(dir, paths.palmDir);
     }
   }
 }

@@ -25,6 +25,7 @@
 
 import { PalmError } from '../core/errors.js';
 import type { McpServerConfig, Scope, SecretPolicy, TargetId } from '../core/types.js';
+import { optionalSecretNames } from '../domain/secrets.js';
 import { withoutUndefined } from '../lib/object.js';
 import {
   envRef,
@@ -66,32 +67,6 @@ function plainRefs(s: string): string {
   return replacePlaceholders(s, (p) => (isRuntimeVar(p.name) ? undefined : envRef(p.name)));
 }
 
-/**
- * Names of the optional secrets of `cfg`: declared with `required: false`, or undeclared and
- * written with a `:-default` wherever an env value, header value, the url or an arg uses them.
- * The same rule as `optionalSecretNames` in src/mcp/secrets (src/targets may not import it).
- */
-function optionalSecretNames(cfg: McpServerConfig): Set<string> {
-  const required = new Map<string, boolean>();
-  for (const s of cfg.secrets ?? []) required.set(s.name, required.get(s.name) || s.required);
-  const detected = new Map<string, boolean>();
-  const values = [
-    ...Object.values(cfg.env ?? {}),
-    ...Object.values(cfg.headers ?? {}),
-    cfg.url,
-    ...(cfg.args ?? []),
-  ];
-  for (const value of values) {
-    if (typeof value !== 'string') continue;
-    for (const p of findPlaceholders(value)) {
-      if (isRuntimeVar(p.name) || required.has(p.name)) continue;
-      detected.set(p.name, detected.get(p.name) || p.default === undefined);
-    }
-  }
-  const optional = [...required, ...detected].filter(([, isRequired]) => !isRequired);
-  return new Set(optional.map(([name]) => name));
-}
-
 /** Marker for a value that must be left out (optional secret without a value under `literal`). */
 const DROP = Symbol('drop');
 
@@ -104,14 +79,23 @@ class RenderState {
     readonly optional: Set<string>,
   ) {}
 
-  hasValue(v: string): boolean {
-    return this.policy === 'literal' && this.values[v] !== undefined;
+  /** Under `literal`, the value supplied for `v`. */
+  valueOf(v: string): string | undefined {
+    return this.policy === 'literal' ? this.values[v] : undefined;
   }
 
   missing(v: string): void {
     if (this.policy === 'literal')
       this.notes.add(`no value for ${v}; left as an environment reference`);
     this.envRefs.add(v);
+  }
+
+  /** Under `literal`, a note for each of `vars` that has no value. */
+  noteUnresolved(vars: string[]): void {
+    if (this.policy !== 'literal') return;
+    for (const v of vars)
+      if (this.values[v] === undefined)
+        this.notes.add(`no value for ${v}; left as an environment reference`);
   }
 
   /** Under `literal`: the value to write for an unresolved token, DROP, or undefined (keep a reference). */
@@ -173,51 +157,68 @@ function requireField(cfg: McpServerConfig, field: 'command' | 'url'): string {
   return v;
 }
 
+/** Claude fails to load a config whose `${VAR}` is unset without a default: optional secrets get `${VAR:-}`. */
+function claudeRef(v: string, def: string | undefined, optional: boolean): string {
+  const fallback = def ?? (optional ? '' : undefined);
+  return fallback === undefined ? envRef(v) : envRef(v, 'dollar-default', fallback);
+}
+
+interface JsonStyle {
+  target: Exclude<TargetId, 'codex'>;
+  /** `${env:VAR}` (Cursor, VS Code) instead of `${VAR}`. */
+  envColon: boolean;
+}
+
+/**
+ * `s` with each non-runtime token resolved for a JSON harness: a value, a literal fallback, or
+ * the harness's environment reference. DROP when `at.canDrop` and an optional secret without a
+ * value was left out.
+ */
+function rewriteJson(
+  s: string,
+  at: { where: string; canDrop: boolean },
+  style: JsonStyle,
+  st: RenderState,
+): string | typeof DROP {
+  let dropped = false;
+  const out = replacePlaceholders(s, ({ name: v, default: def }) => {
+    if (isRuntimeVar(v)) return undefined;
+    const fallback = st.valueOf(v) ?? st.literalFallback(v, def, at.where, at.canDrop);
+    if (fallback === DROP) {
+      dropped = true;
+      return '';
+    }
+    if (fallback !== undefined) return fallback;
+    st.missing(v);
+    if (style.envColon) return envRef(v, 'env-colon');
+    return style.target === 'claude' ? claudeRef(v, def, st.optional.has(v)) : envRef(v);
+  });
+  return dropped ? DROP : out;
+}
+
 function renderJsonEntry(
   cfg: McpServerConfig,
   target: Exclude<TargetId, 'codex'>,
   scope: Scope,
   st: RenderState,
 ): Record<string, unknown> {
-  const style: 'plain' | 'env-colon' =
-    target === 'claude' || (target === 'copilot' && scope === 'global') ? 'plain' : 'env-colon';
-  const rewrite = (s: string, where: string, canDrop: boolean): string | typeof DROP => {
-    let dropped = false;
-    const out = replacePlaceholders(s, ({ name: v, default: def }) => {
-      if (isRuntimeVar(v)) return undefined;
-      if (st.hasValue(v)) return st.values[v]!;
-      const fallback = st.literalFallback(v, def, where, canDrop);
-      if (fallback === DROP) {
-        dropped = true;
-        return '';
-      }
-      if (fallback !== undefined) return fallback;
-      st.missing(v);
-      if (style === 'env-colon') return envRef(v, 'env-colon');
-      // Claude fails to load a config whose ${VAR} is unset without a default.
-      const withDefault =
-        def !== undefined ? def : target === 'claude' && st.optional.has(v) ? '' : undefined;
-      return withDefault === undefined || target !== 'claude'
-        ? envRef(v)
-        : envRef(v, 'dollar-default', withDefault);
-    });
-    return dropped ? DROP : out;
-  };
-  const scalar = (s: string, where: string): string => rewrite(s, where, false) as string;
+  const copilotCli = target === 'copilot' && scope === 'global';
+  const style: JsonStyle = { target, envColon: target !== 'claude' && !copilotCli };
+  const scalar = (s: string, where: string): string =>
+    rewriteJson(s, { where, canDrop: false }, style, st) as string;
   const mapValues = (
     r: Record<string, string>,
     what: 'env' | 'header',
   ): Record<string, string> | undefined => {
     const out: Record<string, string> = {};
     for (const [k, v] of Object.entries(r)) {
-      const next = rewrite(v, `${what} ${k}`, true);
+      const next = rewriteJson(v, { where: `${what} ${k}`, canDrop: true }, style, st);
       if (next !== DROP) out[k] = next;
     }
     return Object.keys(out).length ? out : undefined;
   };
   const { env, headers } = withSecretPlaceholders(cfg);
   if (cfg.cwd) st.notes.add(`cwd (${cfg.cwd}) is not supported in ${target} MCP config; dropped`);
-  const copilotCli = target === 'copilot' && scope === 'global';
 
   if (cfg.transport === 'stdio') {
     const base = {
@@ -240,6 +241,117 @@ function renderJsonEntry(
   return withoutUndefined({ type: cfg.transport, ...base });
 }
 
+/** Codex expands nothing in command/args/url: substitute known values (literal), else keep the token (with a note). */
+function codexLiteral(s: string, field: string, st: RenderState): string {
+  return replacePlaceholders(s, ({ name: v, default: def, raw }) => {
+    if (isRuntimeVar(v)) return undefined;
+    const fallback = st.valueOf(v) ?? st.literalFallback(v, def, field, false);
+    if (typeof fallback === 'string') return fallback;
+    st.envRefs.add(v);
+    st.notes.add(
+      `Codex does not expand environment variables in ${field}: ${plainRefs(raw)} is passed literally (install with --secrets literal to substitute it)`,
+    );
+    return undefined;
+  });
+}
+
+/**
+ * `raw` with every token resolved without the environment (values or literal defaults); DROP
+ * when an optional secret without a value was left out; undefined when a token needs the
+ * environment. Values without tokens come back unchanged.
+ */
+function codexSubstituted(
+  raw: string,
+  where: string,
+  st: RenderState,
+): string | typeof DROP | undefined {
+  let dropped = false;
+  let unresolved = false;
+  const out = replacePlaceholders(raw, ({ name: v, default: def }) => {
+    if (isRuntimeVar(v)) return undefined;
+    const fallback = st.valueOf(v) ?? st.literalFallback(v, def, where, true);
+    if (fallback === DROP) dropped = true;
+    else if (fallback !== undefined) return fallback;
+    else unresolved = true;
+    return undefined;
+  });
+  if (dropped) return DROP;
+  return unresolved ? undefined : out;
+}
+
+function codexStdio(
+  cfg: McpServerConfig,
+  env: Record<string, string>,
+  st: RenderState,
+): Record<string, unknown> {
+  const literalEnv: Record<string, string> = {};
+  const envVars: string[] = [];
+  for (const [k, raw] of Object.entries(env)) {
+    const sub = codexSubstituted(raw, `env ${k}`, st);
+    if (sub === DROP) continue;
+    if (sub !== undefined) {
+      literalEnv[k] = sub;
+      continue;
+    }
+    st.noteUnresolved(tokensOf(raw));
+    envVars.push(k);
+    st.envRefs.add(k);
+    if (exactVar(raw) !== k)
+      st.notes.add(`Codex forwards ${k} from your environment: export ${k}="${plainRefs(raw)}"`);
+  }
+  return withoutUndefined({
+    command: codexLiteral(requireField(cfg, 'command'), 'command', st),
+    args: cfg.args?.length ? cfg.args.map((a) => codexLiteral(a, 'args', st)) : undefined,
+    cwd: cfg.cwd,
+    env_vars: envVars.length ? envVars : undefined,
+    env: Object.keys(literalEnv).length ? literalEnv : undefined,
+  });
+}
+
+/** The variable Codex reads the whole header `h` from (noted when the value is more than one token). */
+function codexEnvHeader(h: string, raw: string, st: RenderState): string {
+  const exact = exactVar(raw);
+  const v = exact ?? (tokensOf(raw)[0] as string);
+  st.envRefs.add(v);
+  if (!exact) {
+    st.notes.add(
+      `Codex sends the value of ${v} as the whole "${h}" header: export ${v}="${plainRefs(raw)}" with the secret filled in (the full header value, not just the secret)`,
+    );
+  }
+  return v;
+}
+
+function codexHttp(
+  cfg: McpServerConfig,
+  headers: Record<string, string>,
+  st: RenderState,
+): Record<string, unknown> {
+  const httpHeaders: Record<string, string> = {};
+  const envHeaders: Record<string, string> = {};
+  let bearer: string | undefined;
+  for (const [h, raw] of Object.entries(headers)) {
+    const sub = codexSubstituted(raw, `header ${h}`, st);
+    if (sub === DROP) continue;
+    if (sub !== undefined) {
+      httpHeaders[h] = sub;
+      continue;
+    }
+    st.noteUnresolved(tokensOf(raw));
+    const bearerName = bearerVar(raw);
+    if (/^authorization$/i.test(h) && bearerName && bearer === undefined) {
+      bearer = bearerName;
+      st.envRefs.add(bearer);
+    } else envHeaders[h] = codexEnvHeader(h, raw, st);
+  }
+  if (Object.keys(headers).length === 0) st.notes.add(OAUTH_NOTE);
+  return withoutUndefined({
+    url: codexLiteral(requireField(cfg, 'url'), 'url', st),
+    bearer_token_env_var: bearer,
+    http_headers: Object.keys(httpHeaders).length ? httpHeaders : undefined,
+    env_http_headers: Object.keys(envHeaders).length ? envHeaders : undefined,
+  });
+}
+
 function renderCodexTable(
   cfg: McpServerConfig,
   st: RenderState,
@@ -248,110 +360,8 @@ function renderCodexTable(
     st.notes.add(`Codex does not support SSE MCP servers; "${cfg.name}" skipped for codex`);
     return undefined;
   }
-  // Codex expands nothing in command/args/url: substitute known values (literal), else keep the token.
-  const literalOnly = (s: string, field: string): string =>
-    replacePlaceholders(s, ({ name: v, default: def, raw }) => {
-      if (isRuntimeVar(v)) return undefined;
-      if (st.hasValue(v)) return st.values[v]!;
-      const fallback = st.literalFallback(v, def, field, false);
-      if (typeof fallback === 'string') return fallback;
-      st.envRefs.add(v);
-      st.notes.add(
-        `Codex does not expand environment variables in ${field}: ${plainRefs(raw)} is passed literally (install with --secrets literal to substitute it)`,
-      );
-      return undefined;
-    });
-  /** All tokens resolvable without the environment (values or literal defaults)? Then the substituted text, else undefined. */
-  const substituted = (raw: string, where: string): string | typeof DROP | undefined => {
-    let dropped = false;
-    let unresolved = false;
-    const out = replacePlaceholders(raw, ({ name: v, default: def }) => {
-      if (isRuntimeVar(v)) return undefined;
-      if (st.hasValue(v)) return st.values[v]!;
-      const fallback = st.literalFallback(v, def, where, true);
-      if (fallback === DROP) dropped = true;
-      else if (fallback !== undefined) return fallback;
-      else unresolved = true;
-      return undefined;
-    });
-    if (dropped) return DROP;
-    return unresolved ? undefined : out;
-  };
   const { env, headers } = withSecretPlaceholders(cfg);
-
-  if (cfg.transport === 'stdio') {
-    const literalEnv: Record<string, string> = {};
-    const envVars: string[] = [];
-    for (const [k, raw] of Object.entries(env)) {
-      const toks = tokensOf(raw);
-      if (toks.length === 0) {
-        literalEnv[k] = raw;
-        continue;
-      }
-      const sub = substituted(raw, `env ${k}`);
-      if (sub === DROP) continue;
-      if (sub !== undefined) {
-        literalEnv[k] = sub;
-        continue;
-      }
-      for (const t of toks)
-        if (!st.hasValue(t) && st.policy === 'literal')
-          st.notes.add(`no value for ${t}; left as an environment reference`);
-      envVars.push(k);
-      st.envRefs.add(k);
-      if (exactVar(raw) !== k)
-        st.notes.add(`Codex forwards ${k} from your environment: export ${k}="${plainRefs(raw)}"`);
-    }
-    return withoutUndefined({
-      command: literalOnly(requireField(cfg, 'command'), 'command'),
-      args: cfg.args?.length ? cfg.args.map((a) => literalOnly(a, 'args')) : undefined,
-      cwd: cfg.cwd,
-      env_vars: envVars.length ? envVars : undefined,
-      env: Object.keys(literalEnv).length ? literalEnv : undefined,
-    });
-  }
-
-  const httpHeaders: Record<string, string> = {};
-  const envHeaders: Record<string, string> = {};
-  let bearer: string | undefined;
-  for (const [h, raw] of Object.entries(headers)) {
-    const toks = tokensOf(raw);
-    if (toks.length === 0) {
-      httpHeaders[h] = raw;
-      continue;
-    }
-    const sub = substituted(raw, `header ${h}`);
-    if (sub === DROP) continue;
-    if (sub !== undefined) {
-      httpHeaders[h] = sub;
-      continue;
-    }
-    for (const t of toks)
-      if (!st.hasValue(t) && st.policy === 'literal')
-        st.notes.add(`no value for ${t}; left as an environment reference`);
-    const bearerName = bearerVar(raw);
-    if (/^authorization$/i.test(h) && bearerName && bearer === undefined) {
-      bearer = bearerName;
-      st.envRefs.add(bearer);
-      continue;
-    }
-    const exact = exactVar(raw);
-    const v = exact ?? toks[0]!;
-    envHeaders[h] = v;
-    st.envRefs.add(v);
-    if (!exact) {
-      st.notes.add(
-        `Codex sends the value of ${v} as the whole "${h}" header: export ${v}="${plainRefs(raw)}" with the secret filled in (the full header value, not just the secret)`,
-      );
-    }
-  }
-  if (Object.keys(headers).length === 0) st.notes.add(OAUTH_NOTE);
-  return withoutUndefined({
-    url: literalOnly(requireField(cfg, 'url'), 'url'),
-    bearer_token_env_var: bearer,
-    http_headers: Object.keys(httpHeaders).length ? httpHeaders : undefined,
-    env_http_headers: Object.keys(envHeaders).length ? envHeaders : undefined,
-  });
+  return cfg.transport === 'stdio' ? codexStdio(cfg, env, st) : codexHttp(cfg, headers, st);
 }
 
 /** Full render with notes and the env vars to export. `scope` only matters for copilot. */

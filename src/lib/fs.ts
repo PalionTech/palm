@@ -1,14 +1,18 @@
 /**
- * Filesystem primitives: errno checks, containment, atomic writes, JSON files and pruning of
- * empty directories. Errors from the filesystem propagate unchanged (check them with
+ * Filesystem primitives: errno checks, containment, atomic writes, JSON files, pruning of
+ * empty directories and a symlink-safe file walk. Errors from the filesystem propagate unchanged (check them with
  * `errnoCode`); callers wrap them in their own error types.
  */
 import { randomBytes } from 'node:crypto';
+import type { Stats } from 'node:fs';
 import {
   access,
   chmod,
+  lstat,
   mkdir,
+  readdir,
   readFile,
+  realpath,
   rename,
   rm,
   rmdir,
@@ -159,4 +163,73 @@ export async function removeEmptyParents(from: string, stopAt: string): Promise<
     dir = path.dirname(dir);
   }
   return removed;
+}
+
+export interface WalkOptions {
+  /** Symlinks are followed only when their real target lies inside this directory (default: the root). */
+  boundary?: string;
+  /** Entries left out (not listed, not entered), decided on the name before the entry is examined. */
+  skip?: (name: string, rel: string) => boolean;
+}
+
+export interface WalkResult {
+  /**
+   * Regular files, depth first, each directory's names sorted: `rel` relative to the root (posix
+   * separators), `abs` below the root (through any followed link), `mode` the permission bits.
+   */
+  files: Array<{ rel: string; abs: string; mode: number }>;
+  /** Entries not followed: symlinks leaving the boundary, broken links, unreadable entries. `'.'` when the root itself leaves the boundary. */
+  skipped: string[];
+}
+
+interface Walk {
+  boundary: string;
+  skip: (name: string, rel: string) => boolean;
+  /** Real paths of the directories entered (a link back into one is not walked again). */
+  seen: Set<string>;
+  out: WalkResult;
+}
+
+/** Stats of `abs` (following a link whose real target stays inside `boundary`); undefined otherwise. */
+async function statInside(abs: string, boundary: string): Promise<Stats | undefined> {
+  try {
+    const lst = await lstat(abs);
+    if (!lst.isSymbolicLink()) return lst;
+    return isWithin(await realpath(abs), boundary) ? await stat(abs) : undefined;
+  } catch {
+    return undefined; // broken link or unreadable entry
+  }
+}
+
+async function walkDir(dir: string, relDir: string, w: Walk): Promise<void> {
+  const real = await realpath(dir);
+  if (w.seen.has(real)) return;
+  w.seen.add(real);
+  for (const name of (await readdir(dir)).sort()) {
+    const rel = relDir ? `${relDir}/${name}` : name;
+    if (w.skip(name, rel)) continue;
+    const abs = path.join(dir, name);
+    const st = await statInside(abs, w.boundary);
+    if (!st) w.out.skipped.push(rel);
+    else if (st.isDirectory()) await walkDir(abs, rel, w);
+    else if (st.isFile()) w.out.files.push({ rel, abs, mode: st.mode & 0o777 });
+  }
+}
+
+/**
+ * Every regular file below the directory `root`. Symlinks are followed only when their real
+ * target stays inside `boundary` (default: `root`); a link that points anywhere else, or is
+ * broken, is never read and is reported in `skipped`. A symlinked `root` is resolved and checked
+ * the same way. Each real directory is walked once, so links cannot loop. Errors reading `root`
+ * itself propagate.
+ */
+export async function walkFiles(root: string, opts: WalkOptions = {}): Promise<WalkResult> {
+  const boundary = await realpath(opts.boundary ?? root);
+  const out: WalkResult = { files: [], skipped: [] };
+  if (!isWithin(await realpath(root), boundary)) {
+    out.skipped.push('.');
+    return out;
+  }
+  await walkDir(root, '', { boundary, skip: opts.skip ?? (() => false), seen: new Set(), out });
+  return out;
 }

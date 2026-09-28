@@ -61,21 +61,23 @@ function nonEmpty<T>(xs: T[] | undefined): T[] | undefined {
   return xs && xs.length > 0 ? xs : undefined;
 }
 
+/** Control characters TOML basic strings must escape (all but tab and newline). */
+function isTomlControl(code: number): boolean {
+  return (code <= 0x1f && code !== 0x09 && code !== 0x0a) || code === 0x7f;
+}
+
 /**
  * TOML multi-line basic string. Escapes backslashes, control characters and every
  * quote that is part of a run of two or more or that ends the string, so the
  * closing delimiter can never be formed by the content.
  */
 export function tomlMultilineString(s: string): string {
-  let body = s
-    .replace(/\\/g, '\\\\')
-    .replace(/\r\n/g, '\n')
-    .replace(
-      /[\u0000-\u0008\u000b-\u001f\u007f]/g,
-      (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
-    )
-    .replace(/"{2,}/g, (run) => run.replace(/"/g, '\\"'));
-  if (body.endsWith('"') && !body.endsWith('\\"')) body = body.slice(0, -1) + '\\"';
+  const escaped = Array.from(s.replace(/\\/g, '\\\\').replace(/\r\n/g, '\n'), (c) => {
+    const code = c.charCodeAt(0);
+    return isTomlControl(code) ? `\\u${code.toString(16).padStart(4, '0')}` : c;
+  }).join('');
+  let body = escaped.replace(/"{2,}/g, (run) => run.replace(/"/g, '\\"'));
+  if (body.endsWith('"') && !body.endsWith('\\"')) body = `${body.slice(0, -1)}\\"`;
   return `"""\n${body}"""`;
 }
 
@@ -92,112 +94,143 @@ function pickExtra(
   return { kept, dropped };
 }
 
-export function renderAgent(
+type RenderedAgent = { fileName: string; content: string; dropped: string[] };
+
+/** The list fields of a definition, undefined when empty. */
+interface AgentLists {
+  tools?: string[];
+  disallowedTools?: string[];
+  skills?: string[];
+  mcpServers?: string[];
+}
+
+type DroppableField = keyof AgentLists | 'color';
+
+/** Record, in order, each of `fields` the definition sets but the target cannot express. */
+function dropFields(
   def: AgentDefinition,
-  target: TargetId,
-): { fileName: string; content: string; dropped: string[] } {
+  lists: AgentLists,
+  fields: readonly DroppableField[],
+  dropped: string[],
+): void {
+  for (const f of fields) if (f === 'color' ? def.color : lists[f]) dropped.push(f);
+}
+
+/** Extra keys the target understands; the others are recorded as dropped. */
+function keepExtra(
+  def: AgentDefinition,
+  allowed: readonly string[],
+  dropped: string[],
+): Record<string, unknown> {
+  const { kept, dropped: extraDropped } = pickExtra(def.extra, allowed);
+  dropped.push(...extraDropped.map((k) => `extra: ${k}`));
+  return kept;
+}
+
+/** `model`, or undefined (recorded as dropped) when `foreign` says the target cannot use it. */
+function keepModel(
+  model: string | undefined,
+  foreign: (m: string) => boolean,
+  dropped: string[],
+): string | undefined {
+  if (!model || !foreign(model)) return model;
+  dropped.push(`model (${model})`);
+  return undefined;
+}
+
+function renderClaude(def: AgentDefinition, lists: AgentLists): RenderedAgent {
+  const extra = Object.fromEntries(
+    Object.entries(def.extra ?? {}).filter(([k]) => !CLAUDE_KNOWN.includes(k)),
+  );
+  const fm = {
+    name: def.name,
+    description: def.description,
+    model: def.model,
+    tools: lists.tools?.join(', '),
+    disallowedTools: lists.disallowedTools?.join(', '),
+    skills: lists.skills,
+    mcpServers: lists.mcpServers,
+    color: def.color,
+    ...extra,
+  };
+  return { fileName: `${def.name}.md`, content: stringifyFrontmatter(fm, def.body), dropped: [] };
+}
+
+function renderCodex(def: AgentDefinition, lists: AgentLists): RenderedAgent {
   const dropped: string[] = [];
-  const tools = nonEmpty(def.tools);
-  const skills = nonEmpty(def.skills);
-  const mcpServers = nonEmpty(def.mcpServers);
-  const disallowed = nonEmpty(def.disallowedTools);
+  const model = keepModel(def.model, isClaudeModel, dropped);
+  dropFields(def, lists, ['tools', 'disallowedTools', 'skills', 'mcpServers', 'color'], dropped);
+  const kept = keepExtra(def, CODEX_EXTRA, dropped);
+  const head = tomlStringify({
+    name: def.name,
+    description: def.description,
+    ...(model ? { model } : {}),
+    ...kept,
+  }).replace(/\n+$/, '');
+  const content = `${head}\ndeveloper_instructions = ${tomlMultilineString(normalizeBody(def.body))}\n`;
+  return { fileName: `${def.name}.toml`, content, dropped };
+}
 
-  switch (target) {
-    case 'claude': {
-      const extra = Object.fromEntries(
-        Object.entries(def.extra ?? {}).filter(([k]) => !CLAUDE_KNOWN.includes(k)),
-      );
-      const fm = {
-        name: def.name,
-        description: def.description,
-        model: def.model,
-        tools: tools?.join(', '),
-        disallowedTools: disallowed?.join(', '),
-        skills,
-        mcpServers,
-        color: def.color,
-        ...extra,
-      };
-      return { fileName: `${def.name}.md`, content: stringifyFrontmatter(fm, def.body), dropped };
-    }
+/** Copilot `tools`: MCP tools stay allowed when tools are restricted (`<server>/*` per server). */
+function copilotTools({ tools, mcpServers }: AgentLists): string[] | undefined {
+  if (!tools) return undefined;
+  const out = [...tools];
+  for (const s of mcpServers ?? []) if (!out.includes(`${s}/*`)) out.push(`${s}/*`);
+  return out;
+}
 
-    case 'codex': {
-      let model = def.model;
-      if (model && isClaudeModel(model)) {
-        dropped.push(`model (${model})`);
-        model = undefined;
-      }
-      if (tools) dropped.push('tools');
-      if (disallowed) dropped.push('disallowedTools');
-      if (skills) dropped.push('skills');
-      if (mcpServers) dropped.push('mcpServers');
-      if (def.color) dropped.push('color');
-      const { kept, dropped: extraDropped } = pickExtra(def.extra, CODEX_EXTRA);
-      dropped.push(...extraDropped.map((k) => `extra: ${k}`));
-      const head = tomlStringify({
-        name: def.name,
-        description: def.description,
-        ...(model ? { model } : {}),
-        ...kept,
-      }).replace(/\n+$/, '');
-      const content = `${head}\ndeveloper_instructions = ${tomlMultilineString(normalizeBody(def.body))}\n`;
-      return { fileName: `${def.name}.toml`, content, dropped };
-    }
+function renderCopilot(def: AgentDefinition, lists: AgentLists): RenderedAgent {
+  const dropped: string[] = [];
+  const model = keepModel(def.model, isClaudeModelAlias, dropped);
+  dropFields(def, lists, ['mcpServers', 'skills', 'disallowedTools', 'color'], dropped);
+  const kept = keepExtra(def, COPILOT_EXTRA, dropped);
+  const fm = {
+    name: def.displayName ?? def.name,
+    description: def.description,
+    model,
+    tools: copilotTools(lists),
+    ...kept,
+  };
+  return {
+    fileName: `${def.name}.agent.md`,
+    content: stringifyFrontmatter(fm, def.body),
+    dropped,
+  };
+}
 
-    case 'copilot': {
-      let model = def.model;
-      if (model && isClaudeModelAlias(model)) {
-        dropped.push(`model (${model})`);
-        model = undefined;
-      }
-      let copilotTools = tools ? [...tools] : undefined;
-      if (copilotTools && mcpServers) {
-        for (const s of mcpServers)
-          if (!copilotTools.includes(`${s}/*`)) copilotTools.push(`${s}/*`);
-      }
-      if (mcpServers) dropped.push('mcpServers');
-      if (skills) dropped.push('skills');
-      if (disallowed) dropped.push('disallowedTools');
-      if (def.color) dropped.push('color');
-      const { kept, dropped: extraDropped } = pickExtra(def.extra, COPILOT_EXTRA);
-      dropped.push(...extraDropped.map((k) => `extra: ${k}`));
-      if (copilotTools?.length === 0) copilotTools = undefined;
-      const fm = {
-        name: def.displayName ?? def.name,
-        description: def.description,
-        model,
-        tools: copilotTools,
-        ...kept,
-      };
-      return {
-        fileName: `${def.name}.agent.md`,
-        content: stringifyFrontmatter(fm, def.body),
-        dropped,
-      };
-    }
+function renderCursor(def: AgentDefinition, lists: AgentLists): RenderedAgent {
+  const dropped: string[] = [];
+  const foreign = (m: string): boolean =>
+    isClaudeModelAlias(m) && m.trim().toLowerCase() !== 'inherit';
+  const model = keepModel(def.model, foreign, dropped);
+  const { tools } = lists;
+  const readonly = tools ? !tools.some((t) => WRITE_TOOLS.has(t)) : undefined;
+  if (tools) dropped.push(readonly ? 'tools (mapped to readonly: true)' : 'tools');
+  dropFields(def, lists, ['disallowedTools', 'skills', 'mcpServers', 'color'], dropped);
+  const kept = keepExtra(def, CURSOR_EXTRA, dropped);
+  const fm = {
+    name: def.name,
+    description: def.description,
+    model,
+    ...(readonly ? { readonly: true } : {}),
+    ...kept,
+  };
+  return { fileName: `${def.name}.md`, content: stringifyFrontmatter(fm, def.body), dropped };
+}
 
-    case 'cursor': {
-      let model = def.model;
-      if (model && isClaudeModelAlias(model) && model.trim().toLowerCase() !== 'inherit') {
-        dropped.push(`model (${model})`);
-        model = undefined;
-      }
-      const readonly = tools ? !tools.some((t) => WRITE_TOOLS.has(t)) : undefined;
-      if (tools) dropped.push(readonly ? 'tools (mapped to readonly: true)' : 'tools');
-      if (disallowed) dropped.push('disallowedTools');
-      if (skills) dropped.push('skills');
-      if (mcpServers) dropped.push('mcpServers');
-      if (def.color) dropped.push('color');
-      const { kept, dropped: extraDropped } = pickExtra(def.extra, CURSOR_EXTRA);
-      dropped.push(...extraDropped.map((k) => `extra: ${k}`));
-      const fm = {
-        name: def.name,
-        description: def.description,
-        model,
-        ...(readonly ? { readonly: true } : {}),
-        ...kept,
-      };
-      return { fileName: `${def.name}.md`, content: stringifyFrontmatter(fm, def.body), dropped };
-    }
-  }
+const RENDERERS: Record<TargetId, (def: AgentDefinition, lists: AgentLists) => RenderedAgent> = {
+  claude: renderClaude,
+  codex: renderCodex,
+  copilot: renderCopilot,
+  cursor: renderCursor,
+};
+
+export function renderAgent(def: AgentDefinition, target: TargetId): RenderedAgent {
+  const lists: AgentLists = {
+    tools: nonEmpty(def.tools),
+    disallowedTools: nonEmpty(def.disallowedTools),
+    skills: nonEmpty(def.skills),
+    mcpServers: nonEmpty(def.mcpServers),
+  };
+  return RENDERERS[target](def, lists);
 }

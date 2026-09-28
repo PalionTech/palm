@@ -16,7 +16,7 @@ import type {
 } from '../core/types.js';
 import { pathExists } from '../lib/fs.js';
 import { SLUG_RE } from '../lib/names.js';
-import { printInstallSummary } from '../ui/output.js';
+import { failureCount, outputOf, printInstallSummary } from '../ui/output.js';
 import { supportsMultiline } from '../ui/prompts.js';
 
 /** Options every `create*` wizard accepts (API.md plus the optional `targets` extension). */
@@ -55,7 +55,7 @@ export function titleCase(slug: string): string {
   return slug
     .split('-')
     .filter(Boolean)
-    .map((w) => w[0]!.toUpperCase() + w.slice(1))
+    .map((w) => `${w.charAt(0).toUpperCase()}${w.slice(1)}`)
     .join(' ');
 }
 
@@ -99,11 +99,11 @@ export async function editBody(
     const file = join(dir, 'body.md');
     try {
       await writeFile(file, opts.template);
-      ctx.log.info(pc.dim(`opening ${editorCommand(ctx)} — save and close to continue`));
+      ctx.log.info(pc.dim(`opening ${editorCommand(ctx)}; save and close to continue`));
       await openInEditor(ctx, file);
       const text = stripHtmlComments(await readFile(file, 'utf8'));
       if (text) return text;
-      ctx.log.warn('the editor returned an empty text; please type it instead');
+      ctx.log.info('the editor returned an empty text; please type it instead');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -207,5 +207,11 @@ export async function finishCreate(
     scope: opts.scope,
     targets,
   });
-  printInstallSummary(result, { scope: opts.scope, targets });
+  printInstallSummary(outputOf(ctx.log), result, { scope: opts.scope, targets });
+  if (failureCount(result))
+    throw new PalmError(
+      'E_TARGET',
+      `${opts.kind} ${opts.entityName} was written but did not install everywhere`,
+      `retry: palm install ${opts.kind} ${opts.entityName}@${opts.mine.alias}${opts.scope === 'global' ? ' -g' : ''}`,
+    );
 }

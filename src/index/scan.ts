@@ -17,9 +17,9 @@ import type {
   Kind,
   LayoutDescriptor,
   OriginSpec,
-  ScanOriginFn,
   ScanResult,
 } from '../core/types.js';
+import { isDocFile, isScanIgnoredRel } from '../domain/ignore.js';
 import { parseJson } from '../lib/json.js';
 import { isRecord, withoutUndefined } from '../lib/object.js';
 import { parseAgentFileDetailed } from './agents.js';
@@ -33,7 +33,7 @@ import {
   normalizeHooksJson,
   parseHooksJson,
 } from './hooks.js';
-import { defaultIgnoreGlobs, isIgnoredRel, minimalIgnoreGlobs } from './ignore.js';
+import { defaultIgnoreGlobs, minimalIgnoreGlobs } from './ignore.js';
 import { parseInstructionFile } from './instructions.js';
 import {
   describeSource,
@@ -59,7 +59,6 @@ import {
   displayRel,
   escapesRoot,
   hasGlobChars,
-  isDocFile,
   isWithinRel,
   joinRel,
   normRel,
@@ -258,7 +257,7 @@ class Scanner {
 
   /** Bring a plugin directory that lives in an ignored area (e.g. `examples/x`) into the index. */
   private async ensureIndexed(rootRel: string): Promise<void> {
-    if (rootRel === '' || this.descriptorMode || !isIgnoredRel(rootRel)) return;
+    if (rootRel === '' || this.descriptorMode || !isScanIgnoredRel(rootRel)) return;
     if (this.index.files.some((f) => f.startsWith(rootRel + '/'))) return;
     const sub = await buildFileIndex(join(this.rootAbs, rootRel), {
       ignore: defaultIgnoreGlobs(),
@@ -1141,7 +1140,7 @@ class Scanner {
     const order = (a: string, b: string, fileOf: (x: string) => string) =>
       Number(this.isLinked(fileOf(a))) - Number(this.isLinked(fileOf(b))) || byDepthThenPath(a, b);
     const skillDirs = [...this.skillDirSet]
-      .filter((d) => dirDepth(`${d}/SKILL.md`) <= SKILL_MAX_DEPTH && !isIgnoredRel(d))
+      .filter((d) => dirDepth(`${d}/SKILL.md`) <= SKILL_MAX_DEPTH && !isScanIgnoredRel(d))
       .sort((a, b) => order(a, b, (d) => joinRel(d, 'SKILL.md')));
     for (const d of skillDirs) {
       if (this.isClaimed('skill', d)) continue;
@@ -1152,7 +1151,8 @@ class Scanner {
       .sort((a, b) => order(a, b, (f) => f));
     for (const f of files) {
       const kind = this.classify(f);
-      if (!kind || this.isClaimed(kind, f) || this.insideSkillDir(f) || isIgnoredRel(f)) continue;
+      if (!kind || this.isClaimed(kind, f) || this.insideSkillDir(f) || isScanIgnoredRel(f))
+        continue;
       switch (kind) {
         case 'agent':
           await this.addAgent(f, undefined, false);
@@ -1335,9 +1335,7 @@ class Scanner {
   }
 }
 
-export const scanOrigin: ScanOriginFn = async (
-  root: string,
-  spec: OriginSpec,
-): Promise<ScanResult> => {
+/** Index the checked-out origin at `root` (DESIGN §5). */
+export async function scanOrigin(root: string, spec: OriginSpec): Promise<ScanResult> {
   return new Scanner(root, spec).run();
-};
+}

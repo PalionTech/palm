@@ -17,7 +17,7 @@ const SPECS: Record<TargetId, TargetSpec> = {
 /**
  * Target bound to an environment. deploy()/undeploy() resolve CLAUDE_CONFIG_DIR,
  * CODEX_HOME, COPILOT_HOME and PALM_HOME from, in order: `input.env` (deploy) or the
- * 5th undeploy argument, this `env`, then process.env (see env.ts for the guard).
+ * 5th undeploy argument, this `env`, then process.env.
  */
 export function createTarget(id: TargetId, env?: NodeJS.ProcessEnv): GenericTarget {
   const spec = SPECS[id];

@@ -3,12 +3,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getAllIndexes, getIndex, invalidateIndex } from '../../src/core/cache.js';
 import { originId } from '../../src/core/config.js';
-import type { OriginSpec, ScanOriginFn, ScanResult } from '../../src/core/types.js';
+import type { EngineDeps, OriginSpec, ScanResult } from '../../src/core/types.js';
 import { type FakeLogger, fakeLogger, makeContext } from '../support/fakes.js';
 import { removeDir, type Sandbox, sandbox, writeFiles } from '../support/sandbox.js';
 import { makeRemote } from './gitrepo.js';
 
-function countingScan(): ScanOriginFn & { calls: string[] } {
+function countingScan(): EngineDeps['scan'] & { calls: string[] } {
   const calls: string[] = [];
   const fn = (async (root: string, spec: OriginSpec): Promise<ScanResult> => {
     calls.push(root);
@@ -25,7 +25,7 @@ function countingScan(): ScanOriginFn & { calls: string[] } {
       warnings: [],
       detected: 'convention',
     };
-  }) as ScanOriginFn & { calls: string[] };
+  }) as EngineDeps['scan'] & { calls: string[] };
   fn.calls = calls;
   return fn;
 }

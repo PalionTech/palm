@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { installWithContext, parseInstallArgs } from '../../src/commands/install.js';
 import type { PalmContext } from '../../src/core/types.js';
+import { createOutput } from '../../src/ui/output.js';
 import { type FakeUI, fakeUI, makeContext } from '../support/fakes.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 
@@ -77,15 +78,20 @@ describe('palm install: names resolve before targets are asked for', () => {
       code: 'E_USAGE',
       message: '"vendored-skills" is a repository, not an entity name',
     });
-    expect((err as { hint?: string }).hint).toContain('palm origin add vendored-skills');
+    expect((err as { hint?: string }).hint).toContain('palm install origin vendored-skills');
     expect(w.ui.pickManys).toHaveLength(0);
   });
 
   it('a name that resolves goes on to the target picker, then installs', async () => {
     const w = await world(() => ['claude']);
     sb = w.sb;
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    await installWithContext(w.ctx, parseInstallArgs(['install', 'skill', 'grill-me']));
+    const printed: string[] = [];
+    const out = createOutput({
+      stdout: { write: (t: string) => void printed.push(t) },
+      stderr: { write: () => {} },
+    });
+    await installWithContext(w.ctx, parseInstallArgs(['install', 'skill', 'grill-me']), { out });
+    expect(printed.join('')).toContain('+ installed');
     expect(w.ui.pickManys).toHaveLength(1);
     expect(existsSync(join(sb.project, '.claude', 'skills', 'grill-me', 'SKILL.md'))).toBe(true);
   });

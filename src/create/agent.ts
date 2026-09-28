@@ -144,7 +144,11 @@ const REGISTRY = '\u0000registry';
 
 function uniqueOptions(options: PickOption<string>[]): PickOption<string>[] {
   const seen = new Set<string>();
-  return options.filter((o) => (seen.has(o.value) ? false : (seen.add(o.value), true)));
+  return options.filter((o) => {
+    if (seen.has(o.value)) return false;
+    seen.add(o.value);
+    return true;
+  });
 }
 
 /**

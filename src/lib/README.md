@@ -25,6 +25,7 @@ suffix, e.g. `import { isRecord } from '../lib/object.js'`.
 - `readJsonIfExists<T = unknown>(file: string, opts?: { tolerant?: boolean }): Promise<T | undefined>`: undefined when missing or blank.
 - `writeJsonFile(file: string, value: unknown, opts?: { mode?: number }): Promise<void>`: `stringifyJson` + `writeFileAtomic`.
 - `removeEmptyParents(from: string, stopAt: string): Promise<string[]>`: rmdir from `dirname(from)` upwards, never `stopAt` or outside it; skips missing dirs, stops at the first it cannot remove; returns the removed dirs.
+- `walkFiles(root: string, opts?: WalkOptions): Promise<WalkResult>`: every regular file below the directory `root` as `{ rel, abs, mode }` (depth first, names sorted). Symlinks are followed only when their real target stays inside `opts.boundary` (default `root`); links leaving it, broken links and a root resolving outside it (`'.'`) go to `skipped`. `opts.skip(name, rel)` drops entries by name before they are examined. Each real directory is walked once (no loops). The one walk behind the copy (targets/fs-utils `listCopyFiles`) and content hashes (core/hash `hashPath`).
 
 ## json.ts
 

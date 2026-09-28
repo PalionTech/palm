@@ -1,8 +1,8 @@
 import { saveConfig } from '../core/config.js';
 import { messageOf, PalmError } from '../core/errors.js';
-import { loadManifest, saveManifest } from '../core/manifest.js';
-import { manifestPath, scopeRoot } from '../core/paths.js';
 import { type PalmContext, type Scope, TARGET_IDS, type TargetId } from '../core/types.js';
+import { Manifest } from '../domain/manifest.js';
+import { ScopePaths } from '../domain/scope-paths.js';
 import { type EngineDeps, resolveEngineDeps } from './deps.js';
 
 function validate(ids: readonly string[], where: string): TargetId[] {
@@ -27,10 +27,10 @@ async function saveTargets(ctx: PalmContext, scope: Scope, targets: TargetId[]):
   const same = (a: readonly string[] | undefined): boolean =>
     !!a && a.length === targets.length && a.every((t, i) => t === targets[i]);
   if (scope === 'project') {
-    const file = manifestPath(ctx.paths, 'project');
-    const m = await loadManifest(file);
+    const file = ScopePaths.of(ctx, 'project').manifestFile;
+    const m = await Manifest.load(file);
     if (same(m.targets)) return;
-    await saveManifest(file, { ...m, targets });
+    await m.setTargets(targets).save(file);
     ctx.log.debug(`saved targets ${targets.join(', ')} to ${file}`);
   } else {
     if (same(ctx.config.targets)) return;
@@ -58,13 +58,13 @@ export async function resolveTargets(
   }
 
   if (opts.scope === 'project') {
-    const m = await loadManifest(manifestPath(ctx.paths, 'project'));
+    const m = await Manifest.load(ScopePaths.of(ctx, 'project').manifestFile);
     if (m.targets?.length) return validate(m.targets, 'palm.yaml');
   }
   if (ctx.config.targets?.length) return validate(ctx.config.targets, 'config.yaml');
 
   const deps = await resolveEngineDeps(depsIn, { targets: true });
-  const root = scopeRoot(ctx.paths, opts.scope);
+  const { root } = ScopePaths.of(ctx, opts.scope);
   const detected = await Promise.all(
     TARGET_IDS.map(async (id) => {
       try {

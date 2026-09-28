@@ -23,25 +23,31 @@ afterAll(async () => {
 });
 
 describe('palm CLI smoke', () => {
-  it('palm --help lists the command tree', async () => {
+  it('palm --help lists the verbs, then the utilities, then the options', async () => {
     const r = await palm('--help');
     expect(r.exitCode).toBe(0);
     for (const cmd of [
-      'install|i',
-      'uninstall|remove',
-      'list|ls',
+      'install (add, i)',
+      'uninstall (remove, rm, delete)',
+      'get (list, ls)',
+      'describe (info)',
+      'update (up)',
+      'create (new)',
       'search',
-      'info',
-      'update',
-      'origin',
-      'create',
       'init',
-      'targets',
-      'config',
       'doctor',
+      'config',
+      'completion <shell>',
+      'cache',
     ]) {
       expect(r.stdout).toContain(cmd);
     }
+    const at = (s: string) => r.stdout.indexOf(s);
+    expect(at('Verbs:')).toBeLessThan(at('Utilities:'));
+    expect(at('Utilities:')).toBeLessThan(at('Options:'));
+    // the old grammar still works but is not advertised
+    expect(r.stdout).not.toMatch(/^ {2}origin\s{2,}/m);
+    expect(r.stdout).not.toMatch(/^ {2}targets\s{2,}/m);
     for (const opt of [
       '--global',
       '--target <ids>',
@@ -59,7 +65,7 @@ describe('palm CLI smoke', () => {
   it('palm install --help shows install options and examples', async () => {
     const r = await palm('install', '--help');
     expect(r.exitCode).toBe(0);
-    expect(r.stdout).toContain('Usage: palm install|i [options] [kind] [specs...]');
+    expect(r.stdout).toContain('Usage: palm install|add [options] [kind] [names...]');
     for (const opt of [
       '--from <origin>',
       '--save-origin',
@@ -83,17 +89,24 @@ describe('palm CLI smoke', () => {
     expect(r.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
   });
 
-  it('usage errors exit 1 with message and hint on stderr', async () => {
+  it('usage errors exit 2 with message and a runnable hint on stderr', async () => {
     const r = await palm('install', 'skill');
-    expect(r.exitCode).toBe(1);
-    expect(r.stderr).toContain('error: name the skill to install');
-    expect(r.stderr).toContain('palm install');
+    expect(r.exitCode).toBe(2);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).toContain('x name the skill to install');
+    expect(r.stderr).toContain('palm install skill <name>');
   });
 
-  it('unknown commands exit 1', async () => {
+  it('unknown commands exit 2', async () => {
     const r = await palm('frobnicate');
-    expect(r.exitCode).toBe(1);
+    expect(r.exitCode).toBe(2);
     expect(r.stderr).toContain("unknown command 'frobnicate'");
+  });
+
+  it('bare palm prints the help and exits 0', async () => {
+    const r = await palm();
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Verbs:');
   });
 });
 

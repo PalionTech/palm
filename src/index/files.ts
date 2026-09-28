@@ -7,8 +7,9 @@
 import { realpath, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import fg from 'fast-glob';
+import { isScanIgnoredRel } from '../domain/ignore.js';
 import { isWithin } from '../lib/fs.js';
-import { isIgnoredRel, rebaseIgnore } from './ignore.js';
+import { rebaseIgnore } from './ignore.js';
 import { baseOf, dirOf } from './util.js';
 
 export interface FileIndex {
@@ -107,7 +108,7 @@ export async function buildFileIndex(rootAbs: string, opts: FileIndexOptions): P
         continue;
       }
       if (!isDir) continue;
-      if (opts.ignoreDirNames && isIgnoredRel(rel)) continue;
+      if (opts.ignoreDirNames && isScanIgnoredRel(rel)) continue;
       const linkRealParent = join(realDir, dirOf(linkPath));
       // A link to one of its own ancestors (or already on the walk chain) would loop.
       if (isWithin(linkRealParent, target) || chain.has(target)) continue;
@@ -137,7 +138,7 @@ export function filesIn(index: FileIndex, dirRel: string): string[] {
 
 /** Files at any depth below `dirRel` ('' = everything), optionally depth-limited (directory levels below dirRel). */
 export function filesUnder(index: FileIndex, dirRel: string, maxDirDepth = Infinity): string[] {
-  const prefix = dirRel === '' ? '' : dirRel + '/';
+  const prefix = dirRel === '' ? '' : `${dirRel}/`;
   const out: string[] = [];
   for (const f of index.files) {
     if (prefix !== '' && !f.startsWith(prefix)) continue;

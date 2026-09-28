@@ -5,6 +5,8 @@
  * rather than inventing private shapes.
  */
 
+import type { OriginSet } from '../domain/origin-set.js';
+
 // ---------------------------------------------------------------------------
 // Kinds, targets, scopes
 // ---------------------------------------------------------------------------
@@ -371,6 +373,11 @@ export interface PalmPaths {
 export interface PalmContext {
   paths: PalmPaths;
   config: PalmConfig;
+  /**
+   * The effective origins: `config.origins` plus the project's palm.yaml origins (read once per
+   * context, on first use). Changed only through core/config addOrigin/removeOrigin.
+   */
+  origins: OriginSet;
   ui: UI;
   log: Logger;
   env: NodeJS.ProcessEnv;
@@ -473,43 +480,16 @@ export interface Target {
 }
 
 // ---------------------------------------------------------------------------
-// Module function contracts (implemented in the named files)
+// Engine collaborators (implemented in the named files)
 // ---------------------------------------------------------------------------
 
-/** src/index/scan.ts */
-export type ScanOriginFn = (root: string, spec: OriginSpec) => Promise<ScanResult>;
-
-/** src/index/marketplace.ts — expand a marketplace.json into origin specs. */
-export type ParseMarketplaceFn = (
-  file: string,
-  base: { url?: string; path?: string; ref?: string },
-) => Promise<{ origins: OriginSpec[]; warnings: string[] }>;
-
-/** src/mcp/registry.ts */
+/** An installable MCP server found in the registry (src/mcp/registry.ts). */
 export interface RegistryCandidate {
   name: string;
   description?: string;
   version?: string;
   config: McpServerConfig;
 }
-export type SearchRegistryFn = (
-  query: string,
-  opts: { registryUrl?: string; limit?: number },
-) => Promise<RegistryCandidate[]>;
-export type ResolveRegistryFn = (
-  name: string,
-  opts: { registryUrl?: string; version?: string },
-) => Promise<RegistryCandidate[]>;
-
-/** src/core/git.ts */
-export type FetchOriginFn = (ctx: PalmContext, spec: OriginSpec) => Promise<OriginCheckout>;
-
-/** src/mcp/secrets.ts `resolveSecrets`. */
-export type ResolveSecretsFn = (
-  ctx: PalmContext,
-  cfg: McpServerConfig,
-  policy: SecretPolicy,
-) => Promise<{ values: Record<string, string>; envRefs: string[] }>;
 
 /**
  * Collaborators the engine calls into (src/engine/deps.ts supplies lazily imported
@@ -517,11 +497,18 @@ export type ResolveSecretsFn = (
  */
 export interface EngineDeps {
   /** default: src/index/scan.ts `scanOrigin` */
-  scan: ScanOriginFn;
+  scan: (root: string, spec: OriginSpec) => Promise<ScanResult>;
   /** default: src/targets/index.ts `getTarget` */
   getTarget: (id: TargetId) => Target;
   /** default: src/mcp/registry.ts `resolveRegistry` */
-  resolveRegistry: ResolveRegistryFn;
+  resolveRegistry: (
+    name: string,
+    opts: { registryUrl?: string; version?: string },
+  ) => Promise<RegistryCandidate[]>;
   /** default: src/mcp/secrets.ts `resolveSecrets` */
-  resolveSecrets: ResolveSecretsFn;
+  resolveSecrets: (
+    ctx: PalmContext,
+    cfg: McpServerConfig,
+    policy: SecretPolicy,
+  ) => Promise<{ values: Record<string, string>; envRefs: string[] }>;
 }

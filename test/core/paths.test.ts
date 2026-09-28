@@ -50,8 +50,10 @@ describe('resolvePaths', () => {
     expect(p.projectRoot).toBe(join(palmHome, 'mine'));
   });
 
-  it('derives palmHome from PALM_HOME or HOME', () => {
+  it('derives palmHome from PALM_HOME (home-relative, ~ expanded) or HOME', () => {
     expect(resolvePaths(root, { HOME: '/h', PALM_HOME: '/p' }).palmHome).toBe('/p');
+    expect(resolvePaths(root, { HOME: '/h', PALM_HOME: '~/p' }).palmHome).toBe('/h/p');
+    expect(resolvePaths(root, { HOME: '/h', PALM_HOME: 'p' }).palmHome).toBe('/h/p');
     const p = resolvePaths(root, { HOME: '/h' });
     expect(p.palmHome).toBe('/h/.palm');
     expect(p.home).toBe('/h');

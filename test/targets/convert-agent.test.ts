@@ -99,7 +99,7 @@ describe('renderAgent', () => {
       'Use "quotes", \'single\', """triple""", a \\ backslash, tab\there, \u0001 ctrl\nand a trailing quote"';
     const r = renderAgent({ name: 'a', description: 'd', body }, 'codex');
     expect((parse(r.content) as { developer_instructions: string }).developer_instructions).toBe(
-      body + '\n',
+      `${body}\n`,
     );
     expect(parse(`x = ${tomlMultilineString('ends with "')}`)).toEqual({ x: 'ends with "' });
     expect(parse(`x = ${tomlMultilineString('')}`)).toEqual({ x: '' });

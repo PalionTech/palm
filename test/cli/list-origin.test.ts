@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { availableGroups, filterInstalled, installedOriginAlias } from '../../src/commands/list.js';
+import { availableGroups, filterInstalled, installedOriginAlias } from '../../src/commands/get.js';
 import { PalmError } from '../../src/core/errors.js';
 import type { Entity, Kind, LockEntry, OriginIndex, OriginSpec } from '../../src/core/types.js';
 import { runPalm } from '../support/cli.js';
@@ -199,8 +199,8 @@ describe('palm list -o (CLI)', () => {
     await rm(home, { recursive: true, force: true });
   });
 
-  it('documents -o on list, search and info', async () => {
-    for (const cmd of ['list', 'search', 'info']) {
+  it('documents -o on get, search and describe (and their old names)', async () => {
+    for (const cmd of ['get', 'search', 'describe', 'list', 'info']) {
       const r = await palm(cmd, '--help');
       expect(r.exitCode).toBe(0);
       expect(r.stdout).toContain('-o, --origin <name-or-alias>');
@@ -215,7 +215,9 @@ describe('palm list -o (CLI)', () => {
 
     const one = await palm('list', '--available', '-o', 'mattpocock', '--json');
     expect(one.exitCode).toBe(0);
-    const groups = JSON.parse(one.stdout) as Array<{ origin: string; entities: unknown[] }>;
+    const groups = (
+      JSON.parse(one.stdout) as { items: Array<{ origin: string; entities: unknown[] }> }
+    ).items;
     expect(groups.map((g) => g.origin)).toEqual(['mattpocock']);
     expect(groups[0]!.entities.length).toBeGreaterThan(0);
 
@@ -226,9 +228,11 @@ describe('palm list -o (CLI)', () => {
       join(repo, 'test', 'fixtures', 'anthropics-skills-like'),
       '--json',
     );
-    expect((JSON.parse(byPath.stdout) as Array<{ origin: string }>).map((g) => g.origin)).toEqual([
-      'anthropics',
-    ]);
+    expect(
+      (JSON.parse(byPath.stdout) as { items: Array<{ origin: string }> }).items.map(
+        (g) => g.origin,
+      ),
+    ).toEqual(['anthropics']);
   });
 
   it('an unknown origin is E_NOT_FOUND listing the registered aliases; pseudo-origins filter the installed view', async () => {
@@ -238,8 +242,8 @@ describe('palm list -o (CLI)', () => {
     expect(err.code).toBe('E_NOT_FOUND');
     expect(err.hint).toContain('Registered origins: anthropics, mattpocock.');
 
-    const reg = await palm('list', '-o', 'registry', '--json');
+    const reg = await palm('get', '-o', 'registry', '--json');
     expect(reg.exitCode).toBe(0);
-    expect(JSON.parse(reg.stdout)).toEqual([]);
+    expect(JSON.parse(reg.stdout)).toEqual({ items: [], warnings: [] });
   });
 });

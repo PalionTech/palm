@@ -7,14 +7,13 @@
  *
  * Upsert replaces an existing block in place (everything outside it stays
  * byte-identical) or appends one after a blank line. The file always ends with a
- * newline after an upsert. Record: `{ file, pointer: "block:<id>", value: content }`.
+ * newline after an upsert. Record: an `md-block` (stored as `{ file, pointer: "block:<id>",
+ * value: content }`).
  */
 import { promises as fs } from 'node:fs';
 import { PalmError } from '../core/errors.js';
-import type { MergedRecord } from '../core/types.js';
+import type { MdBlockRecord } from '../domain/merged-record.js';
 import { atomicWrite, readTextOrUndefined } from './fs-utils.js';
-
-export const BLOCK_POINTER_PREFIX = 'block:';
 
 export function beginMarker(id: string): string {
   return `<!-- palm:begin ${id} -->`;
@@ -53,40 +52,47 @@ export interface ManagedBlockOptions {
   displayFile?: string;
 }
 
+/** `text` ending with exactly the newline it had, or one added. */
+function withFinalNewline(text: string): string {
+  return text.endsWith('\n') ? text : `${text}\n`;
+}
+
+/** `text` with the block inserted or replaced; undefined when it is already there. */
+function upsertedText(
+  text: string,
+  id: string,
+  content: string,
+  opts: ManagedBlockOptions & { file: string },
+): string | undefined {
+  const block = renderBlock(id, content);
+  const found = findManagedBlock(text, id);
+  if (!found) {
+    if (text === '') return `${block}\n`;
+    const base = withFinalNewline(text);
+    return `${base}${base.endsWith('\n\n') ? '' : '\n'}${block}\n`;
+  }
+  if (found.content === content.replace(/\n+$/, ''))
+    return text.endsWith('\n') ? undefined : `${text}\n`;
+  if (opts.onConflict === 'error') {
+    throw new PalmError(
+      'E_CONFLICT',
+      `refusing to overwrite ${opts.displayFile ?? opts.file} (palm block "${id}" exists with different content)`,
+      'rerun with --force',
+    );
+  }
+  return withFinalNewline(text.slice(0, found.start) + block + text.slice(found.end));
+}
+
 export async function upsertManagedBlock(
   file: string,
   id: string,
   content: string,
   opts: ManagedBlockOptions,
-): Promise<MergedRecord> {
-  const record: MergedRecord = { file, pointer: `${BLOCK_POINTER_PREFIX}${id}`, value: content };
+): Promise<MdBlockRecord> {
   const text = (await readTextOrUndefined(file)) ?? '';
-  const block = renderBlock(id, content);
-  const found = findManagedBlock(text, id);
-  let next: string;
-  if (found) {
-    if (found.content === content.replace(/\n+$/, '')) {
-      if (text.endsWith('\n')) return record;
-      next = text + '\n';
-    } else {
-      if (opts.onConflict === 'error') {
-        throw new PalmError(
-          'E_CONFLICT',
-          `refusing to overwrite ${opts.displayFile ?? file} (palm block "${id}" exists with different content)`,
-          'rerun with --force',
-        );
-      }
-      next = text.slice(0, found.start) + block + text.slice(found.end);
-      if (!next.endsWith('\n')) next += '\n';
-    }
-  } else if (text === '') {
-    next = block + '\n';
-  } else {
-    const base = text.endsWith('\n') ? text : text + '\n';
-    next = base + (base.endsWith('\n\n') ? '' : '\n') + block + '\n';
-  }
-  if (!opts.dryRun) await atomicWrite(file, next);
-  return record;
+  const next = upsertedText(text, id, content, { ...opts, file });
+  if (next !== undefined && !opts.dryRun) await atomicWrite(file, next);
+  return { type: 'md-block', file, id, content };
 }
 
 /**

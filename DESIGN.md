@@ -272,7 +272,7 @@ Version = frontmatter `metadata.version` → `version` → manifest `version` �
 palm install [<kind>] <spec>... [-g] [--from <origin>] [--target a,b] [--dry-run] [--force] [--yes]
 ```
 
-1. Resolve scope + targets (flag > manifest > config default > detection > interactive multiselect saved to manifest). The CLI first runs a pre-flight (`preflightInstall`: steps 3–5 without the picker or registry), so a name that matches nothing fails before any target prompt; `origin`/`registry` as the kind word and kind-less repository specs (`owner/repo`, git URLs, paths) are usage errors pointing at `palm origin add` / `--from`.
+1. Resolve scope + targets (flag > manifest > config default > detection > interactive multiselect saved to manifest). The CLI first runs a pre-flight (`preflightInstall`: steps 3–5 without the picker or registry), so a name that matches nothing fails before any target prompt; `registry` as the kind word and kind-less repository specs (`owner/repo`, git URLs, paths) are usage errors pointing at `palm install origin` / `--from`; `palm install origin <spec>` registers an origin (§9).
 2. Parse kind (singular/plural/aliases, see `kinds.ts`). If the first arg is not a kind, search all kinds.
 3. For each spec: parse `name[@origin][#ref]`; `--from` supplies/overrides origin and may be an unregistered spec (ad hoc origin, fetched but not saved unless `--save-origin`).
 4. Ensure the relevant origins are fetched and indexed (fetch lazily; `--offline` uses cache only).
@@ -296,6 +296,18 @@ applies to dependencies a plugin/agent stopped declaring (update/sync).
 config.yaml for `-g`) when it differs from what is stored; an interactive pick is
 saved the same way. `--dry-run` writes no harness file, lockfile, manifest or
 config (origins are still fetched into the cache so the plan is real).
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | success (also `--help`, `--version`, bare `palm`) |
+| 1 | failure: any `PalmError` except the two below; an engine result that reports a failed outcome (`outcomes[].status === 'failed'` or a `failures` array); `palm doctor` with a failed check |
+| 2 | usage: commander errors (unknown command or option, missing argument) and `E_USAGE` |
+| 130 | cancelled: `E_CANCELLED` (Esc or Ctrl-C in a prompt, or a declined confirmation); nothing more is printed |
+| 70 | internal: an unexpected error; the stack trace only with `--verbose` |
+
+`src/cli.ts` is the only place that exits (`src/commands/main.ts` computes the code).
 
 ## 7. MCP specifics
 
@@ -351,18 +363,79 @@ agent files cannot carry instructions, an `instructions: [name@origin]` list tha
 only palm reads (targets never receive it). Installing the agent installs all
 three as tracked dependencies (`via: agent:<name>`, recorded in `deps`).
 
-## 9. Other commands
+## 9. Command grammar and output
 
-- `palm uninstall|remove|rm [<kind>] <name>... [-g]`
-- `palm list|ls [<kind>] [-g] [-o origin] [--json]` — installed (from lock); `--available` lists the index grouped by origin; `-o` keeps one origin (installed view also accepts `mine`, `registry`, `adhoc`).
-- `palm search <query> [--kind k] [-o origin] [--json]` — fuzzy over all indexes; `--kind mcp` also queries the registry.
-- `palm info <kind> <name>` — description, origin, version, files, deps.
-- `palm origin add|list|remove|update|import`
-- `palm update [<kind> <name>...] [-g]` — refetch origins, reinstall entries whose content hash changed; `--dry-run` shows the plan (each entity once).
-- `palm targets` — configured/detected targets; `palm config get|set <key> <value>`.
-- `palm doctor` — checks git, harness dirs, cache health, lock/manifest drift (registry MCP servers match by registry name), origin reachability (through the same validated git wrapper).
-- `palm info` / `palm list --available` show the scanner's warning when two plugins of one origin ship the same name (the first is indexed; `name@origin` resolves to it).
-- `--json` also turns errors into `{ "error": { code, message, hint } }` on stdout.
+Every command is `palm <verb> [kind] [names...] [flags]` (kubectl style). The kind word
+accepts singular, plural and short names; a first word that is no kind is a name.
+
+| Verb | Aliases | Kinds | Without a kind |
+|---|---|---|---|
+| `install` | `add`, `i` | skill, agent, instruction, command, hook, mcp, plugin, origin | searches every entity kind; no names: sync palm.yaml |
+| `uninstall` | `remove`, `rm`, `delete` | same | matches every entity kind |
+| `get` | `list`, `ls` | same plus `target`, `all` | everything installed |
+| `describe` | `info` | one entity, origin or target | usage error |
+| `update` | `up` | installed entities; `origins` refreshes indexes | everything installed |
+| `create` | `new` | skill, agent, instruction, command (§8) | usage error |
+| `search` | | entity kinds; the kind word counts only when a query follows | every kind plus the MCP registry |
+
+Short names: `sk` skill, `ag` agent, `ins` instruction, `cmd` command, `hk` hook, `mcp`,
+`pl` plugin, `orig` origin, `tg` target. `all` works with `get` only. A verb given a kind it
+does not take (`palm install target`) is `E_USAGE` naming a command that does work.
+
+Utilities stay top level: `init`, `doctor`, `config get|set`, `completion bash|zsh|fish`,
+`cache info|clean`. The old forms `palm origin add|list|remove|update|import` and
+`palm targets` are hidden aliases of `install|get|uninstall|update origin` and `get targets`.
+
+- `palm install origin <spec> [--alias a] [--ref r] [--root dir] [--layout kind=glob] [--project]`:
+  parse the spec, fetch and index it (`getIndex` on the unsaved spec), then save it with
+  `addOrigin` (config.yaml, or palm.yaml with `--project`). When fetching or indexing fails
+  nothing is saved, and the hint names a command that shows why (`git ls-remote <url>`).
+  A `marketplace.json` (by file name, or a local `.json` whose content has a `plugins` array,
+  or an `https://` URL) adds each plugin it lists as an origin, each fetched and indexed first;
+  entries already registered (same repository, root and ref) are skipped.
+- `palm uninstall origin <alias>...` unregisters (installed entities stay installed).
+- `palm get [kind] [names...] [-o origin] [--available]`: installed entries from the lock;
+  `--available` lists the indexes grouped by origin; `-o` keeps one origin (alias,
+  `owner/repo[/root]`, URL or local path; the installed view also accepts `mine`, `registry`,
+  `adhoc`). `get origins` is the origin table (`--verbose`: detection rule, sha, index
+  warnings); `get targets` shows each harness, whether it is active, where the active set comes
+  from (`--target`, palm.yaml, the global config, or detection) and its config dir; `get all`
+  shows installed entities, origins and targets.
+- `palm describe <kind> <name[@origin]>`: description, origin, version, dependencies, files per
+  harness. `describe origin <alias>`: url or path, ref, sha, root, layout, detection rule,
+  counts per kind, index warnings, checkout and index file. `describe target <id>`: where each
+  kind goes in this scope (a dry-run deploy of a sample entity per kind, so the paths are the
+  ones the target really writes, env overrides included).
+- `palm update [kind] [names...]`: refetch origins, reinstall entries whose content hash changed;
+  `--dry-run` shows the plan. `palm update origins [alias...]` refetches and rescans (all when
+  none is named); a failed origin is reported and the command exits 1.
+- `palm search [kind] <query...> [-o origin] [--refresh]`: fuzzy over all indexes; without a
+  kind or origin, or with `mcp`, the MCP registry too.
+- `palm cache info` (path, size, checkouts, index files) and `palm cache clean [--yes]`
+  (removes `$PALM_HOME/cache`; origins stay registered and are fetched again on next use;
+  without a terminal it needs `--yes`).
+- `palm completion bash|zsh|fish` prints a static script generated from the command tree
+  (verbs, aliases, utilities, kind words, flags per verb).
+- `palm doctor` checks git, harness dirs, cache size, lock/manifest drift (registry MCP servers
+  match by registry name) and origin reachability (through the same validated git wrapper).
+
+### Output contract
+
+One writer (`src/ui/output.ts`) is created per run and is `ctx.log` for the command, so all
+output goes through it.
+
+- Data (tables, detail rows) goes to stdout. Status lines carry a symbol: `+` added or
+  installed, `-` removed, `~` updated, `=` unchanged, `x` error, `!` warning, `i` info.
+- Warnings are collected while the command runs and printed once at the end, on stderr,
+  under a `Warnings` heading. Errors are printed last: `x message` and a hint line that names
+  a command to run.
+- `--json`: stdout holds exactly one JSON document and nothing else; every other line goes to
+  stderr. Lists become `{ "items": [...] }`; every document has `warnings: []`; an error is
+  `{ "error": { code, message, hint }, "warnings": [] }`.
+- Colours come from picocolors: `NO_COLOR=1` and `--no-color` turn them off.
+- Startup: the command tree is registration only; each command's module (and the engine, git,
+  yaml and clack behind it) is imported when that command runs, so `palm --help` loads
+  commander and picocolors only (measured at 26 ms, against 19 ms for bare node).
 
 ## 10. Conventions
 

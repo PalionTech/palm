@@ -139,50 +139,62 @@ s00_build() {
   OUT="$("$bin" --version)"
   [[ "$OUT" == "$(node -p "require('$REPO/package.json').version")" ]] || fail "$bin --version printed $OUT"
   OUT="$(palm --help)"
-  has "install|i"
-  has "origin"
+  has "install (add, i)"
+  has "Verbs:"
+  has "Utilities:"
   OUT="$(palm install --help)"
   has "palm install mcp fs -- npx"
   has "--url https://example.com/mcp"
   has "name[@origin][#ref]"
+  palm completion bash | bash -n || fail "palm completion bash is not valid bash"
 }
 
 s01_origins() {
-  run "$P1" origin add mattpocock/skills
-  has "added origin mattpocock"
-  run "$P1" origin add obra/superpowers
-  has "added origin superpowers"
-  run "$P1" origin add cursor/plugins/pstack --alias pstack
-  has "added origin pstack"
-  run "$P1" origin add anthropics/skills
-  has "added origin anthropics"
-  run "$P1" origin add openai/skills
-  has "added origin openai"
+  run "$P1" install origin mattpocock/skills
+  has "+ origin mattpocock"
+  run "$P1" install origin obra/superpowers
+  has "+ origin superpowers"
+  run "$P1" install origin cursor/plugins/pstack --alias pstack
+  has "+ origin pstack"
+  run "$P1" install origin anthropics/skills
+  has "+ origin anthropics"
+  run "$P1" install origin openai/skills
+  has "+ origin openai"
   # Auto-detection must see skills/.curated (a dot directory)...
-  run "$P1" info skill gh-fix-ci@openai
+  run "$P1" describe skill gh-fix-ci@openai
   has "skills/.curated/gh-fix-ci"
   # ...and a layout descriptor narrows an origin to exactly what it names.
-  run "$P1" origin add openai/skills --alias openai-curated --layout 'skills=skills/.curated/*'
-  has "(descriptor)"
+  run "$P1" install origin openai/skills --alias openai-curated --layout 'skills=skills/.curated/*'
+  has "detected: descriptor"
   js_yaml "$PALM_HOME/config.yaml" 'd.origins.find(o => o.alias === "openai-curated").layout.skills[0] === "skills/.curated/*"'
-  run "$P1" list skills --available --json
+  # A repository that cannot be fetched is never saved (fetch and index come first).
+  run_fails "$P1" install origin anthropic/palm-e2e-no-such-repo
+  has "was not added"
+  js_yaml "$PALM_HOME/config.yaml" '!d.origins.some(o => o.alias === "palm-e2e-no-such-repo" || o.alias === "anthropic")'
+  run "$P1" get skills --available --json
   node -e '
-    const g = JSON.parse(process.argv[1]); const n = (a) => g.find((x) => x.origin === a).entities.length;
+    const g = JSON.parse(process.argv[1]).items; const n = (a) => g.find((x) => x.origin === a).entities.length;
     if (!(n("openai-curated") > 30 && n("openai-curated") < n("openai"))) process.exit(1);
     if (!g.find((x) => x.origin === "openai-curated").entities.every((e) => e.path.startsWith("skills/.curated/"))) process.exit(1);
   ' "$OUT" || fail "openai-curated should hold only skills/.curated/* (fewer than auto-detected openai)"
-  run "$P1" origin list
+  run "$P1" get origins
   has "mattpocock"
   has "v1."   # latest semver tag of mattpocock/skills
-  run "$P1" origin list --verbose
+  run "$P1" get origins --verbose
   has "detected: marketplace"
   has "detected: descriptor"
+  run "$P1" describe origin mattpocock
+  has "https://github.com/mattpocock/skills.git"
+  has "index file"
+  # the old grammar still works
+  run "$P1" origin list
+  has "pstack"
 }
 
 s02_import() {
   local before after
   before="$(cd "$(dirname "$(dirname "$CATALOG")")" && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 shasum)"
-  run "$P1" origin import "$CATALOG" -y
+  run "$P1" install origin "$CATALOG" -y
   has "local-skills"
   has "caveman-skill"
   has "last30days-skill"
@@ -192,7 +204,7 @@ s02_import() {
   js_yaml "$PALM_HOME/config.yaml" 'd.origins.find(o => o.alias === "local-skills").type === "local" && d.origins.find(o => o.alias === "local-skills").path === "'"$(dirname "$(dirname "$CATALOG")")"'"'
   js_yaml "$PALM_HOME/config.yaml" 'd.origins.find(o => o.alias === "caveman-skill").root === "skills/caveman"'
   js_yaml "$PALM_HOME/config.yaml" '!d.origins.some(o => o.alias === "mattpocock-skills")'
-  run "$P1" origin list
+  run "$P1" get origins
   has "local-skills"
   lacks "not indexed"
   after="$(cd "$(dirname "$(dirname "$CATALOG")")" && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 shasum)"
@@ -206,9 +218,9 @@ s03_search() {
   run "$P1" search unslop
   has "unslop"
   has "pstack"
-  run "$P1" search --kind mcp context7
+  run "$P1" search mcp context7
   has "io.github.upstash/context7"
-  run "$P1" list --available
+  run "$P1" get --available
   has "mattpocock ("
   has "pstack ("
   has "superpowers ("
@@ -282,18 +294,24 @@ s09_mcp() {
   js_toml "$P1/.codex/config.toml" 'd.mcp_servers.docs.bearer_token_env_var === "DOCS_TOKEN"'
 }
 
-s10_list_info() {
-  run "$P1" list
+s10_get_describe() {
+  run "$P1" get
   has "comment-sicko"
   has "plugin:superpowers"
-  run "$P1" list skills
+  run "$P1" get skills
   has "unslop"
   lacks "comment-sicko"
-  run "$P1" info skill unslop
+  run "$P1" describe skill unslop
   has "installed (project)"
   has ".claude/skills/unslop/SKILL.md"
-  run "$P1" info agent comment-sicko
+  run "$P1" describe agent comment-sicko
   has ".codex/agents/comment-sicko.toml"
+  run "$P1" describe target codex
+  has ".codex/agents/<name>.toml"
+  run "$P1" get all --json
+  node -e 'const d = JSON.parse(process.argv[1]); if (!(d.installed.length && d.origins.length && d.targets.active.includes("codex"))) process.exit(1)' "$OUT" || fail "get all --json lacks installed entities, origins or targets"
+  run "$P1" cache info
+  has "checkouts"
 }
 
 s11_sync() {
@@ -352,7 +370,7 @@ s14_global() {
   js "$HOME/.claude.json" 'd.mcpServers.fs.args.includes("/tmp")'
   js_toml "$HOME/.codex/config.toml" 'd.mcp_servers.fs.args.includes("/tmp")'
   [[ "$(mode_of "$HOME/.claude.json")" == 600 ]] || fail "~/.claude.json should be 0600"
-  run "$P1" list -g
+  run "$P1" get -g
   has "unslop"
   has "fs"
   run "$P1" uninstall -g skill unslop
@@ -362,7 +380,7 @@ s14_global() {
 }
 
 s15_four_targets() {
-  run "$P4" targets
+  run "$P4" get targets
   has "claude"
   has "copilot"
   has "cursor"
@@ -375,7 +393,7 @@ s15_four_targets() {
   file "$P4/.cursor/agents/comment-sicko.md"
   file "$P4/.claude/agents/comment-sicko.md"
   file "$P4/.codex/agents/comment-sicko.toml"
-  run "$P4" origin add github/awesome-copilot
+  run "$P4" install origin github/awesome-copilot
   run "$P4" install instruction playwright-typescript@awesome-copilot -y
   file "$P4/.claude/rules/playwright-typescript.md"
   file "$P4/.cursor/rules/playwright-typescript.mdc"
@@ -401,20 +419,20 @@ if [[ -n "$PALM_BIN" ]]; then
 else
   step "00 build + dist smoke (shebang, --version, --help, install --help)" s00_build
 fi
-step "01 origin add ×5, layout descriptor, origin list [--verbose]" s01_origins
+step "01 install origin ×5, layout descriptor, unreachable origin not saved, get/describe origins" s01_origins
 if [[ -n "$CATALOG" && -f "$CATALOG" ]]; then
-  step "02 origin import marketplace.json (local origin read-only, dedupe)" s02_import
+  step "02 install origin marketplace.json (local origin read-only, dedupe)" s02_import
 else
-  skip "02 origin import marketplace.json" "PALM_E2E_CATALOG unset or missing: ${CATALOG:-none}"
+  skip "02 install origin marketplace.json" "PALM_E2E_CATALOG unset or missing: ${CATALOG:-none}"
 fi
-step "03 search tdd / unslop / --kind mcp context7, list --available" s03_search
+step "03 search tdd / unslop / mcp context7, get --available" s03_search
 step "04 install skill unslop → claude + codex" s04_install_skill
 step "05 install skill tdd → E_AMBIGUOUS, then tdd@mattpocock" s05_ambiguous
 step "06 install skills grill-me wayfinder" s06_plural
 step "07 install agent comment-sicko (valid Codex TOML)" s07_agent
 step "08 install plugin superpowers (hooks merged, script runs)" s08_plugin_hooks
 step "09 install mcp: registry context7, ad hoc stdio fs, ad hoc http docs" s09_mcp
-step "10 list, list skills, info skill, info agent" s10_list_info
+step "10 get, get skills, describe skill/agent/target, get all, cache info" s10_get_describe
 step "11 bare install is a no-op; restores a deleted skill" s11_sync
 step "12 update --dry-run (no duplicates), doctor clean" s12_update_doctor
 step "13 uninstall plugin/agent/mcp/skills; settings.json restored" s13_uninstall

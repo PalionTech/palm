@@ -8,8 +8,8 @@
  *
  * `${CLAUDE_PLUGIN_ROOT}`, `${CURSOR_PLUGIN_ROOT}`, `${PLUGIN_ROOT}` (and the unbraced
  * `$CLAUDE_PLUGIN_ROOT`) in command strings become `pluginRootAbs`, except for
- * claude at project scope where they become `$CLAUDE_PROJECT_DIR/.palm/hooks/<basename(pluginRootAbs)>`
- * so the committed settings.json stays portable.
+ * claude at project scope where they become `$CLAUDE_PROJECT_DIR/<pluginRootAbs relative to
+ * the project>` so the committed settings.json stays portable.
  *
  * Same-family conversions (claude→claude, claude→codex, cursor→cursor,
  * copilot→copilot) keep entries verbatim apart from the substitution; other
@@ -17,8 +17,8 @@
  * only `type: "command"` hooks survive. Events without an equivalent are reported
  * in `dropped`.
  */
-import path from 'node:path';
-import type { HookSet, Scope, TargetId } from '../core/types.js';
+import type { HookSet, TargetId } from '../core/types.js';
+import type { ScopePaths } from '../domain/scope-paths.js';
 import { isRecord } from '../lib/object.js';
 
 interface EventInfo {
@@ -102,15 +102,23 @@ export function targetEvent(canonical: string, target: TargetId): string | undef
 const ROOT_TOKENS =
   /\$\{(?:CLAUDE_PLUGIN_ROOT|CURSOR_PLUGIN_ROOT|PLUGIN_ROOT)\}|\$CLAUDE_PLUGIN_ROOT\b/g;
 
+/** What the plugin-root tokens become (see the module comment). */
 export function pluginRootReplacement(
   target: TargetId,
   pluginRootAbs: string,
-  scope: Scope,
+  paths: ScopePaths,
 ): string {
-  if (target === 'claude' && scope === 'project')
-    return `$CLAUDE_PROJECT_DIR/.palm/hooks/${path.basename(pluginRootAbs)}`;
+  if (target === 'claude' && paths.scope === 'project')
+    return `$CLAUDE_PROJECT_DIR/${paths.lockForm(pluginRootAbs)}`;
   return pluginRootAbs;
 }
+
+/** The variable a harness sets to the plugin root when it runs a plugin's hooks natively. */
+const PLUGIN_ROOT_VAR: Partial<Record<TargetId, string>> = {
+  claude: 'CLAUDE_PLUGIN_ROOT',
+  codex: 'CLAUDE_PLUGIN_ROOT',
+  cursor: 'CURSOR_PLUGIN_ROOT',
+};
 
 export function substitutePluginRoot(command: string, replacement: string): string {
   return command.replace(ROOT_TOKENS, () => replacement);
@@ -131,12 +139,7 @@ export function rootedCommand(
 ): string {
   if (!new RegExp(ROOT_TOKENS.source).test(command)) return command;
   const substituted = substitutePluginRoot(command, replacement);
-  const variable =
-    target === 'claude' || target === 'codex'
-      ? 'CLAUDE_PLUGIN_ROOT'
-      : target === 'cursor'
-        ? 'CURSOR_PLUGIN_ROOT'
-        : undefined;
+  const variable = PLUGIN_ROOT_VAR[target];
   if (!variable || (typeof shell === 'string' && shell.toLowerCase() === 'powershell'))
     return substituted;
   return `${variable}="${replacement.replace(/(["\\`])/g, '\\$1')}" ${substituted}`;
@@ -182,6 +185,50 @@ function str(v: unknown): string | undefined {
   return typeof v === 'string' && v !== '' ? v : undefined;
 }
 
+interface CanonSource {
+  srcEvent: string;
+  event: string;
+  dialect: HookSet['dialect'];
+}
+
+/** Canonical hooks of one `{ matcher?, hooks: [...] }` group (Claude/Gemini shape). */
+function fromGroup(group: unknown, src: CanonSource, out: CanonHook[], dropped: string[]): void {
+  if (!isRecord(group) || !Array.isArray(group.hooks)) return;
+  const matcher = str(group.matcher);
+  for (const h of group.hooks) {
+    if (!isRecord(h)) continue;
+    const type = str(h.type) ?? 'command';
+    const command = str(h.command);
+    if (type !== 'command' || !command) {
+      dropped.push(`${src.srcEvent}: ${type} hook not convertible`);
+      continue;
+    }
+    let timeout = num(h.timeout);
+    if (timeout !== undefined && src.dialect === 'gemini') timeout = Math.ceil(timeout / 1000); // Gemini: ms
+    out.push({ event: src.event, matcher, command, timeout });
+  }
+}
+
+/** The canonical hook of one flat entry (Cursor/Copilot shape). */
+function fromFlat(h: unknown, src: CanonSource, out: CanonHook[], dropped: string[]): void {
+  if (!isRecord(h)) return;
+  const type = str(h.type) ?? 'command';
+  const command = str(h.bash) ?? str(h.command);
+  if (type !== 'command' || !command) {
+    const what = type === 'command' ? 'hook without a bash/command' : `${type} hook`;
+    dropped.push(`${src.srcEvent}: ${what} not convertible`);
+    return;
+  }
+  if (h.cwd !== undefined || h.env !== undefined)
+    dropped.push(`${src.srcEvent}: cwd/env of "${command}"`);
+  out.push({
+    event: src.event,
+    matcher: str(h.matcher),
+    command,
+    timeout: num(h.timeoutSec) ?? num(h.timeout),
+  });
+}
+
 /** Flatten any dialect into canonical command hooks. */
 function toCanonical(hooks: HookSet, dropped: string[]): CanonHook[] {
   const out: CanonHook[] = [];
@@ -191,45 +238,9 @@ function toCanonical(hooks: HookSet, dropped: string[]): CanonHook[] {
       dropped.push(`${srcEvent}: no equivalent event`);
       continue;
     }
-    if (isGrouped(entries)) {
-      for (const group of entries) {
-        if (!isRecord(group) || !Array.isArray(group.hooks)) continue;
-        const matcher = str(group.matcher);
-        for (const h of group.hooks) {
-          if (!isRecord(h)) continue;
-          const type = str(h.type) ?? 'command';
-          const command = str(h.command);
-          if (type !== 'command' || !command) {
-            dropped.push(`${srcEvent}: ${type} hook not convertible`);
-            continue;
-          }
-          let timeout = num(h.timeout);
-          if (timeout !== undefined && hooks.dialect === 'gemini')
-            timeout = Math.ceil(timeout / 1000); // Gemini: ms
-          out.push({ event, matcher, command, timeout });
-        }
-      }
-    } else {
-      for (const h of entries) {
-        if (!isRecord(h)) continue;
-        const type = str(h.type) ?? 'command';
-        const command = str(h.bash) ?? str(h.command);
-        if (type !== 'command' || !command) {
-          dropped.push(
-            `${srcEvent}: ${type === 'command' ? 'hook without a bash/command' : `${type} hook`} not convertible`,
-          );
-          continue;
-        }
-        if (h.cwd !== undefined || h.env !== undefined)
-          dropped.push(`${srcEvent}: cwd/env of "${command}"`);
-        out.push({
-          event,
-          matcher: str(h.matcher),
-          command,
-          timeout: num(h.timeoutSec) ?? num(h.timeout),
-        });
-      }
-    }
+    const src = { srcEvent, event, dialect: hooks.dialect };
+    const convert = isGrouped(entries) ? fromGroup : fromFlat;
+    for (const entry of entries) convert(entry, src, out, dropped);
   }
   return out;
 }
@@ -265,42 +276,70 @@ function wrap(target: TargetId, events: Record<string, unknown[]>): unknown {
   return familyOf(target) === 'claude' ? { hooks: events } : { version: 1, hooks: events };
 }
 
-export function convertHooks(
+/** Target event for a same-family source event; unmapped events are native to the family. */
+function sameFamilyEvent(srcEvent: string, hooks: HookSet, target: TargetId): string | undefined {
+  const canonical = canonicalEvent(srcEvent, hooks.dialect);
+  if (canonical) return targetEvent(canonical, target);
+  // Events palm has no mapping for are native to this family: keep them (Codex: drop, unknown to it).
+  return target === 'codex' ? undefined : srcEvent;
+}
+
+/** Same family: keep entries verbatim (extra fields such as statusMessage survive). */
+function convertSameFamily(
   hooks: HookSet,
   target: TargetId,
-  pluginRootAbs: string,
-  scope: Scope,
-): { hooks: unknown; dropped: string[] } {
-  const dropped: string[] = [];
-  const replacement = pluginRootReplacement(target, pluginRootAbs, scope);
-  const fam = familyOf(target);
-
-  // Same family: keep entries verbatim (extra fields such as statusMessage survive).
-  if (sourceFamily(hooks) === fam) {
-    const events: Record<string, unknown[]> = {};
-    for (const [srcEvent, entries] of Object.entries(eventMap(hooks.raw))) {
-      const canonical = canonicalEvent(srcEvent, hooks.dialect);
-      // Events palm has no mapping for are native to this family: keep them (Codex: drop, unknown to it).
-      const out = canonical
-        ? targetEvent(canonical, target)
-        : target === 'codex'
-          ? undefined
-          : srcEvent;
-      if (!out) {
-        dropped.push(`${srcEvent}: not supported by ${target}`);
-        continue;
-      }
-      events[out] = [
-        ...(events[out] ?? []),
-        ...(substituteEntry(entries, replacement, target) as unknown[]),
-      ];
-    }
-    return { hooks: wrap(target, events), dropped };
-  }
-
-  const canon = toCanonical(hooks, dropped);
+  replacement: string,
+  dropped: string[],
+): Record<string, unknown[]> {
   const events: Record<string, unknown[]> = {};
-  for (const h of canon) {
+  for (const [srcEvent, entries] of Object.entries(eventMap(hooks.raw))) {
+    const out = sameFamilyEvent(srcEvent, hooks, target);
+    if (!out) {
+      dropped.push(`${srcEvent}: not supported by ${target}`);
+      continue;
+    }
+    events[out] = [
+      ...(events[out] ?? []),
+      ...(substituteEntry(entries, replacement, target) as unknown[]),
+    ];
+  }
+  return events;
+}
+
+/** Append canonical hook `h` (command already rooted) to `list` in the target family's shape. */
+function pushHook(list: unknown[], fam: Family, h: CanonHook, command: string): void {
+  const matcher = h.matcher !== undefined ? { matcher: h.matcher } : {};
+  if (fam === 'cursor') {
+    list.push({ command, ...matcher, ...(h.timeout !== undefined ? { timeout: h.timeout } : {}) });
+    return;
+  }
+  if (fam === 'copilot') {
+    const timeout = h.timeout !== undefined ? { timeoutSec: h.timeout } : {};
+    list.push({ type: 'command', bash: command, ...timeout, ...matcher });
+    return;
+  }
+  const item = {
+    type: 'command',
+    command,
+    ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
+  };
+  const group = list.find((g) => isRecord(g) && g.matcher === h.matcher) as
+    | { hooks: unknown[] }
+    | undefined;
+  if (group) group.hooks.push(item);
+  else list.push({ ...matcher, hooks: [item] });
+}
+
+/** Other families: through the canonical form; only command hooks survive. */
+function convertViaCanonical(
+  hooks: HookSet,
+  target: TargetId,
+  replacement: string,
+  dropped: string[],
+): Record<string, unknown[]> {
+  const fam = familyOf(target);
+  const events: Record<string, unknown[]> = {};
+  for (const h of toCanonical(hooks, dropped)) {
     const ev = targetEvent(h.event, target);
     if (!ev) {
       dropped.push(`${h.event}: not supported by ${target}`);
@@ -310,32 +349,27 @@ export function convertHooks(
       fam === 'copilot'
         ? substitutePluginRoot(h.command, replacement)
         : rootedCommand(h.command, replacement, target);
-    const list = (events[ev] ??= []);
-    if (fam === 'claude') {
-      const item = {
-        type: 'command',
-        command,
-        ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
-      };
-      const group = list.find((g) => isRecord(g) && g.matcher === h.matcher) as
-        | { hooks: unknown[] }
-        | undefined;
-      if (group) group.hooks.push(item);
-      else list.push({ ...(h.matcher !== undefined ? { matcher: h.matcher } : {}), hooks: [item] });
-    } else if (fam === 'cursor') {
-      list.push({
-        command,
-        ...(h.matcher !== undefined ? { matcher: h.matcher } : {}),
-        ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
-      });
-    } else {
-      list.push({
-        type: 'command',
-        bash: command,
-        ...(h.timeout !== undefined ? { timeoutSec: h.timeout } : {}),
-        ...(h.matcher !== undefined ? { matcher: h.matcher } : {}),
-      });
-    }
+    const list = events[ev] ?? [];
+    events[ev] = list;
+    pushHook(list, fam, h, command);
   }
+  return events;
+}
+
+/**
+ * `hooks` in `target`'s dialect, with plugin-root tokens pointing at `pluginRootAbs` (the
+ * hook's asset dir in `paths`).
+ */
+export function convertHooks(
+  hooks: HookSet,
+  target: TargetId,
+  pluginRootAbs: string,
+  paths: ScopePaths,
+): { hooks: unknown; dropped: string[] } {
+  const dropped: string[] = [];
+  const replacement = pluginRootReplacement(target, pluginRootAbs, paths);
+  const convert =
+    sourceFamily(hooks) === familyOf(target) ? convertSameFamily : convertViaCanonical;
+  const events = convert(hooks, target, replacement, dropped);
   return { hooks: wrap(target, events), dropped };
 }

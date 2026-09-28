@@ -1,42 +1,57 @@
-import { createHash } from 'node:crypto';
-import { lstat, readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { createHash, type Hash } from 'node:crypto';
+import { readFile, realpath, stat } from 'node:fs/promises';
+import { HASH_SKIP, matchesSkip } from '../domain/ignore.js';
+import { isWithin, walkFiles } from '../lib/fs.js';
 import { PalmError } from './errors.js';
 
-async function listFiles(dir: string, rel: string, out: string[]): Promise<void> {
-  const entries = await readdir(join(dir, rel), { withFileTypes: true });
-  for (const e of entries) {
-    if (e.name === '.git') continue;
-    const childRel = rel ? `${rel}/${e.name}` : e.name;
-    if (e.isDirectory()) await listFiles(dir, childRel, out);
-    else if (e.isFile()) out.push(childRel);
-  }
+/** Text is a file without a NUL byte in its first 8 KB (git's heuristic). */
+const TEXT_SNIFF_BYTES = 8192;
+
+/**
+ * `bytes` with CRLF line ends turned into LF when it is text, so a `core.autocrlf` checkout
+ * hashes like an LF one. Binary content and lone CRs are left alone.
+ */
+function normalizeEol(bytes: Buffer): Buffer {
+  if (!bytes.includes('\r\n') || bytes.subarray(0, TEXT_SNIFF_BYTES).includes(0)) return bytes;
+  return Buffer.from(bytes.toString('latin1').replaceAll('\r\n', '\n'), 'latin1');
+}
+
+async function hashFile(h: Hash, abs: string): Promise<void> {
+  h.update(normalizeEol(await readFile(abs)));
 }
 
 /**
- * sha256 of a file's bytes, or of a directory as the sorted list of
- * (relative posix path + NUL + content) for every regular file, skipping `.git`.
+ * sha256 of a file's bytes, or of a directory as the sorted list of (relative posix path + NUL +
+ * content + NUL) for every regular file. Text content is hashed with LF line ends.
+ *
+ * The directory walk is the copy walk (lib/fs `walkFiles`): `HASH_SKIP` (= `COPY_SKIP`) is left
+ * out, and a symlink is followed, and its target hashed, only when its real path stays inside
+ * `opts.boundary` (default: `absPath`; the engine passes the origin root, like the copy). So a
+ * content hash covers exactly the files a deploy copies. A root whose real path leaves the
+ * boundary is an E_IO error.
  */
-export async function hashPath(absPath: string): Promise<string> {
-  let st;
-  try {
-    st = await lstat(absPath);
-  } catch {
+export async function hashPath(absPath: string, opts: { boundary?: string } = {}): Promise<string> {
+  const real = await realpath(absPath).catch(() => undefined);
+  if (real === undefined)
     throw new PalmError('E_IO', `Cannot hash ${absPath}: no such file or directory`);
-  }
+  const boundary = await realpath(opts.boundary ?? absPath);
+  if (!isWithin(real, boundary))
+    throw new PalmError('E_IO', `Cannot hash ${absPath}: it links outside ${boundary}`);
   const h = createHash('sha256');
-  if (st.isDirectory()) {
-    const files: string[] = [];
-    await listFiles(absPath, '', files);
-    files.sort();
-    for (const rel of files) {
+  if ((await stat(real)).isDirectory()) {
+    const { files } = await walkFiles(absPath, {
+      boundary,
+      skip: (name) => matchesSkip(HASH_SKIP, name),
+    });
+    const byRel = new Map(files.map((f) => [f.rel, f.abs]));
+    for (const rel of [...byRel.keys()].sort()) {
       h.update(rel);
       h.update('\0');
-      h.update(await readFile(join(absPath, rel)));
+      await hashFile(h, byRel.get(rel) as string);
       h.update('\0');
     }
   } else {
-    h.update(await readFile(absPath));
+    await hashFile(h, real);
   }
   return `sha256:${h.digest('hex')}`;
 }

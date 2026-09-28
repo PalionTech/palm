@@ -13,7 +13,7 @@
  *       → { server, _meta }   (404 when unknown)
  */
 import { PalmError } from '../core/errors.js';
-import type { RegistryCandidate, ResolveRegistryFn, SearchRegistryFn } from '../core/types.js';
+import type { RegistryCandidate } from '../core/types.js';
 import { isRecord } from '../lib/object.js';
 import {
   normalizeServerJson,
@@ -37,7 +37,7 @@ const LEGACY_META = 'x-io.modelcontextprotocol.registry';
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
-/** Extra, optional knobs beyond the SearchRegistryFn/ResolveRegistryFn contract. */
+/** Options shared by `searchRegistry` and `resolveRegistry`. */
 export interface RegistryClientOptions {
   registryUrl?: string;
   /** Injected fetch (tests). Defaults to the global fetch. */
@@ -79,14 +79,14 @@ export function registryApiBase(registryUrl: string = DEFAULT_REGISTRY_URL): str
     throw new PalmError(
       'E_USAGE',
       `Invalid MCP registry URL: ${registryUrl}`,
-      'Use an http(s) URL such as ' + DEFAULT_REGISTRY_URL,
+      `Use an http(s) URL such as ${DEFAULT_REGISTRY_URL}`,
     );
   }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') {
     throw new PalmError(
       'E_USAGE',
       `Invalid MCP registry URL: ${registryUrl}`,
-      'Use an http(s) URL such as ' + DEFAULT_REGISTRY_URL,
+      `Use an http(s) URL such as ${DEFAULT_REGISTRY_URL}`,
     );
   }
   let path = u.pathname.replace(/\/+$/, '').replace(/\/servers$/, '');
@@ -111,7 +111,7 @@ function errorDetail(text: string): string {
   try {
     const j: unknown = JSON.parse(text);
     if (isRecord(j)) {
-      const d = j['detail'] ?? j['error'] ?? j['title'] ?? j['message'];
+      const d = j.detail ?? j.error ?? j.title ?? j.message;
       if (typeof d === 'string') return d;
     }
   } catch {
@@ -179,28 +179,25 @@ function parseEntry(item: unknown): RegistryEntry | undefined {
     return undefined;
   }
   const entry: RegistryEntry = { server };
-  const metaRoot = isRecord(item['_meta']) ? item['_meta'] : undefined;
+  const metaRoot = isRecord(item._meta) ? item._meta : undefined;
   const official = metaRoot?.[OFFICIAL_META] ?? item[LEGACY_META];
-  const vd = (server as unknown as Record<string, unknown>)['versionDetail'];
+  const vd = (server as unknown as Record<string, unknown>).versionDetail;
   for (const meta of [official, vd]) {
     if (!isRecord(meta)) continue;
-    const latest = meta['isLatest'] ?? meta['is_latest'];
+    const latest = meta.isLatest ?? meta.is_latest;
     if (typeof latest === 'boolean' && entry.isLatest === undefined) entry.isLatest = latest;
-    if (typeof meta['status'] === 'string' && entry.status === undefined)
-      entry.status = meta['status'];
+    if (typeof meta.status === 'string' && entry.status === undefined) entry.status = meta.status;
   }
   return entry;
 }
 
 function parseList(body: unknown): { entries: RegistryEntry[]; nextCursor?: string } {
-  if (!isRecord(body) || !Array.isArray(body['servers'])) {
+  if (!isRecord(body) || !Array.isArray(body.servers)) {
     throw new PalmError('E_PARSE', 'Unexpected MCP registry response: missing "servers" array');
   }
-  const entries = body['servers']
-    .map(parseEntry)
-    .filter((e): e is RegistryEntry => e !== undefined);
-  const meta = isRecord(body['metadata']) ? body['metadata'] : {};
-  const cursor = meta['nextCursor'] ?? meta['next_cursor'];
+  const entries = body.servers.map(parseEntry).filter((e): e is RegistryEntry => e !== undefined);
+  const meta = isRecord(body.metadata) ? body.metadata : {};
+  const cursor = meta.nextCursor ?? meta.next_cursor;
   return typeof cursor === 'string' && cursor !== ''
     ? { entries, nextCursor: cursor }
     : { entries };
@@ -295,10 +292,10 @@ function nameMatches(query: string, registryName: string): boolean {
  * Search the registry (substring match on server name, latest versions only). Servers that palm
  * cannot install (mcpb-only, local HTTP packages) are left out.
  */
-export const searchRegistry = (async (
+export async function searchRegistry(
   query: string,
   opts: SearchRegistryOptions = {},
-): Promise<RegistryCandidate[]> => {
+): Promise<RegistryCandidate[]> {
   const c = client(opts);
   const limit = Math.max(1, Math.min(opts.limit ?? DEFAULT_SEARCH_LIMIT, PAGE_SIZE * MAX_PAGES));
   const entries = await listLatest(c, query.trim(), limit);
@@ -314,7 +311,7 @@ export const searchRegistry = (async (
   const exact = q ? out.filter((cand) => nameMatches(q, cand.name)) : [];
   const rest = out.filter((cand) => !exact.includes(cand));
   return [...exact, ...rest].slice(0, limit);
-}) satisfies SearchRegistryFn;
+}
 
 /**
  * Resolve a registry reference to install candidates.
@@ -325,10 +322,10 @@ export const searchRegistry = (async (
  *    `github/github-mcp-server` → `io.github.github/github-mcp-server`) or matches case-insensitively.
  * Multiple results are returned as-is; the engine shows a picker.
  */
-export const resolveRegistry = (async (
+export async function resolveRegistry(
   name: string,
   opts: ResolveRegistryOptions = {},
-): Promise<RegistryCandidate[]> => {
+): Promise<RegistryCandidate[]> {
   const query = name.trim();
   if (!query) throw new PalmError('E_USAGE', 'MCP server name is empty');
   const c = client(opts);
@@ -360,4 +357,4 @@ export const resolveRegistry = (async (
   }
   if (!out.length && firstError) throw firstError;
   return out;
-}) satisfies ResolveRegistryFn;
+}

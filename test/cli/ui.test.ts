@@ -1,12 +1,33 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InstallResult } from '../../src/core/types.js';
 import {
+  createOutput,
+  failureCount,
   formatTable,
+  jsonEnvelope,
+  type Output,
+  outputOf,
   printInstallSummary,
-  printTable,
   stripAnsi,
   truncate,
 } from '../../src/ui/output.js';
+
+/** A writer over two string buffers. */
+function captured(opts: { json?: boolean; verbose?: boolean } = {}): {
+  out: Output;
+  stdout: () => string;
+  stderr: () => string;
+} {
+  let so = '';
+  let se = '';
+  const out = createOutput({
+    ...opts,
+    stdout: { write: (s: string) => (so += s) },
+    stderr: { write: (s: string) => (se += s) },
+  });
+  return { out, stdout: () => stripAnsi(so), stderr: () => stripAnsi(se) };
+}
+
 import { createNonInteractiveUI, matchesQuery } from '../../src/ui/prompts.js';
 
 describe('createNonInteractiveUI', () => {
@@ -81,18 +102,97 @@ describe('formatTable / printTable', () => {
     expect(stripAnsi(formatTable([['a', 'b', 'c'], ['dd']]))).toBe('a   b  c\ndd');
     expect(formatTable([])).toBe('');
   });
+});
 
-  it('printTable writes one block to stdout', () => {
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    printTable([['1', '2']], ['a', 'b']);
-    expect(log).toHaveBeenCalledTimes(1);
-    expect(stripAnsi(String(log.mock.calls[0]?.[0]))).toContain('1  2');
+describe('output writer', () => {
+  it('writes data and status lines with symbols to stdout, errors to stderr', () => {
+    const c = captured();
+    c.out.table([['1', '2']], ['a', 'b']);
+    c.out.added('origin x');
+    c.out.removed('skill y');
+    c.out.updated('agent z');
+    c.out.unchanged('mcp w');
+    c.out.info('note');
+    c.out.error('broken', 'palm doctor');
+    expect(c.stdout()).toBe(
+      [
+        'a  b',
+        '─  ─',
+        '1  2',
+        '+ origin x',
+        '- skill y',
+        '~ agent z',
+        '= mcp w',
+        'i note',
+        '',
+      ].join('\n'),
+    );
+    expect(c.stderr()).toBe('x broken\n  palm doctor\n');
   });
 
-  it('printTable prints nothing for no rows and no header', () => {
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    printTable([]);
-    expect(log).not.toHaveBeenCalled();
+  it('collects warnings (deduplicated) and prints them once, at the end, under a heading', () => {
+    const c = captured();
+    c.out.warn('first');
+    c.out.out('data');
+    c.out.warn('second');
+    c.out.warn('first');
+    expect(c.stderr()).toBe('');
+    c.out.finish();
+    expect(c.stdout()).toBe('data\n');
+    expect(c.stderr()).toBe('\nWarnings\n  ! first\n  ! second\n');
+    c.out.finish(); // reset: nothing twice
+    expect(c.stderr()).toBe('\nWarnings\n  ! first\n  ! second\n');
+  });
+
+  it('--json: stdout holds only the JSON document, with the warnings; every line goes to stderr', () => {
+    const c = captured({ json: true });
+    c.out.out('a table line');
+    c.out.added('origin x');
+    c.out.warn('careful');
+    c.out.json([{ name: 'tdd' }]);
+    expect(c.stdout()).toBe('');
+    c.out.finish();
+    expect(JSON.parse(c.stdout())).toEqual({ items: [{ name: 'tdd' }], warnings: ['careful'] });
+    expect(c.stderr()).toContain('a table line');
+    expect(c.stderr()).toContain('+ origin x');
+  });
+
+  it('jsonEnvelope merges own and collected warnings; arrays become items', () => {
+    expect(jsonEnvelope({ outcomes: [], warnings: ['a'] }, ['a', 'b'])).toEqual({
+      outcomes: [],
+      warnings: ['a', 'b'],
+    });
+    expect(jsonEnvelope([1], [])).toEqual({ items: [1], warnings: [] });
+    expect(jsonEnvelope(undefined, ['w'])).toEqual({ warnings: ['w'] });
+  });
+
+  it('debug lines only with --verbose', () => {
+    const quiet = captured();
+    quiet.out.debug('hidden');
+    expect(quiet.stderr()).toBe('');
+    const loud = captured({ verbose: true });
+    loud.out.debug('shown');
+    expect(loud.stderr()).toContain('shown');
+  });
+
+  it('outputOf adapts a plain logger', () => {
+    const seen: string[] = [];
+    const push = (l: string) => (m: string) => void seen.push(`${l}:${m}`);
+    const out = outputOf({
+      info: push('info'),
+      warn: push('warn'),
+      debug: push('debug'),
+      success: push('ok'),
+    });
+    out.added('x');
+    out.warn('w');
+    expect(seen).toEqual(['info:+ x', 'warn:w']);
+  });
+
+  it('failureCount reads a failures array or failed outcomes', () => {
+    expect(failureCount({ outcomes: [] })).toBe(0);
+    expect(failureCount({ outcomes: [{ status: 'installed' }, { status: 'failed' }] })).toBe(1);
+    expect(failureCount({ outcomes: [], failures: [{}, {}] })).toBe(2);
   });
 });
 
@@ -108,10 +208,7 @@ describe('printInstallSummary', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('prints a status table, notes and warnings', () => {
-    const lines: string[] = [];
-    vi.spyOn(console, 'log').mockImplementation((m?: unknown) => {
-      lines.push(stripAnsi(String(m ?? '')));
-    });
+    const c = captured();
     const result: InstallResult = {
       outcomes: [
         {
@@ -147,23 +244,23 @@ describe('printInstallSummary', () => {
       ],
       warnings: ['hooks run shell commands'],
     };
-    printInstallSummary(result, { scope: 'project', targets: ['claude', 'cursor'] });
-    const text = lines.join('\n');
+    printInstallSummary(c.out, result, { scope: 'project', targets: ['claude', 'cursor'] });
+    c.out.finish();
+    const text = c.stdout() + c.stderr();
     expect(text).toContain('project scope → claude, cursor');
     expect(text).toMatch(/status\s+kind\s+name\s+origin\s+targets\s+files/);
-    expect(text).toMatch(/installed\s+mcp\s+github\s+registry\s+claude,cursor\s+0 \(\+1 merged\)/);
-    expect(text).toMatch(/unchanged\s+skill\s+tdd \(agent:reviewer\)\s+mattpocock\s+claude\s+1/);
+    expect(text).toMatch(
+      /\+ installed\s+mcp\s+github\s+registry\s+claude,cursor\s+0 \(\+1 merged\)/,
+    );
+    expect(text).toMatch(/= unchanged\s+skill\s+tdd \(agent:reviewer\)\s+mattpocock\s+claude\s+1/);
     expect(text).toContain('1 installed, 1 unchanged');
     expect(text).toContain('github: export GITHUB_TOKEN');
-    expect(text).toContain('⚠ hooks run shell commands');
+    expect(text).toContain('Warnings\n  ! hooks run shell commands');
   });
 
   it('says so when there is nothing to install', () => {
-    const lines: string[] = [];
-    vi.spyOn(console, 'log').mockImplementation((m?: unknown) => {
-      lines.push(stripAnsi(String(m ?? '')));
-    });
-    printInstallSummary({ outcomes: [], warnings: [] }, { scope: 'global', targets: [] });
-    expect(lines.join('\n')).toContain('Nothing to install');
+    const c = captured();
+    printInstallSummary(c.out, { outcomes: [], warnings: [] }, { scope: 'global', targets: [] });
+    expect(c.stdout()).toContain('Nothing to install');
   });
 });

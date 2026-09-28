@@ -23,9 +23,10 @@ export function isInteractiveTerminal(env: NodeJS.ProcessEnv = process.env): boo
   return Boolean(process.stdin.isTTY && process.stdout.isTTY && !ci);
 }
 
+/** The user pressed Esc / Ctrl-C in a prompt: src/cli.ts exits 130 without another message. */
 function cancelled(output: Writable | undefined): never {
   p.cancel('Cancelled.', { output });
-  throw new PalmError('E_USAGE', 'cancelled');
+  throw new PalmError('E_CANCELLED', 'cancelled');
 }
 
 /** Case-insensitive match of every whitespace-separated term against label + hint. */
@@ -49,114 +50,124 @@ function toClack<T>(options: PickOption<T>[]): SelectOpts<T> {
   ) as unknown as SelectOpts<T>;
 }
 
-export function createClackUI(opts: { output?: Writable } = {}): MultilineUI {
-  const output = opts.output;
-  // A pseudo-terminal without a window size (some CI runners, `expect`, `script`) reports
-  // columns 0; clack then hard-wraps every character. Fall back to a sane width.
-  const stdout = process.stdout as NodeJS.WriteStream & { columns?: number; rows?: number };
-  if (stdout.isTTY) {
-    if (!(typeof stdout.columns === 'number' && stdout.columns > 0)) stdout.columns = 80;
-    if (!(typeof stdout.rows === 'number' && stdout.rows > 0)) stdout.rows = 24;
-  }
-  const unwrap = <V>(value: V | typeof p.CANCEL_SYMBOL): V => {
+/** Clack's cancel symbol becomes E_CANCELLED (after clack printed "Cancelled."). */
+function unwrapFor(output: Writable | undefined) {
+  return <V>(value: V | typeof p.CANCEL_SYMBOL): V => {
     if (p.isCancel(value)) cancelled(output);
     return value as V;
   };
-  const filter = (search: string, option: { label?: string; hint?: string; value: unknown }) =>
-    matchesQuery(option, search);
+}
 
-  return {
-    isInteractive: true,
+const filter = (search: string, option: { label?: string; hint?: string; value: unknown }) =>
+  matchesQuery(option, search);
 
-    async pick<T>(message: string, options: PickOption<T>[]): Promise<T> {
-      if (options.length === 0)
-        throw new PalmError('E_USAGE', `nothing to choose from: ${message}`);
-      if (options.length > AUTOCOMPLETE_THRESHOLD) {
-        return unwrap(
-          await p.autocomplete<T>({
-            message,
-            options: toClack(options),
-            maxItems: 10,
-            placeholder: 'type to filter',
-            filter,
-            output,
-          }),
-        );
-      }
-      return unwrap(await p.select<T>({ message, options: toClack(options), output }));
-    },
+/**
+ * A pseudo-terminal without a window size (some CI runners, `expect`, `script`) reports
+ * columns 0; clack then hard-wraps every character. Fall back to a sane width.
+ */
+function fixTerminalSize(): void {
+  const stdout = process.stdout as NodeJS.WriteStream & { columns?: number; rows?: number };
+  if (!stdout.isTTY) return;
+  if (!(typeof stdout.columns === 'number' && stdout.columns > 0)) stdout.columns = 80;
+  if (!(typeof stdout.rows === 'number' && stdout.rows > 0)) stdout.rows = 24;
+}
 
-    async pickMany<T>(message: string, options: PickOption<T>[], initial?: T[]): Promise<T[]> {
-      if (options.length === 0) return [];
-      if (options.length > AUTOCOMPLETE_THRESHOLD) {
-        return unwrap(
-          await p.autocompleteMultiselect<T>({
-            message,
-            options: toClack(options),
-            initialValues: initial,
-            maxItems: 12,
-            placeholder: 'type to filter, space to toggle',
-            required: false,
-            filter,
-            output,
-          }),
-        );
-      }
-      return unwrap(
-        await p.multiselect<T>({
-          message,
-          options: toClack(options),
-          initialValues: initial,
-          required: false,
-          output,
-        }),
-      );
-    },
+class ClackUI implements MultilineUI {
+  readonly isInteractive = true;
+  private readonly unwrap: ReturnType<typeof unwrapFor>;
 
-    async confirm(message: string, initial = true): Promise<boolean> {
-      return unwrap(await p.confirm({ message, initialValue: initial, output }));
-    },
+  constructor(private readonly output: Writable | undefined) {
+    this.unwrap = unwrapFor(output);
+  }
 
-    async text(message, o = {}): Promise<string> {
-      const validate = o.validate;
-      const value = unwrap(
-        await p.text({
-          message,
-          placeholder: o.placeholder,
-          initialValue: o.initial,
-          validate: validate ? (v: string | undefined) => validate(v ?? '') : undefined,
-          output,
-        }),
-      );
-      return value ?? '';
-    },
+  async pick<T>(message: string, options: PickOption<T>[]): Promise<T> {
+    if (options.length === 0) throw new PalmError('E_USAGE', `nothing to choose from: ${message}`);
+    const output = this.output;
+    if (options.length <= AUTOCOMPLETE_THRESHOLD)
+      return this.unwrap(await p.select<T>({ message, options: toClack(options), output }));
+    return this.unwrap(
+      await p.autocomplete<T>({
+        message,
+        options: toClack(options),
+        maxItems: 10,
+        placeholder: 'type to filter',
+        filter,
+        output,
+      }),
+    );
+  }
 
-    async multiline(message, o = {}): Promise<string> {
-      const value = unwrap(
-        await p.multiline({
-          message,
-          placeholder: o.placeholder,
-          initialValue: o.initial,
-          showSubmit: true,
-          output,
-        }),
-      );
-      return value ?? '';
-    },
+  async pickMany<T>(message: string, options: PickOption<T>[], initial?: T[]): Promise<T[]> {
+    if (options.length === 0) return [];
+    const base = { message, options: toClack(options), initialValues: initial, required: false };
+    if (options.length <= AUTOCOMPLETE_THRESHOLD)
+      return this.unwrap(await p.multiselect<T>({ ...base, output: this.output }));
+    return this.unwrap(
+      await p.autocompleteMultiselect<T>({
+        ...base,
+        maxItems: 12,
+        placeholder: 'type to filter, space to toggle',
+        filter,
+        output: this.output,
+      }),
+    );
+  }
 
-    async secret(message: string): Promise<string> {
-      return unwrap(await p.password({ message, output })) ?? '';
-    },
+  async confirm(message: string, initial = true): Promise<boolean> {
+    return this.unwrap(await p.confirm({ message, initialValue: initial, output: this.output }));
+  }
 
-    spinner(message: string) {
-      const s = p.spinner({ output });
-      s.start(message);
-      return {
-        stop: (msg?: string) => s.stop(msg),
-        message: (msg: string) => s.message(msg),
-      };
-    },
-  };
+  async text(
+    message: string,
+    o: {
+      placeholder?: string;
+      initial?: string;
+      validate?: (v: string) => string | undefined;
+    } = {},
+  ): Promise<string> {
+    const validate = o.validate;
+    const value = this.unwrap(
+      await p.text({
+        message,
+        placeholder: o.placeholder,
+        initialValue: o.initial,
+        validate: validate ? (v: string | undefined) => validate(v ?? '') : undefined,
+        output: this.output,
+      }),
+    );
+    return value ?? '';
+  }
+
+  async multiline(message: string, o: { placeholder?: string; initial?: string } = {}) {
+    const value = this.unwrap(
+      await p.multiline({
+        message,
+        placeholder: o.placeholder,
+        initialValue: o.initial,
+        showSubmit: true,
+        output: this.output,
+      }),
+    );
+    return value ?? '';
+  }
+
+  async secret(message: string): Promise<string> {
+    return this.unwrap(await p.password({ message, output: this.output })) ?? '';
+  }
+
+  spinner(message: string) {
+    const s = p.spinner({ output: this.output });
+    s.start(message);
+    return {
+      stop: (msg?: string) => s.stop(msg),
+      message: (msg: string) => s.message(msg),
+    };
+  }
+}
+
+export function createClackUI(opts: { output?: Writable } = {}): MultilineUI {
+  fixTerminalSize();
+  return new ClackUI(opts.output);
 }
 
 export function createNonInteractiveUI(): UI {

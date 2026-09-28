@@ -1,18 +1,13 @@
 import { rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { Origin } from '../domain/origin.js';
 import { readJsonFile, writeJsonFile } from '../lib/fs.js';
-import { allOrigins, originId } from './config.js';
 import { messageOf, PalmError } from './errors.js';
 import { fetchOrigin } from './git.js';
 import { hashValue } from './hash.js';
 import { cacheDir } from './paths.js';
-import type {
-  OriginCheckout,
-  OriginIndex,
-  OriginSpec,
-  PalmContext,
-  ScanOriginFn,
-} from './types.js';
+import type { EngineDeps, OriginCheckout, OriginIndex, OriginSpec, PalmContext } from './types.js';
+
+type ScanFn = EngineDeps['scan'];
 
 /** Bump when the shape of cached indexes changes. */
 const INDEX_FORMAT = 1;
@@ -21,19 +16,9 @@ interface StoredIndex extends OriginIndex {
   cacheKey: string;
 }
 
-/**
- * `<palmHome>/cache/<originId>[@<ref>][~<layout hash>].index.json`. Two aliases of one repository
- * with different layout descriptors (or refs) share the checkout but never an index.
- */
+/** `<palmHome>/cache/<originId>[@<ref>][~<layout hash>].index.json` (Origin.indexFile). */
 export function indexFilePath(ctx: PalmContext, spec: OriginSpec): string {
-  const ref = spec.type === 'git' ? spec.ref : undefined;
-  const suffix = ref ? `@${ref.replace(/[^A-Za-z0-9._-]/g, '-')}` : '';
-  const layout = spec.layout
-    ? `~${hashValue(spec.layout)
-        .replace(/^sha256:/, '')
-        .slice(0, 8)}`
-    : '';
-  return join(cacheDir(ctx.paths), `${originId(spec)}${suffix}${layout}.index.json`);
+  return new Origin(spec).indexFile(cacheDir(ctx.paths));
 }
 
 function cacheKey(spec: OriginSpec, checkout: OriginCheckout): string {
@@ -46,7 +31,7 @@ function cacheKey(spec: OriginSpec, checkout: OriginCheckout): string {
 }
 
 /** Default scanner, loaded lazily so a missing module gives a clear error. */
-export async function loadDefaultScan(): Promise<ScanOriginFn> {
+export async function loadDefaultScan(): Promise<ScanFn> {
   try {
     // biome-ignore lint/style/noRestrictedImports: known layer violation (core -> index); PLAN.md wave 2/3 inverts it by injecting the scanner.
     const mod = await import('../index/scan.js');
@@ -76,7 +61,7 @@ function withAlias(index: OriginIndex, alias: string): OriginIndex {
 export async function getIndex(
   ctx: PalmContext,
   spec: OriginSpec,
-  opts: { refresh?: boolean; scan?: ScanOriginFn } = {},
+  opts: { refresh?: boolean; scan?: ScanFn } = {},
 ): Promise<OriginIndex> {
   const checkout = await fetchOrigin(ctx, spec, { refresh: opts.refresh });
   const file = indexFilePath(ctx, spec);
@@ -118,15 +103,18 @@ export async function getIndex(
   return index;
 }
 
-/** Indexes of every configured origin (config + project manifest). Failing origins are skipped with a warning. */
+/**
+ * Indexes of every configured origin (`ctx.origins`: config + project manifest). Failing origins
+ * are skipped with a warning. Aliases sharing a checkout slot wait for each other (git.ts lock).
+ */
 export async function getAllIndexes(
   ctx: PalmContext,
-  opts: { refresh?: boolean; scan?: ScanOriginFn } = {},
+  opts: { refresh?: boolean; scan?: ScanFn } = {},
 ): Promise<OriginIndex[]> {
   const results = await Promise.all(
-    allOrigins(ctx).map(async (o) => {
+    ctx.origins.all().map(async (o) => {
       try {
-        return await getIndex(ctx, o, opts);
+        return await getIndex(ctx, o.spec, opts);
       } catch (e) {
         ctx.log.warn(`Skipping origin "${o.alias}": ${messageOf(e)}`);
         return undefined;

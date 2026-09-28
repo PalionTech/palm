@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { parse } from 'smol-toml';
 import { afterEach, describe, expect, it } from 'vitest';
+import { toStored } from '../../src/domain/merged-record.js';
 import { mergeTomlTable, parseTomlHeader, unmergeTomlTable } from '../../src/targets/toml-merge.js';
 import { cleanupTmp, read, tmpDir, write } from './helpers.js';
 
@@ -26,7 +27,8 @@ describe('mergeTomlTable', () => {
       { command: 'npx', args: ['-y', 'fs'], env: { A: 'b' } },
       { dryRun: false },
     );
-    expect(rec).toEqual({
+    expect(rec).toMatchObject({ type: 'toml-table', path: ['mcp_servers', 'fs'] });
+    expect(toStored(rec)).toEqual({
       file,
       pointer: '/mcp_servers/fs',
       value: { command: 'npx', args: ['-y', 'fs'], env: { A: 'b' } },

@@ -1,49 +1,39 @@
 import path from 'node:path';
-import type { Scope } from '../core/types.js';
 import { pathExists } from '../lib/fs.js';
 import type { TargetLayout, TargetSpec } from './base.js';
-import { type Env, envDir } from './env.js';
-
-/** `~/.codex` honouring CODEX_HOME (global), `<project>/.codex` (project). */
-export function codexDir(scope: Scope, scopeRoot: string, env: Env): string {
-  const def = path.join(scopeRoot, '.codex');
-  return scope === 'project' ? def : envDir(env, 'CODEX_HOME', scopeRoot, def);
-}
+import { sharedSkillsRoot } from './shared-skills.js';
 
 export const codexSpec: TargetSpec = {
   id: 'codex',
   displayName: 'Codex',
-  layout(scope, scopeRoot, env): TargetLayout {
-    const base = codexDir(scope, scopeRoot, env);
-    const agentsRoot = path.join(scopeRoot, '.agents');
+  layout(paths): TargetLayout {
+    const base = paths.harnessHome('codex');
+    const skills = sharedSkillsRoot(paths);
     const agentsMd =
-      scope === 'project' ? path.join(scopeRoot, 'AGENTS.md') : path.join(base, 'AGENTS.md');
+      paths.scope === 'project' ? path.join(paths.root, 'AGENTS.md') : path.join(base, 'AGENTS.md');
     return {
       configDir: base,
-      skillsDir: path.join(agentsRoot, 'skills'),
+      skillsDir: skills.dir,
       agentsDir: path.join(base, 'agents'),
       instructions: { agentsMd },
       commands:
-        scope === 'project'
+        paths.scope === 'project'
           ? {
               skip: 'Codex has no project-scoped custom prompts; command skipped (install with -g for ~/.codex/prompts)',
             }
           : { dir: path.join(base, 'prompts') },
       hooks: { mergeFile: path.join(base, 'hooks.json') },
       mcp: { toml: path.join(base, 'config.toml') },
-      roots: [
-        { dir: base, stop: base },
-        { dir: path.join(agentsRoot, 'skills'), stop: agentsRoot },
-      ],
+      roots: [{ dir: base, stop: base }, skills],
       mergedFiles: [path.join(base, 'hooks.json'), path.join(base, 'config.toml'), agentsMd],
     };
   },
-  async detect(scope, scopeRoot, env) {
-    if (scope === 'project')
+  async detect(paths) {
+    if (paths.scope === 'project')
       return (
-        (await pathExists(path.join(scopeRoot, '.codex'))) ||
-        pathExists(path.join(scopeRoot, 'AGENTS.md'))
+        (await pathExists(path.join(paths.root, '.codex'))) ||
+        pathExists(path.join(paths.root, 'AGENTS.md'))
       );
-    return pathExists(codexDir('global', scopeRoot, env));
+    return pathExists(paths.harnessHome('codex'));
   },
 };

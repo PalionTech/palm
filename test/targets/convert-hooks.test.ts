@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { HookSet } from '../../src/core/types.js';
+import { ScopePaths } from '../../src/domain/scope-paths.js';
 import { convertHooks } from '../../src/targets/convert-hooks.js';
 import { CLAUDE_HOOKS } from './helpers.js';
 
-const ASSET = '/proj/.palm/hooks/fmt';
+const PROJECT = ScopePaths.at('project', '/proj', { HOME: '/home/u' });
+const GLOBAL = ScopePaths.at('global', '/home/u', {});
+const ASSET = PROJECT.hooksAssetDir('fmt');
 const claudeSet: HookSet = {
   name: 'fmt',
   dialect: 'claude',
@@ -19,7 +22,7 @@ describe('convertHooks from Claude', () => {
         WorktreeCreate: [{ hooks: [{ type: 'prompt', prompt: 'x' }] }],
       },
     };
-    const r = convertHooks({ ...claudeSet, raw }, 'claude', ASSET, 'project');
+    const r = convertHooks({ ...claudeSet, raw }, 'claude', ASSET, PROJECT);
     expect(r.dropped).toEqual([]);
     expect(r.hooks).toEqual({
       hooks: {
@@ -44,7 +47,7 @@ describe('convertHooks from Claude', () => {
   });
 
   it('claude global: absolute asset dir', () => {
-    const r = convertHooks(claudeSet, 'claude', '/home/u/.palm/hooks/fmt', 'global');
+    const r = convertHooks(claudeSet, 'claude', '/home/u/.palm/hooks/fmt', GLOBAL);
     expect(JSON.stringify(r.hooks)).toContain('\\"/home/u/.palm/hooks/fmt/hooks/format.sh\\"');
   });
 
@@ -62,7 +65,7 @@ describe('convertHooks from Claude', () => {
         Notification: [{ hooks: [{ type: 'command', command: 'notify' }] }],
       },
     };
-    const r = convertHooks({ ...claudeSet, raw }, 'codex', ASSET, 'project');
+    const r = convertHooks({ ...claudeSet, raw }, 'codex', ASSET, PROJECT);
     expect(r.hooks).toEqual({
       hooks: {
         SessionStart: [
@@ -99,7 +102,7 @@ describe('convertHooks from Claude', () => {
         TeammateIdle: [{ hooks: [{ type: 'command', command: 't' }] }],
       },
     };
-    const r = convertHooks({ ...claudeSet, raw }, 'cursor', ASSET, 'project');
+    const r = convertHooks({ ...claudeSet, raw }, 'cursor', ASSET, PROJECT);
     expect(r.hooks).toEqual({
       version: 1,
       hooks: {
@@ -130,7 +133,7 @@ describe('convertHooks from Claude', () => {
         Stop: [{ hooks: [{ type: 'command', command: 'done', timeout: 5 }] }],
       },
     };
-    const r = convertHooks({ ...claudeSet, raw }, 'copilot', ASSET, 'project');
+    const r = convertHooks({ ...claudeSet, raw }, 'copilot', ASSET, PROJECT);
     expect(r.hooks).toEqual({
       version: 1,
       hooks: {
@@ -169,7 +172,7 @@ describe('convertHooks into Claude', () => {
         },
       },
     };
-    const r = convertHooks(set, 'claude', '/abs/c', 'global');
+    const r = convertHooks(set, 'claude', '/abs/c', GLOBAL);
     expect(r.hooks).toEqual({
       hooks: {
         PreToolUse: [
@@ -203,7 +206,7 @@ describe('convertHooks into Claude', () => {
         },
       },
     };
-    const r = convertHooks(set, 'claude', '/abs/g', 'project');
+    const r = convertHooks(set, 'claude', '/abs/g', PROJECT);
     expect(r.hooks).toEqual({
       hooks: {
         Stop: [{ hooks: [{ type: 'command', command: './stop.sh', timeout: 15 }] }],
@@ -222,7 +225,7 @@ describe('convertHooks into Claude', () => {
       dialect: 'cursor',
       raw: { version: 1, hooks: { stop: [{ command: 's' }] } },
     };
-    expect(convertHooks(cur, 'copilot', '/a', 'project').hooks).toEqual({
+    expect(convertHooks(cur, 'copilot', '/a', PROJECT).hooks).toEqual({
       version: 1,
       hooks: { agentStop: [{ type: 'command', bash: 's' }] },
     });
@@ -231,7 +234,7 @@ describe('convertHooks into Claude', () => {
       dialect: 'copilot',
       raw: { version: 1, hooks: { sessionStart: [{ bash: 's', timeoutSec: 3 }] } },
     };
-    expect(convertHooks(cop, 'cursor', '/a', 'project').hooks).toEqual({
+    expect(convertHooks(cop, 'cursor', '/a', PROJECT).hooks).toEqual({
       version: 1,
       hooks: { sessionStart: [{ command: 's', timeout: 3 }] },
     });
@@ -246,7 +249,7 @@ describe('convertHooks into Claude', () => {
         hooks: { afterFileEdit: [{ command: '${CURSOR_PLUGIN_ROOT}/f.sh', loop_limit: 2 }] },
       },
     };
-    expect(convertHooks(cur, 'cursor', '/a', 'project')).toEqual({
+    expect(convertHooks(cur, 'cursor', '/a', PROJECT)).toEqual({
       hooks: {
         version: 1,
         hooks: { afterFileEdit: [{ command: 'CURSOR_PLUGIN_ROOT="/a" /a/f.sh', loop_limit: 2 }] },
@@ -268,7 +271,7 @@ describe('convertHooks into Claude', () => {
         ],
       },
     };
-    expect(convertHooks({ ...claudeSet, raw }, 'claude', '/a', 'global').hooks).toEqual({
+    expect(convertHooks({ ...claudeSet, raw }, 'claude', '/a', GLOBAL).hooks).toEqual({
       hooks: {
         SessionStart: [
           {
@@ -292,7 +295,7 @@ describe('convertHooks into Claude', () => {
         },
       },
     };
-    expect(convertHooks(gem, 'claude', '/a', 'project').hooks).toEqual({
+    expect(convertHooks(gem, 'claude', '/a', PROJECT).hooks).toEqual({
       hooks: {
         PreToolUse: [{ matcher: 'x', hooks: [{ type: 'command', command: 'c', timeout: 2 }] }],
       },

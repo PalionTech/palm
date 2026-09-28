@@ -5,7 +5,6 @@ import type {
   OriginSpec,
   PalmContext,
   RegistryCandidate,
-  ScanOriginFn,
   ScanResult,
   TargetId,
 } from '../../src/core/types.js';
@@ -198,7 +197,7 @@ const ORIGIN_FILES: Record<string, Record<string, string>> = {
   },
 };
 
-export function fakeScan(): ScanOriginFn & { calls: string[] } {
+export function fakeScan(): EngineDeps['scan'] & { calls: string[] } {
   const calls: string[] = [];
   const fn = (async (root: string, spec: OriginSpec): Promise<ScanResult> => {
     calls.push(spec.alias);
@@ -207,7 +206,7 @@ export function fakeScan(): ScanOriginFn & { calls: string[] } {
       origin: spec.alias,
     }));
     return { entities, warnings: [], detected: 'convention' };
-  }) as ScanOriginFn & { calls: string[] };
+  }) as EngineDeps['scan'] & { calls: string[] };
   fn.calls = calls;
   return fn;
 }

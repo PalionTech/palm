@@ -1,7 +1,6 @@
 import { constants } from 'node:fs';
-import { access, lstat, readdir } from 'node:fs/promises';
-import { dirname, isAbsolute, join } from 'node:path';
-import type { Command } from 'commander';
+import { access } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { execa } from 'execa';
 import pc from 'picocolors';
 import { messageOf } from '../core/errors.js';
@@ -12,8 +11,13 @@ import {
   type Scope,
   TARGET_IDS,
 } from '../core/types.js';
+import { ScopePaths } from '../domain/scope-paths.js';
 import { pathExists } from '../lib/fs.js';
-import { ExitSignal, type GlobalOptions, makeContext, printJson } from './shared.js';
+import { type Output, symbol } from '../ui/output.js';
+import type { App } from './app.js';
+import { dirSize, formatBytes } from './disk.js';
+import type { Invocation } from './grammar.js';
+import { ExitSignal, type GlobalOptions, makeContext } from './shared.js';
 
 export type CheckStatus = 'ok' | 'info' | 'warn' | 'fail';
 export interface Check {
@@ -24,34 +28,11 @@ export interface Check {
 }
 
 const SYMBOL: Record<CheckStatus, string> = {
-  ok: pc.green('✓'),
-  info: pc.dim('·'),
-  warn: pc.yellow('⚠'),
-  fail: pc.red('✗'),
+  ok: symbol('added'),
+  info: symbol('info'),
+  warn: symbol('warning'),
+  fail: symbol('error'),
 };
-
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let v = n / 1024;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
-}
-
-async function dirSize(dir: string): Promise<number> {
-  let total = 0;
-  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-  for (const e of entries) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) total += await dirSize(p);
-    else if (e.isFile()) total += (await lstat(p).catch(() => undefined))?.size ?? 0;
-  }
-  return total;
-}
 
 /** Nearest existing ancestor of `p` (for writability checks before palm home exists). */
 async function nearestExisting(p: string): Promise<string> {
@@ -125,8 +106,8 @@ async function checkTargets(ctx: PalmContext): Promise<Check[]> {
   for (const id of TARGET_IDS) {
     const t = getTarget(id);
     const found: string[] = [];
-    for (const scope of ['project', 'global'] as Scope[]) {
-      const root = scope === 'global' ? ctx.paths.home : ctx.paths.projectRoot;
+    for (const scope of SCOPES) {
+      const root = ScopePaths.of(ctx, scope).root;
       if (await t.detect(scope, root, ctx.env).catch(() => false)) found.push(scope);
     }
     checks.push({
@@ -139,48 +120,52 @@ async function checkTargets(ctx: PalmContext): Promise<Check[]> {
   return checks;
 }
 
-/** Lock entries whose files are gone, and manifest entries that are not installed. */
-async function checkDrift(ctx: PalmContext): Promise<Check[]> {
-  const { lockPath, manifestPath } = await import('../core/paths.js');
+const SCOPES: readonly Scope[] = ['project', 'global'];
+
+async function missingFiles(sp: ScopePaths, e: LockEntry): Promise<string | undefined> {
+  const missing: string[] = [];
+  for (const f of e.files) if (!(await pathExists(sp.abs(f)))) missing.push(f);
+  if (!missing.length) return undefined;
+  return `${e.kind} ${e.name}: ${missing.length}/${e.files.length} files missing (e.g. ${missing[0]})`;
+}
+
+/** Lock entries whose files are gone, and manifest entries that are not installed, in one scope. */
+async function scopeDrift(ctx: PalmContext, scope: Scope): Promise<Check> {
   const { loadLock } = await import('../core/lockfile.js');
   const { loadManifest } = await import('../core/manifest.js');
   const { manifestDeps, satisfies } = await import('../engine/sync.js');
-  const checks: Check[] = [];
-  for (const scope of ['project', 'global'] as Scope[]) {
-    const root = scope === 'global' ? ctx.paths.home : ctx.paths.projectRoot;
-    const lock = await loadLock(lockPath(ctx.paths, scope));
-    const manifest = await loadManifest(manifestPath(ctx.paths, scope));
-    const problems: string[] = [];
-    for (const e of lock.entries as LockEntry[]) {
-      const missing: string[] = [];
-      for (const f of e.files)
-        if (!(await pathExists(isAbsolute(f) ? f : join(root, f)))) missing.push(f);
-      if (missing.length)
-        problems.push(
-          `${e.kind} ${e.name}: ${missing.length}/${e.files.length} files missing (e.g. ${missing[0]})`,
-        );
-    }
-    for (const d of manifestDeps(manifest)) {
-      if (!lock.entries.some((e) => satisfies(e, d)))
-        problems.push(`${d.kind} ${d.dep.name} is in palm.yaml but not installed`);
-    }
-    checks.push(
-      problems.length
-        ? {
-            group: 'lock',
-            name: `${scope} scope`,
-            status: 'warn',
-            detail: `${problems.join('; ')} — run \`palm install${scope === 'global' ? ' -g' : ''}\``,
-          }
-        : {
-            group: 'lock',
-            name: `${scope} scope`,
-            status: 'ok',
-            detail: `${lock.entries.length} entr${lock.entries.length === 1 ? 'y' : 'ies'}, no drift`,
-          },
-    );
+  const sp = ScopePaths.of(ctx, scope);
+  const lock = await loadLock(sp.lockFile);
+  const manifest = await loadManifest(sp.manifestFile);
+  const problems: string[] = [];
+  for (const e of lock.entries as LockEntry[]) {
+    const problem = await missingFiles(sp, e);
+    if (problem) problems.push(problem);
   }
-  return checks;
+  for (const d of manifestDeps(manifest))
+    if (!lock.entries.some((e) => satisfies(e, d)))
+      problems.push(`${d.kind} ${d.dep.name} is in palm.yaml but not installed`);
+  const name = `${scope} scope`;
+  if (!problems.length) {
+    const n = lock.entries.length;
+    return {
+      group: 'lock',
+      name,
+      status: 'ok',
+      detail: `${n} entr${n === 1 ? 'y' : 'ies'}, no drift`,
+    };
+  }
+  const fix = `palm install${scope === 'global' ? ' -g' : ''}`;
+  return {
+    group: 'lock',
+    name,
+    status: 'warn',
+    detail: `${problems.join('; ')}; fix with: ${fix}`,
+  };
+}
+
+async function checkDrift(ctx: PalmContext): Promise<Check[]> {
+  return Promise.all(SCOPES.map((scope) => scopeDrift(ctx, scope)));
 }
 
 async function checkOrigin(spec: OriginSpec): Promise<Check> {
@@ -223,64 +208,50 @@ async function safely(group: string, fn: () => Promise<Check[]>): Promise<Check[
   }
 }
 
-export function registerDoctor(program: Command): void {
-  program
-    .command('doctor')
-    .summary('check git, node, harness dirs, lockfile drift and origin reachability')
-    .description(
-      'Check git and Node, palm home, harness detection, lock/manifest drift and origin reachability (skipped with --offline).',
-    )
-    .action(async (_opts: unknown, cmd: Command) => {
-      const g = cmd.optsWithGlobals<GlobalOptions>();
-      const ctx = await makeContext(g, { interactive: false });
-      const checks: Check[] = [await checkGit(), checkNode()];
-      checks.push(...(await safely('palm', () => checkPalmHome(ctx))));
-      checks.push(...(await safely('targets', () => checkTargets(ctx))));
-      checks.push(...(await safely('lock', () => checkDrift(ctx))));
-      if (ctx.flags.offline) {
-        checks.push({
-          group: 'origins',
-          name: 'origins',
-          status: 'info',
-          detail: 'skipped (--offline)',
-        });
-      } else {
-        checks.push(
-          ...(await safely('origins', async () => {
-            const { allOrigins } = await import('../core/config.js');
-            const specs = allOrigins(ctx);
-            if (specs.length === 0)
-              return [
-                {
-                  group: 'origins',
-                  name: 'origins',
-                  status: 'info',
-                  detail: 'none registered',
-                } satisfies Check,
-              ];
-            return Promise.all(specs.map((s) => checkOrigin(s)));
-          })),
-        );
-      }
+async function originChecks(ctx: PalmContext): Promise<Check[]> {
+  if (ctx.flags.offline)
+    return [{ group: 'origins', name: 'origins', status: 'info', detail: 'skipped (--offline)' }];
+  return safely('origins', async () => {
+    const { allOrigins } = await import('../core/config.js');
+    const specs = allOrigins(ctx);
+    if (specs.length === 0)
+      return [{ group: 'origins', name: 'origins', status: 'info', detail: 'none registered' }];
+    return Promise.all(specs.map((s) => checkOrigin(s)));
+  });
+}
 
-      const failed = checks.filter((c) => c.status === 'fail').length;
-      const warned = checks.filter((c) => c.status === 'warn').length;
-      if (g.json) printJson(checks);
-      else {
-        let group = '';
-        for (const c of checks) {
-          if (c.group !== group) {
-            group = c.group;
-            console.log(`${group === checks[0]?.group ? '' : '\n'}${pc.bold(group)}`);
-          }
-          console.log(
-            `  ${SYMBOL[c.status]} ${c.name.padEnd(16)} ${c.status === 'info' ? pc.dim(c.detail) : c.detail}`,
-          );
-        }
-        console.log(
-          `\n${failed ? pc.red(`${failed} problem${failed === 1 ? '' : 's'}`) : pc.green('no problems')}${warned ? pc.yellow(`, ${warned} warning${warned === 1 ? '' : 's'}`) : ''}`,
-        );
-      }
-      if (failed) throw new ExitSignal(1);
-    });
+function printChecks(out: Output, checks: Check[]): void {
+  let group = '';
+  for (const c of checks) {
+    if (c.group !== group) {
+      out.out(`${group ? '\n' : ''}${pc.bold(c.group)}`);
+      group = c.group;
+    }
+    const detail = c.status === 'info' ? pc.dim(c.detail) : c.detail;
+    out.out(`  ${SYMBOL[c.status]} ${c.name.padEnd(16)} ${detail}`);
+  }
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+/** `palm doctor`: git, node, palm home, harness detection, lock drift, origin reachability. */
+export async function run(inv: Invocation, app: App): Promise<void> {
+  const ctx = await makeContext(app, inv.opts as GlobalOptions, { interactive: false });
+  const checks: Check[] = [await checkGit(), checkNode()];
+  checks.push(...(await safely('palm', () => checkPalmHome(ctx))));
+  checks.push(...(await safely('targets', () => checkTargets(ctx))));
+  checks.push(...(await safely('lock', () => checkDrift(ctx))));
+  checks.push(...(await originChecks(ctx)));
+  const failed = checks.filter((c) => c.status === 'fail').length;
+  const warned = checks.filter((c) => c.status === 'warn').length;
+  const out = app.out;
+  if (out.jsonMode) out.json(checks);
+  else {
+    printChecks(out, checks);
+    const problems = failed ? pc.red(plural(failed, 'problem')) : pc.green('no problems');
+    out.out(`\n${problems}${warned ? pc.yellow(`, ${plural(warned, 'warning')}`) : ''}`);
+  }
+  if (failed) throw new ExitSignal(1);
 }

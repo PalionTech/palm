@@ -11,6 +11,7 @@ import type {
   TargetId,
 } from '../../src/core/types.js';
 import { TARGET_IDS } from '../../src/core/types.js';
+import { ScopePaths } from '../../src/domain/scope-paths.js';
 import { renderAgent } from '../../src/targets/convert-agent.js';
 import { renderCommand } from '../../src/targets/convert-command.js';
 import { convertHooks } from '../../src/targets/convert-hooks.js';
@@ -278,7 +279,7 @@ describe.each(
       E.hook.entity.def.kind === 'hook' ? E.hook.entity.def.hooks : (undefined as never),
       id,
       abs(assetRel),
-      scope,
+      ScopePaths.at(scope, root, env),
     ).hooks as { hooks: Record<string, unknown[]> };
     for (const f of ASSET_FILES) expect(hook.files).toContain(shown(`${assetRel}/${f}`));
     // Hook scripts may read plugin files (superpowers' session-start reads skills/*/SKILL.md): those are
@@ -289,7 +290,7 @@ describe.each(
     expect((await fs.stat(abs(`${assetRel}/hooks/format.sh`))).mode & 0o777).toBe(0o755);
     if (id === 'copilot') {
       expect(hook.files).toContain(shown(P.hookFile));
-      expect(await read(abs(P.hookFile))).toBe(JSON.stringify(converted, null, 2) + '\n');
+      expect(await read(abs(P.hookFile))).toBe(`${JSON.stringify(converted, null, 2)}\n`);
       expect(hook.merged).toEqual([]);
     } else {
       expect(hook.merged?.map((m) => [m.file, m.pointer])).toEqual(
@@ -525,7 +526,9 @@ describe('undeploy keeps unrelated content', () => {
       const merged: MergedRecord[] = [];
       for (const t of allTargets()) {
         const r = await t.deploy(mkInput({ ...e, originRoot: origin.root, scopeRoot: root, env }));
-        r.files.forEach((f) => files.add(f));
+        r.files.forEach((f) => {
+          files.add(f);
+        });
         merged.push(...(r.merged ?? []));
       }
       entries.push(mkLock(e.entity, [...TARGET_IDS], [...files], merged));
@@ -644,17 +647,27 @@ describe('environment overrides (global scope)', () => {
     );
   });
 
-  it('ignores process.env directory overrides when scopeRoot is not that HOME', async () => {
+  it('resolves directory overrides from the call env, then the bound env, then process.env', async () => {
     const origin = await makeOrigin();
     const home = await tmpDir();
     const elsewhere = await tmpDir();
+    const bound = await tmpDir();
     vi.stubEnv('CLAUDE_CONFIG_DIR', elsewhere);
-    vi.stubEnv('PALM_HOME', elsewhere);
-    const r = await getTarget('claude').deploy(
-      mkInput({ ...entities(origin).agent, scope: 'global', scopeRoot: home }),
-    );
-    expect(r.files).toEqual([path.join(home, '.claude/agents/demo.md')]);
+    const agent = entities(origin).agent;
+    const input = mkInput({ ...agent, scope: 'global', scopeRoot: home, env: fakeEnv(home) });
+    // An explicit env wins over process.env: nothing is written to its CLAUDE_CONFIG_DIR.
+    expect((await getTarget('claude').deploy(input)).files).toEqual([
+      path.join(home, '.claude/agents/demo.md'),
+    ]);
     expect(await fs.readdir(elsewhere)).toEqual([]);
+    // Without one, the env bound by createTarget() applies, then process.env.
+    const t = createTarget('claude', fakeEnv(home, { CLAUDE_CONFIG_DIR: bound }));
+    expect((await t.deploy({ ...input, env: undefined })).files).toEqual([
+      path.join(bound, 'agents/demo.md'),
+    ]);
+    expect((await getTarget('claude').deploy({ ...input, env: undefined })).files).toEqual([
+      path.join(elsewhere, 'agents/demo.md'),
+    ]);
   });
 });
 

@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { looksLikeRepoRef, parseInstallArgs } from '../../src/commands/install.js';
-import {
-  parseTargetList,
-  splitKindArgs,
-  splitNameOrigin,
-  splitPassthrough,
-} from '../../src/commands/shared.js';
+import { parseTargetList, splitPassthrough } from '../../src/commands/shared.js';
 
 describe('parseInstallArgs', () => {
   const cases: Array<{ argv: string[]; expected: Record<string, unknown> }> = [
@@ -207,7 +202,7 @@ describe('parseInstallArgs', () => {
   });
 });
 
-describe('install: origins and repositories are not entity names', () => {
+describe('install: repositories are origins, not entity names', () => {
   const usageError = (argv: string[]): { code?: string; message?: string; hint?: string } => {
     try {
       parseInstallArgs(argv);
@@ -217,19 +212,21 @@ describe('install: origins and repositories are not entity names', () => {
     throw new Error(`palm ${argv.join(' ')} did not throw`);
   };
 
-  it.each([['origin'], ['origins'], ['registry'], ['Origin']])(
-    'palm install %s anthropics/skills → E_USAGE with the origin-add hint',
+  it.each([['origin'], ['origins'], ['orig'], ['Origin']])(
+    'palm install %s anthropics/skills is an origin install, not an entity install',
     (word) => {
-      const err = usageError(['install', word, 'anthropics/skills']);
-      expect(err).toMatchObject({
+      expect(usageError(['install', word, 'anthropics/skills'])).toMatchObject({
         code: 'E_USAGE',
-        message: `${word.toLowerCase()} is not an installable kind`,
+        message: `not an entity install command: install ${word} anthropics/skills`,
       });
-      expect(err.hint).toContain(
-        'register a repository with: palm origin add <owner/repo | url | path>',
-      );
     },
   );
+
+  it('palm install registry x → E_USAGE pointing at palm install mcp', () => {
+    const err = usageError(['install', 'registry', 'x']);
+    expect(err).toMatchObject({ code: 'E_USAGE', message: 'registry is not an installable kind' });
+    expect(err.hint).toContain('palm install mcp <registry-name>');
+  });
 
   it.each([
     ['anthropics/skills'],
@@ -240,14 +237,21 @@ describe('install: origins and repositories are not entity names', () => {
     ['gitlab:group/repo'],
     ['./vendor/skills'],
     ['~/src/skills'],
-  ])('palm install %s → E_USAGE pointing at origin add and --from', (spec) => {
+  ])('palm install %s → E_USAGE pointing at install origin and --from', (spec) => {
     const err = usageError(['install', spec]);
     expect(err).toMatchObject({
       code: 'E_USAGE',
       message: `"${spec}" is a repository, not an entity name`,
     });
-    expect(err.hint).toContain(`palm origin add ${spec}`);
+    expect(err.hint).toContain(`palm install origin ${spec}`);
     expect(err.hint).toContain(`palm install skill <name> --from ${spec}`);
+  });
+
+  it('origin options only apply to origins', () => {
+    expect(usageError(['install', 'skill', 'x', '--alias', 'a'])).toMatchObject({
+      code: 'E_USAGE',
+      message: '--alias only apply to origins',
+    });
   });
 
   it('leaves MCP registry names, refs with slashes and kind-qualified specs alone', () => {
@@ -279,23 +283,6 @@ describe('argument helpers', () => {
       passthrough: ['b', '--', 'c'],
     });
     expect(splitPassthrough(['a'])).toEqual({ args: ['a'], passthrough: [] });
-  });
-
-  it('splitKindArgs only shifts real kinds', () => {
-    expect(splitKindArgs(['servers', 'x'])).toEqual({ kind: 'mcp', rest: ['x'] });
-    expect(splitKindArgs(['wayfinder'])).toEqual({ kind: undefined, rest: ['wayfinder'] });
-    expect(splitKindArgs([])).toEqual({ kind: undefined, rest: [] });
-  });
-
-  it('splitNameOrigin follows the dependency grammar', () => {
-    expect(splitNameOrigin('wayfinder@mattpocock#v1')).toEqual({
-      name: 'wayfinder',
-      origin: 'mattpocock',
-    });
-    expect(splitNameOrigin('io.github.github/github-mcp-server')).toEqual({
-      name: 'io.github.github/github-mcp-server',
-    });
-    expect(splitNameOrigin('plain')).toEqual({ name: 'plain' });
   });
 
   it('parseTargetList validates and dedupes', () => {

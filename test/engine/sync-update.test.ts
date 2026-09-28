@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadLock } from '../../src/core/lockfile.js';
+import { loadLock, saveLock } from '../../src/core/lockfile.js';
 import { saveManifest } from '../../src/core/manifest.js';
 import { installEntities } from '../../src/engine/install.js';
 import { syncManifest } from '../../src/engine/sync.js';
@@ -117,6 +117,27 @@ describe('updateEntities', () => {
     await expect(
       updateEntities(w.ctx, [{ name: 'nope' }], { scope: 'project' }, w.deps),
     ).rejects.toMatchObject({ code: 'E_NOT_FOUND' });
+  });
+
+  it('climbs to the plugin whatever the case of the `via` (regression: parentOf was case-sensitive)', async () => {
+    w = await makeWorld();
+    const opts = { scope: 'project' as const, targets: ['claude' as const] };
+    await installEntities(w.ctx, [{ kind: 'plugin', spec: 'superpowers' }], opts, w.deps);
+    const lockFile = join(w.sb.project, 'palm.lock.yaml');
+    const lock = await loadLock(lockFile);
+    const member = lock.entries.find((e) => e.name === 'brainstorm')!;
+    member.via = 'plugin:SuperPowers';
+    await saveLock(lockFile, lock);
+
+    const r = await updateEntities(
+      w.ctx,
+      [{ kind: 'skill', name: 'BRAINSTORM' }],
+      { scope: 'project' },
+      w.deps,
+    );
+    expect(r.outcomes.map((o) => o.entry.name)).toEqual(['superpowers', 'brainstorm']);
+    const after = await loadLock(lockFile);
+    expect(after.entries.find((e) => e.name === 'brainstorm')!.via).toBe('plugin:superpowers');
   });
 
   it('drops members a plugin no longer declares, but keeps unresolved agent deps', async () => {

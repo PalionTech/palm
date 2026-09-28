@@ -1,57 +1,63 @@
-import type { Command } from 'commander';
-import pc from 'picocolors';
+/**
+ * `palm uninstall [kind] <names...>` (aliases `remove`, `rm`, `delete`): delete what palm
+ * wrote, reverse merged config, drop dependencies nothing else needs, update palm.yaml.
+ * `palm uninstall origin <alias>...` unregisters origins.
+ */
 import type { LockEntry } from '../core/types.js';
-import { printTable } from '../ui/output.js';
+import { DepRef } from '../domain/dep-ref.js';
+import { type Output, symbol } from '../ui/output.js';
+import type { App } from './app.js';
+import { type Invocation, usage } from './grammar.js';
+import { uninstallOrigin } from './origin.js';
 import {
+  ExitSignal,
+  entityKind,
+  failureCount,
   type GlobalOptions,
   makeContext,
-  printJson,
   scopeOf,
-  splitKindArgs,
-  splitNameOrigin,
-  usage,
 } from './shared.js';
 
-export function registerUninstall(program: Command): void {
-  program
-    .command('uninstall')
-    .aliases(['remove', 'rm'])
-    .summary('remove entities and the dependencies nothing else needs')
-    .description(
-      'Remove installed entities: deletes the files palm wrote, reverses merged config, drops dependencies nothing else needs, and updates palm.yaml.',
-    )
-    .argument('[kind]', 'restrict to one kind (plurals ok)')
-    .argument('[names...]', 'name[@origin]')
-    .action(async (kind: string | undefined, names: string[], _opts: unknown, cmd: Command) => {
-      const g = cmd.optsWithGlobals<GlobalOptions>();
-      const split = splitKindArgs([...(kind === undefined ? [] : [kind]), ...names]);
-      if (split.rest.length === 0)
-        throw usage('name at least one entity to uninstall', 'palm uninstall skill wayfinder');
-      const refs = split.rest.map((spec) => ({ kind: split.kind, ...splitNameOrigin(spec) }));
-      const scope = scopeOf(g);
-      const ctx = await makeContext(g);
-      const { uninstallEntities } = await import('../engine/uninstall.js');
-      const result: { removed: LockEntry[]; warnings: string[] } = await uninstallEntities(
-        ctx,
-        refs,
-        { scope },
-      );
-      if (g.json) return printJson(result);
-      if (result.removed.length === 0) {
-        ctx.log.warn(`nothing was removed from the ${scope} scope`);
-      } else {
-        printTable(
-          result.removed.map((e) => [
-            e.kind,
-            e.name,
-            e.origin,
-            `${e.files.length} file${e.files.length === 1 ? '' : 's'}${e.merged?.length ? ` +${e.merged.length} merged` : ''}`,
-            e.via ?? '',
-          ]),
-          ['kind', 'name', 'origin', 'removed', 'via'],
-        );
-      }
-      for (const w of result.warnings) ctx.log.warn(w);
-      if (g.dryRun) console.log(pc.dim('\ndry run: nothing was removed'));
-    });
+function removedCell(e: LockEntry): string {
+  const files = `${e.files.length} file${e.files.length === 1 ? '' : 's'}`;
+  return e.merged?.length ? `${files} +${e.merged.length} merged` : files;
+}
+
+function printRemoved(out: Output, removed: LockEntry[], dryRun: boolean): void {
+  const status = `${symbol('removed')} ${dryRun ? 'would remove' : 'removed'}`;
+  out.table(
+    removed.map((e) => [status, e.kind, e.name, e.origin, removedCell(e), e.via ?? '']),
+    ['status', 'kind', 'name', 'origin', 'files', 'via'],
+  );
+}
+
+export async function run(inv: Invocation, app: App): Promise<void> {
+  if (inv.resource === 'origin') return uninstallOrigin(inv, app);
+  const g = inv.opts as GlobalOptions;
+  const kind = entityKind(inv.resource, 'uninstall');
+  if (inv.names.length === 0)
+    throw usage(
+      `name at least one ${kind ?? 'entity'} to uninstall`,
+      `palm uninstall ${kind ?? 'skill'} <name>   (see what is installed: palm get)`,
+    );
+  const refs = inv.names.map((spec) => {
+    const ref = DepRef.parse(spec);
+    return { kind, name: ref.name, ...(ref.origin ? { origin: ref.origin } : {}) };
+  });
+  const scope = scopeOf(g);
+  const ctx = await makeContext(app, g);
+  const { uninstallEntities } = await import('../engine/uninstall.js');
+  const result: { removed: LockEntry[]; warnings: string[] } = await uninstallEntities(
+    ctx,
+    refs,
+    { scope },
+    app.deps,
+  );
+  const out = app.out;
+  for (const w of result.warnings) out.warn(w);
+  if (out.jsonMode) out.json(result);
+  else if (result.removed.length === 0) out.warn(`nothing was removed from the ${scope} scope`);
+  else printRemoved(out, result.removed, ctx.flags.dryRun);
+  if (ctx.flags.dryRun && !out.jsonMode) out.hint('\ndry run: nothing was removed');
+  if (failureCount(result)) throw new ExitSignal(1);
 }

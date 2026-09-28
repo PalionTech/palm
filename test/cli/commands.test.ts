@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { getConfigValue, setConfigValue } from '../../src/commands/config.js';
-import { formatBytes } from '../../src/commands/doctor.js';
-import { fileTargetLabel } from '../../src/commands/info.js';
+import { fileTargetLabel } from '../../src/commands/describe.js';
+import { formatBytes } from '../../src/commands/disk.js';
 import { withPalmIgnored } from '../../src/commands/init.js';
-import { kindCounts, marketplaceRootDir, marketplaceUrlBase } from '../../src/commands/origin.js';
+import { kindCounts, parseLayoutOptions } from '../../src/commands/origin.js';
+import { marketplaceRootDir, marketplaceUrlBase } from '../../src/commands/origin-marketplace.js';
 import { installHint } from '../../src/commands/search.js';
 import type { PalmConfig } from '../../src/core/types.js';
 
@@ -81,6 +82,16 @@ describe('origin helpers', () => {
     expect(marketplaceRootDir('/r/.github/plugin/marketplace.json')).toBe('/r');
     expect(marketplaceRootDir('/r/.agents/plugins/marketplace.json')).toBe('/r');
     expect(marketplaceRootDir('/r/marketplace.json')).toBe('/r');
+  });
+
+  it('parses --layout values into a layout descriptor', () => {
+    expect(
+      parseLayoutOptions(['skills=skills/.curated/*', 'skills=extra/*', 'nameFrom=dirname']),
+    ).toEqual({ skills: ['skills/.curated/*', 'extra/*'], nameFrom: 'dirname' });
+    expect(parseLayoutOptions(undefined)).toBeUndefined();
+    expect(() => parseLayoutOptions(['bogus=x'])).toThrow(/unknown --layout key/);
+    expect(() => parseLayoutOptions(['nameFrom=x'])).toThrow(/nameFrom=x/);
+    expect(() => parseLayoutOptions(['skills'])).toThrow(/invalid --layout/);
   });
 
   it('summarises kind counts', () => {

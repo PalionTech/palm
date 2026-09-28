@@ -5,14 +5,10 @@
  *  - flat `{ name: {...} }` (claude-plugins-official)
  */
 
-import type { McpServerConfig, SecretRef } from '../core/types.js';
+import type { McpServerConfig } from '../core/types.js';
+import { detectSecrets } from '../domain/secrets.js';
 import { isRecord, withoutUndefined } from '../lib/object.js';
-import {
-  findPlaceholders,
-  isFillInValue,
-  isRuntimeVar,
-  type Placeholder,
-} from '../lib/placeholders.js';
+import { isFillInValue } from '../lib/placeholders.js';
 import { asString } from './util.js';
 
 const SERVER_HINT_KEYS = ['command', 'url', 'type', 'httpUrl', 'serverUrl', 'transport'];
@@ -54,34 +50,40 @@ function stringMap(v: unknown): Record<string, string> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+const HTTP_TYPES = ['http', 'streamable-http', 'streamablehttp', 'remote'];
+
+/** The transport a server definition declares or implies; undefined when it has neither. */
+function transportOf(
+  type: string,
+  command: string | undefined,
+  url: string | undefined,
+): McpServerConfig['transport'] | undefined {
+  if (type === 'sse') return 'sse';
+  if (HTTP_TYPES.includes(type)) return 'http';
+  if (type === 'stdio' || type === 'local' || command) return 'stdio';
+  if (url) return /\/sse\/?$/.test(url) ? 'sse' : 'http';
+  return undefined;
+}
+
 function toServerConfig(name: string, def: unknown): McpServerConfig | undefined {
   if (!isRecord(def)) return undefined;
   const type = (asString(def.type) ?? asString(def.transport) ?? '').toLowerCase();
   const url = asString(def.url) ?? asString(def.httpUrl) ?? asString(def.serverUrl);
   const command = asString(def.command);
-  let transport: McpServerConfig['transport'];
-  if (type === 'sse') transport = 'sse';
-  else if (['http', 'streamable-http', 'streamablehttp', 'remote'].includes(type))
-    transport = 'http';
-  else if (type === 'stdio' || type === 'local') transport = 'stdio';
-  else if (command) transport = 'stdio';
-  else if (url) transport = /\/sse\/?$/.test(url) ? 'sse' : 'http';
-  else return undefined;
-  if (transport === 'stdio' && !command) return undefined;
-  if (transport !== 'stdio' && !url) return undefined;
+  const transport = transportOf(type, command, url);
+  if (!transport || (transport === 'stdio' ? !command : !url)) return undefined;
 
-  const args = Array.isArray(def.args) ? def.args.map((a) => String(a)) : undefined;
-  const env = normalizePlaceholders(stringMap(def.env));
-  const headers = stringMap(def.headers);
+  const stdio = transport === 'stdio';
+  const args = Array.isArray(def.args) ? def.args.map((a) => String(a)) : [];
   const cfg: McpServerConfig = withoutUndefined({
     name,
     transport,
-    command: transport === 'stdio' ? command : undefined,
-    args: transport === 'stdio' && args && args.length > 0 ? args : undefined,
-    env,
+    command: stdio ? command : undefined,
+    args: stdio && args.length > 0 ? args : undefined,
+    env: normalizePlaceholders(stringMap(def.env)),
     cwd: asString(def.cwd),
-    url: transport === 'stdio' ? undefined : url,
-    headers,
+    url: stdio ? undefined : url,
+    headers: stringMap(def.headers),
     source: { type: 'origin' as const },
   });
   const secrets = detectSecrets(cfg);
@@ -96,58 +98,4 @@ function normalizePlaceholders(
   return Object.fromEntries(
     Object.entries(env).map(([k, v]) => [k, isFillInValue(v) ? `\${${k}}` : v]),
   );
-}
-
-/** Adds `ref` to `out` or merges it into the entry of that name (required and header use win). */
-function addSecret(out: SecretRef[], ref: SecretRef): void {
-  const existing = out.find((s) => s.name === ref.name);
-  if (!existing) {
-    out.push(ref);
-    return;
-  }
-  existing.required ||= ref.required;
-  if (existing.in === 'env' && ref.in === 'header') {
-    existing.in = 'header';
-    if (ref.header) existing.header = ref.header;
-    if (ref.format) existing.format = ref.format;
-  }
-}
-
-/** Adds a secret for each non-runtime placeholder in `value`; `make` also gets the token count. */
-function scanValue(
-  value: string,
-  out: SecretRef[],
-  make: (p: Placeholder, tokens: number) => SecretRef,
-): void {
-  const found = findPlaceholders(value);
-  for (const p of found) if (!isRuntimeVar(p.name)) addSecret(out, make(p, found.length));
-}
-
-function envSecret(p: Placeholder): SecretRef {
-  return { name: p.name, in: 'env', required: p.default === undefined };
-}
-
-/**
- * Placeholders in env values, header values, the URL and args → SecretRefs. A placeholder with a
- * `:-default` is optional. A header value that is more than its one placeholder (`Bearer ${TOKEN}`)
- * records its template in `format` (`Bearer {value}`).
- */
-function detectSecrets(cfg: McpServerConfig): SecretRef[] {
-  const out: SecretRef[] = [];
-  for (const value of Object.values(cfg.env ?? {})) scanValue(value, out, envSecret);
-  for (const [header, value] of Object.entries(cfg.headers ?? {})) {
-    scanValue(value, out, (p, tokens) => {
-      const ref: SecretRef = {
-        name: p.name,
-        in: 'header',
-        header,
-        required: p.default === undefined,
-      };
-      if (tokens === 1 && value !== p.raw) ref.format = value.replace(p.raw, '{value}');
-      return ref;
-    });
-  }
-  if (cfg.url !== undefined) scanValue(cfg.url, out, envSecret);
-  for (const arg of cfg.args ?? []) scanValue(arg, out, envSecret);
-  return out;
 }

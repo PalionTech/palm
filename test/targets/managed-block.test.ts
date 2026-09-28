@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { toStored } from '../../src/domain/merged-record.js';
 import { removeManagedBlock, upsertManagedBlock } from '../../src/targets/managed-block.js';
 import { cleanupTmp, exists, read, tmpDir, write } from './helpers.js';
 
@@ -13,7 +14,13 @@ describe('managed blocks', () => {
     const rec = await upsertManagedBlock(file, 'instruction:ts', 'Use strict.\n', {
       dryRun: false,
     });
-    expect(rec).toEqual({ file, pointer: 'block:instruction:ts', value: 'Use strict.\n' });
+    expect(rec).toEqual({ type: 'md-block', file, id: 'instruction:ts', content: 'Use strict.\n' });
+    // lockfile form
+    expect(toStored(rec)).toEqual({
+      file,
+      pointer: 'block:instruction:ts',
+      value: 'Use strict.\n',
+    });
     expect(await read(file)).toBe(
       '<!-- palm:begin instruction:ts -->\nUse strict.\n<!-- palm:end instruction:ts -->\n',
     );
@@ -26,7 +33,7 @@ describe('managed blocks', () => {
     await upsertManagedBlock(file, 'instruction:ts', 'A\n', { dryRun: false });
     const once = `${USER}\n<!-- palm:begin instruction:ts -->\nA\n<!-- palm:end instruction:ts -->\n`;
     expect(await read(file)).toBe(once);
-    await write(file, once + '\nMore user text.\n');
+    await write(file, `${once}\nMore user text.\n`);
     await upsertManagedBlock(file, 'instruction:ts', 'B\nC\n', { dryRun: false });
     expect(await read(file)).toBe(
       `${USER}\n<!-- palm:begin instruction:ts -->\nB\nC\n<!-- palm:end instruction:ts -->\n\nMore user text.\n`,

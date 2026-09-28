@@ -1,11 +1,7 @@
 import { getIndex } from '../core/cache.js';
 import { allOrigins, findOrigin, originId } from '../core/config.js';
 import { messageOf, PalmError } from '../core/errors.js';
-import { findEntry, loadLock } from '../core/lockfile.js';
-import { parseDepRef } from '../core/manifest.js';
-import { lockPath } from '../core/paths.js';
 import type {
-  DepRef,
   Entity,
   EntityRef,
   Kind,
@@ -13,10 +9,18 @@ import type {
   OriginIndex,
   OriginSpec,
   PalmContext,
-  ScanOriginFn,
   Scope,
 } from '../core/types.js';
+import { DepRef } from '../domain/dep-ref.js';
+import { Lock } from '../domain/lock.js';
+import { ScopePaths } from '../domain/scope-paths.js';
 import { type EngineDeps, resolveEngineDeps } from './deps.js';
+
+/**
+ * A user-supplied name selects an entry by name, or a registry MCP server by registry name.
+ * @deprecated prefer `Lock.select` / `answersTo` (domain/lock).
+ */
+export { answersTo as nameMatchesEntry } from '../domain/lock.js';
 
 // ---------------------------------------------------------------------------
 // Shared helpers (also used by install/update)
@@ -50,7 +54,7 @@ export class IndexSession {
 
   constructor(
     private readonly ctx: PalmContext,
-    private readonly scan: ScanOriginFn,
+    private readonly scan: EngineDeps['scan'],
     private readonly refresh = false,
   ) {}
 
@@ -124,15 +128,15 @@ function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
   const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
-    let diag = prev[0]!;
+    let diag = prev[0] ?? 0;
     prev[0] = i;
     for (let j = 1; j <= b.length; j++) {
-      const tmp = prev[j]!;
-      prev[j] = Math.min(prev[j]! + 1, prev[j - 1]! + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      const tmp = prev[j] ?? 0;
+      prev[j] = Math.min(tmp + 1, (prev[j - 1] ?? 0) + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
       diag = tmp;
     }
   }
-  return prev[b.length]!;
+  return prev[b.length] ?? 0;
 }
 
 /** Up to `limit` names close to `name` (edit distance ≤ 3 or substring). */
@@ -153,7 +157,7 @@ export function suggestNames(
       if (d <= 3 || sub) {
         const label = `${e.name}@${e.origin}`;
         const score = sub ? Math.min(d, 1) : d;
-        if (!scored.has(label) || scored.get(label)! > score) scored.set(label, score);
+        if ((scored.get(label) ?? Number.POSITIVE_INFINITY) > score) scored.set(label, score);
       }
     }
   }
@@ -161,14 +165,6 @@ export function suggestNames(
     .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
     .slice(0, limit)
     .map(([l]) => l);
-}
-
-export function nameMatchesEntry(e: LockEntry, name: string): boolean {
-  const lower = name.toLowerCase();
-  return (
-    e.name.toLowerCase() === lower ||
-    (e.kind === 'mcp' && e.origin === 'registry' && e.path.toLowerCase() === lower)
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -180,8 +176,8 @@ export async function listInstalled(
   scope: Scope,
   kind?: Kind,
 ): Promise<LockEntry[]> {
-  const lock = await loadLock(lockPath(ctx.paths, scope));
-  return kind ? lock.entries.filter((e) => e.kind === kind) : lock.entries;
+  const { entries } = await Lock.load(ScopePaths.of(ctx, scope).lockFile);
+  return kind ? entries.filter((e) => e.kind === kind) : entries;
 }
 
 async function poolFor(
@@ -249,7 +245,7 @@ export function agentDepSpecs(entity: Entity): Array<{ kind: Kind; dep: DepRef }
   const add = (kind: Kind, specs: string[] | undefined): void => {
     for (const spec of specs ?? []) {
       try {
-        out.push({ kind, dep: parseDepRef(spec) });
+        out.push({ kind, dep: DepRef.parse(spec) });
       } catch {
         // an empty entry: nothing to depend on
       }
@@ -279,7 +275,7 @@ export function duplicateWarnings(
     return (
       !!m &&
       (!kind || m[1] === kind) &&
-      (name === undefined || m[2]!.toLowerCase() === name.toLowerCase())
+      (name === undefined || m[2]?.toLowerCase() === name.toLowerCase())
     );
   });
 }
@@ -291,13 +287,10 @@ export async function getEntityInfo(
   opts: { origin?: string; scope: Scope },
   deps?: Partial<EngineDeps>,
 ): Promise<{ entity?: Entity; lock?: LockEntry; deps: EntityRef[]; warnings: string[] }> {
-  const lockFile = await loadLock(lockPath(ctx.paths, opts.scope));
+  const installed = await Lock.load(ScopePaths.of(ctx, opts.scope).lockFile);
   const lock =
-    findEntry(lockFile, kind, name, opts.origin) ??
-    lockFile.entries.find(
-      (e) =>
-        e.kind === kind && nameMatchesEntry(e, name) && (!opts.origin || e.origin === opts.origin),
-    );
+    installed.find({ kind, name }, opts.origin) ??
+    installed.select({ kind, name, origin: opts.origin })[0];
   const origin =
     opts.origin ??
     (lock && lock.origin !== 'registry' && lock.origin !== 'adhoc' ? lock.origin : undefined);

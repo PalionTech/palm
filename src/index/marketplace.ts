@@ -7,7 +7,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { messageOf, PalmError } from '../core/errors.js';
-import type { OriginSpec, ParseMarketplaceFn } from '../core/types.js';
+import type { OriginSpec } from '../core/types.js';
 import { parseJson } from '../lib/json.js';
 import { slugify } from '../lib/names.js';
 import { isRecord, withoutUndefined } from '../lib/object.js';
@@ -274,7 +274,10 @@ function baseFromUrl(file: string): { url?: string; ref?: string; root?: string 
  * `root`) or `base.path`/the marketplace's own directory (local). Entries that resolve to the
  * same location are imported once.
  */
-export const parseMarketplace: ParseMarketplaceFn = async (file, base) => {
+export const parseMarketplace = async (
+  file: string,
+  base: { url?: string; path?: string; ref?: string },
+): Promise<{ origins: OriginSpec[]; warnings: string[] }> => {
   const mp = await readMarketplace(file);
   const warnings = [...mp.warnings];
   const fromUrl = /^https?:\/\//.test(file) ? baseFromUrl(file) : {};

@@ -1,12 +1,5 @@
 import { messageOf, PalmError } from '../core/errors.js';
-import type {
-  EngineDeps,
-  ResolveRegistryFn,
-  ResolveSecretsFn,
-  ScanOriginFn,
-  Target,
-  TargetId,
-} from '../core/types.js';
+import type { EngineDeps, Target, TargetId } from '../core/types.js';
 
 export type { EngineDeps } from '../core/types.js';
 
@@ -53,10 +46,11 @@ async function importSecrets() {
   }
 }
 
-const lazyScan: ScanOriginFn = async (root, spec) => (await importScan()).scanOrigin(root, spec);
-const lazyResolveRegistry: ResolveRegistryFn = async (name, opts) =>
+const lazyScan: EngineDeps['scan'] = async (root, spec) =>
+  (await importScan()).scanOrigin(root, spec);
+const lazyResolveRegistry: EngineDeps['resolveRegistry'] = async (name, opts) =>
   (await importRegistry()).resolveRegistry(name, opts);
-const lazyResolveSecrets: ResolveSecretsFn = async (ctx, cfg, policy) =>
+const lazyResolveSecrets: EngineDeps['resolveSecrets'] = async (ctx, cfg, policy) =>
   (await importSecrets()).resolveSecrets(ctx, cfg, policy);
 
 /** A Target whose implementation is imported on first async use. `configDir` needs the module loaded first. */

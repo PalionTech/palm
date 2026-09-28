@@ -1,61 +1,62 @@
 import path from 'node:path';
+import type { ScopePaths } from '../domain/scope-paths.js';
 import { pathExists } from '../lib/fs.js';
 import type { TargetLayout, TargetSpec } from './base.js';
-import { type Env, envDir } from './env.js';
+import { sharedSkillsRoot } from './shared-skills.js';
 
-/** Copilot CLI home: `$COPILOT_HOME` or `~/.copilot`. */
-export function copilotHome(scopeRoot: string, env: Env): string {
-  return envDir(env, 'COPILOT_HOME', scopeRoot, path.join(scopeRoot, '.copilot'));
+function projectLayout(paths: ScopePaths): TargetLayout {
+  const gh = path.join(paths.root, '.github');
+  const mcpFile = path.join(paths.root, '.vscode', 'mcp.json');
+  const sub = (name: string): string => path.join(gh, name);
+  const skills = sharedSkillsRoot(paths);
+  return {
+    configDir: gh,
+    skillsDir: skills.dir,
+    agentsDir: sub('agents'),
+    instructions: { dir: sub('instructions') },
+    commands: { dir: sub('prompts') },
+    hooks: { dir: sub('hooks') },
+    mcp: { json: mcpFile, path: ['servers'] },
+    roots: [
+      ...['agents', 'instructions', 'prompts', 'hooks'].map((n) => ({ dir: sub(n), stop: gh })),
+      skills,
+    ],
+    mergedFiles: [mcpFile],
+  };
+}
+
+function globalLayout(paths: ScopePaths): TargetLayout {
+  const home = paths.harnessHome('copilot');
+  const mcpFile = path.join(home, 'mcp-config.json');
+  const skills = sharedSkillsRoot(paths);
+  return {
+    configDir: home,
+    skillsDir: skills.dir,
+    agentsDir: path.join(home, 'agents'),
+    instructions: { dir: path.join(home, 'instructions') },
+    commands: {
+      skip: 'Copilot has no user-level prompt files; command skipped (install without -g for .github/prompts)',
+    },
+    hooks: { dir: path.join(home, 'hooks') },
+    mcp: { json: mcpFile, path: ['mcpServers'] },
+    roots: [{ dir: home, stop: home }, skills],
+    mergedFiles: [mcpFile],
+  };
 }
 
 export const copilotSpec: TargetSpec = {
   id: 'copilot',
   displayName: 'GitHub Copilot',
-  layout(scope, scopeRoot, env): TargetLayout {
-    const agentsRoot = path.join(scopeRoot, '.agents');
-    const skillsRoot = { dir: path.join(agentsRoot, 'skills'), stop: agentsRoot };
-    if (scope === 'project') {
-      const gh = path.join(scopeRoot, '.github');
-      const mcpFile = path.join(scopeRoot, '.vscode', 'mcp.json');
-      const sub = (name: string): string => path.join(gh, name);
-      return {
-        configDir: gh,
-        skillsDir: skillsRoot.dir,
-        agentsDir: sub('agents'),
-        instructions: { dir: sub('instructions') },
-        commands: { dir: sub('prompts') },
-        hooks: { dir: sub('hooks') },
-        mcp: { json: mcpFile, pointer: '/servers' },
-        roots: [
-          ...['agents', 'instructions', 'prompts', 'hooks'].map((n) => ({ dir: sub(n), stop: gh })),
-          skillsRoot,
-        ],
-        mergedFiles: [mcpFile],
-      };
-    }
-    const home = copilotHome(scopeRoot, env);
-    const mcpFile = path.join(home, 'mcp-config.json');
-    return {
-      configDir: home,
-      skillsDir: skillsRoot.dir,
-      agentsDir: path.join(home, 'agents'),
-      instructions: { dir: path.join(home, 'instructions') },
-      commands: {
-        skip: 'Copilot has no user-level prompt files; command skipped (install without -g for .github/prompts)',
-      },
-      hooks: { dir: path.join(home, 'hooks') },
-      mcp: { json: mcpFile, pointer: '/mcpServers' },
-      roots: [{ dir: home, stop: home }, skillsRoot],
-      mergedFiles: [mcpFile],
-    };
+  layout(paths): TargetLayout {
+    return paths.scope === 'project' ? projectLayout(paths) : globalLayout(paths);
   },
-  async detect(scope, scopeRoot, env) {
-    if (scope === 'project') {
+  async detect(paths) {
+    if (paths.scope === 'project') {
       for (const p of ['.github/copilot-instructions.md', '.github/agents', '.vscode/mcp.json']) {
-        if (await pathExists(path.join(scopeRoot, p))) return true;
+        if (await pathExists(path.join(paths.root, p))) return true;
       }
       return false;
     }
-    return pathExists(copilotHome(scopeRoot, env));
+    return pathExists(paths.harnessHome('copilot'));
   },
 };

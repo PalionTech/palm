@@ -2,8 +2,6 @@
  * Values palm records in the lockfile carry `${VAR}` placeholders instead of literal secret
  * values. These helpers compare such recorded values with what is on disk, and produce them.
  */
-import { messageOf, PalmError } from '../core/errors.js';
-import { parsePointer } from '../lib/json-pointer.js';
 import { deepEqual, isRecord } from '../lib/object.js';
 import { envRef, replacePlaceholders } from '../lib/placeholders.js';
 
@@ -71,13 +69,4 @@ export function redactSecrets<T>(value: T, secrets: Record<string, string> | und
     return v;
   };
   return walk(value) as T;
-}
-
-/** Segments of a pointer read from the lockfile; a malformed one is E_INTERNAL. */
-export function recordedPath(pointer: string): string[] {
-  try {
-    return parsePointer(pointer);
-  } catch (e) {
-    throw new PalmError('E_INTERNAL', messageOf(e));
-  }
 }
