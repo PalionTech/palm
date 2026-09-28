@@ -44,7 +44,7 @@ It refuses to use your home directory as a project, so run these steps inside on
    ```
 
    palm writes `targets: [claude, codex]` to `palm.yaml`.
-   When the project has a `.gitignore`, palm also adds `.palm/` to it.
+   Inside a git repository, palm also adds `.palm/` to `.gitignore` and creates the file when there is none.
 
 3. See what the origin offers.
 
@@ -82,7 +82,7 @@ Start a new Claude Code or Codex session in the project, and the skill is availa
 
 <Capture name="a-quick-start-remove" title="~/project" />
 
-`palm uninstall` deleted the four files and every folder it emptied, except the `.claude` folder itself.
+`palm uninstall` deleted the four files and every folder it emptied, including the `.claude` folder it had created.
 It removed the entry from `palm.yaml` and from the lockfile.
 These are the only files the session left behind.
 

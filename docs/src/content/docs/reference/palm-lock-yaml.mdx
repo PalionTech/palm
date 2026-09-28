@@ -20,6 +20,8 @@ Here the origin `mattpocock` is a git repository at tag `v1.2.0`:
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `version` | number | The lockfile format. palm writes `2`. |
+| `targets` | list of target ids | The target set this scope was last installed against: `targets:` from `palm.yaml`, or from `config.yaml` in the global scope. A bare `palm install` removes only the targets that left this set since. Absent until an install records it. |
+| `createdDirs` | list of paths | Harness folders palm created in this scope, such as `.claude`. An uninstall that leaves one empty removes it. Absent when there are none. |
 | `entries` | list | One entry per installed entity in the scope. |
 
 ## Location

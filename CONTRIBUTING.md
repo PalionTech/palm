@@ -21,8 +21,9 @@ npm run verify
 
 `npm run verify` runs, in order: `npm run lint`, `npm run typecheck`, `npm run check:shape`,
 `npm test` and `npm run build`. CI runs the same steps on Ubuntu and macOS with Node 22 and 24,
-plus coverage, a smoke test of the packed tarball, `publint` and `knip`. If `verify` passes on
-your machine, CI almost always passes too.
+plus coverage, a smoke test of the packed tarball, `publint` and `knip`. A separate docs job
+checks that the terminal captures and CLI tables in the docs still match the built CLI, then
+builds the site. If `verify` passes on your machine, CI almost always passes too.
 
 Other commands you will use:
 
@@ -90,7 +91,9 @@ Every change users can see needs two things in the same pull request:
    (tests, refactors, CI) needs no changeset; `npx changeset --empty` silences the CI warning.
 2. **A docs page.** Add or update the page under `docs/src/content/docs/` that describes the
    command, option or behaviour. Terminal output in the docs comes from real runs captured by
-   `docs/scripts/capture.mjs`, never typed by hand.
+   `docs/scripts/capture.mjs`, never typed by hand. After a change to output or options, run
+   `npm run build`, then `npm --prefix docs run capture` and `npm --prefix docs run
+   cli-reference`, and commit the regenerated files; CI fails when they are stale.
 
 The changesets become the next release's `CHANGELOG.md` entry when the "Version Packages" pull
 request is merged. Nobody edits `CHANGELOG.md` by hand.
@@ -111,8 +114,8 @@ request title follows the same style.
 
 ## Adding a target
 
-A target is one harness palm writes into (Claude Code, Codex, Copilot, Cursor). Read
-[DESIGN.md](DESIGN.md) first: section 2 "target locations" has the table of paths per kind
+A target is one harness palm writes into (Claude Code, Codex, GitHub Copilot, Cursor, Gemini
+CLI, OpenCode). Read [DESIGN.md](DESIGN.md) first: section 2 "target locations" has the table of paths per kind
 and scope, and the safety rules below it apply to every target.
 
 1. Add a spec file in `src/targets/` next to `claude.ts` and `cursor.ts`, register it in

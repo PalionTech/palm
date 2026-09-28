@@ -8,11 +8,16 @@
 //   src/assets/brand/mark-dark.svg       hero image on dark backgrounds (mint)
 //   src/assets/brand/wordmark-*.svg      header logo, when brand/wordmark.svg exists
 //   src/assets/brand/brand.json          what was found, read by astro.config.mjs
-//   public/brand/favicon.svg             favicon
-//   public/brand/social-card.png         Open Graph image, when brand/social-card.png exists
+//   public/favicon.svg                   favicon (follows dark mode)
+//   public/favicon.ico, favicon-*.png    favicon fallbacks for browsers without SVG favicons
+//   public/apple-touch-icon.png          iOS home screen icon
+//   public/icon-192.png, icon-512.png    web manifest icons
+//   public/site.webmanifest              web manifest, when both manifest icons exist
+//   public/social-card.png               Open Graph image, when brand/social-card.png exists
 //
 // Each output takes the first source that exists, so the site builds while the brand work is in
-// progress: final files in brand/ first, then the recommended candidate (concept A).
+// progress: final files in brand/ first, then the recommended candidate (concept A). The PNG and
+// ICO files have no fallback; a missing one is reported and left out of the page head.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,11 +25,27 @@ import { fileURLToPath } from 'node:url';
 const DOCS = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BRAND = join(DOCS, '..', 'brand');
 const ASSETS = join(DOCS, 'src', 'assets', 'brand');
-const PUBLIC = join(DOCS, 'public', 'brand');
+const PUBLIC = join(DOCS, 'public');
+const BASE = '/palm';
 
 const FROND = '#12876A';
 const MINT = '#3DD6A3';
+const PAPER = '#FFFFFF';
 const FALLBACK_MARK = 'candidates/palm-logo-a.svg';
+
+/** Raster icons copied as they are from brand/ into public/. */
+const ICONS = [
+  'favicon.ico',
+  'favicon-16.png',
+  'favicon-32.png',
+  'favicon-48.png',
+  'apple-touch-icon.png',
+  'icon-192.png',
+  'icon-512.png',
+];
+
+/** Everything this script writes into public/, removed before each run. */
+const PUBLIC_OUTPUTS = ['favicon.svg', ...ICONS, 'site.webmanifest', 'social-card.png'];
 
 function firstExisting(names) {
   for (const name of names) {
@@ -95,9 +116,49 @@ function syncSocialCard(used) {
   return pngSize(card);
 }
 
+/** Copy the raster favicon set; returns the names that were copied. */
+function syncIcons(used) {
+  const copied = [];
+  for (const name of ICONS) {
+    const src = firstExisting([name]);
+    if (!src) {
+      process.stderr.write(`sync-brand: brand/${name} not found; the page head leaves it out\n`);
+      continue;
+    }
+    copyFileSync(src, join(PUBLIC, name));
+    used.push(src);
+    copied.push(name);
+  }
+  return copied;
+}
+
+/** Write site.webmanifest when both manifest icons were copied; returns whether it was. */
+function writeManifest(icons) {
+  if (!icons.includes('icon-192.png') || !icons.includes('icon-512.png')) return false;
+  const icon = (size, purpose) => ({
+    src: `${BASE}/icon-${size}.png`,
+    sizes: `${size}x${size}`,
+    type: 'image/png',
+    purpose,
+  });
+  const manifest = {
+    name: 'palm',
+    short_name: 'palm',
+    start_url: `${BASE}/`,
+    display: 'browser',
+    background_color: PAPER,
+    theme_color: FROND,
+    icons: [icon(192, 'any'), icon(512, 'any'), icon(512, 'maskable')],
+  };
+  writeFileSync(join(PUBLIC, 'site.webmanifest'), `${JSON.stringify(manifest, null, 2)}\n`);
+  return true;
+}
+
 function main() {
   rmSync(ASSETS, { recursive: true, force: true });
-  rmSync(PUBLIC, { recursive: true, force: true });
+  // public/brand/ held these files before they moved to the site root.
+  rmSync(join(PUBLIC, 'brand'), { recursive: true, force: true });
+  for (const name of PUBLIC_OUTPUTS) rmSync(join(PUBLIC, name), { force: true });
   mkdirSync(ASSETS, { recursive: true });
   mkdirSync(PUBLIC, { recursive: true });
 
@@ -105,9 +166,11 @@ function main() {
   syncMarks(used);
   const wordmark = syncWordmark(used);
   const socialCard = syncSocialCard(used);
+  const icons = syncIcons(used);
+  const manifest = writeManifest(icons);
   writeFileSync(
     join(ASSETS, 'brand.json'),
-    `${JSON.stringify({ wordmark, socialCard }, null, 2)}\n`,
+    `${JSON.stringify({ wordmark, socialCard, icons, manifest }, null, 2)}\n`,
   );
 
   const fallback = used.some((f) => f.endsWith(FALLBACK_MARK));

@@ -60,8 +60,8 @@ mcpRegistryUrl: https://registry.modelcontextprotocol.io
 
 A list of `claude`, `codex`, `copilot`, `cursor`, `gemini` and `opencode`.
 palm ignores ids it does not know.
-`palm config set targets` and a global install with an explicit `--target` write it.
-palm never saves the targets it detects here.
+Only `palm config set targets` writes it.
+A global install with `--target` applies the flag to that install only, and palm never saves the targets it detects here.
 
 ### `origins`
 

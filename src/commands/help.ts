@@ -38,7 +38,7 @@ Examples:
   palm install                                   everything palm.yaml lists`,
 
   uninstall: `
-Files you changed since palm wrote them stay on disk (listed); --force removes them too.
+An entity whose files you changed since palm wrote them is kept (exit 1); --force removes it and your edits.
 
 Examples:
   palm uninstall skill tdd                  remove a skill and what nothing else needs

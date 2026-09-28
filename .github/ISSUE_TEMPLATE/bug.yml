@@ -45,7 +45,7 @@ body:
         - label: GitHub Copilot
         - label: Cursor
         - label: Gemini CLI
-        - label: opencode
+        - label: OpenCode
         - label: None or not relevant
   - type: textarea
     id: command

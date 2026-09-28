@@ -8,4 +8,4 @@ $ palm install mcp fs -- npx -y @modelcontextprotocol/server-filesystem .
 i This install adds a command that runs on your machine:
 i   mcp fs: npx -y @modelcontextprotocol/server-filesystem .
 x palm will not install a command that runs on your machine without your consent
-  review them above (or with --dry-run), then rerun with --yes
+  review them above (or with --dry-run), then run: palm install mcp fs --yes -- npx -y @modelcontextprotocol/server-filesystem .

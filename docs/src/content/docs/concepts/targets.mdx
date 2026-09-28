@@ -42,17 +42,17 @@ Without a terminal and without an answer, palm stops and suggests `--target clau
 
 ## Saved targets
 
-The first project install saves the resolved set to `palm.yaml` and prints one line that says so.
-With `-g`, palm saves to `~/.palm/config.yaml` instead.
-`palm init --target claude,codex` writes the list before you install anything.
+The first project install saves the resolved set to `palm.yaml` when it has no `targets:`, and prints one line that says so.
+`palm init --target claude,codex` writes the list before you install anything, and changes it later.
+For `-g`, set your default with `palm config set targets claude,codex`. A global install never writes it.
 
 Commit `palm.yaml` with its `targets:`.
 Every clone then installs for the same harnesses, whatever each machine detects.
 
-`targets:` is the full set for the project.
-A `--target` that differs from it replaces the saved set.
-The entry you install gets the new targets at once, and the other entries follow at the next bare `palm install`.
-When a target leaves the set, that install deletes the harness's files and merged entries.
+A `--target` on one install applies to the entities you name and leaves the saved set alone.
+palm prints a note when the flag differs from the saved set.
+A bare `palm install` puts every entry on at least the saved targets and keeps targets a `--target` added.
+When you remove a target from `targets:`, the next bare `palm install` deletes that harness's files and merged entries.
 
 ## Where one target writes
 

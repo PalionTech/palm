@@ -1,6 +1,9 @@
 $ cat palm.lock.yaml
 # palm lockfile — generated, do not edit by hand.
 version: 2
+targets: [claude]
+createdDirs:
+  - .claude
 entries:
   - kind: skill
     name: sdk-helper

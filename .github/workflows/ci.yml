@@ -1,5 +1,6 @@
 # Pull request and main-branch checks. The `gate` job is the single required status check:
-# it passes only when every matrix leg passed, so the ruleset never has to list matrix names.
+# it passes only when every matrix leg and the docs checks passed, so the ruleset never has to
+# list job names.
 name: ci
 
 on:
@@ -116,16 +117,54 @@ jobs:
             echo "::warning::$msg Otherwise ignore this, or run 'npx changeset --empty'."
           fi
 
+  # The docs show real palm output: terminal captures and CLI option tables generated from
+  # dist/cli.js. This job fails when any of them no longer matches the CLI, and builds the site
+  # (STYLE.md copy check and internal link check included).
+  docs:
+    name: docs checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            docs/package-lock.json
+
+      - run: npm ci
+
+      - name: Build the CLI (captures and the CLI reference run dist/cli.js)
+        run: npm run build
+
+      - run: npm --prefix docs ci
+
+      - name: CLI reference is up to date
+        run: npm --prefix docs run cli-reference:check
+
+      - name: Terminal captures are up to date
+        run: npm --prefix docs run capture:check
+
+      - name: Build the site (brand assets, copy check, link check)
+        run: npm --prefix docs run build
+
   gate:
     name: gate
     if: ${{ always() }}
-    needs: [test]
+    needs: [test, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Every matrix job passed
+      - name: Every matrix job and the docs checks passed
         env:
           TEST_RESULT: ${{ needs.test.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
         run: |
           echo "test: $TEST_RESULT"
-          [ "$TEST_RESULT" = success ]
+          echo "docs: $DOCS_RESULT"
+          [ "$TEST_RESULT" = success ] && [ "$DOCS_RESULT" = success ]

@@ -23,10 +23,9 @@ $ cat .github/agents/agent-sdk-verifier-py.agent.md
 name: agent-sdk-verifier-py
 description: "Use this agent to verify a Python Agent SDK app. Examples: <example>Context: user created an app</example>"
 tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash(python -m pytest:*)
+  - read
+  - search
+  - execute
   - context7/*
 ---
 

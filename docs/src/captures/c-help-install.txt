@@ -19,7 +19,8 @@ Options:
   --prune               no names only: remove installed entries no longer in
                         palm.yaml
   --frozen              no names only: install exactly what palm.lock.yaml
-                        records; fail on any difference, write nothing
+                        records, restoring missing files and config entries;
+                        fail on any other difference
   -h, --help            display help for command
 
 Ad hoc MCP server options:

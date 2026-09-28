@@ -1,4 +1,4 @@
-$ find .claude .cursor -type f
+$ find .claude .cursor -type f | sort
 .claude/agents/comment-sicko.md
 .claude/skills/tdd/SKILL.md
 .cursor/agents/comment-sicko.md
@@ -8,13 +8,10 @@ status    kind   name           origin  targets  files
 ────────  ─────  ─────────────  ──────  ───────  ─────
 x failed  agent  comment-sicko  pstack           0
 1 failed
-
-i comment-sicko: failed: claude: refusing to overwrite .claude/agents/comment-sicko.md
-i comment-sicko: failed: cursor: refusing to overwrite .cursor/agents/comment-sicko.md
 x agent comment-sicko@pstack → claude: refusing to overwrite .claude/agents/comment-sicko.md
-  rerun with --force
+  to overwrite it, run: palm install agent comment-sicko@pstack --force
 x agent comment-sicko@pstack → cursor: refusing to overwrite .cursor/agents/comment-sicko.md
-  rerun with --force
+  to overwrite it, run: palm install agent comment-sicko@pstack --force
 x 2 failed; see above (the lockfile records what succeeded)
 $ palm install agent comment-sicko --force
 i saved targets claude, cursor to palm.yaml

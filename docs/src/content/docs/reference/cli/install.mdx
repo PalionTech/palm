@@ -53,7 +53,7 @@ These files changed in the project:
 | `--save-origin` | register the --from origin in the global config (with --project: in palm.yaml) |
 | `--secrets <policy>` | MCP secrets: env-ref (project default) or literal (-g default) |
 | `--prune` | no names only: remove installed entries no longer in palm.yaml |
-| `--frozen` | no names only: install exactly what palm.lock.yaml records; fail on any difference, write nothing |
+| `--frozen` | no names only: install exactly what palm.lock.yaml records, restoring missing files and config entries; fail on any other difference |
 
 ### Ad hoc MCP server options
 
@@ -125,7 +125,7 @@ Without names, `palm install` makes the scope match `palm.yaml` and `palm.lock.y
 - The harness files of each target, as listed in the [targets matrix](/palm/reference/targets-matrix/). Hook scripts go to `.palm/hooks/<name>/`, or `~/.palm/hooks/<name>/` with `-g`.
 - `palm.yaml`: each direct request as `name@origin`, with `#ref` when you gave one, and `targets:` as described in [targets](/palm/reference/cli/#targets). Dependencies are not listed.
 - `palm.lock.yaml`: one entry per entity, saved after every entity, so an interrupted run leaves a lockfile that matches the disk.
-- With `-g`: `~/.palm/palm.yaml` and `~/.palm/palm.lock.yaml`. An explicit `--target` also goes to `targets` in `~/.palm/config.yaml`.
+- With `-g`: `~/.palm/palm.yaml` and `~/.palm/palm.lock.yaml`. A global install never writes `targets` in `~/.palm/config.yaml`; `palm config set targets` does.
 - The origin checkout and index in `~/.palm/cache/`, also under `--dry-run`.
 - `--save-origin`: the `--from` origin in `palm.yaml`, or in `~/.palm/config.yaml` with `-g`.
 - MCP secrets: environment references in project files. Under the `literal` policy, the default with `-g`, the value goes into a user config file created with mode `0600`.

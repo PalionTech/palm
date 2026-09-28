@@ -46,20 +46,20 @@ palm install --dry-run
 
 ## A file is in the way
 
-- Symptom: `x skill tdd@mattpocock → claude: refusing to overwrite .claude/skills/tdd/SKILL.md`, with the hint `rerun with --force`.
+- Symptom: `x skill tdd@mattpocock → claude: refusing to overwrite .claude/skills/tdd/SKILL.md`, with the hint `to overwrite it, run: palm install skill tdd@mattpocock --force`.
 - Cause: the file exists and the lockfile does not list it, such as a copy you made by hand. For a shared file, palm's key holds a different value.
 - Fix: compare the file with the entity. Move it aside, or install with `--force` to replace it and record it in the lockfile.
 
 ## You changed an installed file
 
-- Symptom: `x skill tdd: .claude/skills/tdd/SKILL.md changed since palm installed it; not overwriting`. On uninstall: `kept files you changed since palm wrote them`.
+- Symptom: `x skill tdd: .claude/skills/tdd/SKILL.md changed since palm installed it; not overwriting`. On uninstall: `x skill tdd@mattpocock: .claude/skills/tdd/SKILL.md modified since install; rerun with --force to remove`, and the skill stays installed.
 - Cause: the file's hash differs from the one in `palm.lock.yaml`.
 - Fix: to keep your edits, copy the file into your own origin with `palm create`. To drop them, repeat the command with `--force`.
 
 ## `--frozen` fails in CI
 
 - Symptom: `x palm.yaml, palm.lock.yaml and the installed files do not match (--frozen):`, followed by one line per difference.
-- Cause: `palm.yaml` changed without the lockfile, or the lockfile names a ref `palm.yaml` no longer allows. A committed harness file may also have changed.
+- Cause: `palm.yaml` changed without the lockfile, or the lockfile names a ref `palm.yaml` no longer allows. A committed harness file may also have changed, or an entry palm merged into `.mcp.json`, a settings file or `AGENTS.md` was removed or edited.
 - Fix: run `palm install` without `--frozen` on your machine, review the result, and commit `palm.yaml` and `palm.lock.yaml` together.
 
 ## An origin is unreachable

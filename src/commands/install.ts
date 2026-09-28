@@ -189,7 +189,7 @@ function checkMode(mode: 'install' | 'sync', kind: Kind | undefined, opts: Insta
       'palm install --frozen',
     );
   if (opts.frozen && opts.prune)
-    throw usage('--frozen writes nothing, so it cannot --prune', 'palm install --frozen');
+    throw usage('--frozen only restores what the lock records, so it cannot --prune', 'palm install --frozen');
   if (opts.saveOrigin && !opts.from)
     throw usage(
       '--save-origin needs --from <origin>',

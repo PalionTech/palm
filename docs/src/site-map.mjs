@@ -46,7 +46,7 @@ export const siteMap = [
     label: 'Guides',
     items: [
       'guides/new-project',
-      'guides/four-harnesses',
+      'guides/six-harnesses',
       'guides/team-baseline',
       'guides/publish-your-own',
       'guides/mcp-secrets',

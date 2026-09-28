@@ -78,8 +78,9 @@ The `@origin` suffix picks one, and palm records that choice in `palm.yaml`.
     lockfile stores the placeholder, never the value.
   </Card>
   <Card title="Reproducible for the whole team" icon="approve-check">
-    The lockfile pins each commit and hashes every file. `palm install --frozen` fails in CI on any
-    difference. Hooks and stdio MCP servers install only after you confirm them.
+    The lockfile pins each commit and hashes every file. In CI, `palm install --frozen` checks every
+    file and merged config entry against it. Hooks and stdio MCP servers install only after you
+    confirm them.
   </Card>
 </CardGrid>
 
@@ -92,7 +93,7 @@ The `@origin` suffix picks one, and palm records that choice in `palm.yaml`.
     description="Run palm init, add a skill, an agent and an MCP server, then commit palm.yaml and the lockfile."
   />
   <GuideCard
-    slug="guides/four-harnesses"
+    slug="guides/six-harnesses"
     title="Install for several harnesses"
     description="One command writes an agent in each harness's format, and skips what a harness cannot use."
   />
@@ -109,7 +110,7 @@ The `@origin` suffix picks one, and palm records that choice in `palm.yaml`.
   <GuideCard
     slug="guides/ci"
     title="Use palm in CI and scripts"
-    description="Run palm without a terminal, with --yes, --json and palm install --frozen."
+    description="Run palm in CI without prompts, read its JSON output, and fail the build when installed files drift."
   />
   <GuideCard
     slug="guides/migrate-from-apm"
@@ -123,15 +124,16 @@ The `@origin` suffix picks one, and palm records that choice in `palm.yaml`.
 Project scope, for the six targets.
 The [targets matrix](/palm/reference/targets-matrix/) adds commands, global paths and the combinations a harness does not support.
 
-<div class="palm-wide">
+<div class="palm-wide palm-paths">
 
-| Kind | Claude Code | Codex | GitHub Copilot | Cursor | Gemini CLI | OpenCode |
-| --- | --- | --- | --- | --- | --- | --- |
-| skill | `.claude/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/<n>/` |
-| agent | `.claude/agents/<n>.md` | `.codex/agents/<n>.toml` | `.github/agents/<n>.agent.md` | `.cursor/agents/<n>.md` | `.gemini/agents/<n>.md` | `.opencode/agents/<n>.md` |
-| instruction | `.claude/rules/<n>.md` | block in `AGENTS.md` | `.github/instructions/<n>.instructions.md` | `.cursor/rules/<n>.mdc` | block in `GEMINI.md` | `.opencode/instructions/<n>.md` |
-| hook | `.claude/settings.json` | `.codex/hooks.json` | `.github/hooks/<n>.json` | `.cursor/hooks.json` | `.gemini/settings.json` | not supported |
-| mcp | `.mcp.json` | `.codex/config.toml` | `.vscode/mcp.json` | `.cursor/mcp.json` | `.gemini/settings.json` | `opencode.json` |
+| Harness | skill | agent | instruction | hook | mcp |
+| --- | --- | --- | --- | --- | --- |
+| Claude Code | `.claude/skills/<n>/` | `.claude/agents/<n>.md` | `.claude/rules/<n>.md` | `.claude/settings.json` | `.mcp.json` |
+| Codex | `.agents/skills/<n>/` | `.codex/agents/<n>.toml` | block in `AGENTS.md` | `.codex/hooks.json` | `.codex/config.toml` |
+| GitHub Copilot | `.agents/skills/<n>/` | `.github/agents/`<br />`<n>.agent.md` | `.github/instructions/`<br />`<n>.instructions.md` | `.github/hooks/<n>.json` | `.vscode/mcp.json` |
+| Cursor | `.agents/skills/<n>/` | `.cursor/agents/<n>.md` | `.cursor/rules/<n>.mdc` | `.cursor/hooks.json` | `.cursor/mcp.json` |
+| Gemini CLI | `.agents/skills/<n>/` | `.gemini/agents/<n>.md` | block in `GEMINI.md` | `.gemini/settings.json` | `.gemini/settings.json` |
+| OpenCode | `.agents/skills/<n>/` | `.opencode/agents/`<br />`<n>.md` | `.opencode/instructions/`<br />`<n>.md` | not supported | `opencode.json` |
 
 </div>
 

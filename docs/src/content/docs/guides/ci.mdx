@@ -94,15 +94,16 @@ The second run finds a local edit and exits 1.
 
 | Command | Fails when |
 | --- | --- |
-| `palm install --frozen --yes` | `palm.yaml` and the lockfile list different entries or targets, or a locked file was edited |
+| `palm install --frozen --yes` | `palm.yaml` and the lockfile list different entries or targets, a locked file was edited, or a merged config entry is missing or changed |
 | `palm audit` | a file palm installed holds a bidi override, a tag character or another critical hidden character |
 | `palm doctor` | git is missing, or an origin cannot be reached |
 
 `--frozen` never writes `palm.yaml`, `palm.lock.yaml` or `~/.palm/config.yaml`.
 Its only network access is fetching a locked commit that is not in the cache.
 It restores a missing file only when the result matches the hash in the lockfile.
+It also fails when an entry palm merged into a shared file, such as a server in `.mcp.json`, is missing or changed.
 
-`palm doctor` also reports files missing since install, as a warning.
+`palm doctor` also reports missing files and missing or changed merged entries, as a warning.
 Add `--offline` to skip its reachability check, for example on a runner without network access.
 `--offline` on any command uses cached origins only, and a fresh runner has no cache.
 

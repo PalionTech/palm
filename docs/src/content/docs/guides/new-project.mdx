@@ -21,7 +21,7 @@ The sessions on this page ran against palm's test fixtures, which mirror `mattpo
 ## Before you start
 
 - palm, git and Node 22 or later. See [Installation](/palm/getting-started/install/).
-- A git repository with a `.gitignore` file.
+- A git repository for the project.
 
 ## Steps
 
@@ -43,7 +43,7 @@ The sessions on this page ran against palm's test fixtures, which mirror `mattpo
    ```
 
    palm writes `targets: [claude, codex]` to `palm.yaml` and adds `.palm/` to `.gitignore`.
-   It edits only an existing `.gitignore`, so create the file first if the project has none.
+   Inside a git repository, palm creates `.gitignore` when there is none.
    `.palm/` holds the hook scripts palm copies, and those stay out of git.
 
 3. Install a skill.
@@ -100,7 +100,7 @@ The `via` column names the agent that pulled in `sdk-helper` and `context7`.
 
 ## Next steps
 
-- [One setup, six harnesses](/palm/guides/four-harnesses/) adds Copilot, Cursor, Gemini CLI and OpenCode.
+- [One setup, six harnesses](/palm/guides/six-harnesses/) adds Copilot, Cursor, Gemini CLI and OpenCode.
 - [Share a team baseline](/palm/guides/team-baseline/) gives every clone the same commits.
 - [Add an MCP server with a secret](/palm/guides/mcp-secrets/) keeps tokens out of git.
 - [Manifest and lockfile](/palm/concepts/manifest-and-lockfile/) explains the two files you committed.

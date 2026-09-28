@@ -25,7 +25,8 @@ Then add:
 - the exact command you ran and its full output, run again with `--verbose`;
 - what you expected to happen;
 - your OS and Node.js version (`node --version`);
-- which harnesses are involved (Claude Code, Codex, Copilot, Cursor);
+- which harnesses are involved (Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI,
+  OpenCode);
 - the origin repository, if the problem is about one origin.
 
 `palm doctor --json` shows your git and Node.js versions, palm's home directory and cache,

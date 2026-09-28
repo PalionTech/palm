@@ -51,6 +51,9 @@ This is the lockfile after `palm install skill tdd` from the real `mattpocock/sk
 
 ```yaml title="palm.lock.yaml"
 version: 2
+targets: [claude, codex]
+createdDirs:
+  - .claude
 entries:
   - kind: skill
     name: tdd
@@ -60,7 +63,7 @@ entries:
     sha: 6acc160e4e0cd062dbbbd7a1b26ae92855edf07e
     path: skills/engineering/tdd
     contentHash: sha256:020e48193f19c303f462ac6c6bf16548f10e3b1f706df562f8fb8f6b3efb43a6
-    transform: 1
+    transform: 2
     targets:
       - claude
       - codex
@@ -102,6 +105,7 @@ Two people who install the same thing get the same bytes, so the file does not c
 
 - An entry whose files are all on disk, at the right targets, is left alone. palm makes no network call for it.
 - A locked entry with missing files is installed again from the locked commit. A newer tag never changes it.
+- A merged entry that is missing or changed, such as a server removed from `.mcp.json`, is merged again.
 - A manifest entry the lockfile lacks is resolved fresh, like `palm install <kind> <name>`.
 - A lockfile entry that `palm.yaml` no longer lists is reported. `--prune` removes it.
 - A target removed from `targets:` loses its files and merged entries.
@@ -119,6 +123,7 @@ It checks these conditions, and fails with `E_CONFLICT` without writing when one
 - No lockfile entry is left over or orphaned.
 - Every entry has the resolved targets and the current `transform`.
 - No file palm wrote was changed since.
+- Every entry palm merged into a shared file, such as a server in `.mcp.json` or a block in `AGENTS.md`, is still there and unchanged.
 
 Missing files are then restored from the locked commits, and each must match its recorded hash.
 `--frozen` never writes `palm.yaml`, `palm.lock.yaml` or your config.
@@ -129,7 +134,7 @@ The error lists every difference and suggests running `palm install` without `--
 Before palm overwrites or deletes a file it wrote, it compares the file's hash with the lockfile.
 When you changed the file, palm refuses with `E_CONFLICT` and names the file.
 `--force` overwrites it anyway.
-`palm uninstall` leaves a changed file on disk and lists it. `--force` deletes it too.
+`palm uninstall` keeps an entity with a changed file installed and exits 1. `--force` removes it with your changes.
 
 A file palm did not write is protected the same way.
 When a destination exists and no lockfile entry lists it, palm stops unless you pass `--force`.

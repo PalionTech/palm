@@ -47,6 +47,11 @@ palm writes only `name`, `description`, `kind`, `display_name`, `tools`, `model`
 Claude tool names become Gemini names, for example `Read` becomes `read_file` and `Bash` becomes `run_shell_command`.
 Gemini CLI agents are a preview feature behind `experimental.enableAgents`.
 
+GitHub Copilot ignores tool names it does not know, so palm maps each tool to a Copilot name.
+For example `Read` becomes `read`, `Bash` becomes `execute`, and `mcp__docs__search` becomes `docs/search`.
+Copilot has no argument restrictions, so `Bash(git:*)` becomes plain `execute`.
+The install summary names each restriction it lost and each tool without a Copilot name.
+
 OpenCode passes unknown agent keys to the model provider, so palm writes only the keys OpenCode defines.
 Each agent gets `mode: subagent`, and a `tools` list becomes a `permission` block that denies everything else.
 The install summary names every key palm dropped.
@@ -108,7 +113,8 @@ Gemini CLI has its own event names and counts timeouts in milliseconds:
 | `SessionStart`, `SessionEnd`, `Notification` | same name |
 
 palm drops the other Claude Code events, such as `SubagentStop`, and names them in the install summary.
-Tool names in matchers change as for agents.
+Tool names in matchers change as for agents, in both directions.
+A Gemini CLI `run_shell_command` matcher becomes `Bash` for Claude Code and Codex.
 A hook script still receives Gemini tool names on stdin, so a script that tests for `Bash` does not match.
 
 ## MCP servers

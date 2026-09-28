@@ -33,7 +33,7 @@ No options of its own. The [global options](/palm/reference/cli/#global-options)
 ### What it writes
 
 - `targets:` in `palm.yaml` at the project root. It replaces an existing `targets:` and keeps every other key.
-- `.palm/` as a new line in an existing `.gitignore`, unless the file already ignores `.palm`. palm does not create a `.gitignore`.
+- `.palm/` as a new line in `.gitignore`, unless the file already ignores `.palm`. palm creates `.gitignore` when there is none and the project is inside a git repository. Outside a git repository it only edits an existing one.
 
 ### What it asks
 

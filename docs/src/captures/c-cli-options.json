@@ -213,7 +213,7 @@
             {
               "flags": "--frozen",
               "long": "--frozen",
-              "description": "no names only: install exactly what palm.lock.yaml records; fail on any difference, write nothing"
+              "description": "no names only: install exactly what palm.lock.yaml records, restoring missing files and config entries; fail on any other difference"
             },
             {
               "flags": "-h, --help",

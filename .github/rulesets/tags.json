@@ -15,5 +15,5 @@
       "bypass_mode": "always"
     }
   ],
-  "rules": [{ "type": "creation" }, { "type": "update" }, { "type": "deletion" }]
+  "rules": [{ "type": "update" }, { "type": "deletion" }]
 }

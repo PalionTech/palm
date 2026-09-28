@@ -150,8 +150,8 @@ palm takes the first of these that gives a target set:
 5. A prompt. Without a terminal, palm stops with `E_TARGET`.
 
 A project install saves the result as `targets:` in `palm.yaml` when none is stored.
-An explicit `--target`, or a pick, that differs from the stored set replaces it.
-With `-g`, only an explicit `--target` writes `targets` to `config.yaml`; palm never saves detected targets there.
+A `--target` that differs from the stored set applies to that install only, and palm prints a note.
+Change the stored set with `palm init --target`, or with `palm config set targets` for `config.yaml`. An install never writes `config.yaml`.
 `palm get targets` shows the active set and where it came from.
 
 ### Dry runs and offline use
@@ -193,7 +193,8 @@ palm does not ask again for entries that are unchanged.
 ### `--frozen`
 
 `palm install --frozen` installs exactly what `palm.lock.yaml` records and is meant for CI.
-It fails with `E_CONFLICT` when `palm.yaml`, the lockfile and the files on disk differ, and lists every difference.
+It checks `palm.yaml`, the lockfile, the files palm wrote and the entries it merged into shared config files.
+It fails with `E_CONFLICT` when they disagree, and lists every difference.
 It never writes `palm.yaml`, `palm.lock.yaml` or `config.yaml`.
 It restores missing files from the locked commits, and fetches only a locked commit that is not in the cache.
 `--frozen` works only without names and cannot be combined with `--prune`.

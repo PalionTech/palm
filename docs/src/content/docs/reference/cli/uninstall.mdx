@@ -22,7 +22,7 @@ Without a kind, palm matches the name in every entity kind.
 | `palm uninstall skills tdd grill-me` | Remove several skills. |
 | `palm rm plugin superpowers -g` | Remove a plugin and its members from the global scope. |
 | `palm uninstall mcp docs --dry-run` | Show what palm would remove. |
-| `palm uninstall skill tdd --force` | Also delete files you changed since palm wrote them. |
+| `palm uninstall skill tdd --force` | Remove the skill even when you changed its files, and delete those changes. |
 | `palm uninstall origin pstack` | Unregister an origin. Installed entities stay. |
 
 <Capture name="c-uninstall" />
@@ -53,7 +53,7 @@ An entity that an agent or plugin pulled in goes with it, unless something still
 
 ### What it writes
 
-- Deletes every file the lockfile lists for the entity, and removes the directories palm emptied. It never removes a harness folder such as `.claude`, `.github` or `.cursor`.
+- Deletes every file the lockfile lists for the entity, and removes the directories palm emptied. It removes a harness folder such as `.claude` or `.cursor` only when palm created it and nothing else is left in it.
 - Removes exactly the values palm merged into shared files, such as `.mcp.json` or `.claude/settings.json`. It prunes containers palm emptied and deletes a JSON file left as `{}`.
 - Removes palm's own managed blocks from `AGENTS.md` and `GEMINI.md`.
 - Removes the entry from `palm.yaml`, and the section when it becomes empty, then updates `palm.lock.yaml`.
@@ -65,7 +65,7 @@ Nothing.
 
 ### What it refuses
 
-- A file you changed since palm wrote it stays on disk and is listed. Repeat the command with `--force` to delete it.
+- An entity with a file you changed since palm wrote it. palm removes none of its files, keeps it installed and prints the command that removes it: `palm uninstall <kind> <name> --force`.
 - A name installed as two kinds: `E_AMBIGUOUS`. Name the kind.
 - A name that is not installed in the scope: `E_NOT_FOUND`. Add `-g` for the global scope.
 
@@ -76,8 +76,8 @@ The entry stays in the lockfile with what is still on disk.
 
 | Code | When |
 | --- | --- |
-| `0` | Every named entity is removed. Files you changed and kept do not change the code. |
-| `1` | A name or alias is not found, a name is ambiguous, or a file could not be removed. |
+| `0` | Every named entity is removed. |
+| `1` | A name or alias is not found, a name is ambiguous, an entity has files you changed, or a file could not be removed. |
 | `2` | A usage error, such as no name. |
 
 ## Related

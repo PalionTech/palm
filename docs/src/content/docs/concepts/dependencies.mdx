@@ -83,6 +83,9 @@ A dependency stays when either of these holds.
 - `palm.yaml` lists it directly. It becomes a direct install.
 - Another installed plugin or agent declares it. palm moves it under that parent.
 
+The same holds when you uninstall the dependency by name.
+palm keeps it under the plugin or agent that still declares it, drops it from `palm.yaml`, and prints the command that removes both.
+
 `palm update` applies the same rule when a new version of an agent stops declaring a dependency.
 
 ## Consent covers dependencies

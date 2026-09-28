@@ -49,8 +49,8 @@ Out of scope:
 - **The content of origins you chose to trust.** A skill, agent, hook or MCP server does what
   its author wrote. palm installs it as it is; it does not review or sandbox it. Report a
   malicious package to its repository's host instead.
-- Vulnerabilities in a harness (Claude Code, Codex, Copilot, Cursor) or in how it runs what palm
-  installed.
+- Vulnerabilities in a harness (Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI,
+  OpenCode) or in how it runs what palm installed.
 - Vulnerabilities in palm's dependencies with no way to reach them through palm. Report those
   upstream; we update when a fix is released.
 - Windows, which palm does not support yet.

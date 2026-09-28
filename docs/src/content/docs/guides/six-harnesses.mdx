@@ -53,7 +53,7 @@ The sessions on this page ran against a palm test fixture that mirrors `anthropi
    | --- | --- | --- |
    | Claude Code | `.claude/agents/<name>.md` | nothing: this is the source format |
    | Codex | `.codex/agents/<name>.toml` | TOML with `name`, `description` and `developer_instructions` |
-   | GitHub Copilot | `.github/agents/<name>.agent.md` | tools as a list, MCP servers as `context7/*` |
+   | GitHub Copilot | `.github/agents/<name>.agent.md` | Copilot tool names such as `read` and `execute`, MCP servers as `context7/*` |
    | Cursor | `.cursor/agents/<name>.md` | the tool list maps to `readonly: true` |
    | Gemini CLI | `.gemini/agents/<name>.md` | strict frontmatter: `kind: local`, Gemini tool names, MCP tools as `mcp_context7_*` |
    | OpenCode | `.opencode/agents/<name>.md` | `mode: subagent` and a `permission` map that denies by default |

@@ -636,7 +636,7 @@ git init -q -b main && git add -A && git commit -qm "release-notes skill" && git
       },
     ],
     commands: [
-      { sh: 'find .claude .cursor -type f' },
+      { sh: 'find .claude .cursor -type f | sort' },
       { palm: ['install', 'agent', 'comment-sicko'], exit: 1 },
       ['install', 'agent', 'comment-sicko', '--force'],
       ['install', 'skill', 'tdd@mattpocock'],

@@ -182,7 +182,7 @@ function installOptions(cmd: Command): void {
     .option('--prune', 'no names only: remove installed entries no longer in palm.yaml')
     .option(
       '--frozen',
-      'no names only: install exactly what palm.lock.yaml records; fail on any difference, write nothing',
+      'no names only: install exactly what palm.lock.yaml records, restoring missing files and config entries; fail on any other difference',
     );
   cmd.optionsGroup('Ad hoc MCP server options:');
   cmd

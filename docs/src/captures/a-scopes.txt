@@ -6,7 +6,6 @@ status       kind   name  origin      targets  files
 + installed  skill  tdd   mattpocock  claude   3
 1 installed
 $ palm install skill tdd -g --target claude
-i saved targets claude to config.yaml
 global scope → claude
 status       kind   name  origin      targets  files
 ───────────  ─────  ────  ──────────  ───────  ─────

@@ -51,8 +51,9 @@ The MCP registry adds up to 10 servers when you give no kind and no origin, or t
 palm skips the registry with `-o` or `--offline`, and turns a registry failure into a warning.
 The last line names the command that installs the first match.
 
-With `--json`, the document is `{ "index": [...], "registry": [...] }`.
-Each index item is the entity with its `score`.
+With `--json`, the document is `{ "items": [...] }`, like every other list.
+An item from an origin's index has `"source": "origin"` and its `score`.
+An item from the MCP registry has `"source": "registry"`.
 
 ## Behavior
 

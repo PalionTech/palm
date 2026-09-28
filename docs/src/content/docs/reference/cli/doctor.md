@@ -33,7 +33,7 @@ No options of its own. The [global options](/palm/reference/cli/#global-options)
 | `palm` | palm home | `~/.palm`, or the nearest folder above it, is not writable (fail) |
 | `palm` | cache | never; shows the cache size |
 | `targets` | one per harness | never; shows where palm detects it |
-| `lock` | project scope, global scope | a locked file is missing, or `palm.yaml` lists an entry that is not installed (warn) |
+| `lock` | project scope, global scope | a locked file is missing, an entry palm merged into a shared file is missing or changed, or `palm.yaml` lists an entry that is not installed (warn) |
 | `hooks` | project scope, global scope | copied hook scripts are missing, as after a fresh clone (warn) |
 | `origins` | one per origin | a local origin's folder is missing, or a git origin does not answer within 20 seconds (fail) |
 

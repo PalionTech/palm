@@ -52,7 +52,8 @@ This keeps a stray command from writing project files into `~`.
 
 Commit the project's `palm.yaml` and `palm.lock.yaml`.
 Keep `.palm/` out of git, because it holds copies of hook scripts that `palm install` restores.
-`palm init` adds `.palm/` to the project's `.gitignore` when that file exists.
+`palm init` adds `.palm/` to the project's `.gitignore`.
+Inside a git repository it creates that file when there is none.
 
 ## Harness homes
 

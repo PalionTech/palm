@@ -35,8 +35,8 @@ capture files (terminal output).
 
 | Term | Use it for | Not |
 | --- | --- | --- |
-| harness | the program: Claude Code, Codex, GitHub Copilot, Cursor | "target" in prose about the tool |
-| target | palm's identifier for a harness: `claude`, `codex`, `copilot`, `cursor`; flags and config values | "harness" for a flag value |
+| harness | the program: Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, OpenCode | "target" in prose about the tool |
+| target | palm's identifier for a harness: `claude`, `codex`, `copilot`, `cursor`, `gemini`, `opencode`; flags and config values | "harness" for a flag value |
 | origin | where entities come from: a git repository, a folder in one, a local directory | "registry", "source repo" |
 | entity | one installable item | "package", "resource" |
 | kind | an entity's type: `skill`, `agent`, `instruction`, `command`, `hook`, `mcp`, `plugin` | "type" |

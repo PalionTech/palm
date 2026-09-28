@@ -82,6 +82,10 @@
 .palm-show > * {
   margin-top: 0 !important;
 }
+/* The six-target install table is 93 columns wide; one size down keeps it unscrolled beside the tree. */
+.palm-show .palm-capture pre > code {
+  font-size: 0.8125rem;
+}
 
 .palm-caption,
 .palm-planned {
@@ -97,6 +101,13 @@
 }
 .palm-wide {
   overflow-x: auto;
+}
+/* A path or flag never breaks inside itself; long paths break at an explicit <br />. */
+.palm-wide code {
+  white-space: nowrap;
+}
+.sl-markdown-content .palm-paths :is(th, td) {
+  padding-inline: 0.5rem;
 }
 
 /* Landing: the trust line is one quiet paragraph, centred. */
