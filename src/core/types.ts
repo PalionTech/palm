@@ -9,14 +9,7 @@
 // Kinds, targets, scopes
 // ---------------------------------------------------------------------------
 
-export type Kind =
-  | 'skill'
-  | 'agent'
-  | 'instruction'
-  | 'command'
-  | 'hook'
-  | 'mcp'
-  | 'plugin';
+export type Kind = 'skill' | 'agent' | 'instruction' | 'command' | 'hook' | 'mcp' | 'plugin';
 
 export const KINDS: readonly Kind[] = [
   'skill',
@@ -357,7 +350,10 @@ export interface UI {
   pick<T>(message: string, options: PickOption<T>[]): Promise<T>;
   pickMany<T>(message: string, options: PickOption<T>[], initial?: T[]): Promise<T[]>;
   confirm(message: string, initial?: boolean): Promise<boolean>;
-  text(message: string, opts?: { placeholder?: string; initial?: string; validate?: (v: string) => string | undefined }): Promise<string>;
+  text(
+    message: string,
+    opts?: { placeholder?: string; initial?: string; validate?: (v: string) => string | undefined },
+  ): Promise<string>;
   secret(message: string): Promise<string>;
   spinner(message: string): { stop(msg?: string): void; message(msg: string): void };
 }
@@ -467,7 +463,13 @@ export interface Target {
    * Remove the given files/merged records previously produced by deploy.
    * `env` resolves CLAUDE_CONFIG_DIR / CODEX_HOME / … like `DeployInput.env` (default: process.env).
    */
-  undeploy(entry: LockEntry, scope: Scope, scopeRoot: string, dryRun: boolean, env?: NodeJS.ProcessEnv): Promise<void>;
+  undeploy(
+    entry: LockEntry,
+    scope: Scope,
+    scopeRoot: string,
+    dryRun: boolean,
+    env?: NodeJS.ProcessEnv,
+  ): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -490,8 +492,14 @@ export interface RegistryCandidate {
   version?: string;
   config: McpServerConfig;
 }
-export type SearchRegistryFn = (query: string, opts: { registryUrl?: string; limit?: number }) => Promise<RegistryCandidate[]>;
-export type ResolveRegistryFn = (name: string, opts: { registryUrl?: string; version?: string }) => Promise<RegistryCandidate[]>;
+export type SearchRegistryFn = (
+  query: string,
+  opts: { registryUrl?: string; limit?: number },
+) => Promise<RegistryCandidate[]>;
+export type ResolveRegistryFn = (
+  name: string,
+  opts: { registryUrl?: string; version?: string },
+) => Promise<RegistryCandidate[]>;
 
 /** src/core/git.ts */
 export type FetchOriginFn = (ctx: PalmContext, spec: OriginSpec) => Promise<OriginCheckout>;

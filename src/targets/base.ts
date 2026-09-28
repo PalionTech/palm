@@ -4,6 +4,7 @@
  */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { PalmError } from '../core/errors.js';
 import type {
   DeployInput,
   DeployResult,
@@ -14,7 +15,12 @@ import type {
   Target,
   TargetId,
 } from '../core/types.js';
-import { PalmError } from '../core/errors.js';
+import { renderAgent } from './convert-agent.js';
+import { renderCommand } from './convert-command.js';
+import { convertHooks, referencesPluginRoot } from './convert-hooks.js';
+import { renderInstruction } from './convert-instruction.js';
+import { redactSecrets } from './deep-equal.js';
+import { type Env, effectiveEnv, hooksAssetDir, palmHooksRoot } from './env.js';
 import {
   atomicWrite,
   ensureMode,
@@ -27,17 +33,11 @@ import {
   removeFileIfExists,
   toPosix,
 } from './fs-utils.js';
-import { effectiveEnv, hooksAssetDir, palmHooksRoot, type Env } from './env.js';
-import { renderAgent } from './convert-agent.js';
-import { renderInstruction } from './convert-instruction.js';
-import { renderCommand } from './convert-command.js';
-import { convertHooks, referencesPluginRoot } from './convert-hooks.js';
-import { renderMcp } from './mcp-config.js';
 import { ensureJsonKey, mergeJsonFile, unmergeJsonFile } from './json-merge.js';
-import { mergeTomlTable, unmergeTomlTable } from './toml-merge.js';
-import { BLOCK_POINTER_PREFIX, removeManagedBlock, upsertManagedBlock } from './managed-block.js';
 import { escapeSegment, joinPointer } from './json-pointer.js';
-import { redactSecrets } from './deep-equal.js';
+import { BLOCK_POINTER_PREFIX, removeManagedBlock, upsertManagedBlock } from './managed-block.js';
+import { renderMcp } from './mcp-config.js';
+import { mergeTomlTable, unmergeTomlTable } from './toml-merge.js';
 
 export interface CleanupRoot {
   /** Directory this target writes into. */
@@ -74,10 +74,29 @@ type OnConflict = 'overwrite' | 'error';
 
 /** Plugin-root entries never copied with hook scripts: docs, tests, CI and repository furniture. */
 const HOOK_ASSET_SKIP_TOP = [
-  '.github', '.gitlab', '.vscode', '.idea', 'docs', 'doc', 'website', 'site', 'test', 'tests', '__tests__',
-  'spec', 'fixtures', 'examples', 'example', 'evals', 'assets', 'media', 'images', 'screenshots',
+  '.github',
+  '.gitlab',
+  '.vscode',
+  '.idea',
+  'docs',
+  'doc',
+  'website',
+  'site',
+  'test',
+  'tests',
+  '__tests__',
+  'spec',
+  'fixtures',
+  'examples',
+  'example',
+  'evals',
+  'assets',
+  'media',
+  'images',
+  'screenshots',
 ];
-const HOOK_ASSET_SKIP_FILE = /^(README|CHANGELOG|CHANGES|HISTORY|RELEASE[-_]NOTES|CONTRIBUTING|CODE_OF_CONDUCT|SECURITY)(\.[a-z]+)?$/i;
+const HOOK_ASSET_SKIP_FILE =
+  /^(README|CHANGELOG|CHANGES|HISTORY|RELEASE[-_]NOTES|CONTRIBUTING|CODE_OF_CONDUCT|SECURITY)(\.[a-z]+)?$/i;
 
 /** Entity names become file and directory names: refuse anything that could leave its directory. */
 export function isSafeEntityName(name: string): boolean {
@@ -159,7 +178,11 @@ class DeployCtx {
   }
 
   plan(abs: string, data: string | Buffer, mode?: number): void {
-    this.planned.push({ abs, data: typeof data === 'string' ? Buffer.from(data, 'utf8') : data, mode });
+    this.planned.push({
+      abs,
+      data: typeof data === 'string' ? Buffer.from(data, 'utf8') : data,
+      mode,
+    });
   }
 
   /**
@@ -174,14 +197,22 @@ class DeployCtx {
       try {
         existing = await readFileOrUndefined(w.abs);
       } catch {
-        throw new PalmError('E_CONFLICT', `refusing to overwrite ${this.display(w.abs)} (not a regular file)`, 'move it aside and retry');
+        throw new PalmError(
+          'E_CONFLICT',
+          `refusing to overwrite ${this.display(w.abs)} (not a regular file)`,
+          'move it aside and retry',
+        );
       }
       if (existing?.equals(w.data)) {
         needed.push({ ...w, exists: true });
         continue;
       }
       if (existing && !this.input.force && !this.isOwned(w.abs)) {
-        throw new PalmError('E_CONFLICT', `refusing to overwrite ${this.display(w.abs)}`, 'rerun with --force');
+        throw new PalmError(
+          'E_CONFLICT',
+          `refusing to overwrite ${this.display(w.abs)}`,
+          'rerun with --force',
+        );
       }
       needed.push({ ...w, exists: false });
     }
@@ -215,16 +246,29 @@ class DeployCtx {
 
   /** Remove the files this deploy created, so a failed deploy leaves nothing untracked behind. */
   async rollback(): Promise<void> {
-    for (const f of this.created.splice(0).reverse()) await removeFileIfExists(f).catch(() => undefined);
+    for (const f of this.created.splice(0).reverse())
+      await removeFileIfExists(f).catch(() => undefined);
   }
 
   result(skipped?: boolean): DeployResult {
-    return { files: this.files, merged: this.merged, notes: this.notes, ...(skipped ? { skipped: true } : {}) };
+    return {
+      files: this.files,
+      merged: this.merged,
+      notes: this.notes,
+      ...(skipped ? { skipped: true } : {}),
+    };
   }
 }
 
-function defOf<K extends Entity['def']['kind']>(entity: Entity, kind: K): Extract<Entity['def'], { kind: K }> {
-  if (entity.def.kind !== kind) throw new PalmError('E_INTERNAL', `entity ${entity.name}: expected a ${kind} definition, got ${entity.def.kind}`);
+function defOf<K extends Entity['def']['kind']>(
+  entity: Entity,
+  kind: K,
+): Extract<Entity['def'], { kind: K }> {
+  if (entity.def.kind !== kind)
+    throw new PalmError(
+      'E_INTERNAL',
+      `entity ${entity.name}: expected a ${kind} definition, got ${entity.def.kind}`,
+    );
   return entity.def as Extract<Entity['def'], { kind: K }>;
 }
 
@@ -288,11 +332,19 @@ export class GenericTarget implements Target {
     // Links may point anywhere inside the origin (shared references), never outside it.
     const boundary = isWithin(absPath, originRoot) ? originRoot : absPath;
     const { files, skipped } = await listCopyFiles(absPath, { boundary }).catch((e: unknown) => {
-      throw new PalmError('E_IO', `skill ${entity.name}: cannot read ${absPath}: ${(e as Error).message}`);
+      throw new PalmError(
+        'E_IO',
+        `skill ${entity.name}: cannot read ${absPath}: ${(e as Error).message}`,
+      );
     });
-    if (skipped.length) ctx.note(`skill ${entity.name}: not copied (symlink leaving the origin, or broken): ${skipped.join(', ')}`);
-    if (files.length === 0) throw new PalmError('E_NOT_FOUND', `skill ${entity.name}: no files in ${absPath}`);
-    for (const f of files) ctx.plan(path.join(dest, ...f.rel.split('/')), await fs.readFile(f.abs), f.mode);
+    if (skipped.length)
+      ctx.note(
+        `skill ${entity.name}: not copied (symlink leaving the origin, or broken): ${skipped.join(', ')}`,
+      );
+    if (files.length === 0)
+      throw new PalmError('E_NOT_FOUND', `skill ${entity.name}: no files in ${absPath}`);
+    for (const f of files)
+      ctx.plan(path.join(dest, ...f.rel.split('/')), await fs.readFile(f.abs), f.mode);
     await ctx.flush();
     return ctx.result();
   }
@@ -303,7 +355,10 @@ export class GenericTarget implements Target {
     const dest = path.join(layout.agentsDir, r.fileName);
     ctx.plan(dest, r.content);
     await ctx.flush();
-    if (r.dropped.length) ctx.note(`${ctx.display(dest)}: dropped ${r.dropped.join(', ')} (not supported by ${this.displayName})`);
+    if (r.dropped.length)
+      ctx.note(
+        `${ctx.display(dest)}: dropped ${r.dropped.join(', ')} (not supported by ${this.displayName})`,
+      );
     return ctx.result();
   }
 
@@ -316,7 +371,10 @@ export class GenericTarget implements Target {
     }
     const r = renderInstruction({ ...instruction, name }, this.id);
     if ('managedBlock' in r) {
-      const file = 'agentsMd' in layout.instructions ? layout.instructions.agentsMd : path.join(layout.instructions.dir, 'AGENTS.md');
+      const file =
+        'agentsMd' in layout.instructions
+          ? layout.instructions.agentsMd
+          : path.join(layout.instructions.dir, 'AGENTS.md');
       const id = `instruction:${name}`;
       const rec = await upsertManagedBlock(file, id, r.managedBlock, {
         dryRun: ctx.input.dryRun,
@@ -326,7 +384,8 @@ export class GenericTarget implements Target {
       ctx.addMerged(rec);
       return ctx.result();
     }
-    if (!('dir' in layout.instructions)) throw new PalmError('E_INTERNAL', `${this.id}: no instruction directory`);
+    if (!('dir' in layout.instructions))
+      throw new PalmError('E_INTERNAL', `${this.id}: no instruction directory`);
     ctx.plan(path.join(layout.instructions.dir, r.fileName), r.content);
     await ctx.flush();
     return ctx.result();
@@ -349,7 +408,10 @@ export class GenericTarget implements Target {
     const { entity, scope, scopeRoot, originRoot, absPath, dryRun } = ctx.input;
     const assetDir = hooksAssetDir(scope, scopeRoot, ctx.env, entity.name);
     const converted = convertHooks(hooks, this.id, assetDir, scope);
-    if (converted.dropped.length) ctx.note(`hooks ${entity.name}: dropped for ${this.displayName}: ${converted.dropped.join('; ')}`);
+    if (converted.dropped.length)
+      ctx.note(
+        `hooks ${entity.name}: dropped for ${this.displayName}: ${converted.dropped.join('; ')}`,
+      );
     const events = (converted.hooks as { hooks: Record<string, unknown[]> }).hooks;
     if (Object.values(events).every((items) => items.length === 0)) {
       ctx.note(`hooks ${entity.name}: nothing ${this.displayName} can run`);
@@ -357,20 +419,32 @@ export class GenericTarget implements Target {
     }
 
     if (referencesPluginRoot(hooks.raw)) {
-      const src = hooks.pluginRootRel !== undefined ? path.resolve(originRoot, hooks.pluginRootRel) : path.dirname(absPath);
+      const src =
+        hooks.pluginRootRel !== undefined
+          ? path.resolve(originRoot, hooks.pluginRootRel)
+          : path.dirname(absPath);
       const boundary = isWithin(absPath, originRoot) ? originRoot : path.dirname(absPath);
       if (!isWithin(src, boundary)) {
-        throw new PalmError('E_PARSE', `hooks ${entity.name}: plugin root ${src} lies outside the origin ${boundary}`);
+        throw new PalmError(
+          'E_PARSE',
+          `hooks ${entity.name}: plugin root ${src} lies outside the origin ${boundary}`,
+        );
       }
       if (await pathExists(src)) {
         // The whole plugin root (scripts may read sibling files such as skills/*/SKILL.md),
         // minus documentation, tests and CI material that no hook runs.
-        const { files, skipped } = await listCopyFiles(src, { skipTop: HOOK_ASSET_SKIP_TOP, boundary });
+        const { files, skipped } = await listCopyFiles(src, {
+          skipTop: HOOK_ASSET_SKIP_TOP,
+          boundary,
+        });
         for (const f of files) {
           if (!f.rel.includes('/') && HOOK_ASSET_SKIP_FILE.test(f.rel)) continue;
           ctx.plan(path.join(assetDir, ...f.rel.split('/')), await fs.readFile(f.abs), f.mode);
         }
-        if (skipped.length) ctx.note(`hooks ${entity.name}: not copied (symlink leaving the origin, or broken): ${skipped.join(', ')}`);
+        if (skipped.length)
+          ctx.note(
+            `hooks ${entity.name}: not copied (symlink leaving the origin, or broken): ${skipped.join(', ')}`,
+          );
         ctx.note(`hook scripts copied to ${ctx.display(assetDir)}`);
       } else {
         ctx.note(`hooks ${entity.name}: plugin root ${src} not found; commands may fail`);
@@ -378,7 +452,10 @@ export class GenericTarget implements Target {
     }
 
     if ('dir' in layout.hooks) {
-      ctx.plan(path.join(layout.hooks.dir, `${entity.name}.json`), JSON.stringify(converted.hooks, null, 2) + '\n');
+      ctx.plan(
+        path.join(layout.hooks.dir, `${entity.name}.json`),
+        JSON.stringify(converted.hooks, null, 2) + '\n',
+      );
       await ctx.flush();
       return ctx.result();
     }
@@ -388,7 +465,12 @@ export class GenericTarget implements Target {
     if (layout.hooks.versioned) await ensureJsonKey(file, '', 'version', 1, { dryRun });
     for (const [event, items] of Object.entries(events)) {
       for (const item of items) {
-        ctx.addMerged(await mergeJsonFile(file, `/hooks/${escapeSegment(event)}`, undefined, item, { dryRun, displayFile: ctx.display(file) }));
+        ctx.addMerged(
+          await mergeJsonFile(file, `/hooks/${escapeSegment(event)}`, undefined, item, {
+            dryRun,
+            displayFile: ctx.display(file),
+          }),
+        );
       }
     }
     await ctx.flush();
@@ -422,10 +504,18 @@ export class GenericTarget implements Target {
     // The lockfile (and --json output) records placeholders, never literal secret values.
     ctx.addMerged({ ...rec, value: redactSecrets(rec.value, secretValues) });
     // User-level MCP configs and anything holding literal secrets: private to the user when palm creates them.
-    if (created && !dryRun && (scope === 'global' || (secretPolicy === 'literal' && Object.keys(secretValues ?? {}).length > 0))) {
+    if (
+      created &&
+      !dryRun &&
+      (scope === 'global' ||
+        (secretPolicy === 'literal' && Object.keys(secretValues ?? {}).length > 0))
+    ) {
       await ensureMode(file, 0o600);
     }
-    if (r.envRefs.length) ctx.note(`MCP ${key}: export ${r.envRefs.join(', ')} in the environment ${this.displayName} runs in`);
+    if (r.envRefs.length)
+      ctx.note(
+        `MCP ${key}: export ${r.envRefs.join(', ')} in the environment ${this.displayName} runs in`,
+      );
     return ctx.result();
   }
 
@@ -435,14 +525,22 @@ export class GenericTarget implements Target {
    * `.agents/skills` and `.palm/hooks` paths are claimed by several targets and
    * removed by whichever runs first.
    */
-  async undeploy(entry: LockEntry, scope: Scope, scopeRoot: string, dryRun: boolean, env?: NodeJS.ProcessEnv): Promise<void> {
+  async undeploy(
+    entry: LockEntry,
+    scope: Scope,
+    scopeRoot: string,
+    dryRun: boolean,
+    env?: NodeJS.ProcessEnv,
+  ): Promise<void> {
     const e = effectiveEnv(scope, scopeRoot, env, this.boundEnv);
     const layout = this.spec.layout(scope, scopeRoot, e);
     const palmRoot = palmHooksRoot(scope, scopeRoot, e);
     const roots = [...layout.roots, palmRoot];
     const toAbs = (f: string): string => (path.isAbsolute(f) ? f : path.join(scopeRoot, f));
     const rootOf = (abs: string): CleanupRoot | undefined =>
-      roots.filter((r) => abs !== r.dir && isWithin(abs, r.dir)).sort((a, b) => b.dir.length - a.dir.length)[0];
+      roots
+        .filter((r) => abs !== r.dir && isWithin(abs, r.dir))
+        .sort((a, b) => b.dir.length - a.dir.length)[0];
 
     for (const f of entry.files) {
       const abs = toAbs(f);
@@ -454,9 +552,11 @@ export class GenericTarget implements Target {
 
     for (const rec of entry.merged ?? []) {
       const abs = toAbs(rec.file);
-      const claimed = layout.mergedFiles.includes(abs) || layout.roots.some((r) => isWithin(abs, r.dir));
+      const claimed =
+        layout.mergedFiles.includes(abs) || layout.roots.some((r) => isWithin(abs, r.dir));
       if (!claimed || dryRun) continue;
-      if (rec.pointer.startsWith(BLOCK_POINTER_PREFIX)) await removeManagedBlock(abs, rec.pointer.slice(BLOCK_POINTER_PREFIX.length));
+      if (rec.pointer.startsWith(BLOCK_POINTER_PREFIX))
+        await removeManagedBlock(abs, rec.pointer.slice(BLOCK_POINTER_PREFIX.length));
       else if (abs.endsWith('.toml')) await unmergeTomlTable(abs, rec);
       else await unmergeJsonFile(abs, rec);
     }

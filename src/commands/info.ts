@@ -2,7 +2,15 @@ import type { Command } from 'commander';
 import pc from 'picocolors';
 import { PalmError } from '../core/errors.js';
 import type { Entity, EntityRef, LockEntry, OriginSpec, TargetId } from '../core/types.js';
-import { makeContext, printJson, requireKind, scopeOf, shortSha, splitNameOrigin, type GlobalOptions } from './shared.js';
+import {
+  type GlobalOptions,
+  makeContext,
+  printJson,
+  requireKind,
+  scopeOf,
+  shortSha,
+  splitNameOrigin,
+} from './shared.js';
 
 interface InfoOptions extends GlobalOptions {
   origin?: string;
@@ -52,7 +60,12 @@ function kindDetails(e: Entity): Array<[string, string | undefined]> {
     }
     case 'instruction': {
       const i = e.def.instruction;
-      return [['applies to', i.globs?.length ? i.globs.join(', ') : i.alwaysApply ? 'always' : 'on request']];
+      return [
+        [
+          'applies to',
+          i.globs?.length ? i.globs.join(', ') : i.alwaysApply ? 'always' : 'on request',
+        ],
+      ];
     }
     case 'command':
       return [['arguments', e.def.command.argumentHint]];
@@ -67,10 +80,15 @@ export function registerInfo(program: Command): void {
   program
     .command('info')
     .summary('show one entity: origin, version, dependencies, installed files')
-    .description('Show an entity: description, origin, version, dependencies and (when installed) the files palm wrote per target.')
+    .description(
+      'Show an entity: description, origin, version, dependencies and (when installed) the files palm wrote per target.',
+    )
     .argument('<kind>', 'entity kind (plurals ok)')
     .argument('<name>', 'name[@origin]')
-    .option('-o, --origin <name-or-alias>', 'origin to look in: alias, owner/repo[/root], URL or local path')
+    .option(
+      '-o, --origin <name-or-alias>',
+      'origin to look in: alias, owner/repo[/root], URL or local path',
+    )
     .action(async (kindArg: string, nameArg: string, _opts: unknown, cmd: Command) => {
       const o = cmd.optsWithGlobals<InfoOptions>();
       const kind = requireKind(kindArg);
@@ -89,12 +107,17 @@ export function registerInfo(program: Command): void {
         }
       }
       const { getEntityInfo } = await import('../engine/query.js');
-      const info: { entity?: Entity; lock?: LockEntry; deps: EntityRef[]; warnings: string[] } = await getEntityInfo(ctx, kind, ref.name, {
-        origin,
-        scope,
-      });
+      const info: { entity?: Entity; lock?: LockEntry; deps: EntityRef[]; warnings: string[] } =
+        await getEntityInfo(ctx, kind, ref.name, {
+          origin,
+          scope,
+        });
       if (!info.entity && !info.lock) {
-        throw new PalmError('E_NOT_FOUND', `no ${kind} named "${ref.name}" in your origins or the ${scope} lockfile`, `try: palm search ${ref.name}`);
+        throw new PalmError(
+          'E_NOT_FOUND',
+          `no ${kind} named "${ref.name}" in your origins or the ${scope} lockfile`,
+          `try: palm search ${ref.name}`,
+        );
       }
       if (o.json) return printJson(info);
 
@@ -136,7 +159,9 @@ export function registerInfo(program: Command): void {
           for (const m of lock.merged) console.log(`    ${m.file} ${pc.dim(m.pointer)}`);
         }
       } else if (entity) {
-        console.log(`\n${pc.dim('install with:')} palm install ${kind} ${entity.name}@${entity.origin}`);
+        console.log(
+          `\n${pc.dim('install with:')} palm install ${kind} ${entity.name}@${entity.origin}`,
+        );
       }
     });
 }

@@ -32,7 +32,9 @@ export function formatTable(rows: string[][], header?: string[]): string {
   const all = head ? [head, ...body] : body;
   const cols = all.reduce((n, r) => Math.max(n, r.length), 0);
   if (cols === 0) return '';
-  const widths = Array.from({ length: cols }, (_, i) => all.reduce((w, r) => Math.max(w, visibleWidth(r[i] ?? '')), 0));
+  const widths = Array.from({ length: cols }, (_, i) =>
+    all.reduce((w, r) => Math.max(w, visibleWidth(r[i] ?? '')), 0),
+  );
   const line = (r: string[], style?: (s: string) => string) =>
     widths
       .map((w, i) => {
@@ -88,7 +90,10 @@ function fileCount(o: InstallOutcome): string {
   return merged ? `${files} (+${merged} merged)` : String(files);
 }
 
-export function printInstallSummary(result: InstallResult, opts: { scope: Scope; targets: TargetId[] }): void {
+export function printInstallSummary(
+  result: InstallResult,
+  opts: { scope: Scope; targets: TargetId[] },
+): void {
   const targets = opts.targets.length ? opts.targets.join(', ') : 'no targets';
   if (result.outcomes.length === 0) {
     console.log(pc.dim(`Nothing to install (${opts.scope} scope → ${targets}).`));
@@ -111,7 +116,9 @@ export function printInstallSummary(result: InstallResult, opts: { scope: Scope;
     const noted = result.outcomes.filter((o) => o.notes.length > 0);
     if (noted.length) {
       console.log('');
-      for (const o of noted) for (const note of o.notes) console.log(`${pc.cyan('•')} ${pc.bold(o.entry.name)}: ${note}`);
+      for (const o of noted)
+        for (const note of o.notes)
+          console.log(`${pc.cyan('•')} ${pc.bold(o.entry.name)}: ${note}`);
     }
   }
   if (result.warnings.length) {

@@ -9,13 +9,13 @@ import { PalmError } from './errors.js';
 import { loadManifest, readYamlFile, saveManifest, writeYamlPreserving } from './manifest.js';
 import { configPath, manifestPath } from './paths.js';
 import {
-  TARGET_IDS,
   type LayoutDescriptor,
   type OriginSpec,
   type PalmConfig,
   type PalmContext,
   type PalmPaths,
   type Scope,
+  TARGET_IDS,
   type TargetId,
 } from './types.js';
 
@@ -29,7 +29,9 @@ function isObject(v: unknown): v is Record<string, unknown> {
 
 function validTargets(v: unknown): TargetId[] | undefined {
   if (!Array.isArray(v)) return undefined;
-  const out = v.filter((t): t is TargetId => typeof t === 'string' && (TARGET_IDS as readonly string[]).includes(t));
+  const out = v.filter(
+    (t): t is TargetId => typeof t === 'string' && (TARGET_IDS as readonly string[]).includes(t),
+  );
   return out.length ? out : undefined;
 }
 
@@ -94,16 +96,23 @@ function normalizeStoredOrigin(raw: unknown, baseDir: string, where: string): Or
       `write it as a mapping and add \`alias: ${parsed.alias}\`, e.g. \`- ${flowMapping(parsed)}\` (palm derives that name with \`palm origin add\`)`,
     );
   }
-  if (!isObject(raw)) throw new PalmError('E_PARSE', `${where}: invalid origin entry ${JSON.stringify(raw)}`);
-  const type = raw.type === 'local' || (raw.type === undefined && typeof raw.path === 'string' && !raw.url) ? 'local' : 'git';
-  const alias = typeof raw.alias === 'string' || typeof raw.alias === 'number' ? String(raw.alias) : '';
+  if (!isObject(raw))
+    throw new PalmError('E_PARSE', `${where}: invalid origin entry ${JSON.stringify(raw)}`);
+  const type =
+    raw.type === 'local' || (raw.type === undefined && typeof raw.path === 'string' && !raw.url)
+      ? 'local'
+      : 'git';
+  const alias =
+    typeof raw.alias === 'string' || typeof raw.alias === 'number' ? String(raw.alias) : '';
   const spec: OriginSpec = { alias, type };
   if (type === 'git') {
-    if (typeof raw.url !== 'string' || !raw.url) throw new PalmError('E_PARSE', `${where}: git origin "${spec.alias}" has no url`);
+    if (typeof raw.url !== 'string' || !raw.url)
+      throw new PalmError('E_PARSE', `${where}: git origin "${spec.alias}" has no url`);
     validateOriginUrl(raw.url, `${where}: origin "${spec.alias || raw.url}"`);
     spec.url = raw.url;
   } else {
-    if (typeof raw.path !== 'string' || !raw.path) throw new PalmError('E_PARSE', `${where}: local origin "${spec.alias}" has no path`);
+    if (typeof raw.path !== 'string' || !raw.path)
+      throw new PalmError('E_PARSE', `${where}: local origin "${spec.alias}" has no path`);
     spec.path = resolve(baseDir, expandTilde(raw.path));
   }
   if (typeof raw.ref === 'string' && raw.ref) spec.ref = raw.ref;
@@ -139,7 +148,16 @@ export async function loadConfig(paths: PalmPaths): Promise<PalmConfig> {
 
 function serializeOrigin(spec: OriginSpec): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const k of ['alias', 'type', 'url', 'path', 'ref', 'root', 'layout', 'description'] as const) {
+  for (const k of [
+    'alias',
+    'type',
+    'url',
+    'path',
+    'ref',
+    'root',
+    'layout',
+    'description',
+  ] as const) {
     if (spec[k] !== undefined) out[k] = spec[k];
   }
   return out;
@@ -200,7 +218,10 @@ function githubSpec(owner: string, repo: string, rest: string[], ref?: string): 
   } else if (rest.length) {
     root = rest.join('/');
   }
-  const spec: ParsedOrigin = { type: 'git', url: `https://github.com/${owner}/${stripGit(repo)}.git` };
+  const spec: ParsedOrigin = {
+    type: 'git',
+    url: `https://github.com/${owner}/${stripGit(repo)}.git`,
+  };
   const r = ref ?? treeRef;
   if (r) spec.ref = r;
   if (root) spec.root = root;
@@ -221,8 +242,13 @@ function parseUrlSpec(body: string, ref: string | undefined): ParsedOrigin {
   }
   const host = u.hostname.toLowerCase();
   const segs = u.pathname.split('/').filter(Boolean).map(decodeURIComponent);
-  if ((host === 'github.com' || host === 'www.github.com') && !u.username && (u.protocol === 'https:' || u.protocol === 'http:')) {
-    if (segs.length < 2) throw new PalmError('E_ORIGIN', `GitHub URL "${body}" needs an owner and a repository`);
+  if (
+    (host === 'github.com' || host === 'www.github.com') &&
+    !u.username &&
+    (u.protocol === 'https:' || u.protocol === 'http:')
+  ) {
+    if (segs.length < 2)
+      throw new PalmError('E_ORIGIN', `GitHub URL "${body}" needs an owner and a repository`);
     return githubSpec(segs[0]!, segs[1]!, segs.slice(2), ref);
   }
   // Other hosts: GitLab-style "/-/tree/<ref>/<dir>" is understood; everything else is the repo path.
@@ -245,14 +271,24 @@ function parseUrlSpec(body: string, ref: string | undefined): ParsedOrigin {
 
 function localPathFor(raw: string, cwd: string): string | undefined {
   const explicit =
-    isAbsolute(raw) || raw === '.' || raw === '..' || raw.startsWith('./') || raw.startsWith('../') || raw === '~' || raw.startsWith('~/');
+    isAbsolute(raw) ||
+    raw === '.' ||
+    raw === '..' ||
+    raw.startsWith('./') ||
+    raw.startsWith('../') ||
+    raw === '~' ||
+    raw.startsWith('~/');
   const abs = resolve(cwd, expandTilde(raw));
   if (explicit) {
     if (!existsSync(abs)) {
       throw new PalmError('E_ORIGIN', `Local origin path does not exist: ${abs}`);
     }
     if (!isDir(abs)) {
-      throw new PalmError('E_ORIGIN', `Local origin must be a directory: ${abs}`, 'For a marketplace.json file use `palm origin import <file>`.');
+      throw new PalmError(
+        'E_ORIGIN',
+        `Local origin must be a directory: ${abs}`,
+        'For a marketplace.json file use `palm origin import <file>`.',
+      );
     }
     return abs;
   }
@@ -269,21 +305,30 @@ function localPathFor(raw: string, cwd: string): string | undefined {
  */
 export function validateOriginUrl(url: string, where = 'origin'): { warning?: string } {
   const bad = (why: string): PalmError =>
-    new PalmError('E_ORIGIN', `Refusing ${where} URL "${url}": ${why}`, 'Use https://…, ssh://…, git@host:owner/repo.git or a local path.');
+    new PalmError(
+      'E_ORIGIN',
+      `Refusing ${where} URL "${url}": ${why}`,
+      'Use https://…, ssh://…, git@host:owner/repo.git or a local path.',
+    );
   if (!url || url !== url.trim()) throw bad('empty or padded with whitespace');
   if (/[\u0000-\u001f\u007f]/.test(url)) throw bad('contains control characters');
   if (url.startsWith('-')) throw bad('git would read it as an option');
-  if (/^[A-Za-z0-9+.-]*::/.test(url) || /^[^/]*::/.test(url)) throw bad('git transport helpers (ext::, fd::, …) are not allowed');
+  if (/^[A-Za-z0-9+.-]*::/.test(url) || /^[^/]*::/.test(url))
+    throw bad('git transport helpers (ext::, fd::, …) are not allowed');
   const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):\/\//.exec(url)?.[1]?.toLowerCase();
   if (scheme) {
-    if (!['https', 'http', 'ssh', 'git', 'file'].includes(scheme)) throw bad(`unsupported scheme ${scheme}://`);
+    if (!['https', 'http', 'ssh', 'git', 'file'].includes(scheme))
+      throw bad(`unsupported scheme ${scheme}://`);
     const rest = url.slice(scheme.length + 3);
     if (rest.startsWith('-')) throw bad('host would be read as an option');
-    return scheme === 'http' || scheme === 'git' ? { warning: `${where} ${url} uses an unencrypted transport (${scheme}://)` } : {};
+    return scheme === 'http' || scheme === 'git'
+      ? { warning: `${where} ${url} uses an unencrypted transport (${scheme}://)` }
+      : {};
   }
   const scp = SCP_LIKE.exec(url);
   if (scp) {
-    if (scp[2]!.startsWith('-') || scp[3]!.startsWith('-')) throw bad('host or path would be read as an option');
+    if (scp[2]!.startsWith('-') || scp[3]!.startsWith('-'))
+      throw bad('host or path would be read as an option');
     return {};
   }
   if (isAbsolute(url)) return {};
@@ -324,7 +369,8 @@ export function parseOriginInput(input: string, opts: ParseOriginOptions = {}): 
     if (prefixed) {
       const host = prefixed[1]!.toLowerCase();
       const segs = trimSlashes(prefixed[2]!).split('/').filter(Boolean);
-      if (segs.length < 2) throw new PalmError('E_ORIGIN', `"${raw}" needs an owner and a repository`);
+      if (segs.length < 2)
+        throw new PalmError('E_ORIGIN', `"${raw}" needs an owner and a repository`);
       if (host === 'github') parsed = githubSpec(segs[0]!, segs[1]!, segs.slice(2), ref);
       else {
         parsed = { type: 'git', url: `https://gitlab.com/${segs.map(stripGit).join('/')}.git` };
@@ -380,8 +426,12 @@ function urlParts(url: string): { host: string; segs: string[] } {
   }
   try {
     const u = new URL(url);
-    if (u.protocol === 'file:') return { host: 'file', segs: decodeURIComponent(u.pathname).split('/').filter(Boolean) };
-    return { host: u.hostname.toLowerCase() || u.protocol.replace(':', ''), segs: u.pathname.split('/').filter(Boolean).map(decodeURIComponent) };
+    if (u.protocol === 'file:')
+      return { host: 'file', segs: decodeURIComponent(u.pathname).split('/').filter(Boolean) };
+    return {
+      host: u.hostname.toLowerCase() || u.protocol.replace(':', ''),
+      segs: u.pathname.split('/').filter(Boolean).map(decodeURIComponent),
+    };
   } catch {
     return { host: 'file', segs: url.split(/[\\/]+/).filter(Boolean) };
   }
@@ -411,19 +461,43 @@ function sanitizeAlias(s: string): string {
  * `anthropics/skills` and `openai/skills` are told apart by their owner.
  */
 const GENERIC_REPO_NAMES = new Set([
-  'skills', 'agent-skills', 'claude-skills', 'plugins', 'claude-plugins', 'agents', 'subagents', 'prompts',
-  'rules', 'commands', 'hooks', 'mcp', 'mcp-servers', 'extensions', 'instructions', 'dotfiles', 'config', 'configs',
+  'skills',
+  'agent-skills',
+  'claude-skills',
+  'plugins',
+  'claude-plugins',
+  'agents',
+  'subagents',
+  'prompts',
+  'rules',
+  'commands',
+  'hooks',
+  'mcp',
+  'mcp-servers',
+  'extensions',
+  'instructions',
+  'dotfiles',
+  'config',
+  'configs',
 ]);
 
 /** Default alias for an origin that does not collide with `existing` (DESIGN.md §5). */
 export function deriveAlias(spec: OriginSpec, existing: OriginSpec[]): string {
   const { owner, repo } = repoParts(spec);
-  const base = owner && spec.type === 'git' && GENERIC_REPO_NAMES.has(repo.toLowerCase()) ? owner : repo;
+  const base =
+    owner && spec.type === 'git' && GENERIC_REPO_NAMES.has(repo.toLowerCase()) ? owner : repo;
   const last = spec.root ? trimSlashes(spec.root).split('/').pop() : undefined;
   const raw = last
     ? [last, `${base}-${last}`, owner ? `${owner}-${repo}-${last}` : undefined]
     : [base, owner ? `${owner}-${repo}` : undefined];
-  const candidates = [...new Set(raw.filter((c): c is string => !!c).map(sanitizeAlias).filter(Boolean))];
+  const candidates = [
+    ...new Set(
+      raw
+        .filter((c): c is string => !!c)
+        .map(sanitizeAlias)
+        .filter(Boolean),
+    ),
+  ];
   if (candidates.length === 0) candidates.push('origin');
   const taken = new Set(existing.map((o) => o.alias.toLowerCase()));
   for (const c of candidates) if (!taken.has(c)) return c;
@@ -536,7 +610,8 @@ function originMatchRank(spec: OriginSpec, query: string): 0 | 1 | 2 | 3 {
     if (root && lower === `${p}/${root}`) hit(true);
   }
   if (spec.type === 'git' && spec.url && comparableUrl(spec.url) === comparableUrl(q)) hit(!root);
-  const dir = spec.type === 'local' ? spec.path : spec.url && isAbsolute(spec.url) ? spec.url : undefined;
+  const dir =
+    spec.type === 'local' ? spec.path : spec.url && isAbsolute(spec.url) ? spec.url : undefined;
   if (dir && (isAbsolute(q) || q === '~' || q.startsWith('~/'))) {
     const abs = resolve(expandTilde(q));
     if (abs === resolve(dir)) hit(!root);
@@ -560,7 +635,9 @@ export function matchOrigin(spec: OriginSpec, query: string): boolean {
  */
 export function resolveOriginQuery(ctx: PalmContext, query: string): OriginSpec {
   const origins = allOrigins(ctx);
-  const ranked = origins.map((o) => ({ o, rank: originMatchRank(o, query) })).filter((r) => r.rank > 0);
+  const ranked = origins
+    .map((o) => ({ o, rank: originMatchRank(o, query) }))
+    .filter((r) => r.rank > 0);
   if (ranked.length === 0) {
     const aliases = origins.map((o) => o.alias).sort();
     throw new PalmError(
@@ -583,7 +660,11 @@ export function resolveOriginQuery(ctx: PalmContext, query: string): OriginSpec 
   return best[0]!;
 }
 
-export async function addOrigin(ctx: PalmContext, spec: OriginSpec, opts: { scope?: Scope } = {}): Promise<OriginSpec> {
+export async function addOrigin(
+  ctx: PalmContext,
+  spec: OriginSpec,
+  opts: { scope?: Scope } = {},
+): Promise<OriginSpec> {
   const scope = opts.scope ?? 'global';
   assertAliasFormat(spec.alias, 'E_USAGE');
   const all = allOrigins(ctx);
@@ -603,7 +684,9 @@ export async function addOrigin(ctx: PalmContext, spec: OriginSpec, opts: { scop
   }
 
   if (scope === 'global') {
-    const idx = ctx.config.origins.findIndex((o) => o.alias.toLowerCase() === next.alias.toLowerCase());
+    const idx = ctx.config.origins.findIndex(
+      (o) => o.alias.toLowerCase() === next.alias.toLowerCase(),
+    );
     if (idx >= 0) ctx.config.origins[idx] = next;
     else ctx.config.origins.push(next);
     await saveConfig(ctx.paths, ctx.config);
@@ -613,7 +696,10 @@ export async function addOrigin(ctx: PalmContext, spec: OriginSpec, opts: { scop
     const origins = [...(m.origins ?? [])];
     const idx = origins.findIndex((o) => {
       try {
-        return normalizeStoredOrigin(o, ctx.paths.projectRoot, file).alias.toLowerCase() === next.alias.toLowerCase();
+        return (
+          normalizeStoredOrigin(o, ctx.paths.projectRoot, file).alias.toLowerCase() ===
+          next.alias.toLowerCase()
+        );
       } catch {
         return false;
       }
@@ -651,7 +737,12 @@ export async function removeOrigin(ctx: PalmContext, alias: string): Promise<voi
       removed = true;
     }
   }
-  if (!removed) throw new PalmError('E_NOT_FOUND', `No origin with alias "${alias}"`, 'See `palm origin list`.');
+  if (!removed)
+    throw new PalmError(
+      'E_NOT_FOUND',
+      `No origin with alias "${alias}"`,
+      'See `palm origin list`.',
+    );
 }
 
 const MINE_README = `# mine
@@ -682,7 +773,12 @@ export async function ensureMineOrigin(ctx: PalmContext): Promise<OriginSpec> {
   }
   const existing = ctx.config.origins.find((o) => o.alias === 'mine');
   if (existing) return existing;
-  const spec: OriginSpec = { alias: 'mine', type: 'local', path: dir, description: 'Your own resources (palm create)' };
+  const spec: OriginSpec = {
+    alias: 'mine',
+    type: 'local',
+    path: dir,
+    description: 'Your own resources (palm create)',
+  };
   ctx.config.origins.push(spec);
   await saveConfig(ctx.paths, ctx.config);
   return spec;

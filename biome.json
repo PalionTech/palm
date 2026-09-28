@@ -1,0 +1,357 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": ["**", "!test/fixtures", "!test/mcp/fixtures", "!**/package-lock.json"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "always"
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "complexity": {
+        "noExcessiveCognitiveComplexity": {
+          "level": "error",
+          "options": { "maxAllowedComplexity": 15 }
+        }
+      },
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error"
+      },
+      "style": {
+        "noNestedTernary": "error"
+      },
+      "suspicious": {
+        "noConsole": "error"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["src/ui/**", "src/cli.ts", "scripts/**"],
+      "linter": { "rules": { "suspicious": { "noConsole": "off" } } }
+    },
+    {
+      "includes": ["test/**"],
+      "linter": {
+        "rules": {
+          "style": { "noNonNullAssertion": "off" },
+          "suspicious": { "noTemplateCurlyInString": "off" }
+        }
+      }
+    },
+    {
+      "includes": ["src/lib/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "../domain/**",
+                      "../core/**",
+                      "../index/**",
+                      "../targets/**",
+                      "../mcp/**",
+                      "../engine/**",
+                      "../commands/**",
+                      "../create/**",
+                      "../ui/**",
+                      "../cli.js"
+                    ],
+                    "message": "layer boundary: src/lib imports nothing from the rest of src."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/domain/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "../core/**",
+                      "!../core/types.js",
+                      "!../core/errors.js",
+                      "!../core/kinds.js",
+                      "../index/**",
+                      "../targets/**",
+                      "../mcp/**",
+                      "../engine/**",
+                      "../commands/**",
+                      "../create/**",
+                      "../ui/**",
+                      "../cli.js"
+                    ],
+                    "message": "layer boundary: src/domain imports only src/lib and core/types, core/errors, core/kinds."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/core/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "../index/**",
+                      "../targets/**",
+                      "../mcp/**",
+                      "../engine/**",
+                      "../commands/**",
+                      "../create/**",
+                      "../ui/**",
+                      "../cli.js"
+                    ],
+                    "message": "layer boundary: src/core imports only src/lib and src/domain."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/index/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "../targets/**",
+                      "../mcp/**",
+                      "../engine/**",
+                      "../commands/**",
+                      "../create/**",
+                      "../ui/**",
+                      "../cli.js"
+                    ],
+                    "message": "layer boundary: src/index imports only src/lib, src/domain and src/core."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/targets/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "../index/**",
+                      "../mcp/**",
+                      "../engine/**",
+                      "../commands/**",
+                      "../create/**",
+                      "../ui/**",
+                      "../cli.js"
+                    ],
+                    "message": "layer boundary: src/targets imports only src/lib, src/domain and src/core."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/mcp/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "../index/**",
+                      "../targets/**",
+                      "../engine/**",
+                      "../commands/**",
+                      "../create/**",
+                      "../ui/**",
+                      "../cli.js"
+                    ],
+                    "message": "layer boundary: src/mcp imports only src/lib, src/domain and src/core."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/engine/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["../commands/**", "../create/**", "../ui/**", "../cli.js"],
+                    "message": "layer boundary: src/engine never imports commands, create, ui or the CLI entry."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/commands/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["../cli.js"],
+                    "message": "layer boundary: nothing imports the CLI entry."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/create/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["../commands/**", "../cli.js"],
+                    "message": "layer boundary: src/create never imports src/commands (commands -> create -> ui)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/ui/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["../commands/**", "../create/**", "../cli.js"],
+                    "message": "layer boundary: src/ui never imports src/commands or src/create (commands -> create -> ui)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/cli.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "./lib/**",
+                      "./domain/**",
+                      "./core/**",
+                      "./index/**",
+                      "./targets/**",
+                      "./mcp/**",
+                      "./engine/**",
+                      "./create/**"
+                    ],
+                    "message": "layer boundary: src/cli.ts imports only src/commands and src/ui."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

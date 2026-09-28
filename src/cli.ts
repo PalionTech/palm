@@ -3,6 +3,7 @@ import { CommanderError } from 'commander';
 import pc from 'picocolors';
 import { buildProgram } from './commands/program.js';
 import { ExitSignal, splitPassthrough } from './commands/shared.js';
+// biome-ignore lint/style/noRestrictedImports: known layer violation (cli -> core); error rendering moves behind src/ui in PLAN.md wave 3 (one output writer).
 import { isPalmError } from './core/errors.js';
 
 const require = createRequire(import.meta.url);
@@ -22,7 +23,10 @@ async function main(argv: string[]): Promise<number> {
     if (isPalmError(e)) {
       if (e.code === 'E_USAGE' && e.message === 'cancelled') return 1;
       // --json: the error is data too (code, message, hint) for scripts.
-      if (json) process.stdout.write(`${JSON.stringify({ error: { code: e.code, message: e.message, ...(e.hint ? { hint: e.hint } : {}) } }, null, 2)}\n`);
+      if (json)
+        process.stdout.write(
+          `${JSON.stringify({ error: { code: e.code, message: e.message, ...(e.hint ? { hint: e.hint } : {}) } }, null, 2)}\n`,
+        );
       process.stderr.write(`${pc.red('error:')} ${e.message}\n`);
       if (e.hint) process.stderr.write(`${pc.dim(e.hint)}\n`);
       if (verbose && e.stack) process.stderr.write(`${pc.dim(e.stack)}\n`);

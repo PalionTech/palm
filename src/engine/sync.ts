@@ -4,11 +4,11 @@ import { loadLock } from '../core/lockfile.js';
 import { isMcpManifestEntry, listDeps, loadManifest } from '../core/manifest.js';
 import { lockPath, manifestPath, scopeRoot } from '../core/paths.js';
 import {
-  KINDS,
   type DepRef,
   type InstallOutcome,
   type InstallRequest,
   type InstallResult,
+  KINDS,
   type Kind,
   type LockEntry,
   type Lockfile,
@@ -27,7 +27,10 @@ import { absScopeFile, collectDependents, uninstallEntities } from './uninstall.
 
 /** Canonical MCP config for an ad hoc manifest entry (`command` or `url`). */
 export function adhocConfig(dep: McpManifestEntry): McpServerConfig {
-  const cfg: McpServerConfig = { name: dep.name, transport: dep.transport ?? (dep.url ? 'http' : 'stdio') };
+  const cfg: McpServerConfig = {
+    name: dep.name,
+    transport: dep.transport ?? (dep.url ? 'http' : 'stdio'),
+  };
   if (dep.command) cfg.command = dep.command;
   if (dep.args) cfg.args = dep.args;
   if (dep.env) cfg.env = dep.env;
@@ -55,7 +58,9 @@ export function satisfies(e: LockEntry, d: ManifestDep): boolean {
   const name = d.dep.name.toLowerCase();
   if (e.name.toLowerCase() === name) return true;
   if (e.kind === 'mcp' && e.origin === 'registry') {
-    const regs = [isMcpManifestEntry(d.dep) ? d.dep.registry : undefined, d.dep.name].filter((x): x is string => !!x);
+    const regs = [isMcpManifestEntry(d.dep) ? d.dep.registry : undefined, d.dep.name].filter(
+      (x): x is string => !!x,
+    );
     return regs.some((r) => e.path.toLowerCase() === r.toLowerCase());
   }
   return false;
@@ -95,7 +100,9 @@ function toRequest(d: ManifestDep): InstallRequest {
 
 /** Every file the entry (and whatever it pulled in) wrote is still on disk; otherwise sync redeploys it. */
 function intact(root: string, lock: Lockfile, entry: LockEntry): boolean {
-  return collectDependents(lock, [entry]).every((e) => e.files.every((f) => existsSync(absScopeFile(root, f))));
+  return collectDependents(lock, [entry]).every((e) =>
+    e.files.every((f) => existsSync(absScopeFile(root, f))),
+  );
 }
 
 /** `palm install` with no arguments: install what the manifest lists, report (or prune) the rest. */
@@ -107,14 +114,21 @@ export async function syncManifest(
   const manifest = await loadManifest(manifestPath(ctx.paths, opts.scope));
   const wanted = manifestDeps(manifest);
   const lockBefore = await loadLock(lockPath(ctx.paths, opts.scope));
-  const targets = opts.targets?.length ? opts.targets : await resolveTargets(ctx, { scope: opts.scope }, deps);
+  const targets = opts.targets?.length
+    ? opts.targets
+    : await resolveTargets(ctx, { scope: opts.scope }, deps);
 
   const outcomes: InstallOutcome[] = [];
   const requests: InstallRequest[] = [];
   const root = scopeRoot(ctx.paths, opts.scope);
   for (const d of wanted) {
     const present = lockBefore.entries.find((e) => satisfies(e, d));
-    if (present && !ctx.flags.force && upToDate(present, d, targets) && intact(root, lockBefore, present)) {
+    if (
+      present &&
+      !ctx.flags.force &&
+      upToDate(present, d, targets) &&
+      intact(root, lockBefore, present)
+    ) {
       outcomes.push({ entry: present, status: 'unchanged', notes: [] });
     } else {
       requests.push(toRequest(d));
@@ -122,11 +136,29 @@ export async function syncManifest(
   }
 
   const result: InstallResult = requests.length
-    ? await installEntities(ctx, requests, { scope: opts.scope, targets, noSave: true, ...(opts.secretPolicy ? { secretPolicy: opts.secretPolicy } : {}) }, deps)
+    ? await installEntities(
+        ctx,
+        requests,
+        {
+          scope: opts.scope,
+          targets,
+          noSave: true,
+          ...(opts.secretPolicy ? { secretPolicy: opts.secretPolicy } : {}),
+        },
+        deps,
+      )
     : { outcomes: [], warnings: [] };
 
   const lock = ctx.flags.dryRun
-    ? { version: 1 as const, entries: [...lockBefore.entries.filter((e) => !result.outcomes.some((o) => o.entry.kind === e.kind && o.entry.name === e.name)), ...result.outcomes.map((o) => o.entry)] }
+    ? {
+        version: 1 as const,
+        entries: [
+          ...lockBefore.entries.filter(
+            (e) => !result.outcomes.some((o) => o.entry.kind === e.kind && o.entry.name === e.name),
+          ),
+          ...result.outcomes.map((o) => o.entry),
+        ],
+      }
     : await loadLock(lockPath(ctx.paths, opts.scope));
   const extraneous = lock.entries.filter((e) => !e.via && !wanted.some((d) => satisfies(e, d)));
 

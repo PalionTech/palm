@@ -39,12 +39,24 @@ export function envDir(env: Env, key: string, home: string, fallback: string): s
 }
 
 /** Hook asset dir: `<projectRoot>/.palm/hooks/<n>` or `<PALM_HOME|~/.palm>/hooks/<n>`. */
-export function hooksAssetDir(scope: Scope, scopeRoot: string, env: Env, entityName: string): string {
+export function hooksAssetDir(
+  scope: Scope,
+  scopeRoot: string,
+  env: Env,
+  entityName: string,
+): string {
   return path.join(palmHooksRoot(scope, scopeRoot, env).dir, entityName);
 }
 
 /** `{ dir: <...>/hooks, stop: <palm dir> }` for cleanup. */
-export function palmHooksRoot(scope: Scope, scopeRoot: string, env: Env): { dir: string; stop: string } {
-  const palm = scope === 'project' ? path.join(scopeRoot, '.palm') : envDir(env, 'PALM_HOME', scopeRoot, path.join(scopeRoot, '.palm'));
+export function palmHooksRoot(
+  scope: Scope,
+  scopeRoot: string,
+  env: Env,
+): { dir: string; stop: string } {
+  const palm =
+    scope === 'project'
+      ? path.join(scopeRoot, '.palm')
+      : envDir(env, 'PALM_HOME', scopeRoot, path.join(scopeRoot, '.palm'));
   return { dir: path.join(palm, 'hooks'), stop: palm };
 }

@@ -12,7 +12,8 @@ export function unescapeSegment(s: string): string {
 /** "" or "/" → []; "/a/b~1c" → ["a", "b/c"]. */
 export function parsePointer(pointer: string): string[] {
   if (pointer === '' || pointer === '/') return [];
-  if (!pointer.startsWith('/')) throw new PalmError('E_INTERNAL', `invalid JSON pointer: ${pointer}`);
+  if (!pointer.startsWith('/'))
+    throw new PalmError('E_INTERNAL', `invalid JSON pointer: ${pointer}`);
   return pointer.slice(1).split('/').map(unescapeSegment);
 }
 

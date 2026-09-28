@@ -1,7 +1,16 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { PalmContext } from '../core/types.js';
-import { finishCreate, mineDir, openInEditor, renderFrontmatterFile, titleCase, validateSlug, writeNewFile, type CreateOptions } from './shared.js';
+import {
+  type CreateOptions,
+  finishCreate,
+  mineDir,
+  openInEditor,
+  renderFrontmatterFile,
+  titleCase,
+  validateSlug,
+  writeNewFile,
+} from './shared.js';
 
 export const SKILL_DIRS = ['scripts', 'references', 'assets'] as const;
 const MAX_DESCRIPTION = 1024;
@@ -9,7 +18,8 @@ const MAX_DESCRIPTION = 1024;
 export function validateSkillDescription(v: string): string | undefined {
   const t = v.trim();
   if (!t) return 'a description is required (it is how agents decide to load the skill)';
-  if (t.length > MAX_DESCRIPTION) return `keep it under ${MAX_DESCRIPTION} characters (now ${t.length})`;
+  if (t.length > MAX_DESCRIPTION)
+    return `keep it under ${MAX_DESCRIPTION} characters (now ${t.length})`;
   return undefined;
 }
 
@@ -34,7 +44,13 @@ Describe the situations and requests this skill is for, and when not to use it.
 
 export async function createSkill(ctx: PalmContext, opts: CreateOptions): Promise<void> {
   const ui = ctx.ui;
-  const name = (await ui.text('Skill name', { initial: opts.name, placeholder: 'release-notes', validate: validateSlug })).trim();
+  const name = (
+    await ui.text('Skill name', {
+      initial: opts.name,
+      placeholder: 'release-notes',
+      validate: validateSlug,
+    })
+  ).trim();
   const description = (
     await ui.text('Description', {
       placeholder: 'Use when the user asks to … (what it does + when to load it)',

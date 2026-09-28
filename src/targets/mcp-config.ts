@@ -22,8 +22,10 @@
  *            Codex expands nothing in command/args/url: under env-ref a token there is a
  *            documented limitation (note); under literal it is substituted.
  */
-import type { McpServerConfig, Scope, SecretPolicy, TargetId } from '../core/types.js';
+
 import { PalmError } from '../core/errors.js';
+import type { McpServerConfig, Scope, SecretPolicy, TargetId } from '../core/types.js';
+// biome-ignore lint/style/noRestrictedImports: known layer violation (targets -> mcp); PLAN.md wave 1 moves the ${VAR} token grammar to src/lib.
 import { isRuntimeVar, optionalSecretNames } from '../mcp/secrets.js';
 
 export interface RenderedMcp {
@@ -67,28 +69,47 @@ class RenderState {
   }
 
   missing(v: string): void {
-    if (this.policy === 'literal') this.notes.add(`no value for ${v}; left as an environment reference`);
+    if (this.policy === 'literal')
+      this.notes.add(`no value for ${v}; left as an environment reference`);
     this.envRefs.add(v);
   }
 
   /** Under `literal`: the value to write for an unresolved token, DROP, or undefined (keep a reference). */
-  literalFallback(v: string, def: string | undefined, where: string, canDrop: boolean): string | typeof DROP | undefined {
+  literalFallback(
+    v: string,
+    def: string | undefined,
+    where: string,
+    canDrop: boolean,
+  ): string | typeof DROP | undefined {
     if (this.policy !== 'literal') return undefined;
     if (def !== undefined) return def;
     if (!this.optional.has(v)) return undefined;
-    this.notes.add(canDrop ? `optional ${v} not set; ${where} left out` : `optional ${v} not set; empty in ${where}`);
+    this.notes.add(
+      canDrop
+        ? `optional ${v} not set; ${where} left out`
+        : `optional ${v} not set; empty in ${where}`,
+    );
     return canDrop ? DROP : '';
   }
 }
 
 /** True when some field of `cfg` already references `${name}`. */
 function referenced(cfg: McpServerConfig, name: string): boolean {
-  const fields = [cfg.command ?? '', cfg.url ?? '', ...(cfg.args ?? []), ...Object.values(cfg.env ?? {}), ...Object.values(cfg.headers ?? {})];
+  const fields = [
+    cfg.command ?? '',
+    cfg.url ?? '',
+    ...(cfg.args ?? []),
+    ...Object.values(cfg.env ?? {}),
+    ...Object.values(cfg.headers ?? {}),
+  ];
   return fields.some((f) => [...f.matchAll(TOKEN)].some((m) => m[1] === name));
 }
 
 /** env/header maps with placeholders added for declared secrets that no field references. */
-function withSecretPlaceholders(cfg: McpServerConfig): { env: Record<string, string>; headers: Record<string, string> } {
+function withSecretPlaceholders(cfg: McpServerConfig): {
+  env: Record<string, string>;
+  headers: Record<string, string>;
+} {
   const env = { ...(cfg.env ?? {}) };
   const headers = { ...(cfg.headers ?? {}) };
   for (const s of cfg.secrets ?? []) {
@@ -107,12 +128,22 @@ function prune(obj: Record<string, unknown>): Record<string, unknown> {
 
 function requireField(cfg: McpServerConfig, field: 'command' | 'url'): string {
   const v = cfg[field];
-  if (!v) throw new PalmError('E_PARSE', `MCP server "${cfg.name}": ${cfg.transport} transport needs a ${field}`);
+  if (!v)
+    throw new PalmError(
+      'E_PARSE',
+      `MCP server "${cfg.name}": ${cfg.transport} transport needs a ${field}`,
+    );
   return v;
 }
 
-function renderJsonEntry(cfg: McpServerConfig, target: Exclude<TargetId, 'codex'>, scope: Scope, st: RenderState): Record<string, unknown> {
-  const style: 'plain' | 'env-colon' = target === 'claude' || (target === 'copilot' && scope === 'global') ? 'plain' : 'env-colon';
+function renderJsonEntry(
+  cfg: McpServerConfig,
+  target: Exclude<TargetId, 'codex'>,
+  scope: Scope,
+  st: RenderState,
+): Record<string, unknown> {
+  const style: 'plain' | 'env-colon' =
+    target === 'claude' || (target === 'copilot' && scope === 'global') ? 'plain' : 'env-colon';
   const rewrite = (s: string, where: string, canDrop: boolean): string | typeof DROP => {
     let dropped = false;
     const out = s.replace(TOKEN, (m, v: string, def: string | undefined) => {
@@ -127,13 +158,19 @@ function renderJsonEntry(cfg: McpServerConfig, target: Exclude<TargetId, 'codex'
       st.missing(v);
       if (style === 'env-colon') return `\${env:${v}}`;
       // Claude fails to load a config whose ${VAR} is unset without a default.
-      const withDefault = def !== undefined ? def : target === 'claude' && st.optional.has(v) ? '' : undefined;
-      return withDefault === undefined || target !== 'claude' ? `\${${v}}` : `\${${v}:-${withDefault}}`;
+      const withDefault =
+        def !== undefined ? def : target === 'claude' && st.optional.has(v) ? '' : undefined;
+      return withDefault === undefined || target !== 'claude'
+        ? `\${${v}}`
+        : `\${${v}:-${withDefault}}`;
     });
     return dropped ? DROP : out;
   };
   const scalar = (s: string, where: string): string => rewrite(s, where, false) as string;
-  const mapValues = (r: Record<string, string>, what: 'env' | 'header'): Record<string, string> | undefined => {
+  const mapValues = (
+    r: Record<string, string>,
+    what: 'env' | 'header',
+  ): Record<string, string> | undefined => {
     const out: Record<string, string> = {};
     for (const [k, v] of Object.entries(r)) {
       const next = rewrite(v, `${what} ${k}`, true);
@@ -156,14 +193,20 @@ function renderJsonEntry(cfg: McpServerConfig, target: Exclude<TargetId, 'codex'
     return prune({ type: 'stdio', ...base });
   }
 
-  const base = { url: scalar(requireField(cfg, 'url'), 'url'), headers: mapValues(headers, 'header') };
+  const base = {
+    url: scalar(requireField(cfg, 'url'), 'url'),
+    headers: mapValues(headers, 'header'),
+  };
   if (!base.headers) st.notes.add(OAUTH_NOTE);
   if (target === 'cursor') return prune(base);
   if (copilotCli) return prune({ type: cfg.transport, ...base, tools: ['*'] });
   return prune({ type: cfg.transport, ...base });
 }
 
-function renderCodexTable(cfg: McpServerConfig, st: RenderState): Record<string, unknown> | undefined {
+function renderCodexTable(
+  cfg: McpServerConfig,
+  st: RenderState,
+): Record<string, unknown> | undefined {
   if (cfg.transport === 'sse') {
     st.notes.add(`Codex does not support SSE MCP servers; "${cfg.name}" skipped for codex`);
     return undefined;
@@ -214,11 +257,14 @@ function renderCodexTable(cfg: McpServerConfig, st: RenderState): Record<string,
         literalEnv[k] = sub;
         continue;
       }
-      for (const t of toks) if (!st.hasValue(t) && st.policy === 'literal') st.notes.add(`no value for ${t}; left as an environment reference`);
+      for (const t of toks)
+        if (!st.hasValue(t) && st.policy === 'literal')
+          st.notes.add(`no value for ${t}; left as an environment reference`);
       envVars.push(k);
       st.envRefs.add(k);
       const exact = EXACT_TOKEN.exec(raw.trim());
-      if (!exact || exact[1] !== k) st.notes.add(`Codex forwards ${k} from your environment: export ${k}="${plainRefs(raw)}"`);
+      if (!exact || exact[1] !== k)
+        st.notes.add(`Codex forwards ${k} from your environment: export ${k}="${plainRefs(raw)}"`);
     }
     return prune({
       command: literalOnly(requireField(cfg, 'command'), 'command'),
@@ -244,7 +290,9 @@ function renderCodexTable(cfg: McpServerConfig, st: RenderState): Record<string,
       httpHeaders[h] = sub;
       continue;
     }
-    for (const t of toks) if (!st.hasValue(t) && st.policy === 'literal') st.notes.add(`no value for ${t}; left as an environment reference`);
+    for (const t of toks)
+      if (!st.hasValue(t) && st.policy === 'literal')
+        st.notes.add(`no value for ${t}; left as an environment reference`);
     const bearerMatch = BEARER_TOKEN.exec(raw.trim());
     if (/^authorization$/i.test(h) && bearerMatch && bearer === undefined) {
       bearer = bearerMatch[1]!;
@@ -256,7 +304,9 @@ function renderCodexTable(cfg: McpServerConfig, st: RenderState): Record<string,
     envHeaders[h] = v;
     st.envRefs.add(v);
     if (!exact) {
-      st.notes.add(`Codex sends the value of ${v} as the whole "${h}" header: export ${v}="${plainRefs(raw)}" with the secret filled in (the full header value, not just the secret)`);
+      st.notes.add(
+        `Codex sends the value of ${v} as the whole "${h}" header: export ${v}="${plainRefs(raw)}" with the secret filled in (the full header value, not just the secret)`,
+      );
     }
   }
   if (Object.keys(headers).length === 0) st.notes.add(OAUTH_NOTE);
@@ -277,7 +327,8 @@ export function renderMcp(
   scope: Scope = 'project',
 ): RenderedMcp {
   const st = new RenderState(policy, values, optionalSecretNames(cfg));
-  const entry = target === 'codex' ? renderCodexTable(cfg, st) : renderJsonEntry(cfg, target, scope, st);
+  const entry =
+    target === 'codex' ? renderCodexTable(cfg, st) : renderJsonEntry(cfg, target, scope, st);
   return { entry, notes: [...st.notes], envRefs: [...st.envRefs] };
 }
 

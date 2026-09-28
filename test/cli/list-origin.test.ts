@@ -1,11 +1,11 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { execa } from 'execa';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { availableGroups, filterInstalled, installedOriginAlias } from '../../src/commands/list.js';
 import { PalmError } from '../../src/core/errors.js';
 import type { Entity, Kind, LockEntry, OriginIndex, OriginSpec } from '../../src/core/types.js';
+import { runPalm } from '../support/cli.js';
 
 const entry = (kind: Kind, name: string, origin: string): LockEntry => ({
   kind,
@@ -43,9 +43,25 @@ const INSTALLED: LockEntry[] = [
 
 describe('palm list: installed view filtering', () => {
   it.each<[string, { kind?: Kind; origin?: string }, string[]]>([
-    ['no filter: everything, sorted by kind and name', {}, ['agent reviewer', 'mcp docs', 'mcp io.github.acme/weather', 'skill brainstorm', 'skill my-skill', 'skill old', 'skill tdd']],
+    [
+      'no filter: everything, sorted by kind and name',
+      {},
+      [
+        'agent reviewer',
+        'mcp docs',
+        'mcp io.github.acme/weather',
+        'skill brainstorm',
+        'skill my-skill',
+        'skill old',
+        'skill tdd',
+      ],
+    ],
     ['one origin', { origin: 'superpowers' }, ['agent reviewer', 'skill brainstorm', 'skill tdd']],
-    ['origin and kind', { origin: 'superpowers', kind: 'skill' }, ['skill brainstorm', 'skill tdd']],
+    [
+      'origin and kind',
+      { origin: 'superpowers', kind: 'skill' },
+      ['skill brainstorm', 'skill tdd'],
+    ],
     ['pseudo-origin registry', { origin: 'registry' }, ['mcp io.github.acme/weather']],
     ['pseudo-origin adhoc', { origin: 'adhoc' }, ['mcp docs']],
     ['pseudo-origin mine', { origin: 'mine' }, ['skill my-skill']],
@@ -60,7 +76,9 @@ describe('palm list: installed view filtering', () => {
     { alias: 'pstack', type: 'git', url: 'https://github.com/cursor/plugins.git', root: 'pstack' },
   ];
   const resolveFake = (q: string): OriginSpec => {
-    const hit = registered.find((o) => o.alias === q.toLowerCase() || o.url === `https://github.com/${q}.git`);
+    const hit = registered.find(
+      (o) => o.alias === q.toLowerCase() || o.url === `https://github.com/${q}.git`,
+    );
     if (!hit) throw new PalmError('E_NOT_FOUND', `No origin matches "${q}"`);
     return hit;
   };
@@ -79,23 +97,37 @@ describe('palm list: installed view filtering', () => {
 
   it('still finds entries of an origin removed after installing', () => {
     expect(installedOriginAlias('legacy', INSTALLED, resolveFake)).toBe('legacy');
-    expect(filterInstalled(INSTALLED, { origin: installedOriginAlias('legacy', INSTALLED, resolveFake) })).toHaveLength(1);
+    expect(
+      filterInstalled(INSTALLED, {
+        origin: installedOriginAlias('legacy', INSTALLED, resolveFake),
+      }),
+    ).toHaveLength(1);
   });
 
   it('passes E_NOT_FOUND and E_AMBIGUOUS through', () => {
-    expect(() => installedOriginAlias('nobody', INSTALLED, resolveFake)).toThrow(expect.objectContaining({ code: 'E_NOT_FOUND' }));
+    expect(() => installedOriginAlias('nobody', INSTALLED, resolveFake)).toThrow(
+      expect.objectContaining({ code: 'E_NOT_FOUND' }),
+    );
     const ambiguous = (): OriginSpec => {
       throw new PalmError('E_AMBIGUOUS', 'several');
     };
-    expect(() => installedOriginAlias('superpowers', INSTALLED, ambiguous)).toThrow(expect.objectContaining({ code: 'E_AMBIGUOUS' }));
+    expect(() => installedOriginAlias('superpowers', INSTALLED, ambiguous)).toThrow(
+      expect.objectContaining({ code: 'E_AMBIGUOUS' }),
+    );
   });
 });
 
 describe('palm list --available: grouping and filtering', () => {
   const indexes = [
-    index('superpowers', [entity('skill', 'tdd', 'superpowers'), entity('agent', 'reviewer', 'superpowers'), entity('skill', 'brainstorm', 'superpowers')], [
-      'duplicate skill "tdd" in plugins a and b',
-    ]),
+    index(
+      'superpowers',
+      [
+        entity('skill', 'tdd', 'superpowers'),
+        entity('agent', 'reviewer', 'superpowers'),
+        entity('skill', 'brainstorm', 'superpowers'),
+      ],
+      ['duplicate skill "tdd" in plugins a and b'],
+    ),
     index('pstack', [entity('agent', 'comment-sicko', 'pstack')]),
   ];
 
@@ -109,7 +141,9 @@ describe('palm list --available: grouping and filtering', () => {
 
   it('keeps only the selected origin (by alias, any case)', () => {
     expect(availableGroups(indexes, { origin: 'pstack' }).map((g) => g.origin)).toEqual(['pstack']);
-    expect(availableGroups(indexes, { origin: 'SuperPowers' }).map((g) => g.origin)).toEqual(['superpowers']);
+    expect(availableGroups(indexes, { origin: 'SuperPowers' }).map((g) => g.origin)).toEqual([
+      'superpowers',
+    ]);
     expect(availableGroups(indexes, { origin: 'nope' })).toEqual([]);
   });
 
@@ -117,12 +151,15 @@ describe('palm list --available: grouping and filtering', () => {
     const groups = availableGroups(indexes, {
       kind: 'skill',
       origin: 'superpowers',
-      duplicates: (ix, kind) => ix.warnings.filter((w) => !kind || w.startsWith(`duplicate ${kind}`)),
+      duplicates: (ix, kind) =>
+        ix.warnings.filter((w) => !kind || w.startsWith(`duplicate ${kind}`)),
     });
     expect(groups).toHaveLength(1);
     expect(groups[0]!.entities.map((e) => e.name)).toEqual(['brainstorm', 'tdd']);
     expect(groups[0]!.duplicates).toEqual(['duplicate skill "tdd" in plugins a and b']);
-    expect(availableGroups(indexes, { kind: 'mcp' }).every((g) => g.entities.length === 0)).toBe(true);
+    expect(availableGroups(indexes, { kind: 'mcp' }).every((g) => g.entities.length === 0)).toBe(
+      true,
+    );
   });
 });
 
@@ -131,10 +168,15 @@ describe('palm list -o (CLI)', () => {
   let home: string;
 
   const palm = (...args: string[]) =>
-    execa(join(repo, 'node_modules', '.bin', 'tsx'), [join(repo, 'src', 'cli.ts'), ...args], {
+    runPalm(args, {
       cwd: join(home, 'project'),
-      reject: false,
-      env: { HOME: home, PALM_HOME: join(home, '.palm'), NO_COLOR: '1', CI: '1', PATH: process.env.PATH },
+      env: {
+        HOME: home,
+        PALM_HOME: join(home, '.palm'),
+        NO_COLOR: '1',
+        CI: '1',
+        PATH: process.env.PATH,
+      },
     });
 
   beforeAll(async () => {
@@ -177,8 +219,16 @@ describe('palm list -o (CLI)', () => {
     expect(groups.map((g) => g.origin)).toEqual(['mattpocock']);
     expect(groups[0]!.entities.length).toBeGreaterThan(0);
 
-    const byPath = await palm('list', '--available', '--origin', join(repo, 'test', 'fixtures', 'anthropics-skills-like'), '--json');
-    expect((JSON.parse(byPath.stdout) as Array<{ origin: string }>).map((g) => g.origin)).toEqual(['anthropics']);
+    const byPath = await palm(
+      'list',
+      '--available',
+      '--origin',
+      join(repo, 'test', 'fixtures', 'anthropics-skills-like'),
+      '--json',
+    );
+    expect((JSON.parse(byPath.stdout) as Array<{ origin: string }>).map((g) => g.origin)).toEqual([
+      'anthropics',
+    ]);
   });
 
   it('an unknown origin is E_NOT_FOUND listing the registered aliases; pseudo-origins filter the installed view', async () => {

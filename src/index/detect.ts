@@ -53,7 +53,8 @@ export async function detectLayout(
 ): Promise<Detection> {
   if (hasLayoutGlobs(layout)) return { rule: 'descriptor' };
   for (const apmFile of opts.skipApm ? [] : ['apm.yml', 'apm.yaml']) {
-    if ((await isFile(join(rootAbs, apmFile))) && (await isDir(join(rootAbs, '.apm')))) return { rule: 'apm', apmFile };
+    if ((await isFile(join(rootAbs, apmFile))) && (await isDir(join(rootAbs, '.apm'))))
+      return { rule: 'apm', apmFile };
   }
   const marketplaceFile = await findMarketplaceFile(rootAbs);
   const rootManifest = await findPluginManifest(rootAbs, warnings);

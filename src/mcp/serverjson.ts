@@ -76,7 +76,16 @@ export function registryShortName(name: string): string {
   return last.replace(/[^A-Za-z0-9._-]+/g, '-');
 }
 
-const GENERIC_SHORT_NAMES = new Set(['mcp', 'mcp-server', 'mcp_server', 'mcpserver', 'server', 'remote', 'mcp-remote', 'api']);
+const GENERIC_SHORT_NAMES = new Set([
+  'mcp',
+  'mcp-server',
+  'mcp_server',
+  'mcpserver',
+  'server',
+  'remote',
+  'mcp-remote',
+  'api',
+]);
 
 /**
  * Config key palm writes for a registry server: the short name, unless it is generic
@@ -127,7 +136,8 @@ function looksLegacy(v: unknown): boolean {
   if (Array.isArray(v)) return v.some(looksLegacy);
   if (!isRecord(v)) return false;
   return Object.entries(v).some(
-    ([k, child]) => LEGACY_KEYS.includes(k) || (!k.startsWith('_') && !k.startsWith('x-') && looksLegacy(child)),
+    ([k, child]) =>
+      LEGACY_KEYS.includes(k) || (!k.startsWith('_') && !k.startsWith('x-') && looksLegacy(child)),
   );
 }
 
@@ -141,24 +151,36 @@ function camelizeKeys(v: unknown, preserveKeys = false): unknown {
   if (!isRecord(v)) return v;
   const out: Record<string, unknown> = {};
   for (const [k, child] of Object.entries(v)) {
-    const keep = preserveKeys || k.startsWith('_') || k.startsWith('$') || k.startsWith('x-') || k.includes('/');
+    const keep =
+      preserveKeys ||
+      k.startsWith('_') ||
+      k.startsWith('$') ||
+      k.startsWith('x-') ||
+      k.includes('/');
     const key = keep ? k : camel(k);
     out[key] = camelizeKeys(child, key === 'variables');
   }
   return out;
 }
 
-const RUNTIME_HINT_TO_TYPE: Record<string, string> = { npx: 'npm', uvx: 'pypi', docker: 'oci', dnx: 'nuget' };
+const RUNTIME_HINT_TO_TYPE: Record<string, string> = {
+  npx: 'npm',
+  uvx: 'pypi',
+  docker: 'oci',
+  dnx: 'nuget',
+};
 
 function normalizeLegacy(raw: Record<string, unknown>): Record<string, unknown> {
   const s = camelizeKeys(raw) as Record<string, unknown>;
   const vd = s['versionDetail'];
-  if (s['version'] === undefined && isRecord(vd) && typeof vd['version'] === 'string') s['version'] = vd['version'];
+  if (s['version'] === undefined && isRecord(vd) && typeof vd['version'] === 'string')
+    s['version'] = vd['version'];
   if (Array.isArray(s['packages'])) {
     s['packages'] = s['packages'].map((p: unknown) => {
       if (!isRecord(p)) return p;
       const pkg = { ...p };
-      if (pkg['identifier'] === undefined && typeof pkg['name'] === 'string') pkg['identifier'] = pkg['name'];
+      if (pkg['identifier'] === undefined && typeof pkg['name'] === 'string')
+        pkg['identifier'] = pkg['name'];
       if (!pkg['registryType'] && typeof pkg['registryName'] === 'string' && pkg['registryName']) {
         pkg['registryType'] = pkg['registryName'];
       }
@@ -174,7 +196,8 @@ function normalizeLegacy(raw: Record<string, unknown>): Record<string, unknown> 
     s['remotes'] = s['remotes'].map((r: unknown) => {
       if (!isRecord(r)) return r;
       const rem = { ...r };
-      if (rem['type'] === undefined && typeof rem['transportType'] === 'string') rem['type'] = rem['transportType'];
+      if (rem['type'] === undefined && typeof rem['transportType'] === 'string')
+        rem['type'] = rem['transportType'];
       return rem;
     });
   }
@@ -246,7 +269,12 @@ interface TemplateOpts {
  * Substitute `{ident}` template segments. Variables with a fixed `value` (or a non-secret
  * `default`) are inlined; everything else becomes a `${VAR}` placeholder plus a SecretRef.
  */
-function substitute(c: Conv, template: string, parent: ServerJsonInput, opts: TemplateOpts): string {
+function substitute(
+  c: Conv,
+  template: string,
+  parent: ServerJsonInput,
+  opts: TemplateOpts,
+): string {
   const vars = parent.variables ?? {};
   const idents = [...template.matchAll(TEMPLATE_VAR)].map((m) => m[1] as string);
   const single = idents.length === 1 && template.trim() === `{${idents[0]}}`;
@@ -274,7 +302,11 @@ function substitute(c: Conv, template: string, parent: ServerJsonInput, opts: Te
 }
 
 /** Header or env var entry → rendered value, or undefined to omit (optional, nothing to fill in). */
-function keyValue(c: Conv, kv: ServerJsonKeyValueInput, where: 'env' | 'header'): string | undefined {
+function keyValue(
+  c: Conv,
+  kv: ServerJsonKeyValueInput,
+  where: 'env' | 'header',
+): string | undefined {
   const opts: TemplateOpts = { undeclared: where === 'header', in: where };
   if (where === 'header') opts.header = kv.name;
   else opts.wholeName = kv.name;
@@ -295,10 +327,19 @@ interface RenderedArgs {
   env: Record<string, string>;
 }
 
-function renderArgs(c: Conv, list: ServerJsonArgument[] | undefined, dockerEnv: boolean): RenderedArgs {
+function renderArgs(
+  c: Conv,
+  list: ServerJsonArgument[] | undefined,
+  dockerEnv: boolean,
+): RenderedArgs {
   const out: RenderedArgs = { args: [], env: {} };
   for (const arg of list ?? []) {
-    const flag = arg.type === 'named' && arg.name ? (arg.name.startsWith('-') ? arg.name : `--${arg.name}`) : undefined;
+    const flag =
+      arg.type === 'named' && arg.name
+        ? arg.name.startsWith('-')
+          ? arg.name
+          : `--${arg.name}`
+        : undefined;
 
     // docker -e KEY=<template with variables> → `-e KEY` + env[KEY], so secrets travel via env.
     if (dockerEnv && flag && (flag === '-e' || flag === '--env') && arg.value !== undefined) {
@@ -313,7 +354,8 @@ function renderArgs(c: Conv, list: ServerJsonArgument[] | undefined, dockerEnv: 
     }
 
     let value: string | undefined;
-    if (arg.value !== undefined) value = substitute(c, arg.value, arg, { undeclared: false, in: 'env' });
+    if (arg.value !== undefined)
+      value = substitute(c, arg.value, arg, { undeclared: false, in: 'env' });
     else if (arg.default !== undefined) value = arg.default;
     else if (arg.isRequired) {
       const label = arg.valueHint ?? arg.name?.replace(/^-+/, '') ?? 'arg';
@@ -343,14 +385,18 @@ const PACKAGE_RANK: Record<string, number> = { npm: 0, pypi: 1, oci: 2, nuget: 3
 
 /** stdio packages first, then npm > pypi > oci > nuget > others > mcpb. */
 function pickPackage(packages: ServerJsonPackage[]): ServerJsonPackage {
-  const local = (p: ServerJsonPackage): number => ((p.transport?.type ?? 'stdio') === 'stdio' ? 0 : 1);
-  const type = (p: ServerJsonPackage): number => PACKAGE_RANK[p.registryType] ?? (p.registryType === 'mcpb' ? 99 : 50);
+  const local = (p: ServerJsonPackage): number =>
+    (p.transport?.type ?? 'stdio') === 'stdio' ? 0 : 1;
+  const type = (p: ServerJsonPackage): number =>
+    PACKAGE_RANK[p.registryType] ?? (p.registryType === 'mcpb' ? 99 : 50);
   const sorted = [...packages].sort((a, b) => local(a) - local(b) || type(a) - type(b));
   return sorted[0] as ServerJsonPackage;
 }
 
 function hasFlag(args: ServerJsonArgument[] | undefined, ...names: string[]): boolean {
-  return (args ?? []).some((a) => a.type === 'named' && a.name !== undefined && names.includes(a.name));
+  return (args ?? []).some(
+    (a) => a.type === 'named' && a.name !== undefined && names.includes(a.name),
+  );
 }
 
 function ociImage(pkg: ServerJsonPackage): string {
@@ -400,13 +446,17 @@ function fromPackage(c: Conv, sj: ServerJson, pkg: ServerJsonPackage): McpServer
     case 'npm': {
       command = 'npx';
       const yes = runtime.args.includes('-y') || runtime.args.includes('--yes') ? [] : ['-y'];
-      const spec = hasFlag(pkg.runtimeArguments, '--package', '-p') ? [] : [pkg.version ? `${id}@${pkg.version}` : id];
+      const spec = hasFlag(pkg.runtimeArguments, '--package', '-p')
+        ? []
+        : [pkg.version ? `${id}@${pkg.version}` : id];
       args = [...yes, ...runtime.args, ...spec, ...packageArgs];
       break;
     }
     case 'pypi': {
       command = 'uvx';
-      const spec = hasFlag(pkg.runtimeArguments, '--from') ? [] : [pkg.version ? `${id}==${pkg.version}` : id];
+      const spec = hasFlag(pkg.runtimeArguments, '--from')
+        ? []
+        : [pkg.version ? `${id}==${pkg.version}` : id];
       args = [...runtime.args, ...spec, ...packageArgs];
       break;
     }
@@ -442,7 +492,12 @@ function fromPackage(c: Conv, sj: ServerJson, pkg: ServerJsonPackage): McpServer
 
 function fromRemote(c: Conv, remote: ServerJsonTransport): McpServerConfig {
   const transport: McpServerConfig['transport'] = remote.type === 'sse' ? 'sse' : 'http';
-  const url = substitute(c, remote.url ?? '', { variables: remote.variables ?? {} }, { undeclared: false, in: 'env' });
+  const url = substitute(
+    c,
+    remote.url ?? '',
+    { variables: remote.variables ?? {} },
+    { undeclared: false, in: 'env' },
+  );
   const cfg: McpServerConfig = { name: c.short, transport, url };
   const headers: Record<string, string> = {};
   for (const h of remote.headers ?? []) {
@@ -468,11 +523,14 @@ export function serverJsonToConfig(serverJson: unknown): McpServerConfig {
   const c: Conv = { short, prefix: upperSnake(short) || 'MCP', secrets: new SecretCollector() };
 
   const remotes = (sj.remotes ?? []).filter((r) => r && typeof r.url === 'string' && r.url !== '');
-  const packages = (sj.packages ?? []).filter((p) => p && typeof p.identifier === 'string' && p.registryType);
+  const packages = (sj.packages ?? []).filter(
+    (p) => p && typeof p.identifier === 'string' && p.registryType,
+  );
 
   let cfg: McpServerConfig;
   if (remotes.length) {
-    const remote = remotes.find((r) => r.type === 'streamable-http') ?? (remotes[0] as ServerJsonTransport);
+    const remote =
+      remotes.find((r) => r.type === 'streamable-http') ?? (remotes[0] as ServerJsonTransport);
     cfg = fromRemote(c, remote);
   } else if (packages.length) {
     cfg = fromPackage(c, sj, pickPackage(packages));

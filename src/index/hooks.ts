@@ -30,7 +30,10 @@ export function normalizeHooksJson(json: unknown): unknown {
   if (!isRecord(json)) return json;
   if (isRecord(json.hooks)) return json;
   const keys = Object.keys(json);
-  if (keys.length > 0 && keys.every((k) => Array.isArray(json[k]) && (PASCAL.test(k) || CAMEL.test(k)))) {
+  if (
+    keys.length > 0 &&
+    keys.every((k) => Array.isArray(json[k]) && (PASCAL.test(k) || CAMEL.test(k)))
+  ) {
     return { hooks: json };
   }
   return json;
@@ -49,7 +52,8 @@ export function detectHookDialect(json: unknown): HookDialect {
       const list = (norm.hooks as Record<string, unknown>)[e];
       return Array.isArray(list) ? list.filter(isRecord) : [];
     });
-    if (entries.some((h) => 'bash' in h || 'powershell' in h || 'timeoutSec' in h)) return 'copilot';
+    if (entries.some((h) => 'bash' in h || 'powershell' in h || 'timeoutSec' in h))
+      return 'copilot';
     if (entries.some((h) => 'command' in h)) return 'cursor';
     return 'unknown';
   }

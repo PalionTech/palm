@@ -40,7 +40,11 @@ export function asList(v: unknown, opts: { whitespace?: boolean } = {}): string[
   }
   const s = asString(v);
   if (s === undefined) return undefined;
-  const parts = s.includes(',') ? splitOutsideParens(s, ',') : opts.whitespace ? splitOutsideParens(s, ' ') : [s];
+  const parts = s.includes(',')
+    ? splitOutsideParens(s, ',')
+    : opts.whitespace
+      ? splitOutsideParens(s, ' ')
+      : [s];
   return parts.map((p) => p.trim()).filter((p) => p !== '');
 }
 

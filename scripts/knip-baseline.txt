@@ -1,0 +1,103 @@
+# knip findings at PLAN.md wave 0 (npx knip, knip.json). Nothing was deleted in wave 0;
+# wave 1 clears these and then drops --no-exit-code from the "knip" script.
+# Totals: 1 unused file, 83 unused exports, 12 unused exported types (96).
+
+Unused files (1)
+src/engine/index.ts
+Unused exports (83)
+CONFIG_KEYS                       src/commands/config.ts:13:14
+repoRefError            function  src/commands/install.ts:99:17
+interpretInstallArgs    function  src/commands/install.ts:117:17
+runInstall              function  src/commands/install.ts:281:23
+DRY_RUN_NOTE                      src/commands/install.ts:395:14
+PSEUDO_ORIGINS                    src/commands/list.ts:23:14
+lockVersion             function  src/commands/list.ts:25:17
+parseLayoutOptions      function  src/commands/origin.ts:40:17
+describeLocation        function  src/commands/origin.ts:91:17
+loadDefaultScan         function  src/core/cache.ts:48:23
+projectOrigins          function  src/core/config.ts:536:17
+stableStringify         function  src/core/hash.ts:45:17
+isKind                  function  src/core/kinds.ts:38:17
+MANIFEST_FILE                     src/core/paths.ts:7:14
+LOCK_FILE                         src/core/paths.ts:8:14
+CONFIG_FILE                       src/core/paths.ts:9:14
+isSafeName              function  src/core/paths.ts:49:17
+scopeBoundaries         function  src/core/paths.ts:65:17
+CLAUDE_TOOLS                      src/create/agent.ts:17:14
+MODEL_CHOICES                     src/create/agent.ts:31:14
+agentPromptTemplate     function  src/create/agent.ts:66:17
+SLUG_RE                           src/create/shared.ts:31:14
+canUseEditor            function  src/create/shared.ts:75:17
+promptLongText          function  src/create/shared.ts:122:23
+SKILL_DIRS                        src/create/skill.ts:15:14
+defaultEngineDeps       function  src/engine/deps.ts:88:17
+defaultSecretPolicy     function  src/engine/install.ts:93:17
+mcpManifestEntry        function  src/engine/install.ts:119:17
+contentHashOf           function  src/engine/install.ts:131:23
+sourceOf                function  src/engine/query.ts:99:17
+scoreEntity             function  src/engine/query.ts:208:17
+adhocConfig             function  src/engine/sync.ts:29:17
+manifestLists           function  src/engine/uninstall.ts:170:17
+agentStem               function  src/index/agents.ts:26:17
+commandStem             function  src/index/commands.ts:16:17
+hasLayoutGlobs          function  src/index/detect.ts:24:17
+isRelevantFile          function  src/index/files.ts:36:17
+normalizeText           function  src/index/frontmatter.ts:24:17
+IGNORED_DIR_NAMES                 src/index/ignore.ts:4:14
+INSTALL_OUTPUT_DIRS               src/index/ignore.ts:27:14
+ROOT_IGNORED_FILES                src/index/ignore.ts:47:14
+expandExcludes          function  src/index/ignore.ts:72:17
+instructionStem         function  src/index/instructions.ts:15:17
+MARKETPLACE_FILES                 src/index/marketplace.ts:16:14
+marketplaceRootFor      function  src/index/marketplace.ts:67:17
+parseMarketplaceJson    function  src/index/marketplace.ts:186:17
+normalizeGitUrl         function  src/index/marketplace.ts:238:17
+mcpServerMap            function  src/index/mcp.ts:20:17
+PLUGIN_MANIFEST_FILES             src/index/plugin-manifest.ts:13:14
+isAgentPluginsManifest  function  src/index/plugin-manifest.ts:134:17
+normalizeManifest       function  src/index/plugin-manifest.ts:142:17
+MAX_SLUG_LENGTH                   src/index/slug.ts:5:14
+GLOB_CHARS                        src/index/util.ts:123:14
+isSafeEntityName        function  src/targets/base.ts:102:17
+claudeDir               function  src/targets/claude.ts:8:17
+claudeUserConfig        function  src/targets/claude.ts:14:17
+codexDir                function  src/targets/codex.ts:8:17
+isClaudeModelAlias      function  src/targets/convert-agent.ts:25:17
+HOOK_EVENTS                       src/targets/convert-hooks.ts:32:14
+canonicalEvent          function  src/targets/convert-hooks.ts:77:17
+targetEvent             function  src/targets/convert-hooks.ts:87:17
+pluginRootReplacement   function  src/targets/convert-hooks.ts:105:17
+substitutePluginRoot    function  src/targets/convert-hooks.ts:115:17
+rootedCommand           function  src/targets/convert-hooks.ts:126:17
+eventMap                function  src/targets/convert-hooks.ts:151:17
+copilotHome             function  src/targets/copilot.ts:7:17
+recordedStringMatches   function  src/targets/deep-equal.ts:30:17
+matchesRecorded         function  src/targets/deep-equal.ts:41:17
+listCopyableFiles       function  src/targets/fs-utils.ts:185:23
+stripJsonComments       function  src/targets/json-merge.ts:30:17
+stripTrailingCommas     function  src/targets/json-merge.ts:71:17
+readJsonObject          function  src/targets/json-merge.ts:117:23
+serializeJson           function  src/targets/json-merge.ts:126:17
+getAtPointer            function  src/targets/json-merge.ts:131:17
+unescapeSegment         function  src/targets/json-pointer.ts:8:17
+beginMarker             function  src/targets/managed-block.ts:19:17
+endMarker               function  src/targets/managed-block.ts:23:17
+renderBlock             function  src/targets/managed-block.ts:27:17
+findManagedBlock        function  src/targets/managed-block.ts:32:17
+removeTableText         function  src/targets/toml-merge.ts:154:17
+appendTableText         function  src/targets/toml-merge.ts:174:17
+fakeScan                function  test/engine/world.ts:201:17
+REGISTRY                          test/engine/world.ts:215:14
+Unused exported types (12)
+CheckStatus              type       src/commands/doctor.ts:16:13
+Check                    interface  src/commands/doctor.ts:17:18
+AdhocMcpArgs             interface  src/commands/install.ts:34:18
+FetchOriginFn            type       src/core/types.ts:505:13
+SkillIssue               interface  src/index/skills.ts:29:18
+ServerJsonInput          interface  src/mcp/serverjson.ts:14:18
+ServerJsonKeyValueInput  interface  src/mcp/serverjson.ts:26:18
+ServerJsonArgument       interface  src/mcp/serverjson.ts:30:18
+ServerJsonTransport      interface  src/mcp/serverjson.ts:39:18
+ServerJsonPackage        interface  src/mcp/serverjson.ts:46:18
+CleanupRoot              interface  src/targets/base.ts:42:18
+SourceFile               interface  src/targets/fs-utils.ts:115:18

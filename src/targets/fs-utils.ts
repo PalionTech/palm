@@ -1,10 +1,12 @@
+import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
 import { PalmError } from '../core/errors.js';
 
 function errCode(e: unknown): string | undefined {
-  return typeof e === 'object' && e !== null && 'code' in e ? String((e as { code: unknown }).code) : undefined;
+  return typeof e === 'object' && e !== null && 'code' in e
+    ? String((e as { code: unknown }).code)
+    : undefined;
 }
 
 export async function pathExists(p: string): Promise<boolean> {
@@ -43,12 +45,19 @@ async function fileMode(p: string): Promise<number | undefined> {
  * Write via temp file + rename in the same directory. Keeps the existing file's
  * permission bits unless `mode` is given (important for ~/.claude.json, 0600).
  */
-export async function atomicWrite(file: string, data: string | Buffer, mode?: number): Promise<void> {
+export async function atomicWrite(
+  file: string,
+  data: string | Buffer,
+  mode?: number,
+): Promise<void> {
   const dir = path.dirname(file);
   try {
     await fs.mkdir(dir, { recursive: true });
     const finalMode = mode ?? (await fileMode(file));
-    const tmp = path.join(dir, `.${path.basename(file)}.palm-${randomBytes(6).toString('hex')}.tmp`);
+    const tmp = path.join(
+      dir,
+      `.${path.basename(file)}.palm-${randomBytes(6).toString('hex')}.tmp`,
+    );
     await fs.writeFile(tmp, data);
     if (finalMode !== undefined) await fs.chmod(tmp, finalMode);
     await fs.rename(tmp, file);
@@ -68,7 +77,8 @@ export async function removeFileIfExists(p: string): Promise<void> {
   try {
     await fs.rm(p, { force: true });
   } catch (e) {
-    if (errCode(e) !== 'ENOENT') throw new PalmError('E_IO', `cannot remove ${p}: ${(e as Error).message}`);
+    if (errCode(e) !== 'ENOENT')
+      throw new PalmError('E_IO', `cannot remove ${p}: ${(e as Error).message}`);
   }
 }
 
@@ -127,7 +137,10 @@ const ALWAYS_SKIP = new Set(['.git', 'node_modules', '.DS_Store']);
  * `refs -> /etc`) is never read and is reported in `skipped`. A symlinked `root` is
  * resolved and checked the same way.
  */
-export async function listCopyFiles(root: string, opts: { skipTop?: readonly string[]; boundary?: string } = {}): Promise<CopyListing> {
+export async function listCopyFiles(
+  root: string,
+  opts: { skipTop?: readonly string[]; boundary?: string } = {},
+): Promise<CopyListing> {
   const skipTop = opts.skipTop ?? [];
   const files: SourceFile[] = [];
   const skipped: string[] = [];
@@ -169,6 +182,10 @@ export async function listCopyFiles(root: string, opts: { skipTop?: readonly str
 }
 
 /** `listCopyFiles(...).files` (kept for callers that do not report skipped links). */
-export async function listCopyableFiles(root: string, skipTop: readonly string[] = [], boundary?: string): Promise<SourceFile[]> {
+export async function listCopyableFiles(
+  root: string,
+  skipTop: readonly string[] = [],
+  boundary?: string,
+): Promise<SourceFile[]> {
   return (await listCopyFiles(root, { skipTop, ...(boundary ? { boundary } : {}) })).files;
 }

@@ -2,7 +2,7 @@ import type { Command } from 'commander';
 import pc from 'picocolors';
 import type { Entity, RegistryCandidate } from '../core/types.js';
 import { printTable, truncate } from '../ui/output.js';
-import { makeContext, printJson, requireKind, withSpinner, type GlobalOptions } from './shared.js';
+import { type GlobalOptions, makeContext, printJson, requireKind, withSpinner } from './shared.js';
 
 interface SearchOptions extends GlobalOptions {
   kind?: string;
@@ -18,10 +18,15 @@ export function registerSearch(program: Command): void {
   program
     .command('search')
     .summary('search your origins by name and description (MCP: also the registry)')
-    .description('Fuzzy search across every origin index. Without --kind or --origin, or with --kind mcp, the MCP registry is searched too.')
+    .description(
+      'Fuzzy search across every origin index. Without --kind or --origin, or with --kind mcp, the MCP registry is searched too.',
+    )
     .argument('<query>', 'words to look for in names and descriptions')
     .option('--kind <kind>', 'restrict to one kind')
-    .option('-o, --origin <name-or-alias>', 'restrict to one origin: alias, owner/repo[/root], URL or local path')
+    .option(
+      '-o, --origin <name-or-alias>',
+      'restrict to one origin: alias, owner/repo[/root], URL or local path',
+    )
     .option('--refresh', 'refetch origins before searching')
     .action(async (query: string, _opts: unknown, cmd: Command) => {
       const o = cmd.optsWithGlobals<SearchOptions>();
@@ -42,27 +47,42 @@ export function registerSearch(program: Command): void {
       if (wantRegistry) {
         try {
           const { searchRegistry } = await import('../mcp/registry.js');
-          registry = await searchRegistry(query, { registryUrl: ctx.config.mcpRegistryUrl, limit: 10 });
+          registry = await searchRegistry(query, {
+            registryUrl: ctx.config.mcpRegistryUrl,
+            limit: 10,
+          });
         } catch (e) {
           ctx.log.warn(`MCP registry search failed: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
 
-      if (o.json) return printJson({ index: hits.map((h) => ({ ...h.entity, score: h.score })), registry });
+      if (o.json)
+        return printJson({ index: hits.map((h) => ({ ...h.entity, score: h.score })), registry });
 
       if (hits.length === 0 && registry.length === 0) {
         console.log(pc.dim(`No matches for "${query}".`));
-        console.log(pc.dim('Add more origins with `palm origin add owner/repo`, or refresh with --refresh.'));
+        console.log(
+          pc.dim('Add more origins with `palm origin add owner/repo`, or refresh with --refresh.'),
+        );
         return;
       }
 
       if (hits.length) {
         const shown = hits.slice(0, 40);
         printTable(
-          shown.map(({ entity: e }) => [e.kind, e.name, e.origin, e.version ?? '', truncate(e.description, 60)]),
+          shown.map(({ entity: e }) => [
+            e.kind,
+            e.name,
+            e.origin,
+            e.version ?? '',
+            truncate(e.description, 60),
+          ]),
           ['kind', 'name', 'origin', 'version', 'description'],
         );
-        if (hits.length > shown.length) console.log(pc.dim(`… ${hits.length - shown.length} more; narrow with --kind or --origin`));
+        if (hits.length > shown.length)
+          console.log(
+            pc.dim(`… ${hits.length - shown.length} more; narrow with --kind or --origin`),
+          );
         const first = shown[0]!.entity;
         console.log(`\n${pc.dim('install with:')} ${installHint(first)}`);
       } else {
@@ -72,7 +92,12 @@ export function registerSearch(program: Command): void {
       if (registry.length) {
         console.log(`\n${pc.bold('MCP registry')}`);
         printTable(
-          registry.map((c) => [c.name, c.version ?? '', c.config.transport, truncate(c.description, 60)]),
+          registry.map((c) => [
+            c.name,
+            c.version ?? '',
+            c.config.transport,
+            truncate(c.description, 60),
+          ]),
           ['name', 'version', 'transport', 'description'],
         );
         console.log(`\n${pc.dim('install with:')} palm install mcp ${registry[0]!.name}`);

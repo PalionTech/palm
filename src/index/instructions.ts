@@ -59,7 +59,8 @@ export function parseInstructionFile(absPath: string, text: string): Instruction
 
   // Claude rules: `paths:` scopes the rule; otherwise it is always on. Cursor-style keys are honoured too.
   const paths = asList(data.paths ?? data.globs ?? data.applyTo);
-  const scoped = paths !== undefined && paths.length > 0 && !paths.every((g) => ALWAYS_GLOBS.has(g));
+  const scoped =
+    paths !== undefined && paths.length > 0 && !paths.every((g) => ALWAYS_GLOBS.has(g));
   return compact({
     name,
     description,

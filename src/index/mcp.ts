@@ -6,6 +6,7 @@
  */
 
 import type { McpServerConfig } from '../core/types.js';
+// biome-ignore lint/style/noRestrictedImports: known layer violation (index -> mcp); PLAN.md wave 1 moves the ${VAR} token grammar to src/lib.
 import { detectSecrets, isPlaceholderValue } from '../mcp/secrets.js';
 import { asString, compact, isRecord } from './util.js';
 
@@ -22,7 +23,8 @@ export function mcpServerMap(json: unknown): Record<string, unknown> | undefined
   if (isRecord(json.servers)) return json.servers;
   if (isRecord(json.mcp_servers)) return json.mcp_servers;
   const entries = Object.entries(json).filter(([k]) => !k.startsWith('$'));
-  if (entries.length > 0 && entries.every(([, v]) => looksLikeServer(v))) return Object.fromEntries(entries);
+  if (entries.length > 0 && entries.every(([, v]) => looksLikeServer(v)))
+    return Object.fromEntries(entries);
   return undefined;
 }
 
@@ -54,7 +56,8 @@ function toServerConfig(name: string, def: unknown): McpServerConfig | undefined
   const command = asString(def.command);
   let transport: McpServerConfig['transport'];
   if (type === 'sse') transport = 'sse';
-  else if (['http', 'streamable-http', 'streamablehttp', 'remote'].includes(type)) transport = 'http';
+  else if (['http', 'streamable-http', 'streamablehttp', 'remote'].includes(type))
+    transport = 'http';
   else if (type === 'stdio' || type === 'local') transport = 'stdio';
   else if (command) transport = 'stdio';
   else if (url) transport = /\/sse\/?$/.test(url) ? 'sse' : 'http';
@@ -81,7 +84,11 @@ function toServerConfig(name: string, def: unknown): McpServerConfig | undefined
 }
 
 /** `API_KEY: ""` / `"<your key>"` / `"your-token"` → `API_KEY: "${API_KEY}"`, so the value becomes a secret the user supplies. */
-function normalizePlaceholders(env: Record<string, string> | undefined): Record<string, string> | undefined {
+function normalizePlaceholders(
+  env: Record<string, string> | undefined,
+): Record<string, string> | undefined {
   if (!env) return env;
-  return Object.fromEntries(Object.entries(env).map(([k, v]) => [k, isPlaceholderValue(v) ? `\${${k}}` : v]));
+  return Object.fromEntries(
+    Object.entries(env).map(([k, v]) => [k, isPlaceholderValue(v) ? `\${${k}}` : v]),
+  );
 }

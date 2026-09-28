@@ -5,8 +5,9 @@ import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fetchOrigin, latestSemverTag, listRemoteTags } from '../../src/core/git.js';
 import type { OriginSpec } from '../../src/core/types.js';
+import { makeContext } from '../support/fakes.js';
+import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 import { commitFile, git, makeRemote } from './gitrepo.js';
-import { makeContext, removeDir, sandbox, type Sandbox } from './helpers.js';
 
 describe('latestSemverTag', () => {
   it.each<[string[], string | undefined]>([
@@ -29,10 +30,19 @@ describe('fetchOrigin (local bare remote)', () => {
   });
   afterEach(async () => removeDir(sb.root));
 
-  const spec = (extra: Partial<OriginSpec> = {}): OriginSpec => ({ alias: 'r', type: 'git', url: remote.bare, ...extra });
+  const spec = (extra: Partial<OriginSpec> = {}): OriginSpec => ({
+    alias: 'r',
+    type: 'git',
+    url: remote.bare,
+    ...extra,
+  });
 
   it('lists remote tags', async () => {
-    expect((await listRemoteTags(remote.bare)).sort()).toEqual(['v1.0.0', 'v1.1.0', 'v2.0.0-beta.1']);
+    expect((await listRemoteTags(remote.bare)).sort()).toEqual([
+      'v1.0.0',
+      'v1.1.0',
+      'v2.0.0-beta.1',
+    ]);
   });
 
   it('checks out the latest release tag, caches it, and refetches on refresh', async () => {
@@ -42,7 +52,9 @@ describe('fetchOrigin (local bare remote)', () => {
     expect(co.sha).toBe(remote.shas['v1.1.0']);
     expect(await readFile(join(co.root, 'a.txt'), 'utf8')).toBe('v1.1.0');
     expect(co.repoDir.startsWith(join(sb.palmHome, 'cache'))).toBe(true);
-    const meta = JSON.parse(await readFile(join(sb.palmHome, 'cache', co.originId, 'checkout.json'), 'utf8'));
+    const meta = JSON.parse(
+      await readFile(join(sb.palmHome, 'cache', co.originId, 'checkout.json'), 'utf8'),
+    );
     expect(meta).toMatchObject({ url: remote.bare, ref: 'v1.1.0', sha: remote.shas['v1.1.0'] });
 
     // Second call must not touch the network: hide the remote.
@@ -76,7 +88,12 @@ describe('fetchOrigin (local bare remote)', () => {
   it('checks out a full sha (file:// transport, shallow)', async () => {
     const ctx = await makeContext(sb);
     const url = pathToFileURL(remote.bare).href;
-    const co = await fetchOrigin(ctx, { alias: 'r', type: 'git', url, ref: remote.shas['v1.0.0']! });
+    const co = await fetchOrigin(ctx, {
+      alias: 'r',
+      type: 'git',
+      url,
+      ref: remote.shas['v1.0.0']!,
+    });
     expect(co.sha).toBe(remote.shas['v1.0.0']);
     expect(await readFile(join(co.root, 'a.txt'), 'utf8')).toBe('v1.0.0');
   });
@@ -91,7 +108,9 @@ describe('fetchOrigin (local bare remote)', () => {
 
   it('supports a root subdirectory', async () => {
     const ctx = await makeContext(sb);
-    await expect(fetchOrigin(ctx, spec({ root: 'missing' }))).rejects.toMatchObject({ code: 'E_ORIGIN' });
+    await expect(fetchOrigin(ctx, spec({ root: 'missing' }))).rejects.toMatchObject({
+      code: 'E_ORIGIN',
+    });
   });
 
   it('offline: uses the cache or fails with E_NETWORK', async () => {
@@ -105,15 +124,25 @@ describe('fetchOrigin (local bare remote)', () => {
 
   it('wraps git failures in E_GIT', async () => {
     const ctx = await makeContext(sb);
-    await expect(fetchOrigin(ctx, spec({ url: join(sb.root, 'no-such-repo.git') }))).rejects.toMatchObject({ code: 'E_GIT' });
-    await expect(fetchOrigin(ctx, spec({ ref: 'no-such-branch' }))).rejects.toMatchObject({ code: 'E_GIT' });
+    await expect(
+      fetchOrigin(ctx, spec({ url: join(sb.root, 'no-such-repo.git') })),
+    ).rejects.toMatchObject({ code: 'E_GIT' });
+    await expect(fetchOrigin(ctx, spec({ ref: 'no-such-branch' }))).rejects.toMatchObject({
+      code: 'E_GIT',
+    });
   });
 
   it('rejects option-like refs/urls and escaping roots', async () => {
     const ctx = await makeContext(sb);
-    await expect(fetchOrigin(ctx, spec({ ref: '--upload-pack=touch x' }))).rejects.toMatchObject({ code: 'E_ORIGIN' });
-    await expect(fetchOrigin(ctx, spec({ url: '--upload-pack=x' }))).rejects.toMatchObject({ code: 'E_ORIGIN' });
-    await expect(fetchOrigin(ctx, spec({ root: '../outside' }))).rejects.toMatchObject({ code: 'E_ORIGIN' });
+    await expect(fetchOrigin(ctx, spec({ ref: '--upload-pack=touch x' }))).rejects.toMatchObject({
+      code: 'E_ORIGIN',
+    });
+    await expect(fetchOrigin(ctx, spec({ url: '--upload-pack=x' }))).rejects.toMatchObject({
+      code: 'E_ORIGIN',
+    });
+    await expect(fetchOrigin(ctx, spec({ root: '../outside' }))).rejects.toMatchObject({
+      code: 'E_ORIGIN',
+    });
     await expect(listRemoteTags('-oops')).rejects.toMatchObject({ code: 'E_ORIGIN' });
   });
 

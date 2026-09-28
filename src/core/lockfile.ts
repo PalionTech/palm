@@ -1,22 +1,31 @@
-import { writeFile, mkdir, rename } from 'node:fs/promises';
-import { dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { stringify } from 'yaml';
 import { PalmError } from './errors.js';
 import { readYamlFile } from './manifest.js';
 import { KINDS, type Kind, type LockEntry, type Lockfile } from './types.js';
 
 function same(e: LockEntry, kind: Kind, name: string, origin?: string): boolean {
-  return e.kind === kind && e.name.toLowerCase() === name.toLowerCase() && (origin === undefined || e.origin === origin);
+  return (
+    e.kind === kind &&
+    e.name.toLowerCase() === name.toLowerCase() &&
+    (origin === undefined || e.origin === origin)
+  );
 }
 
 export async function loadLock(file: string): Promise<Lockfile> {
   const data = await readYamlFile(file);
   if (data === undefined || data === null) return { version: 1, entries: [] };
-  if (typeof data !== 'object' || Array.isArray(data)) throw new PalmError('E_PARSE', `${file} must be a YAML mapping`);
+  if (typeof data !== 'object' || Array.isArray(data))
+    throw new PalmError('E_PARSE', `${file} must be a YAML mapping`);
   const d = data as { version?: unknown; entries?: unknown };
   if (d.version !== undefined && d.version !== 1) {
-    throw new PalmError('E_PARSE', `${file}: unsupported lockfile version ${String(d.version)}`, 'Upgrade palm.');
+    throw new PalmError(
+      'E_PARSE',
+      `${file}: unsupported lockfile version ${String(d.version)}`,
+      'Upgrade palm.',
+    );
   }
   const entries = Array.isArray(d.entries) ? (d.entries as LockEntry[]) : [];
   for (const e of entries) {
@@ -27,7 +36,19 @@ export async function loadLock(file: string): Promise<Lockfile> {
 }
 
 const KEY_ORDER: Array<keyof LockEntry> = [
-  'kind', 'name', 'origin', 'url', 'ref', 'sha', 'path', 'contentHash', 'installedAt', 'targets', 'files', 'merged', 'via',
+  'kind',
+  'name',
+  'origin',
+  'url',
+  'ref',
+  'sha',
+  'path',
+  'contentHash',
+  'installedAt',
+  'targets',
+  'files',
+  'merged',
+  'via',
 ];
 
 function orderEntry(e: LockEntry): Record<string, unknown> {
@@ -40,7 +61,10 @@ function orderEntry(e: LockEntry): Record<string, unknown> {
 
 export async function saveLock(file: string, lock: Lockfile): Promise<void> {
   const entries = [...lock.entries].sort(
-    (a, b) => KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind) || a.name.localeCompare(b.name) || a.origin.localeCompare(b.origin),
+    (a, b) =>
+      KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind) ||
+      a.name.localeCompare(b.name) ||
+      a.origin.localeCompare(b.origin),
   );
   const text =
     '# palm lockfile — generated, do not edit by hand.\n' +
@@ -65,6 +89,11 @@ export function removeEntry(lock: Lockfile, kind: Kind, name: string, origin?: s
   return { version: 1, entries: lock.entries.filter((e) => !same(e, kind, name, origin)) };
 }
 
-export function findEntry(lock: Lockfile, kind: Kind, name: string, origin?: string): LockEntry | undefined {
+export function findEntry(
+  lock: Lockfile,
+  kind: Kind,
+  name: string,
+  origin?: string,
+): LockEntry | undefined {
   return lock.entries.find((e) => same(e, kind, name, origin));
 }

@@ -7,8 +7,8 @@
 
 import { basename } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
-import type { CommandDefinition } from '../core/types.js';
 import { PalmError } from '../core/errors.js';
+import type { CommandDefinition } from '../core/types.js';
 import { parseFrontmatter } from './frontmatter.js';
 import { toSlug } from './slug.js';
 import { asString, compact } from './util.js';
@@ -30,7 +30,10 @@ export function parseCommandFile(absPath: string, text: string): CommandDefiniti
     try {
       data = parseToml(text) as Record<string, unknown>;
     } catch (e) {
-      throw new PalmError('E_PARSE', `invalid TOML in command ${basename(absPath)}: ${(e as Error).message.split('\n')[0]}`);
+      throw new PalmError(
+        'E_PARSE',
+        `invalid TOML in command ${basename(absPath)}: ${(e as Error).message.split('\n')[0]}`,
+      );
     }
     return compact({
       name,
@@ -43,10 +46,19 @@ export function parseCommandFile(absPath: string, text: string): CommandDefiniti
   const { data, body } = parseFrontmatter(text);
   const hintRaw = data['argument-hint'] ?? data.argumentHint ?? data.argument_hint;
   // YAML reads `argument-hint: [pr-number]` as a list; restore the bracketed form.
-  const argumentHint = Array.isArray(hintRaw) ? `[${hintRaw.map((x) => String(x)).join(', ')}]` : asString(hintRaw);
+  const argumentHint = Array.isArray(hintRaw)
+    ? `[${hintRaw.map((x) => String(x)).join(', ')}]`
+    : asString(hintRaw);
   let sourceFormat: CommandDefinition['sourceFormat'];
   if (lower.endsWith('.prompt.md')) sourceFormat = 'prompt-md';
-  else if (('agent' in data || 'subtask' in data) && argumentHint === undefined) sourceFormat = 'opencode-md';
+  else if (('agent' in data || 'subtask' in data) && argumentHint === undefined)
+    sourceFormat = 'opencode-md';
   else sourceFormat = 'claude-md';
-  return compact({ name, description: asString(data.description), argumentHint, body, sourceFormat });
+  return compact({
+    name,
+    description: asString(data.description),
+    argumentHint,
+    body,
+    sourceFormat,
+  });
 }

@@ -1,0 +1,32 @@
+{
+  "note": "Function-shape baseline (scripts/check-shape.mjs): violations per file of body > 60 lines, > 4 params, nesting > 4. May only go down; lower it with `node scripts/check-shape.mjs --update`.",
+  "files": {
+    "src/commands/info.ts": 2,
+    "src/commands/init.ts": 2,
+    "src/commands/install.ts": 2,
+    "src/commands/list.ts": 2,
+    "src/commands/origin.ts": 2,
+    "src/commands/search.ts": 2,
+    "src/commands/shared.ts": 1,
+    "src/commands/targets.ts": 1,
+    "src/core/config.ts": 1,
+    "src/core/git.ts": 1,
+    "src/engine/deps.ts": 1,
+    "src/engine/install.ts": 7,
+    "src/engine/query.ts": 2,
+    "src/engine/uninstall.ts": 2,
+    "src/engine/update.ts": 1,
+    "src/index/files.ts": 2,
+    "src/index/marketplace.ts": 1,
+    "src/index/scan.ts": 4,
+    "src/index/skills.ts": 1,
+    "src/mcp/adhoc.ts": 1,
+    "src/mcp/serverjson.ts": 1,
+    "src/targets/base.ts": 2,
+    "src/targets/convert-agent.ts": 1,
+    "src/targets/convert-hooks.ts": 2,
+    "src/targets/json-merge.ts": 2,
+    "src/targets/mcp-config.ts": 3,
+    "src/ui/prompts.ts": 1
+  }
+}

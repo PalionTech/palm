@@ -31,20 +31,34 @@ export function recordedStringMatches(actual: string, recorded: string): boolean
   if (actual === recorded) return true;
   const parts = recorded.replace(PLACEHOLDER, '\u0000').split('\u0000');
   if (parts.length === 1) return false;
-  const re = new RegExp(`^${parts.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\S]*')}$`);
+  const re = new RegExp(
+    `^${parts.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\S]*')}$`,
+  );
   return re.test(actual);
 }
 
 /** deepEqual, except that recorded strings may contain `${VAR}` placeholders (see recordedStringMatches). */
 export function matchesRecorded(actual: unknown, recorded: unknown): boolean {
-  if (typeof actual === 'string' && typeof recorded === 'string') return recordedStringMatches(actual, recorded);
+  if (typeof actual === 'string' && typeof recorded === 'string')
+    return recordedStringMatches(actual, recorded);
   if (Array.isArray(recorded)) {
-    return Array.isArray(actual) && actual.length === recorded.length && recorded.every((x, i) => matchesRecorded(actual[i], x));
+    return (
+      Array.isArray(actual) &&
+      actual.length === recorded.length &&
+      recorded.every((x, i) => matchesRecorded(actual[i], x))
+    );
   }
   if (isPlainObject(actual) && isPlainObject(recorded)) {
     const ka = Object.keys(actual).filter((k) => actual[k] !== undefined);
     const kb = Object.keys(recorded).filter((k) => recorded[k] !== undefined);
-    return ka.length === kb.length && kb.every((k) => Object.prototype.hasOwnProperty.call(actual, k) && matchesRecorded(actual[k], recorded[k]));
+    return (
+      ka.length === kb.length &&
+      kb.every(
+        (k) =>
+          Object.prototype.hasOwnProperty.call(actual, k) &&
+          matchesRecorded(actual[k], recorded[k]),
+      )
+    );
   }
   return deepEqual(actual, recorded);
 }
@@ -56,7 +70,9 @@ export function matchesRecorded(actual: unknown, recorded: unknown): boolean {
  */
 export function containsAll(actual: unknown, expected: unknown): boolean {
   if (isPlainObject(actual) && isPlainObject(expected)) {
-    return Object.keys(expected).every((k) => expected[k] === undefined || matchesRecorded(actual[k], expected[k]));
+    return Object.keys(expected).every(
+      (k) => expected[k] === undefined || matchesRecorded(actual[k], expected[k]),
+    );
   }
   return matchesRecorded(actual, expected);
 }
@@ -68,9 +84,11 @@ export function redactSecrets<T>(value: T, secrets: Record<string, string> | und
     .sort((a, b) => b[1].length - a[1].length);
   if (pairs.length === 0) return value;
   const walk = (v: unknown): unknown => {
-    if (typeof v === 'string') return pairs.reduce((s, [name, secret]) => s.split(secret).join(`\${${name}}`), v);
+    if (typeof v === 'string')
+      return pairs.reduce((s, [name, secret]) => s.split(secret).join(`\${${name}}`), v);
     if (Array.isArray(v)) return v.map(walk);
-    if (isPlainObject(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+    if (isPlainObject(v))
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
     return v;
   };
   return walk(value) as T;

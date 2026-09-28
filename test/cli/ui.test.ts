@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InstallResult } from '../../src/core/types.js';
-import { formatTable, printInstallSummary, printTable, stripAnsi, truncate } from '../../src/ui/output.js';
+import {
+  formatTable,
+  printInstallSummary,
+  printTable,
+  stripAnsi,
+  truncate,
+} from '../../src/ui/output.js';
 import { createNonInteractiveUI, matchesQuery } from '../../src/ui/prompts.js';
 
 describe('createNonInteractiveUI', () => {
@@ -17,7 +23,10 @@ describe('createNonInteractiveUI', () => {
     ['text', () => ui.text('Name?')],
     ['secret', () => ui.secret('Token?')],
   ])('%s throws E_NON_INTERACTIVE with a hint', async (_name, call) => {
-    await expect(call()).rejects.toMatchObject({ code: 'E_NON_INTERACTIVE', hint: expect.any(String) });
+    await expect(call()).rejects.toMatchObject({
+      code: 'E_NON_INTERACTIVE',
+      hint: expect.any(String),
+    });
   });
 
   it('has a no-op spinner', () => {

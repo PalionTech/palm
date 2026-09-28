@@ -4,8 +4,14 @@ import { dirname, isAbsolute, join } from 'node:path';
 import type { Command } from 'commander';
 import { execa } from 'execa';
 import pc from 'picocolors';
-import { TARGET_IDS, type LockEntry, type OriginSpec, type PalmContext, type Scope } from '../core/types.js';
-import { ExitSignal, makeContext, printJson, type GlobalOptions } from './shared.js';
+import {
+  type LockEntry,
+  type OriginSpec,
+  type PalmContext,
+  type Scope,
+  TARGET_IDS,
+} from '../core/types.js';
+import { ExitSignal, type GlobalOptions, makeContext, printJson } from './shared.js';
 
 export type CheckStatus = 'ok' | 'info' | 'warn' | 'fail';
 export interface Check {
@@ -68,7 +74,12 @@ async function checkGit(): Promise<Check> {
     const { stdout } = await execa('git', ['--version'], { timeout: 10_000 });
     return { group: 'system', name: 'git', status: 'ok', detail: stdout.trim() };
   } catch {
-    return { group: 'system', name: 'git', status: 'fail', detail: 'git not found on PATH (needed to fetch origins)' };
+    return {
+      group: 'system',
+      name: 'git',
+      status: 'fail',
+      detail: 'git not found on PATH (needed to fetch origins)',
+    };
   }
 }
 
@@ -76,7 +87,12 @@ function checkNode(): Check {
   const major = Number(process.versions.node.split('.')[0]);
   return major >= 22
     ? { group: 'system', name: 'node', status: 'ok', detail: `v${process.versions.node}` }
-    : { group: 'system', name: 'node', status: 'fail', detail: `v${process.versions.node}; palm needs Node 22 or newer` };
+    : {
+        group: 'system',
+        name: 'node',
+        status: 'fail',
+        detail: `v${process.versions.node}; palm needs Node 22 or newer`,
+      };
 }
 
 async function checkPalmHome(ctx: PalmContext): Promise<Check[]> {
@@ -88,11 +104,21 @@ async function checkPalmHome(ctx: PalmContext): Promise<Check[]> {
   );
   const checks: Check[] = [
     writable
-      ? { group: 'palm', name: 'palm home', status: 'ok', detail: probe === home ? home : `${home} (will be created)` }
+      ? {
+          group: 'palm',
+          name: 'palm home',
+          status: 'ok',
+          detail: probe === home ? home : `${home} (will be created)`,
+        }
       : { group: 'palm', name: 'palm home', status: 'fail', detail: `${probe} is not writable` },
   ];
   const cache = join(home, 'cache');
-  checks.push({ group: 'palm', name: 'cache', status: 'info', detail: (await exists(cache)) ? `${formatBytes(await dirSize(cache))} in ${cache}` : 'empty' });
+  checks.push({
+    group: 'palm',
+    name: 'cache',
+    status: 'info',
+    detail: (await exists(cache)) ? `${formatBytes(await dirSize(cache))} in ${cache}` : 'empty',
+  });
   return checks;
 }
 
@@ -106,7 +132,12 @@ async function checkTargets(ctx: PalmContext): Promise<Check[]> {
       const root = scope === 'global' ? ctx.paths.home : ctx.paths.projectRoot;
       if (await t.detect(scope, root, ctx.env).catch(() => false)) found.push(scope);
     }
-    checks.push({ group: 'targets', name: t.displayName, status: found.length ? 'ok' : 'info', detail: found.length ? `detected (${found.join(', ')})` : 'not detected' });
+    checks.push({
+      group: 'targets',
+      name: t.displayName,
+      status: found.length ? 'ok' : 'info',
+      detail: found.length ? `detected (${found.join(', ')})` : 'not detected',
+    });
   }
   return checks;
 }
@@ -125,16 +156,31 @@ async function checkDrift(ctx: PalmContext): Promise<Check[]> {
     const problems: string[] = [];
     for (const e of lock.entries as LockEntry[]) {
       const missing: string[] = [];
-      for (const f of e.files) if (!(await exists(isAbsolute(f) ? f : join(root, f)))) missing.push(f);
-      if (missing.length) problems.push(`${e.kind} ${e.name}: ${missing.length}/${e.files.length} files missing (e.g. ${missing[0]})`);
+      for (const f of e.files)
+        if (!(await exists(isAbsolute(f) ? f : join(root, f)))) missing.push(f);
+      if (missing.length)
+        problems.push(
+          `${e.kind} ${e.name}: ${missing.length}/${e.files.length} files missing (e.g. ${missing[0]})`,
+        );
     }
     for (const d of manifestDeps(manifest)) {
-      if (!lock.entries.some((e) => satisfies(e, d))) problems.push(`${d.kind} ${d.dep.name} is in palm.yaml but not installed`);
+      if (!lock.entries.some((e) => satisfies(e, d)))
+        problems.push(`${d.kind} ${d.dep.name} is in palm.yaml but not installed`);
     }
     checks.push(
       problems.length
-        ? { group: 'lock', name: `${scope} scope`, status: 'warn', detail: `${problems.join('; ')} — run \`palm install${scope === 'global' ? ' -g' : ''}\`` }
-        : { group: 'lock', name: `${scope} scope`, status: 'ok', detail: `${lock.entries.length} entr${lock.entries.length === 1 ? 'y' : 'ies'}, no drift` },
+        ? {
+            group: 'lock',
+            name: `${scope} scope`,
+            status: 'warn',
+            detail: `${problems.join('; ')} — run \`palm install${scope === 'global' ? ' -g' : ''}\``,
+          }
+        : {
+            group: 'lock',
+            name: `${scope} scope`,
+            status: 'ok',
+            detail: `${lock.entries.length} entr${lock.entries.length === 1 ? 'y' : 'ies'}, no drift`,
+          },
     );
   }
   return checks;
@@ -143,7 +189,12 @@ async function checkDrift(ctx: PalmContext): Promise<Check[]> {
 async function checkOrigin(spec: OriginSpec): Promise<Check> {
   if (spec.type === 'local') {
     const ok = spec.path ? await exists(spec.path) : false;
-    return { group: 'origins', name: spec.alias, status: ok ? 'ok' : 'fail', detail: ok ? `${spec.path}` : `directory missing: ${spec.path ?? '(no path)'}` };
+    return {
+      group: 'origins',
+      name: spec.alias,
+      status: ok ? 'ok' : 'fail',
+      detail: ok ? `${spec.path}` : `directory missing: ${spec.path ?? '(no path)'}`,
+    };
   }
   try {
     const { pingRemote } = await import('../core/git.js');
@@ -151,7 +202,12 @@ async function checkOrigin(spec: OriginSpec): Promise<Check> {
     return { group: 'origins', name: spec.alias, status: 'ok', detail: `reachable (${spec.url})` };
   } catch (e) {
     const msg = e instanceof Error ? (e.message.split('\n')[0] ?? e.message) : String(e);
-    return { group: 'origins', name: spec.alias, status: 'fail', detail: `unreachable: ${spec.url} (${msg})` };
+    return {
+      group: 'origins',
+      name: spec.alias,
+      status: 'fail',
+      detail: `unreachable: ${spec.url} (${msg})`,
+    };
   }
 }
 
@@ -159,7 +215,14 @@ async function safely(group: string, fn: () => Promise<Check[]>): Promise<Check[
   try {
     return await fn();
   } catch (e) {
-    return [{ group, name: group, status: 'warn', detail: `check failed: ${e instanceof Error ? e.message : String(e)}` }];
+    return [
+      {
+        group,
+        name: group,
+        status: 'warn',
+        detail: `check failed: ${e instanceof Error ? e.message : String(e)}`,
+      },
+    ];
   }
 }
 
@@ -167,7 +230,9 @@ export function registerDoctor(program: Command): void {
   program
     .command('doctor')
     .summary('check git, node, harness dirs, lockfile drift and origin reachability')
-    .description('Check git and Node, palm home, harness detection, lock/manifest drift and origin reachability (skipped with --offline).')
+    .description(
+      'Check git and Node, palm home, harness detection, lock/manifest drift and origin reachability (skipped with --offline).',
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       const ctx = await makeContext(g, { interactive: false });
@@ -176,13 +241,26 @@ export function registerDoctor(program: Command): void {
       checks.push(...(await safely('targets', () => checkTargets(ctx))));
       checks.push(...(await safely('lock', () => checkDrift(ctx))));
       if (ctx.flags.offline) {
-        checks.push({ group: 'origins', name: 'origins', status: 'info', detail: 'skipped (--offline)' });
+        checks.push({
+          group: 'origins',
+          name: 'origins',
+          status: 'info',
+          detail: 'skipped (--offline)',
+        });
       } else {
         checks.push(
           ...(await safely('origins', async () => {
             const { allOrigins } = await import('../core/config.js');
             const specs = allOrigins(ctx);
-            if (specs.length === 0) return [{ group: 'origins', name: 'origins', status: 'info', detail: 'none registered' } satisfies Check];
+            if (specs.length === 0)
+              return [
+                {
+                  group: 'origins',
+                  name: 'origins',
+                  status: 'info',
+                  detail: 'none registered',
+                } satisfies Check,
+              ];
             return Promise.all(specs.map((s) => checkOrigin(s)));
           })),
         );
@@ -198,7 +276,9 @@ export function registerDoctor(program: Command): void {
             group = c.group;
             console.log(`${group === checks[0]?.group ? '' : '\n'}${pc.bold(group)}`);
           }
-          console.log(`  ${SYMBOL[c.status]} ${c.name.padEnd(16)} ${c.status === 'info' ? pc.dim(c.detail) : c.detail}`);
+          console.log(
+            `  ${SYMBOL[c.status]} ${c.name.padEnd(16)} ${c.status === 'info' ? pc.dim(c.detail) : c.detail}`,
+          );
         }
         console.log(
           `\n${failed ? pc.red(`${failed} problem${failed === 1 ? '' : 's'}`) : pc.green('no problems')}${warned ? pc.yellow(`, ${warned} warning${warned === 1 ? '' : 's'}`) : ''}`,

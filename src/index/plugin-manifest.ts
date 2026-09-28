@@ -43,18 +43,30 @@ export interface PluginManifest {
   raw: Record<string, unknown>;
 }
 
-const UNSUPPORTED_KEYS = ['lspServers', 'outputStyles', 'apps', 'channels', 'themes', 'contextFileName'];
+const UNSUPPORTED_KEYS = [
+  'lspServers',
+  'outputStyles',
+  'apps',
+  'channels',
+  'themes',
+  'contextFileName',
+];
 
 function pathList(v: unknown): string[] | undefined {
   if (typeof v === 'string') return v.trim() === '' ? undefined : [v.trim()];
   if (Array.isArray(v)) {
-    const out = v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map((x) => x.trim());
+    const out = v
+      .filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+      .map((x) => x.trim());
     return out.length > 0 ? out : undefined;
   }
   return undefined;
 }
 
-function pathsAndInline<T>(v: unknown, isInline: (x: unknown) => x is T): { paths: string[]; inline: T[] } | undefined {
+function pathsAndInline<T>(
+  v: unknown,
+  isInline: (x: unknown) => x is T,
+): { paths: string[]; inline: T[] } | undefined {
   if (v === undefined || v === null) return undefined;
   const items = Array.isArray(v) ? v : [v];
   const paths: string[] = [];
@@ -67,7 +79,10 @@ function pathsAndInline<T>(v: unknown, isInline: (x: unknown) => x is T): { path
 }
 
 /** Extract component declarations from a manifest-like object. */
-export function parseComponentDecls(obj: Record<string, unknown>): { decls: ComponentDecls; unsupported: string[] } {
+export function parseComponentDecls(obj: Record<string, unknown>): {
+  decls: ComponentDecls;
+  unsupported: string[];
+} {
   const rules = [...(pathList(obj.rules) ?? []), ...(pathList(obj.instructions) ?? [])];
   const decls: ComponentDecls = compact({
     skills: pathList(obj.skills),
@@ -89,7 +104,10 @@ export function parseComponentDecls(obj: Record<string, unknown>): { decls: Comp
 }
 
 /** Union of two declaration sets (first wins on ordering). */
-export function mergeDecls(a: ComponentDecls | undefined, b: ComponentDecls | undefined): ComponentDecls {
+export function mergeDecls(
+  a: ComponentDecls | undefined,
+  b: ComponentDecls | undefined,
+): ComponentDecls {
   if (!a) return { ...(b ?? {}) };
   if (!b) return { ...a };
   const list = (x?: string[], y?: string[]) => {
@@ -98,7 +116,10 @@ export function mergeDecls(a: ComponentDecls | undefined, b: ComponentDecls | un
   };
   const both = <T>(x?: { paths: string[]; inline: T[] }, y?: { paths: string[]; inline: T[] }) => {
     if (!x && !y) return undefined;
-    return { paths: [...new Set([...(x?.paths ?? []), ...(y?.paths ?? [])])], inline: [...(x?.inline ?? []), ...(y?.inline ?? [])] };
+    return {
+      paths: [...new Set([...(x?.paths ?? []), ...(y?.paths ?? [])])],
+      inline: [...(x?.inline ?? []), ...(y?.inline ?? [])],
+    };
   };
   return compact({
     skills: list(a.skills, b.skills),
@@ -118,7 +139,11 @@ export function isAgentPluginsManifest(json: unknown): boolean {
 }
 
 /** Build a normalized manifest from parsed JSON. */
-export function normalizeManifest(json: Record<string, unknown>, format: PluginManifestFormat, file: string): PluginManifest {
+export function normalizeManifest(
+  json: Record<string, unknown>,
+  format: PluginManifestFormat,
+  file: string,
+): PluginManifest {
   let { decls, unsupported } = parseComponentDecls(json);
   if (format === 'agent-plugins' && isRecord(json.extensions)) {
     // awesome-copilot keeps components under extensions."com.github.awesome-copilot".
@@ -142,7 +167,9 @@ export function normalizeManifest(json: Record<string, unknown>, format: PluginM
   });
 }
 
-async function readJson(abs: string): Promise<{ ok: true; json: unknown } | { ok: false; missing: boolean; error?: string }> {
+async function readJson(
+  abs: string,
+): Promise<{ ok: true; json: unknown } | { ok: false; missing: boolean; error?: string }> {
   let text: string;
   try {
     text = await readFile(abs, 'utf8');
@@ -160,11 +187,18 @@ async function readJson(abs: string): Promise<{ ok: true; json: unknown } | { ok
  * Find and parse the ONE manifest of a plugin directory. Invalid JSON in a higher-precedence
  * manifest is reported through `warnings` and the next candidate is tried.
  */
-export async function findPluginManifest(dirAbs: string, warnings?: string[], dirLabel = '.'): Promise<PluginManifest | undefined> {
+export async function findPluginManifest(
+  dirAbs: string,
+  warnings?: string[],
+  dirLabel = '.',
+): Promise<PluginManifest | undefined> {
   for (const cand of PLUGIN_MANIFEST_FILES) {
     const res = await readJson(join(dirAbs, cand.rel));
     if (!res.ok) {
-      if (!res.missing) warnings?.push(`invalid JSON in ${dirLabel === '.' ? '' : dirLabel + '/'}${cand.rel}: ${res.error ?? ''}`.trim());
+      if (!res.missing)
+        warnings?.push(
+          `invalid JSON in ${dirLabel === '.' ? '' : dirLabel + '/'}${cand.rel}: ${res.error ?? ''}`.trim(),
+        );
       continue;
     }
     if (!isRecord(res.json)) continue;

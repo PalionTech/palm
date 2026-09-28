@@ -18,8 +18,8 @@ import {
   normalizeServerJson,
   registryConfigName,
   registryShortName,
-  serverJsonToConfig,
   type ServerJson,
+  serverJsonToConfig,
 } from './serverjson.js';
 
 export const DEFAULT_REGISTRY_URL = 'https://registry.modelcontextprotocol.io';
@@ -79,15 +79,24 @@ export function registryApiBase(registryUrl: string = DEFAULT_REGISTRY_URL): str
   try {
     u = new URL(registryUrl.trim());
   } catch {
-    throw new PalmError('E_USAGE', `Invalid MCP registry URL: ${registryUrl}`, 'Use an http(s) URL such as ' + DEFAULT_REGISTRY_URL);
+    throw new PalmError(
+      'E_USAGE',
+      `Invalid MCP registry URL: ${registryUrl}`,
+      'Use an http(s) URL such as ' + DEFAULT_REGISTRY_URL,
+    );
   }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') {
-    throw new PalmError('E_USAGE', `Invalid MCP registry URL: ${registryUrl}`, 'Use an http(s) URL such as ' + DEFAULT_REGISTRY_URL);
+    throw new PalmError(
+      'E_USAGE',
+      `Invalid MCP registry URL: ${registryUrl}`,
+      'Use an http(s) URL such as ' + DEFAULT_REGISTRY_URL,
+    );
   }
   let path = u.pathname.replace(/\/+$/, '').replace(/\/servers$/, '');
   const m = /\/v\d+(?:\.\d+)*$/.exec(path);
   if (!m) path = `${path}/${REGISTRY_API_VERSION}`;
-  else if (u.host === new URL(GITHUB_REGISTRY_URL).host && m[0] === '/v0') path = `${path.slice(0, -3)}/${REGISTRY_API_VERSION}`;
+  else if (u.host === new URL(GITHUB_REGISTRY_URL).host && m[0] === '/v0')
+    path = `${path.slice(0, -3)}/${REGISTRY_API_VERSION}`;
   return `${u.origin}${path}`;
 }
 
@@ -130,7 +139,11 @@ async function getJson(c: Client, url: string, missing: number[] = []): Promise<
   } catch (e) {
     const hint = `Check your network connection, or use another registry: palm config set mcpRegistryUrl <url>`;
     if (controller.signal.aborted) {
-      throw new PalmError('E_NETWORK', `MCP registry ${c.host} did not respond within ${c.timeoutMs >= 1000 ? `${Math.round(c.timeoutMs / 1000)}s` : `${c.timeoutMs}ms`}`, hint);
+      throw new PalmError(
+        'E_NETWORK',
+        `MCP registry ${c.host} did not respond within ${c.timeoutMs >= 1000 ? `${Math.round(c.timeoutMs / 1000)}s` : `${c.timeoutMs}ms`}`,
+        hint,
+      );
     }
     const err = e as { message?: string; cause?: { code?: string; message?: string } };
     const reason = err.cause?.code ?? err.cause?.message ?? err.message ?? String(e);
@@ -144,13 +157,19 @@ async function getJson(c: Client, url: string, missing: number[] = []): Promise<
     throw new PalmError(
       'E_NETWORK',
       `MCP registry ${c.host} returned HTTP ${status}${detail ? `: ${detail}` : ''}`,
-      status >= 500 ? 'The registry may be having problems; try again later.' : `Request: GET ${url}`,
+      status >= 500
+        ? 'The registry may be having problems; try again later.'
+        : `Request: GET ${url}`,
     );
   }
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    throw new PalmError('E_PARSE', `MCP registry ${c.host} returned invalid JSON`, `Is ${c.base} an MCP registry API?`);
+    throw new PalmError(
+      'E_PARSE',
+      `MCP registry ${c.host} returned invalid JSON`,
+      `Is ${c.base} an MCP registry API?`,
+    );
   }
 }
 
@@ -170,7 +189,8 @@ function parseEntry(item: unknown): RegistryEntry | undefined {
     if (!isRecord(meta)) continue;
     const latest = meta['isLatest'] ?? meta['is_latest'];
     if (typeof latest === 'boolean' && entry.isLatest === undefined) entry.isLatest = latest;
-    if (typeof meta['status'] === 'string' && entry.status === undefined) entry.status = meta['status'];
+    if (typeof meta['status'] === 'string' && entry.status === undefined)
+      entry.status = meta['status'];
   }
   return entry;
 }
@@ -179,10 +199,14 @@ function parseList(body: unknown): { entries: RegistryEntry[]; nextCursor?: stri
   if (!isRecord(body) || !Array.isArray(body['servers'])) {
     throw new PalmError('E_PARSE', 'Unexpected MCP registry response: missing "servers" array');
   }
-  const entries = body['servers'].map(parseEntry).filter((e): e is RegistryEntry => e !== undefined);
+  const entries = body['servers']
+    .map(parseEntry)
+    .filter((e): e is RegistryEntry => e !== undefined);
   const meta = isRecord(body['metadata']) ? body['metadata'] : {};
   const cursor = meta['nextCursor'] ?? meta['next_cursor'];
-  return typeof cursor === 'string' && cursor !== '' ? { entries, nextCursor: cursor } : { entries };
+  return typeof cursor === 'string' && cursor !== ''
+    ? { entries, nextCursor: cursor }
+    : { entries };
 }
 
 /** Latest version of every server whose name contains `search`, deduplicated by name. */
@@ -190,10 +214,15 @@ async function listLatest(c: Client, search: string, max: number): Promise<Regis
   const byName = new Map<string, RegistryEntry>();
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES && byName.size < max; page++) {
-    const params = new URLSearchParams({ version: 'latest', limit: String(Math.min(PAGE_SIZE, Math.max(1, max))) });
+    const params = new URLSearchParams({
+      version: 'latest',
+      limit: String(Math.min(PAGE_SIZE, Math.max(1, max))),
+    });
     if (search) params.set('search', search);
     if (cursor) params.set('cursor', cursor);
-    const { entries, nextCursor } = parseList(await getJson(c, `${c.base}/servers?${params.toString()}`));
+    const { entries, nextCursor } = parseList(
+      await getJson(c, `${c.base}/servers?${params.toString()}`),
+    );
     for (const e of entries) {
       if (e.status === 'deleted') continue;
       const prev = byName.get(e.server.name);
@@ -206,12 +235,20 @@ async function listLatest(c: Client, search: string, max: number): Promise<Regis
 }
 
 /** Scan `/servers/{name}/versions` for one version (GitHub only serves the latest at /versions/{v}). */
-async function findInVersionList(c: Client, name: string, version: string): Promise<RegistryEntry | undefined> {
+async function findInVersionList(
+  c: Client,
+  name: string,
+  version: string,
+): Promise<RegistryEntry | undefined> {
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
     const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
     if (cursor) params.set('cursor', cursor);
-    const body = await getJson(c, `${c.base}/servers/${encodeURIComponent(name)}/versions?${params.toString()}`, [400, 404]);
+    const body = await getJson(
+      c,
+      `${c.base}/servers/${encodeURIComponent(name)}/versions?${params.toString()}`,
+      [400, 404],
+    );
     if (body === undefined) return undefined;
     const { entries, nextCursor } = parseList(body);
     const hit = entries.find((e) => e.server.name === name && e.server.version === version);
@@ -222,7 +259,11 @@ async function findInVersionList(c: Client, name: string, version: string): Prom
   return undefined;
 }
 
-async function getServer(c: Client, name: string, version: string): Promise<RegistryEntry | undefined> {
+async function getServer(
+  c: Client,
+  name: string,
+  version: string,
+): Promise<RegistryEntry | undefined> {
   const url = `${c.base}/servers/${encodeURIComponent(name)}/versions/${encodeURIComponent(version)}`;
   // 400: GitHub's legacy /v0 rejects names (it is keyed by id); treat like "not found".
   const body = await getJson(c, url, [400, 404]);
@@ -247,14 +288,20 @@ function nameMatches(query: string, registryName: string): boolean {
   const q = query.toLowerCase();
   const n = registryName.toLowerCase();
   if (q.includes('/')) return n === q || n.endsWith(`.${q}`);
-  return registryShortName(registryName).toLowerCase() === q || registryConfigName(registryName).toLowerCase() === q;
+  return (
+    registryShortName(registryName).toLowerCase() === q ||
+    registryConfigName(registryName).toLowerCase() === q
+  );
 }
 
 /**
  * Search the registry (substring match on server name, latest versions only). Servers that palm
  * cannot install (mcpb-only, local HTTP packages) are left out.
  */
-export const searchRegistry = (async (query: string, opts: SearchRegistryOptions = {}): Promise<RegistryCandidate[]> => {
+export const searchRegistry = (async (
+  query: string,
+  opts: SearchRegistryOptions = {},
+): Promise<RegistryCandidate[]> => {
   const c = client(opts);
   const limit = Math.max(1, Math.min(opts.limit ?? DEFAULT_SEARCH_LIMIT, PAGE_SIZE * MAX_PAGES));
   const entries = await listLatest(c, query.trim(), limit);
@@ -281,7 +328,10 @@ export const searchRegistry = (async (query: string, opts: SearchRegistryOptions
  *    `github/github-mcp-server` → `io.github.github/github-mcp-server`) or matches case-insensitively.
  * Multiple results are returned as-is; the engine shows a picker.
  */
-export const resolveRegistry = (async (name: string, opts: ResolveRegistryOptions = {}): Promise<RegistryCandidate[]> => {
+export const resolveRegistry = (async (
+  name: string,
+  opts: ResolveRegistryOptions = {},
+): Promise<RegistryCandidate[]> => {
   const query = name.trim();
   if (!query) throw new PalmError('E_USAGE', 'MCP server name is empty');
   const c = client(opts);
@@ -296,7 +346,9 @@ export const resolveRegistry = (async (name: string, opts: ResolveRegistryOption
   }
 
   const search = hasSlash ? registryShortName(query) : query;
-  const matches = (await listLatest(c, search, PAGE_SIZE * MAX_PAGES)).filter((e) => nameMatches(query, e.server.name));
+  const matches = (await listLatest(c, search, PAGE_SIZE * MAX_PAGES)).filter((e) =>
+    nameMatches(query, e.server.name),
+  );
 
   const out: RegistryCandidate[] = [];
   let firstError: unknown;

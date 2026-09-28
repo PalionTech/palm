@@ -32,10 +32,20 @@ interface EventInfo {
 export const HOOK_EVENTS: readonly EventInfo[] = [
   { claude: 'SessionStart', cursor: 'sessionStart', copilot: 'sessionStart', codex: true },
   { claude: 'SessionEnd', cursor: 'sessionEnd', copilot: 'sessionEnd', codex: true },
-  { claude: 'UserPromptSubmit', cursor: 'beforeSubmitPrompt', copilot: 'userPromptSubmitted', codex: true },
+  {
+    claude: 'UserPromptSubmit',
+    cursor: 'beforeSubmitPrompt',
+    copilot: 'userPromptSubmitted',
+    codex: true,
+  },
   { claude: 'PreToolUse', cursor: 'preToolUse', copilot: 'preToolUse', codex: true },
   { claude: 'PostToolUse', cursor: 'postToolUse', copilot: 'postToolUse', codex: true },
-  { claude: 'PostToolUseFailure', cursor: 'postToolUseFailure', copilot: 'postToolUseFailure', codex: false },
+  {
+    claude: 'PostToolUseFailure',
+    cursor: 'postToolUseFailure',
+    copilot: 'postToolUseFailure',
+    codex: false,
+  },
   { claude: 'Stop', cursor: 'stop', copilot: 'agentStop', codex: true },
   { claude: 'SubagentStart', cursor: 'subagentStart', copilot: 'subagentStart', codex: true },
   { claude: 'SubagentStop', cursor: 'subagentStop', copilot: 'subagentStop', codex: true },
@@ -89,10 +99,16 @@ export function targetEvent(canonical: string, target: TargetId): string | undef
   }
 }
 
-const ROOT_TOKENS = /\$\{(?:CLAUDE_PLUGIN_ROOT|CURSOR_PLUGIN_ROOT|PLUGIN_ROOT)\}|\$CLAUDE_PLUGIN_ROOT\b/g;
+const ROOT_TOKENS =
+  /\$\{(?:CLAUDE_PLUGIN_ROOT|CURSOR_PLUGIN_ROOT|PLUGIN_ROOT)\}|\$CLAUDE_PLUGIN_ROOT\b/g;
 
-export function pluginRootReplacement(target: TargetId, pluginRootAbs: string, scope: Scope): string {
-  if (target === 'claude' && scope === 'project') return `$CLAUDE_PROJECT_DIR/.palm/hooks/${path.basename(pluginRootAbs)}`;
+export function pluginRootReplacement(
+  target: TargetId,
+  pluginRootAbs: string,
+  scope: Scope,
+): string {
+  if (target === 'claude' && scope === 'project')
+    return `$CLAUDE_PROJECT_DIR/.palm/hooks/${path.basename(pluginRootAbs)}`;
   return pluginRootAbs;
 }
 
@@ -107,11 +123,22 @@ export function substitutePluginRoot(command: string, replacement: string): stri
  * cursor). Scripts such as superpowers' `session-start` read it to find sibling files and to
  * pick the output format the harness understands. PowerShell commands only get the substitution.
  */
-export function rootedCommand(command: string, replacement: string, target: TargetId, shell?: unknown): string {
+export function rootedCommand(
+  command: string,
+  replacement: string,
+  target: TargetId,
+  shell?: unknown,
+): string {
   if (!new RegExp(ROOT_TOKENS.source).test(command)) return command;
   const substituted = substitutePluginRoot(command, replacement);
-  const variable = target === 'claude' || target === 'codex' ? 'CLAUDE_PLUGIN_ROOT' : target === 'cursor' ? 'CURSOR_PLUGIN_ROOT' : undefined;
-  if (!variable || (typeof shell === 'string' && shell.toLowerCase() === 'powershell')) return substituted;
+  const variable =
+    target === 'claude' || target === 'codex'
+      ? 'CLAUDE_PLUGIN_ROOT'
+      : target === 'cursor'
+        ? 'CURSOR_PLUGIN_ROOT'
+        : undefined;
+  if (!variable || (typeof shell === 'string' && shell.toLowerCase() === 'powershell'))
+    return substituted;
   return `${variable}="${replacement.replace(/(["\\`])/g, '\\$1')}" ${substituted}`;
 }
 
@@ -123,10 +150,14 @@ export function referencesPluginRoot(raw: unknown): boolean {
 /** Extract the `{ event: entries[] }` map from a hooks file (wrapped `{hooks:{...}}` or flat). */
 export function eventMap(raw: unknown): Record<string, unknown[]> {
   if (isPlainObject(raw) && isPlainObject(raw.hooks)) {
-    return Object.fromEntries(Object.entries(raw.hooks).filter(([, v]) => Array.isArray(v))) as Record<string, unknown[]>;
+    return Object.fromEntries(
+      Object.entries(raw.hooks).filter(([, v]) => Array.isArray(v)),
+    ) as Record<string, unknown[]>;
   }
   if (isPlainObject(raw)) {
-    const entries = Object.entries(raw).filter(([k, v]) => Array.isArray(v) && !['version', 'description', 'disableAllHooks'].includes(k));
+    const entries = Object.entries(raw).filter(
+      ([k, v]) => Array.isArray(v) && !['version', 'description', 'disableAllHooks'].includes(k),
+    );
     return Object.fromEntries(entries) as Record<string, unknown[]>;
   }
   return {};
@@ -173,7 +204,8 @@ function toCanonical(hooks: HookSet, dropped: string[]): CanonHook[] {
             continue;
           }
           let timeout = num(h.timeout);
-          if (timeout !== undefined && hooks.dialect === 'gemini') timeout = Math.ceil(timeout / 1000); // Gemini: ms
+          if (timeout !== undefined && hooks.dialect === 'gemini')
+            timeout = Math.ceil(timeout / 1000); // Gemini: ms
           out.push({ event, matcher, command, timeout });
         }
       }
@@ -183,11 +215,19 @@ function toCanonical(hooks: HookSet, dropped: string[]): CanonHook[] {
         const type = str(h.type) ?? 'command';
         const command = str(h.bash) ?? str(h.command);
         if (type !== 'command' || !command) {
-          dropped.push(`${srcEvent}: ${type === 'command' ? 'hook without a bash/command' : `${type} hook`} not convertible`);
+          dropped.push(
+            `${srcEvent}: ${type === 'command' ? 'hook without a bash/command' : `${type} hook`} not convertible`,
+          );
           continue;
         }
-        if (h.cwd !== undefined || h.env !== undefined) dropped.push(`${srcEvent}: cwd/env of "${command}"`);
-        out.push({ event, matcher: str(h.matcher), command, timeout: num(h.timeoutSec) ?? num(h.timeout) });
+        if (h.cwd !== undefined || h.env !== undefined)
+          dropped.push(`${srcEvent}: cwd/env of "${command}"`);
+        out.push({
+          event,
+          matcher: str(h.matcher),
+          command,
+          timeout: num(h.timeoutSec) ?? num(h.timeout),
+        });
       }
     }
   }
@@ -195,7 +235,8 @@ function toCanonical(hooks: HookSet, dropped: string[]): CanonHook[] {
 }
 
 function sourceFamily(hooks: HookSet): Family | undefined {
-  if (hooks.dialect === 'claude' || hooks.dialect === 'cursor' || hooks.dialect === 'copilot') return hooks.dialect;
+  if (hooks.dialect === 'claude' || hooks.dialect === 'cursor' || hooks.dialect === 'copilot')
+    return hooks.dialect;
   return undefined;
 }
 
@@ -206,8 +247,14 @@ function substituteEntry(entry: unknown, replacement: string, target: TargetId):
   if (isPlainObject(entry)) {
     return Object.fromEntries(
       Object.entries(entry).map(([k, v]) => {
-        if (k === 'command' && typeof v === 'string') return [k, rootedCommand(v, replacement, target, entry.shell)];
-        return [k, ['command', 'bash', 'powershell', 'hooks'].includes(k) ? substituteEntry(v, replacement, target) : v];
+        if (k === 'command' && typeof v === 'string')
+          return [k, rootedCommand(v, replacement, target, entry.shell)];
+        return [
+          k,
+          ['command', 'bash', 'powershell', 'hooks'].includes(k)
+            ? substituteEntry(v, replacement, target)
+            : v,
+        ];
       }),
     );
   }
@@ -218,7 +265,12 @@ function wrap(target: TargetId, events: Record<string, unknown[]>): unknown {
   return familyOf(target) === 'claude' ? { hooks: events } : { version: 1, hooks: events };
 }
 
-export function convertHooks(hooks: HookSet, target: TargetId, pluginRootAbs: string, scope: Scope): { hooks: unknown; dropped: string[] } {
+export function convertHooks(
+  hooks: HookSet,
+  target: TargetId,
+  pluginRootAbs: string,
+  scope: Scope,
+): { hooks: unknown; dropped: string[] } {
   const dropped: string[] = [];
   const replacement = pluginRootReplacement(target, pluginRootAbs, scope);
   const fam = familyOf(target);
@@ -229,12 +281,19 @@ export function convertHooks(hooks: HookSet, target: TargetId, pluginRootAbs: st
     for (const [srcEvent, entries] of Object.entries(eventMap(hooks.raw))) {
       const canonical = canonicalEvent(srcEvent, hooks.dialect);
       // Events palm has no mapping for are native to this family: keep them (Codex: drop, unknown to it).
-      const out = canonical ? targetEvent(canonical, target) : target === 'codex' ? undefined : srcEvent;
+      const out = canonical
+        ? targetEvent(canonical, target)
+        : target === 'codex'
+          ? undefined
+          : srcEvent;
       if (!out) {
         dropped.push(`${srcEvent}: not supported by ${target}`);
         continue;
       }
-      events[out] = [...(events[out] ?? []), ...(substituteEntry(entries, replacement, target) as unknown[])];
+      events[out] = [
+        ...(events[out] ?? []),
+        ...(substituteEntry(entries, replacement, target) as unknown[]),
+      ];
     }
     return { hooks: wrap(target, events), dropped };
   }
@@ -247,15 +306,28 @@ export function convertHooks(hooks: HookSet, target: TargetId, pluginRootAbs: st
       dropped.push(`${h.event}: not supported by ${target}`);
       continue;
     }
-    const command = fam === 'copilot' ? substitutePluginRoot(h.command, replacement) : rootedCommand(h.command, replacement, target);
+    const command =
+      fam === 'copilot'
+        ? substitutePluginRoot(h.command, replacement)
+        : rootedCommand(h.command, replacement, target);
     const list = (events[ev] ??= []);
     if (fam === 'claude') {
-      const item = { type: 'command', command, ...(h.timeout !== undefined ? { timeout: h.timeout } : {}) };
-      const group = list.find((g) => isPlainObject(g) && g.matcher === h.matcher) as { hooks: unknown[] } | undefined;
+      const item = {
+        type: 'command',
+        command,
+        ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
+      };
+      const group = list.find((g) => isPlainObject(g) && g.matcher === h.matcher) as
+        | { hooks: unknown[] }
+        | undefined;
       if (group) group.hooks.push(item);
       else list.push({ ...(h.matcher !== undefined ? { matcher: h.matcher } : {}), hooks: [item] });
     } else if (fam === 'cursor') {
-      list.push({ command, ...(h.matcher !== undefined ? { matcher: h.matcher } : {}), ...(h.timeout !== undefined ? { timeout: h.timeout } : {}) });
+      list.push({
+        command,
+        ...(h.matcher !== undefined ? { matcher: h.matcher } : {}),
+        ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
+      });
     } else {
       list.push({
         type: 'command',

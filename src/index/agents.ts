@@ -7,8 +7,8 @@
 
 import { basename } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
-import type { AgentDefinition } from '../core/types.js';
 import { PalmError } from '../core/errors.js';
+import type { AgentDefinition } from '../core/types.js';
 import { parseFrontmatterYaml, splitFrontmatter } from './frontmatter.js';
 import { isValidSlug, toSlug } from './slug.js';
 import { asList, asString, compact, isRecord } from './util.js';
@@ -51,7 +51,18 @@ export function parseAgentFileDetailed(absPath: string, text: string): ParsedAge
   else if (CURSOR_ONLY_KEYS.some((k) => k in data)) sourceFormat = 'cursor-md';
   else sourceFormat = 'claude-md';
 
-  const known = new Set(['name', 'description', 'model', 'tools', 'disallowedTools', 'disallowed-tools', 'skills', 'mcpServers', 'instructions', 'color']);
+  const known = new Set([
+    'name',
+    'description',
+    'model',
+    'tools',
+    'disallowedTools',
+    'disallowed-tools',
+    'skills',
+    'mcpServers',
+    'instructions',
+    'color',
+  ]);
   const extra: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) if (!known.has(k)) extra[k] = v;
 
@@ -94,9 +105,21 @@ function parseCodexToml(absPath: string, text: string): ParsedAgent {
   try {
     data = parseToml(text) as Record<string, unknown>;
   } catch (e) {
-    throw new PalmError('E_PARSE', `invalid TOML in agent ${basename(absPath)}: ${(e as Error).message.split('\n')[0]}`);
+    throw new PalmError(
+      'E_PARSE',
+      `invalid TOML in agent ${basename(absPath)}: ${(e as Error).message.split('\n')[0]}`,
+    );
   }
-  const known = new Set(['name', 'description', 'developer_instructions', 'model', 'mcp_servers', 'tools', 'skills', 'color']);
+  const known = new Set([
+    'name',
+    'description',
+    'developer_instructions',
+    'model',
+    'mcp_servers',
+    'tools',
+    'skills',
+    'color',
+  ]);
   const extra: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) if (!known.has(k)) extra[k] = v;
   let mcpServers: string[] | undefined;
@@ -135,11 +158,15 @@ function parseCodexToml(absPath: string, text: string): ParsedAgent {
  *  - A declared name that is not a slug ("Comment Sicko", "C# Expert") becomes `displayName`
  *    and the slugified file stem is used (DESIGN §5).
  */
-function resolveName(absPath: string, declared: string | undefined): { name: string; displayName?: string; issues: string[] } {
+function resolveName(
+  absPath: string,
+  declared: string | undefined,
+): { name: string; displayName?: string; issues: string[] } {
   const stem = agentStem(absPath);
   const stemIsIdentity = /\.(agent|chatmode)\.md$/i.test(absPath);
   const issues: string[] = [];
-  if (declared !== undefined && isValidSlug(declared) && !stemIsIdentity) return { name: declared, issues };
+  if (declared !== undefined && isValidSlug(declared) && !stemIsIdentity)
+    return { name: declared, issues };
   const name = toSlug(stem, declared);
   if (declared === undefined || declared === name) return { name, issues };
   return { name, displayName: declared, issues };

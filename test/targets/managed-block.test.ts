@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
 import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import { removeManagedBlock, upsertManagedBlock } from '../../src/targets/managed-block.js';
 import { cleanupTmp, exists, read, tmpDir, write } from './helpers.js';
 
@@ -10,9 +10,13 @@ const USER = '# Project\n\nUser text stays.\n';
 describe('managed blocks', () => {
   it('creates the file when missing and records the block', async () => {
     const file = path.join(await tmpDir(), 'AGENTS.md');
-    const rec = await upsertManagedBlock(file, 'instruction:ts', 'Use strict.\n', { dryRun: false });
+    const rec = await upsertManagedBlock(file, 'instruction:ts', 'Use strict.\n', {
+      dryRun: false,
+    });
     expect(rec).toEqual({ file, pointer: 'block:instruction:ts', value: 'Use strict.\n' });
-    expect(await read(file)).toBe('<!-- palm:begin instruction:ts -->\nUse strict.\n<!-- palm:end instruction:ts -->\n');
+    expect(await read(file)).toBe(
+      '<!-- palm:begin instruction:ts -->\nUse strict.\n<!-- palm:end instruction:ts -->\n',
+    );
   });
 
   it('upserting twice yields one block; update keeps surrounding text byte-identical', async () => {
@@ -24,7 +28,9 @@ describe('managed blocks', () => {
     expect(await read(file)).toBe(once);
     await write(file, once + '\nMore user text.\n');
     await upsertManagedBlock(file, 'instruction:ts', 'B\nC\n', { dryRun: false });
-    expect(await read(file)).toBe(`${USER}\n<!-- palm:begin instruction:ts -->\nB\nC\n<!-- palm:end instruction:ts -->\n\nMore user text.\n`);
+    expect(await read(file)).toBe(
+      `${USER}\n<!-- palm:begin instruction:ts -->\nB\nC\n<!-- palm:end instruction:ts -->\n\nMore user text.\n`,
+    );
   });
 
   it('adds a trailing newline and a separating blank line to files without one', async () => {
@@ -37,7 +43,9 @@ describe('managed blocks', () => {
   it('conflict mode and dryRun', async () => {
     const file = path.join(await tmpDir(), 'AGENTS.md');
     await upsertManagedBlock(file, 'x', 'one', { dryRun: false });
-    await expect(upsertManagedBlock(file, 'x', 'two', { dryRun: false, onConflict: 'error' })).rejects.toMatchObject({ code: 'E_CONFLICT' });
+    await expect(
+      upsertManagedBlock(file, 'x', 'two', { dryRun: false, onConflict: 'error' }),
+    ).rejects.toMatchObject({ code: 'E_CONFLICT' });
     await upsertManagedBlock(file, 'y', 'two', { dryRun: true });
     expect(await read(file)).toBe('<!-- palm:begin x -->\none\n<!-- palm:end x -->\n');
   });

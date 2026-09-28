@@ -11,10 +11,11 @@
  *   pointer names the array and `value` is the item; for object keys the pointer
  *   names the key itself (`/mcpServers/<name>`).
  */
-import type { MergedRecord } from '../core/types.js';
+
 import { PalmError } from '../core/errors.js';
-import { atomicWrite, readTextOrUndefined, removeFileIfExists } from './fs-utils.js';
+import type { MergedRecord } from '../core/types.js';
 import { containsAll, deepEqual, isPlainObject } from './deep-equal.js';
+import { atomicWrite, readTextOrUndefined, removeFileIfExists } from './fs-utils.js';
 import { formatPointer, joinPointer, parsePointer } from './json-pointer.js';
 
 export interface JsonMergeOptions {
@@ -103,7 +104,11 @@ export function parseJsonc(text: string, file: string): unknown {
     try {
       return JSON.parse(stripTrailingCommas(stripJsonComments(text)));
     } catch (e) {
-      throw new PalmError('E_PARSE', `cannot parse ${file}: ${(e as Error).message}`, 'fix the JSON syntax or move the file aside');
+      throw new PalmError(
+        'E_PARSE',
+        `cannot parse ${file}: ${(e as Error).message}`,
+        'fix the JSON syntax or move the file aside',
+      );
     }
   }
 }
@@ -113,7 +118,8 @@ export async function readJsonObject(file: string): Promise<Record<string, unkno
   const text = await readTextOrUndefined(file);
   if (text === undefined || text.trim() === '') return {};
   const doc = parseJsonc(text, file);
-  if (!isPlainObject(doc)) throw new PalmError('E_PARSE', `${file}: expected a JSON object at the top level`);
+  if (!isPlainObject(doc))
+    throw new PalmError('E_PARSE', `${file}: expected a JSON object at the top level`);
   return doc;
 }
 
@@ -134,19 +140,30 @@ export function getAtPointer(doc: unknown, pointer: string): unknown {
 
 type Container = Record<string, unknown> | unknown[];
 
-function walkCreate(doc: Record<string, unknown>, segs: string[], lastIsArray: boolean, file: string): Container {
+function walkCreate(
+  doc: Record<string, unknown>,
+  segs: string[],
+  lastIsArray: boolean,
+  file: string,
+): Container {
   let node: Container = doc;
   segs.forEach((seg, i) => {
     const wantArray = lastIsArray && i === segs.length - 1;
     if (Array.isArray(node)) {
-      throw new PalmError('E_PARSE', `${file}: ${formatPointer(segs.slice(0, i))} is an array, expected an object`);
+      throw new PalmError(
+        'E_PARSE',
+        `${file}: ${formatPointer(segs.slice(0, i))} is an array, expected an object`,
+      );
     }
     let child: unknown = node[seg];
     if (child === undefined || child === null) {
       child = wantArray ? [] : {};
       node[seg] = child;
     } else if (wantArray ? !Array.isArray(child) : !isPlainObject(child)) {
-      throw new PalmError('E_PARSE', `${file}: expected ${wantArray ? 'an array' : 'an object'} at ${formatPointer(segs.slice(0, i + 1))}`);
+      throw new PalmError(
+        'E_PARSE',
+        `${file}: expected ${wantArray ? 'an array' : 'an object'} at ${formatPointer(segs.slice(0, i + 1))}`,
+      );
     }
     node = child as Container;
   });
@@ -170,7 +187,8 @@ export async function mergeJsonFile(
   let changed = false;
   let record: MergedRecord;
   if (key === undefined) {
-    if (segs.length === 0) throw new PalmError('E_INTERNAL', `cannot append to the root of ${file}`);
+    if (segs.length === 0)
+      throw new PalmError('E_INTERNAL', `cannot append to the root of ${file}`);
     const arr = walkCreate(doc, segs, true, file) as unknown[];
     if (!arr.some((item) => deepEqual(item, value))) {
       arr.push(structuredClone(value));
@@ -198,7 +216,13 @@ export async function mergeJsonFile(
 }
 
 /** Set `container[key] = value` only when the key is missing. Not recorded (never removed by unmerge). */
-export async function ensureJsonKey(file: string, pointer: string, key: string, value: unknown, opts: { dryRun: boolean }): Promise<boolean> {
+export async function ensureJsonKey(
+  file: string,
+  pointer: string,
+  key: string,
+  value: unknown,
+  opts: { dryRun: boolean },
+): Promise<boolean> {
   const doc = await readJsonObject(file);
   const obj = walkCreate(doc, parsePointer(pointer), false, file) as Record<string, unknown>;
   if (obj[key] !== undefined) return false;
@@ -252,7 +276,9 @@ export async function unmergeJsonFile(file: string, record: MergedRecord): Promi
 function pruneEmptyContainers(doc: Record<string, unknown>, segs: string[]): void {
   for (let i = segs.length; i > 0; i--) {
     const node = getAtPointer(doc, formatPointer(segs.slice(0, i)));
-    const empty = Array.isArray(node) ? node.length === 0 : isPlainObject(node) && Object.keys(node).length === 0;
+    const empty = Array.isArray(node)
+      ? node.length === 0
+      : isPlainObject(node) && Object.keys(node).length === 0;
     if (!empty) return;
     const parent = getAtPointer(doc, formatPointer(segs.slice(0, i - 1)));
     if (isPlainObject(parent)) delete parent[segs[i - 1]!];

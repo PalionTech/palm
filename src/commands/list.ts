@@ -4,7 +4,15 @@ import { PalmError } from '../core/errors.js';
 import { pluralize } from '../core/kinds.js';
 import type { Entity, Kind, LockEntry, OriginIndex, OriginSpec } from '../core/types.js';
 import { printTable, truncate } from '../ui/output.js';
-import { makeContext, printJson, requireKind, scopeOf, shortSha, withSpinner, type GlobalOptions } from './shared.js';
+import {
+  type GlobalOptions,
+  makeContext,
+  printJson,
+  requireKind,
+  scopeOf,
+  shortSha,
+  withSpinner,
+} from './shared.js';
 
 interface ListOptions extends GlobalOptions {
   available?: boolean;
@@ -23,9 +31,16 @@ const byKindName = (a: { kind: string; name: string }, b: { kind: string; name: 
   a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name);
 
 /** Installed entries of one kind and/or one origin alias (the lock's `origin`), sorted by kind and name. */
-export function filterInstalled(entries: LockEntry[], opts: { kind?: Kind; origin?: string } = {}): LockEntry[] {
+export function filterInstalled(
+  entries: LockEntry[],
+  opts: { kind?: Kind; origin?: string } = {},
+): LockEntry[] {
   const origin = opts.origin?.toLowerCase();
-  return entries.filter((e) => (!opts.kind || e.kind === opts.kind) && (!origin || e.origin.toLowerCase() === origin)).sort(byKindName);
+  return entries
+    .filter(
+      (e) => (!opts.kind || e.kind === opts.kind) && (!origin || e.origin.toLowerCase() === origin),
+    )
+    .sort(byKindName);
 }
 
 /**
@@ -33,13 +48,22 @@ export function filterInstalled(entries: LockEntry[], opts: { kind?: Kind; origi
  * else the registered origin `resolve` finds; an origin removed after installing still matches its
  * entries by alias.
  */
-export function installedOriginAlias(query: string, entries: LockEntry[], resolve: (query: string) => OriginSpec): string {
+export function installedOriginAlias(
+  query: string,
+  entries: LockEntry[],
+  resolve: (query: string) => OriginSpec,
+): string {
   const q = query.trim().toLowerCase();
   if ((PSEUDO_ORIGINS as readonly string[]).includes(q)) return q;
   try {
     return resolve(query).alias;
   } catch (e) {
-    if (e instanceof PalmError && e.code === 'E_NOT_FOUND' && entries.some((x) => x.origin.toLowerCase() === q)) return q;
+    if (
+      e instanceof PalmError &&
+      e.code === 'E_NOT_FOUND' &&
+      entries.some((x) => x.origin.toLowerCase() === q)
+    )
+      return q;
     throw e;
   }
 }
@@ -53,7 +77,11 @@ export interface AvailableGroup {
 /** One group per origin index (optionally only `origin`), entities of `kind` sorted by kind and name. */
 export function availableGroups(
   indexes: OriginIndex[],
-  opts: { kind?: Kind; origin?: string; duplicates?: (ix: OriginIndex, kind?: Kind) => string[] } = {},
+  opts: {
+    kind?: Kind;
+    origin?: string;
+    duplicates?: (ix: OriginIndex, kind?: Kind) => string[];
+  } = {},
 ): AvailableGroup[] {
   const origin = opts.origin?.toLowerCase();
   return indexes
@@ -76,7 +104,10 @@ export function registerList(program: Command): void {
     )
     .argument('[kind]', 'restrict to one kind (plurals ok)')
     .option('--available', 'list entities in the origin indexes instead of installed ones')
-    .option('-o, --origin <name-or-alias>', 'only this origin: alias, owner/repo[/root], URL or local path (installed view also: mine, registry, adhoc)')
+    .option(
+      '-o, --origin <name-or-alias>',
+      'only this origin: alias, owner/repo[/root], URL or local path (installed view also: mine, registry, adhoc)',
+    )
     .action(async (kindArg: string | undefined, _opts: unknown, cmd: Command) => {
       const o = cmd.optsWithGlobals<ListOptions>();
       const kind = kindArg === undefined ? undefined : requireKind(kindArg);
@@ -92,20 +123,27 @@ export function registerList(program: Command): void {
           const spec = resolveOriginQuery(ctx, o.origin);
           only = spec;
           const { getIndex } = await import('../core/cache.js');
-          indexes = [await withSpinner(ctx, o, `Reading the ${spec.alias} index`, () => getIndex(ctx, spec))];
+          indexes = [
+            await withSpinner(ctx, o, `Reading the ${spec.alias} index`, () => getIndex(ctx, spec)),
+          ];
         } else {
           const { getAllIndexes } = await import('../core/cache.js');
           indexes = await withSpinner(ctx, o, 'Reading origin indexes', () => getAllIndexes(ctx));
         }
         const { duplicateWarnings } = await import('../engine/query.js');
-        const groups = availableGroups(indexes, { kind, origin: only?.alias, duplicates: duplicateWarnings });
+        const groups = availableGroups(indexes, {
+          kind,
+          origin: only?.alias,
+          duplicates: duplicateWarnings,
+        });
         if (o.json) return printJson(groups);
         const nonEmpty = groups.filter((gr) => gr.entities.length > 0);
         if (nonEmpty.length === 0) {
           console.log(
             only
               ? pc.dim(`No ${kinds} available in origin ${only.alias}.`)
-              : pc.dim(`No ${kinds} available.`) + pc.dim(' Add an origin with `palm origin add owner/repo`.'),
+              : pc.dim(`No ${kinds} available.`) +
+                  pc.dim(' Add an origin with `palm origin add owner/repo`.'),
           );
           return;
         }
@@ -131,11 +169,22 @@ export function registerList(program: Command): void {
       const entries = filterInstalled(installed, { kind, origin });
       if (o.json) return printJson(entries);
       if (entries.length === 0) {
-        console.log(pc.dim(`No ${kinds} installed in the ${scope} scope${origin ? ` from origin ${origin}` : ''}.`));
+        console.log(
+          pc.dim(
+            `No ${kinds} installed in the ${scope} scope${origin ? ` from origin ${origin}` : ''}.`,
+          ),
+        );
         return;
       }
       printTable(
-        entries.map((e) => [e.kind, e.name, e.origin, lockVersion(e), e.targets.join(','), e.via ?? '']),
+        entries.map((e) => [
+          e.kind,
+          e.name,
+          e.origin,
+          lockVersion(e),
+          e.targets.join(','),
+          e.via ?? '',
+        ]),
         ['kind', 'name', 'origin', 'version', 'targets', 'via'],
       );
     });

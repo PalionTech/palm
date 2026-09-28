@@ -7,7 +7,8 @@ import { loadManifest } from '../../src/core/manifest.js';
 import type { PickOption, UI } from '../../src/core/types.js';
 import { createAgent } from '../../src/create/agent.js';
 import { uninstallEntities } from '../../src/engine/uninstall.js';
-import { makeContext, removeDir, sandbox, type Sandbox } from '../core/helpers.js';
+import { makeContext } from '../support/fakes.js';
+import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 
 const FIXTURES = join(import.meta.dirname, '..', 'fixtures');
 
@@ -24,8 +25,10 @@ function scriptedUI(answers: unknown[]): UI & { asked: string[] } {
   return {
     isInteractive: true,
     asked,
-    pick: async <T>(m: string, o: PickOption<T>[]) => next('pick', m, o as PickOption<unknown>[]) as T,
-    pickMany: async <T>(m: string, o: PickOption<T>[]) => next('pickMany', m, o as PickOption<unknown>[]) as T[],
+    pick: async <T>(m: string, o: PickOption<T>[]) =>
+      next('pick', m, o as PickOption<unknown>[]) as T,
+    pickMany: async <T>(m: string, o: PickOption<T>[]) =>
+      next('pickMany', m, o as PickOption<unknown>[]) as T[],
     confirm: async (m: string) => next('confirm', m) as boolean,
     text: async (m: string) => next('text', m) as string,
     secret: async (m: string) => next('secret', m) as string,
@@ -33,12 +36,14 @@ function scriptedUI(answers: unknown[]): UI & { asked: string[] } {
   };
 }
 
-const values = (...labels: string[]) => (options: PickOption<unknown>[]) =>
-  labels.map((l) => {
-    const o = options.find((x) => x.label.startsWith(l));
-    if (!o) throw new Error(`no option "${l}" in ${options.map((x) => x.label).join(' | ')}`);
-    return o.value;
-  });
+const values =
+  (...labels: string[]) =>
+  (options: PickOption<unknown>[]) =>
+    labels.map((l) => {
+      const o = options.find((x) => x.label.startsWith(l));
+      if (!o) throw new Error(`no option "${l}" in ${options.map((x) => x.label).join(' | ')}`);
+      return o.value;
+    });
 
 describe('palm create agent → install (fake UI, real scanner/engine/targets)', () => {
   let sb: Sandbox;
@@ -80,7 +85,10 @@ describe('palm create agent → install (fake UI, real scanner/engine/targets)',
     });
     expect(byName['agent code-reviewer']!.via).toBeUndefined();
     expect(byName['skill grill-me']).toMatchObject({ origin: 'matt', via: 'agent:code-reviewer' });
-    expect(byName['instruction style']).toMatchObject({ origin: 'rules', via: 'agent:code-reviewer' });
+    expect(byName['instruction style']).toMatchObject({
+      origin: 'rules',
+      via: 'agent:code-reviewer',
+    });
 
     // Only the agent is a manifest entry; its dependencies come with it.
     const m = await loadManifest(join(sb.project, 'palm.yaml'));
@@ -93,11 +101,19 @@ describe('palm create agent → install (fake UI, real scanner/engine/targets)',
     expect(claudeAgent).not.toContain('instructions');
     expect(claudeAgent).toContain('skills:');
     expect(existsSync(join(sb.project, '.claude/rules/style.md'))).toBe(true);
-    expect(await readFile(join(sb.project, 'AGENTS.md'), 'utf8')).toContain('palm:begin instruction:style');
+    expect(await readFile(join(sb.project, 'AGENTS.md'), 'utf8')).toContain(
+      'palm:begin instruction:style',
+    );
 
     // Uninstalling the agent removes what it pulled in.
-    const r = await uninstallEntities(ctx, [{ kind: 'agent', name: 'code-reviewer' }], { scope: 'project' });
-    expect(r.removed.map((e) => `${e.kind} ${e.name}`).sort()).toEqual(['agent code-reviewer', 'instruction style', 'skill grill-me']);
+    const r = await uninstallEntities(ctx, [{ kind: 'agent', name: 'code-reviewer' }], {
+      scope: 'project',
+    });
+    expect(r.removed.map((e) => `${e.kind} ${e.name}`).sort()).toEqual([
+      'agent code-reviewer',
+      'instruction style',
+      'skill grill-me',
+    ]);
     expect(existsSync(join(sb.project, '.claude/skills/grill-me'))).toBe(false);
     expect(existsSync(join(sb.project, '.agents'))).toBe(false); // palm-created container removed once empty
     expect(existsSync(join(sb.project, '.claude'))).toBe(true); // harness config dir stays

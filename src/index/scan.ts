@@ -6,23 +6,49 @@
  * not declare are still indexed (standalone, with a warning).
  */
 
-import fg from 'fast-glob';
 import { readFile, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
+import fg from 'fast-glob';
 import YAML from 'yaml';
-import type { Entity, EntityRef, Kind, LayoutDescriptor, OriginSpec, ScanOriginFn, ScanResult } from '../core/types.js';
 import { PalmError } from '../core/errors.js';
+import type {
+  Entity,
+  EntityRef,
+  Kind,
+  LayoutDescriptor,
+  OriginSpec,
+  ScanOriginFn,
+  ScanResult,
+} from '../core/types.js';
 import { parseAgentFileDetailed } from './agents.js';
 import { parseCommandFile } from './commands.js';
-import { detectLayout, type Detection, type ScanRule } from './detect.js';
-import { buildFileIndex, filesIn, filesUnder, realPathOf, type FileIndex } from './files.js';
-import { detectHookDialect, hasHooks, mergeHooksRaw, normalizeHooksJson, parseHooksJson } from './hooks.js';
+import { type Detection, detectLayout, type ScanRule } from './detect.js';
+import { buildFileIndex, type FileIndex, filesIn, filesUnder, realPathOf } from './files.js';
+import {
+  detectHookDialect,
+  hasHooks,
+  mergeHooksRaw,
+  normalizeHooksJson,
+  parseHooksJson,
+} from './hooks.js';
 import { defaultIgnoreGlobs, isIgnoredRel, minimalIgnoreGlobs } from './ignore.js';
 import { parseInstructionFile } from './instructions.js';
-import { describeSource, isRemoteSource, originHint, readMarketplace, type MarketplaceEntry } from './marketplace.js';
+import {
+  describeSource,
+  isRemoteSource,
+  type MarketplaceEntry,
+  originHint,
+  readMarketplace,
+} from './marketplace.js';
 import { parseMcpJson } from './mcp.js';
-import { findPluginManifest, mergeDecls, type ComponentDecls, type PluginManifest, type PluginManifestFormat } from './plugin-manifest.js';
-import { parseSkillMdDetailed, type ParsedSkill } from './skills.js';
+import {
+  type ComponentDecls,
+  findPluginManifest,
+  mergeDecls,
+  type PluginManifest,
+  type PluginManifestFormat,
+} from './plugin-manifest.js';
+import { type ParsedSkill, parseSkillMdDetailed } from './skills.js';
 import { toSlug } from './slug.js';
 import {
   asString,
@@ -109,7 +135,11 @@ class Scanner {
     try {
       if (!(await stat(this.rootAbs)).isDirectory()) throw new Error('not a directory');
     } catch (e) {
-      throw new PalmError('E_IO', `cannot scan origin "${this.alias}": ${this.rootAbs} is not a readable directory`, (e as Error).message);
+      throw new PalmError(
+        'E_IO',
+        `cannot scan origin "${this.alias}": ${this.rootAbs} is not a readable directory`,
+        (e as Error).message,
+      );
     }
     const detection = await detectLayout(this.rootAbs, this.layout, this.warnings);
     this.descriptorMode = detection.rule === 'descriptor';
@@ -125,7 +155,10 @@ class Scanner {
     let rule = await this.runRule(detection);
     if (rule === undefined) {
       // An apm.yml without primitives: fall back to the remaining rules.
-      rule = (await this.runRule(await detectLayout(this.rootAbs, this.layout, [], { skipApm: true }))) ?? 'convention';
+      rule =
+        (await this.runRule(
+          await detectLayout(this.rootAbs, this.layout, [], { skipApm: true }),
+        )) ?? 'convention';
     }
 
     this.applyInclude();
@@ -146,11 +179,16 @@ class Scanner {
       case 'apm':
         return (await this.scanApm(detection.apmFile ?? 'apm.yml')) ? 'apm' : undefined;
       case 'marketplace': {
-        if (await this.scanMarketplace(detection.marketplaceFile as string, detection.rootManifest)) {
+        if (
+          await this.scanMarketplace(detection.marketplaceFile as string, detection.rootManifest)
+        ) {
           await this.scanConvention();
           return 'marketplace';
         }
-        return this.runRule({ rule: detection.rootManifest ? 'plugin-manifest' : 'convention', rootManifest: detection.rootManifest });
+        return this.runRule({
+          rule: detection.rootManifest ? 'plugin-manifest' : 'convention',
+          rootManifest: detection.rootManifest,
+        });
       }
       case 'plugin-manifest':
         await this.scanPlugin({ rootRel: '', manifest: detection.rootManifest });
@@ -169,7 +207,9 @@ class Scanner {
   // -------------------------------------------------------------------------
 
   private refreshSkillDirs(): void {
-    this.skillDirSet = new Set(this.index.files.filter((f) => baseOf(f) === 'SKILL.md').map((f) => dirOf(f)));
+    this.skillDirSet = new Set(
+      this.index.files.filter((f) => baseOf(f) === 'SKILL.md').map((f) => dirOf(f)),
+    );
   }
 
   private read(rel: string): Promise<string | undefined> {
@@ -220,7 +260,11 @@ class Scanner {
   private async ensureIndexed(rootRel: string): Promise<void> {
     if (rootRel === '' || this.descriptorMode || !isIgnoredRel(rootRel)) return;
     if (this.index.files.some((f) => f.startsWith(rootRel + '/'))) return;
-    const sub = await buildFileIndex(join(this.rootAbs, rootRel), { ignore: defaultIgnoreGlobs(), deep: LIST_DEEP, ignoreDirNames: true });
+    const sub = await buildFileIndex(join(this.rootAbs, rootRel), {
+      ignore: defaultIgnoreGlobs(),
+      deep: LIST_DEEP,
+      ignoreDirNames: true,
+    });
     for (const f of sub.files) {
       const rel = `${rootRel}/${f}`;
       this.index.files.push(rel);
@@ -263,7 +307,9 @@ class Scanner {
 
   /** Skill directories directly inside `dirRel`. */
   private childSkillDirs(dirRel: string): string[] {
-    return [...this.skillDirSet].filter((d) => d !== dirRel && dirOf(d) === dirRel && isWithin(d, dirRel)).sort();
+    return [...this.skillDirSet]
+      .filter((d) => d !== dirRel && dirOf(d) === dirRel && isWithin(d, dirRel))
+      .sort();
   }
 
   /** Top-most skill directories below `dirRel` (children first; buckets like `skills/engineering/*`). */
@@ -309,7 +355,9 @@ class Scanner {
     const existing = this.byName.get(nk);
     if (existing) {
       if (existing.path !== e.path) {
-        this.warnings.push(`duplicate ${e.kind} "${e.name}" at ${e.path} ignored (already indexed from ${existing.path})`);
+        this.warnings.push(
+          `duplicate ${e.kind} "${e.name}" at ${e.path} ignored (already indexed from ${existing.path})`,
+        );
       }
       return existing;
     }
@@ -360,7 +408,9 @@ class Scanner {
 
   private async addSkill(dirRel: string, ctx?: PluginContext): Promise<Entity | undefined> {
     // A symlinked alias of an already indexed skill: reuse it without re-parsing (and re-warning).
-    const sameFile = this.byReal.get(`skill\0${realPathOf(this.index, joinRel(dirRel, 'SKILL.md'))}`);
+    const sameFile = this.byReal.get(
+      `skill\0${realPathOf(this.index, joinRel(dirRel, 'SKILL.md'))}`,
+    );
     if (sameFile) {
       this.claimed.add(`skill\0${displayRel(dirRel)}`);
       return sameFile;
@@ -368,7 +418,8 @@ class Scanner {
     const parsed = await this.parseSkill(dirRel);
     if (!parsed) return undefined;
     const parentDir = this.parentSkillDir(dirRel);
-    const parent = parentDir !== undefined ? (await this.parseSkill(parentDir))?.def.name : undefined;
+    const parent =
+      parentDir !== undefined ? (await this.parseSkill(parentDir))?.def.name : undefined;
     const skill = compact({ ...parsed.def, parent });
     return this.add(
       compact({
@@ -384,7 +435,11 @@ class Scanner {
     );
   }
 
-  private async addAgent(rel: string, ctx: PluginContext | undefined, declared: boolean): Promise<Entity | undefined> {
+  private async addAgent(
+    rel: string,
+    ctx: PluginContext | undefined,
+    declared: boolean,
+  ): Promise<Entity | undefined> {
     this.claimed.add(`agent\0${rel}`);
     const text = await this.read(rel);
     if (text === undefined) {
@@ -404,21 +459,26 @@ class Scanner {
       let ok: boolean;
       if (lower.endsWith('.agent.md')) ok = def.description !== '';
       else if (lower.endsWith('.toml')) ok = def.body !== '' || def.description !== '';
-      else ok = parsed.hasFrontmatter && parsed.declaredName !== undefined && def.description !== '';
+      else
+        ok = parsed.hasFrontmatter && parsed.declaredName !== undefined && def.description !== '';
       if (!ok) {
-        if (parsed.hasFrontmatter) this.warnings.push(`skipped ${rel}: agent file without name/description frontmatter`);
+        if (parsed.hasFrontmatter)
+          this.warnings.push(`skipped ${rel}: agent file without name/description frontmatter`);
         return undefined;
       }
     }
     // Source format from the origin-relative location (the absolute path may contain `.apm` itself).
     if (lower.endsWith('.md')) {
       if (rel.startsWith('.apm/')) def.sourceFormat = 'apm-agent-md';
-      else if (lower.endsWith('.agent.md') || lower.endsWith('.chatmode.md')) def.sourceFormat = 'copilot-agent-md';
+      else if (lower.endsWith('.agent.md') || lower.endsWith('.chatmode.md'))
+        def.sourceFormat = 'copilot-agent-md';
       else if (ctx?.format === 'cursor') def.sourceFormat = 'cursor-md';
       else if (def.sourceFormat === 'apm-agent-md') def.sourceFormat = 'claude-md';
     }
     for (const issue of parsed.issues) this.warnings.push(`${rel}: ${issue}`);
-    const version = asString(isRecord(def.extra?.metadata) ? def.extra.metadata.version : undefined) ?? asString(def.extra?.version);
+    const version =
+      asString(isRecord(def.extra?.metadata) ? def.extra.metadata.version : undefined) ??
+      asString(def.extra?.version);
     return this.add(
       compact({
         kind: 'agent' as const,
@@ -433,7 +493,10 @@ class Scanner {
     );
   }
 
-  private async addCommand(rel: string, ctx: PluginContext | undefined): Promise<Entity | undefined> {
+  private async addCommand(
+    rel: string,
+    ctx: PluginContext | undefined,
+  ): Promise<Entity | undefined> {
     this.claimed.add(`command\0${rel}`);
     const text = await this.read(rel);
     if (text === undefined) return undefined;
@@ -462,7 +525,10 @@ class Scanner {
     );
   }
 
-  private async addInstruction(rel: string, ctx: PluginContext | undefined): Promise<Entity | undefined> {
+  private async addInstruction(
+    rel: string,
+    ctx: PluginContext | undefined,
+  ): Promise<Entity | undefined> {
     this.claimed.add(`instruction\0${rel}`);
     const text = await this.read(rel);
     if (text === undefined) return undefined;
@@ -489,7 +555,10 @@ class Scanner {
     const out: Entity[] = [];
     for (const cfg of parseMcpJson(json)) {
       const version = ctx?.version ?? this.tagVersion;
-      const mcp = { ...cfg, source: compact({ type: 'origin' as const, ref: this.alias, version }) };
+      const mcp = {
+        ...cfg,
+        source: compact({ type: 'origin' as const, ref: this.alias, version }),
+      };
       out.push(
         this.add(
           compact({
@@ -507,7 +576,11 @@ class Scanner {
     return out;
   }
 
-  private async addMcpFile(rel: string, ctx: PluginContext | undefined, declared: boolean): Promise<Entity[]> {
+  private async addMcpFile(
+    rel: string,
+    ctx: PluginContext | undefined,
+    declared: boolean,
+  ): Promise<Entity[]> {
     this.claimed.add(`mcp\0${rel}`);
     const { json, error } = await this.readJson(rel);
     if (error) {
@@ -525,16 +598,26 @@ class Scanner {
     const file = baseOf(rel);
     if (file === 'hooks.json' && baseOf(dir) === 'hooks') {
       const owner = dirOf(dir);
-      return { name: toSlug(owner === '' ? undefined : baseOf(owner), this.alias), pluginRootRel: displayRel(owner) };
+      return {
+        name: toSlug(owner === '' ? undefined : baseOf(owner), this.alias),
+        pluginRootRel: displayRel(owner),
+      };
     }
     if (file === 'hooks.json' && baseOf(dirOf(dir)) === 'hooks') {
       return { name: toSlug(baseOf(dir), this.alias), pluginRootRel: dir };
     }
     const stem = file.replace(/\.json$/i, '');
-    return { name: toSlug(stem === 'hooks' ? baseOf(dir) : stem, this.alias), pluginRootRel: displayRel(dir) };
+    return {
+      name: toSlug(stem === 'hooks' ? baseOf(dir) : stem, this.alias),
+      pluginRootRel: displayRel(dir),
+    };
   }
 
-  private async addHookFile(rel: string, ctx: PluginContext | undefined, nameOverride?: string): Promise<Entity | undefined> {
+  private async addHookFile(
+    rel: string,
+    ctx: PluginContext | undefined,
+    nameOverride?: string,
+  ): Promise<Entity | undefined> {
     this.claimed.add(`hook\0${rel}`);
     const { json, error } = await this.readJson(rel);
     if (error) {
@@ -543,7 +626,11 @@ class Scanner {
     }
     if (!hasHooks(json)) return undefined;
     const id = this.hookIdentity(rel);
-    const set = parseHooksJson(nameOverride ?? ctx?.name ?? id.name, json, ctx ? displayRel(ctx.rootRel) : id.pluginRootRel);
+    const set = parseHooksJson(
+      nameOverride ?? ctx?.name ?? id.name,
+      json,
+      ctx ? displayRel(ctx.rootRel) : id.pluginRootRel,
+    );
     if (set.dialect === 'unknown') this.warnings.push(`${rel}: unrecognised hooks dialect`);
     return this.add(
       compact({
@@ -563,12 +650,20 @@ class Scanner {
   // -------------------------------------------------------------------------
 
   /** Resolve declared file/dir/glob paths of a plugin to origin-relative files. */
-  private async resolveFiles(rootRel: string, values: string[], kind: ResolveKind, pluginName: string): Promise<string[]> {
+  private async resolveFiles(
+    rootRel: string,
+    values: string[],
+    kind: ResolveKind,
+    pluginName: string,
+  ): Promise<string[]> {
     const exts = EXTENSIONS[kind];
     const out: string[] = [];
     const expandDir = (dirRel: string) =>
       (kind === 'agent' ? filesUnder(this.index, dirRel, 2) : filesIn(this.index, dirRel)).filter(
-        (f) => hasExt(f, exts) && !isDocFile(baseOf(f)) && (dirRel === rootRel || !this.insideSkillDir(f)),
+        (f) =>
+          hasExt(f, exts) &&
+          !isDocFile(baseOf(f)) &&
+          (dirRel === rootRel || !this.insideSkillDir(f)),
       );
     for (const v of values) {
       if (hasGlobChars(v)) {
@@ -588,7 +683,9 @@ class Scanner {
       const candidates = [rel];
       if (rootRel !== '') candidates.push(normRel(v));
       if (kind === 'agent') {
-        for (const c of [...candidates]) if (c.endsWith('.md') && !c.endsWith('.agent.md')) candidates.push(c.replace(/\.md$/, '.agent.md'));
+        for (const c of [...candidates])
+          if (c.endsWith('.md') && !c.endsWith('.agent.md'))
+            candidates.push(c.replace(/\.md$/, '.agent.md'));
       }
       let found = false;
       for (const c of candidates) {
@@ -605,7 +702,8 @@ class Scanner {
           break;
         }
       }
-      if (!found) this.warnings.push(`plugin ${pluginName}: declared ${kind} path "${v}" not found`);
+      if (!found)
+        this.warnings.push(`plugin ${pluginName}: declared ${kind} path "${v}" not found`);
     }
     return [...new Set(out)];
   }
@@ -633,20 +731,28 @@ class Scanner {
     }
     // Some catalogs list skill names rather than paths.
     if (!normRel(v).includes('/')) {
-      for (const d of [...this.skillDirSet].filter((x) => isWithin(x, rootRel)).sort(byDepthThenPath)) {
+      for (const d of [...this.skillDirSet]
+        .filter((x) => isWithin(x, rootRel))
+        .sort(byDepthThenPath)) {
         if ((await this.parseSkill(d))?.def.name === normRel(v)) return [d];
       }
     }
     return [];
   }
 
-  private async pluginSkillDirs(rootRel: string, declared: string[] | undefined, exact: boolean, pluginName: string): Promise<string[]> {
+  private async pluginSkillDirs(
+    rootRel: string,
+    declared: string[] | undefined,
+    exact: boolean,
+    pluginName: string,
+  ): Promise<string[]> {
     const defaults = this.childSkillDirs(joinRel(rootRel, 'skills'));
     if (!declared || declared.length === 0) return defaults;
     const resolved: string[] = [];
     for (const v of declared) {
       const dirs = await this.resolveSkillDecl(rootRel, v);
-      if (dirs.length === 0) this.warnings.push(`plugin ${pluginName}: declared skill path "${v}" not found`);
+      if (dirs.length === 0)
+        this.warnings.push(`plugin ${pluginName}: declared skill path "${v}" not found`);
       resolved.push(...dirs);
     }
     if (exact) return resolved.length > 0 ? [...new Set(resolved)] : defaults;
@@ -660,15 +766,27 @@ class Scanner {
   }
 
   private defaultCommandFiles(rootRel: string): string[] {
-    const commands = filesIn(this.index, joinRel(rootRel, 'commands')).filter((f) => hasExt(f, EXTENSIONS.command) && !isDocFile(baseOf(f)));
-    const prompts = filesIn(this.index, joinRel(rootRel, 'prompts')).filter((f) => f.endsWith('.prompt.md'));
+    const commands = filesIn(this.index, joinRel(rootRel, 'commands')).filter(
+      (f) => hasExt(f, EXTENSIONS.command) && !isDocFile(baseOf(f)),
+    );
+    const prompts = filesIn(this.index, joinRel(rootRel, 'prompts')).filter((f) =>
+      f.endsWith('.prompt.md'),
+    );
     // `.md` before `.toml` so Claude commands win over Gemini twins with the same name.
-    return [...commands.filter((f) => f.endsWith('.md')), ...commands.filter((f) => f.endsWith('.toml')), ...prompts];
+    return [
+      ...commands.filter((f) => f.endsWith('.md')),
+      ...commands.filter((f) => f.endsWith('.toml')),
+      ...prompts,
+    ];
   }
 
   private defaultRuleFiles(rootRel: string): string[] {
-    const rules = filesIn(this.index, joinRel(rootRel, 'rules')).filter((f) => hasExt(f, EXTENSIONS.instruction) && !isDocFile(baseOf(f)));
-    const instructions = filesIn(this.index, joinRel(rootRel, 'instructions')).filter((f) => f.endsWith('.md') && !isDocFile(baseOf(f)));
+    const rules = filesIn(this.index, joinRel(rootRel, 'rules')).filter(
+      (f) => hasExt(f, EXTENSIONS.instruction) && !isDocFile(baseOf(f)),
+    );
+    const instructions = filesIn(this.index, joinRel(rootRel, 'instructions')).filter(
+      (f) => f.endsWith('.md') && !isDocFile(baseOf(f)),
+    );
     return [...rules, ...instructions];
   }
 
@@ -716,7 +834,9 @@ class Scanner {
     for (const s of usable.slice(1)) {
       const d = detectHookDialect(s.json);
       if (d !== primary) {
-        this.warnings.push(`plugin ${pluginName}: hooks in ${s.path} use the ${d} dialect (primary ${primary}); ignored`);
+        this.warnings.push(
+          `plugin ${pluginName}: hooks in ${s.path} use the ${d} dialect (primary ${primary}); ignored`,
+        );
         continue;
       }
       raw = mergeHooksRaw(raw, s.json);
@@ -760,9 +880,11 @@ class Scanner {
           break;
         }
       }
-      if (!found) this.warnings.push(`plugin ${pluginName}: declared mcpServers path "${p}" not found`);
+      if (!found)
+        this.warnings.push(`plugin ${pluginName}: declared mcpServers path "${p}" not found`);
     }
-    for (const inline of decl?.inline ?? []) out.push(...this.addMcpConfigs(inline, manifestRel, ctx));
+    for (const inline of decl?.inline ?? [])
+      out.push(...this.addMcpConfigs(inline, manifestRel, ctx));
     for (const f of ['.mcp.json', 'mcp.json']) {
       const rel = joinRel(rootRel, f);
       if (seen.has(rel) || !this.index.fileSet.has(rel)) continue;
@@ -783,46 +905,77 @@ class Scanner {
     const { rootRel, manifest, entry } = input;
     await this.ensureIndexed(rootRel);
     const strict = entry ? entry.strict : true;
-    const decls: ComponentDecls = strict ? mergeDecls(manifest?.components, entry?.components) : { ...(entry?.components ?? {}) };
-    const rawName = manifest?.name ?? entry?.name ?? (rootRel === '' ? this.alias : baseOf(rootRel));
+    const decls: ComponentDecls = strict
+      ? mergeDecls(manifest?.components, entry?.components)
+      : { ...(entry?.components ?? {}) };
+    const rawName =
+      manifest?.name ?? entry?.name ?? (rootRel === '' ? this.alias : baseOf(rootRel));
     const name = toSlug(rawName, baseOf(rootRel), this.alias);
-    if (name !== rawName) this.warnings.push(`plugin name "${rawName}" is not a valid slug; using "${name}"`);
+    if (name !== rawName)
+      this.warnings.push(`plugin name "${rawName}" is not a valid slug; using "${name}"`);
     const version = manifest?.version ?? entry?.version;
-    const manifestRel = manifest ? joinRel(rootRel, manifest.file) : (input.marketplaceRel ?? displayRel(rootRel));
+    const manifestRel = manifest
+      ? joinRel(rootRel, manifest.file)
+      : (input.marketplaceRel ?? displayRel(rootRel));
     if (!strict && manifest && Object.keys(manifest.components).length > 0) {
-      this.warnings.push(`plugin ${name}: strict:false marketplace entry overrides the components declared in ${manifestRel}`);
+      this.warnings.push(
+        `plugin ${name}: strict:false marketplace entry overrides the components declared in ${manifestRel}`,
+      );
     }
-    const unsupported = [...new Set([...(strict ? (manifest?.unsupported ?? []) : []), ...(entry?.unsupported ?? [])])];
-    if (unsupported.length > 0) this.warnings.push(`plugin ${name}: ${unsupported.join(', ')} not supported by palm (ignored)`);
+    const unsupported = [
+      ...new Set([...(strict ? (manifest?.unsupported ?? []) : []), ...(entry?.unsupported ?? [])]),
+    ];
+    if (unsupported.length > 0)
+      this.warnings.push(
+        `plugin ${name}: ${unsupported.join(', ')} not supported by palm (ignored)`,
+      );
 
     const duplicate = this.byName.has(`plugin\0${name}`);
     if (duplicate) {
-      this.warnings.push(`duplicate plugin "${name}" at ${displayRel(rootRel)}: its components are indexed standalone`);
+      this.warnings.push(
+        `duplicate plugin "${name}" at ${displayRel(rootRel)}: its components are indexed standalone`,
+      );
     }
-    const ctx: PluginContext = compact({ name: duplicate ? undefined : name, version, rootRel, format: manifest?.format });
+    const ctx: PluginContext = compact({
+      name: duplicate ? undefined : name,
+      version,
+      rootRel,
+      format: manifest?.format,
+    });
 
     const members: EntityRef[] = [];
     const push = (e: Entity | undefined) => {
-      if (e && !members.some((m) => m.kind === e.kind && m.name === e.name)) members.push({ kind: e.kind, name: e.name });
+      if (e && !members.some((m) => m.kind === e.kind && m.name === e.name))
+        members.push({ kind: e.kind, name: e.name });
     };
 
     const exactSkills = !strict || input.sharedRoot === true;
-    for (const d of await this.pluginSkillDirs(rootRel, decls.skills, exactSkills, name)) push(await this.addSkill(d, ctx));
+    for (const d of await this.pluginSkillDirs(rootRel, decls.skills, exactSkills, name))
+      push(await this.addSkill(d, ctx));
 
-    const agentFiles = decls.agents ? await this.resolveFiles(rootRel, decls.agents, 'agent', name) : this.defaultAgentFiles(rootRel);
+    const agentFiles = decls.agents
+      ? await this.resolveFiles(rootRel, decls.agents, 'agent', name)
+      : this.defaultAgentFiles(rootRel);
     for (const f of agentFiles) push(await this.addAgent(f, ctx, decls.agents !== undefined));
 
-    const commandFiles = decls.commands ? await this.resolveFiles(rootRel, decls.commands, 'command', name) : this.defaultCommandFiles(rootRel);
+    const commandFiles = decls.commands
+      ? await this.resolveFiles(rootRel, decls.commands, 'command', name)
+      : this.defaultCommandFiles(rootRel);
     for (const f of commandFiles) push(await this.addCommand(f, ctx));
 
-    const ruleFiles = decls.rules ? await this.resolveFiles(rootRel, decls.rules, 'instruction', name) : this.defaultRuleFiles(rootRel);
+    const ruleFiles = decls.rules
+      ? await this.resolveFiles(rootRel, decls.rules, 'instruction', name)
+      : this.defaultRuleFiles(rootRel);
     for (const f of ruleFiles) push(await this.addInstruction(f, ctx));
 
     push(await this.addPluginHooks(rootRel, decls.hooks, ctx, manifestRel, name));
-    for (const e of await this.addPluginMcp(rootRel, decls.mcpServers, ctx, manifestRel, name)) push(e);
+    for (const e of await this.addPluginMcp(rootRel, decls.mcpServers, ctx, manifestRel, name))
+      push(e);
 
     if (members.length === 0) {
-      this.warnings.push(`plugin "${name}" at ${displayRel(rootRel)} has no installable components; skipped`);
+      this.warnings.push(
+        `plugin "${name}" at ${displayRel(rootRel)} has no installable components; skipped`,
+      );
       return;
     }
     if (duplicate) return;
@@ -834,13 +987,20 @@ class Scanner {
         version: version ?? this.tagVersion,
         path: displayRel(rootRel),
         origin: this.alias,
-        def: compact({ kind: 'plugin' as const, members, manifestPath: manifest ? manifestRel : input.marketplaceRel }),
+        def: compact({
+          kind: 'plugin' as const,
+          members,
+          manifestPath: manifest ? manifestRel : input.marketplaceRel,
+        }),
       }),
     );
     this.pluginRoots.push({ rootRel, name });
   }
 
-  private async scanMarketplace(fileAbs: string, rootManifest: PluginManifest | undefined): Promise<boolean> {
+  private async scanMarketplace(
+    fileAbs: string,
+    rootManifest: PluginManifest | undefined,
+  ): Promise<boolean> {
     let mp;
     try {
       mp = await readMarketplace(fileAbs);
@@ -856,27 +1016,45 @@ class Scanner {
       const s = entry.source;
       if (isRemoteSource(s)) {
         const hint = originHint(s);
-        this.warnings.push(`remote plugin "${entry.name}" (${describeSource(s)}) not fetched → add it as an origin${hint ? `: palm origin add ${hint}` : ''}`);
+        this.warnings.push(
+          `remote plugin "${entry.name}" (${describeSource(s)}) not fetched → add it as an origin${hint ? `: palm origin add ${hint}` : ''}`,
+        );
         continue;
       }
       if (s.type !== 'local') {
-        this.warnings.push(`plugin "${entry.name}": unsupported source ${describeSource(s)}; skipped`);
+        this.warnings.push(
+          `plugin "${entry.name}": unsupported source ${describeSource(s)}; skipped`,
+        );
         continue;
       }
       const rootRel = joinRel(mpRootRel, s.path);
       if (escapesRoot(rootRel)) {
-        this.warnings.push(`plugin "${entry.name}": source ${describeSource(s)} points outside the origin; skipped`);
+        this.warnings.push(
+          `plugin "${entry.name}": source ${describeSource(s)} points outside the origin; skipped`,
+        );
         continue;
       }
       if ((await this.fsKind(rootRel)) !== 'dir') {
-        this.warnings.push(`plugin "${entry.name}": source directory ${describeSource(s)} not found; skipped`);
+        this.warnings.push(
+          `plugin "${entry.name}": source directory ${describeSource(s)} not found; skipped`,
+        );
         continue;
       }
-      const manifest = rootRel === '' ? rootManifest : await findPluginManifest(join(this.rootAbs, rootRel), this.warnings, rootRel);
+      const manifest =
+        rootRel === ''
+          ? rootManifest
+          : await findPluginManifest(join(this.rootAbs, rootRel), this.warnings, rootRel);
       if (rootRel === '') rootCovered = true;
-      await this.scanPlugin({ rootRel, manifest, entry, sharedRoot: rootRel === mpRootRel, marketplaceRel });
+      await this.scanPlugin({
+        rootRel,
+        manifest,
+        entry,
+        sharedRoot: rootRel === mpRootRel,
+        marketplaceRel,
+      });
     }
-    if (!rootCovered && rootManifest) await this.scanPlugin({ rootRel: '', manifest: rootManifest });
+    if (!rootCovered && rootManifest)
+      await this.scanPlugin({ rootRel: '', manifest: rootManifest });
     return true;
   }
 
@@ -888,11 +1066,19 @@ class Scanner {
       let dir: string | undefined;
       if (base === 'plugin.json') {
         const parent = baseOf(dirOf(f));
-        dir = ['.claude-plugin', '.cursor-plugin', '.codex-plugin'].includes(parent) ? dirOf(dirOf(f)) : dirOf(f);
+        dir = ['.claude-plugin', '.cursor-plugin', '.codex-plugin'].includes(parent)
+          ? dirOf(dirOf(f))
+          : dirOf(f);
       } else if (base === 'gemini-extension.json') {
         dir = dirOf(f);
       }
-      if (dir === undefined || dir === '' || dirDepth(`${dir}/x`) > 3 || this.insideSkillDir(`${dir}/x`)) continue;
+      if (
+        dir === undefined ||
+        dir === '' ||
+        dirDepth(`${dir}/x`) > 3 ||
+        this.insideSkillDir(`${dir}/x`)
+      )
+        continue;
       dirs.add(dir);
     }
     let count = 0;
@@ -921,11 +1107,23 @@ class Scanner {
     if (lower.endsWith('.agent.md')) return 'agent';
     if (lower.endsWith('.instructions.md')) return 'instruction';
     if (parent === 'prompts' && lower.endsWith('.prompt.md')) return 'command';
-    if (parent === 'commands' && (lower.endsWith('.md') || lower.endsWith('.toml')) && !isDocFile(base)) return 'command';
+    if (
+      parent === 'commands' &&
+      (lower.endsWith('.md') || lower.endsWith('.toml')) &&
+      !isDocFile(base)
+    )
+      return 'command';
     const agentsAt = dirs.lastIndexOf('agents');
-    if (agentsAt !== -1 && agentsAt >= dirs.length - 3 && (lower.endsWith('.md') || lower.endsWith('.toml')) && !isDocFile(base)) return 'agent';
+    if (
+      agentsAt !== -1 &&
+      agentsAt >= dirs.length - 3 &&
+      (lower.endsWith('.md') || lower.endsWith('.toml')) &&
+      !isDocFile(base)
+    )
+      return 'agent';
     if (parent === 'rules' && lower.endsWith('.mdc')) return 'instruction';
-    if (parent === 'instructions' && lower.endsWith('.md') && !isDocFile(base)) return 'instruction';
+    if (parent === 'instructions' && lower.endsWith('.md') && !isDocFile(base))
+      return 'instruction';
     if (base === 'hooks.json' && (parent === 'hooks' || grand === 'hooks')) return 'hook';
     if (base === '.mcp.json' || base === 'mcp.json') return 'mcp';
     return undefined;
@@ -947,7 +1145,9 @@ class Scanner {
       if (this.isClaimed('skill', d)) continue;
       await this.addSkill(d);
     }
-    const files = this.index.files.filter((f) => dirDepth(f) <= OTHER_MAX_DEPTH).sort((a, b) => order(a, b, (f) => f));
+    const files = this.index.files
+      .filter((f) => dirDepth(f) <= OTHER_MAX_DEPTH)
+      .sort((a, b) => order(a, b, (f) => f));
     for (const f of files) {
       const kind = this.classify(f);
       if (!kind || this.isClaimed(kind, f) || this.insideSkillDir(f) || isIgnoredRel(f)) continue;
@@ -986,30 +1186,44 @@ class Scanner {
     const ctx: PluginContext = compact({ name, version, rootRel: '', format: 'apm' as const });
     const members: EntityRef[] = [];
     const push = (e: Entity | undefined) => {
-      if (e && !members.some((m) => m.kind === e.kind && m.name === e.name)) members.push({ kind: e.kind, name: e.name });
+      if (e && !members.some((m) => m.kind === e.kind && m.name === e.name))
+        members.push({ kind: e.kind, name: e.name });
     };
 
-    const skillDirs = [...this.skillDirSet].filter((d) => isWithin(d, '.apm/skills') && d !== '.apm/skills').sort(byDepthThenPath);
+    const skillDirs = [...this.skillDirSet]
+      .filter((d) => isWithin(d, '.apm/skills') && d !== '.apm/skills')
+      .sort(byDepthThenPath);
     for (const d of skillDirs) {
       const topLevel = this.parentSkillDir(d) === undefined;
       const e = await this.addSkill(d, topLevel ? ctx : undefined);
       if (topLevel) push(e);
     }
-    const md = (dir: string) => filesIn(this.index, dir).filter((f) => f.endsWith('.md') && !isDocFile(baseOf(f)));
-    for (const f of filesIn(this.index, '.apm/agents').filter((x) => hasExt(x, EXTENSIONS.agent) && !isDocFile(baseOf(x)))) {
+    const md = (dir: string) =>
+      filesIn(this.index, dir).filter((f) => f.endsWith('.md') && !isDocFile(baseOf(f)));
+    for (const f of filesIn(this.index, '.apm/agents').filter(
+      (x) => hasExt(x, EXTENSIONS.agent) && !isDocFile(baseOf(x)),
+    )) {
       push(await this.addAgent(f, ctx, true));
     }
     for (const f of md('.apm/chatmodes')) push(await this.addAgent(f, ctx, true));
     for (const f of md('.apm/instructions')) push(await this.addInstruction(f, ctx));
-    for (const f of [...md('.apm/prompts'), ...md('.apm/commands')]) push(await this.addCommand(f, ctx));
+    for (const f of [...md('.apm/prompts'), ...md('.apm/commands')])
+      push(await this.addCommand(f, ctx));
     const hookFiles = filesUnder(this.index, '.apm/hooks', 1).filter((f) => f.endsWith('.json'));
     for (const f of hookFiles) {
       const stem = baseOf(f).replace(/\.json$/i, '');
-      const hookName = stem !== 'hooks' ? toSlug(stem, name) : dirOf(f) === '.apm/hooks' ? name : toSlug(baseOf(dirOf(f)), name);
+      const hookName =
+        stem !== 'hooks'
+          ? toSlug(stem, name)
+          : dirOf(f) === '.apm/hooks'
+            ? name
+            : toSlug(baseOf(dirOf(f)), name);
       push(await this.addHookFile(f, ctx, hookName));
     }
     if (members.length === 0) {
-      this.warnings.push(`${apmFile}: APM package has no primitives under .apm/; scanning the repository instead`);
+      this.warnings.push(
+        `${apmFile}: APM package has no primitives under .apm/; scanning the repository instead`,
+      );
       return false;
     }
     this.add(
@@ -1030,7 +1244,9 @@ class Scanner {
   private async scanDescriptor(layout: LayoutDescriptor): Promise<void> {
     const ignore = minimalIgnoreGlobs(layout.exclude ?? []);
     const glob = async (v: string | string[] | undefined): Promise<string[]> => {
-      const patterns = (Array.isArray(v) ? v : v ? [v] : []).map((p) => normRel(p)).filter((p) => p !== '');
+      const patterns = (Array.isArray(v) ? v : v ? [v] : [])
+        .map((p) => normRel(p))
+        .filter((p) => p !== '');
       if (patterns.length === 0) return [];
       const matches = await fg(patterns, {
         cwd: this.rootAbs,
@@ -1052,7 +1268,8 @@ class Scanner {
       else if (this.skillDirSet.has(p)) skillDirs.push(p);
     }
     for (const d of [...new Set(skillDirs)].sort(byDepthThenPath)) await this.addSkill(d);
-    const files = async (v: string | string[] | undefined) => (await glob(v)).filter((m) => !m.endsWith('/'));
+    const files = async (v: string | string[] | undefined) =>
+      (await glob(v)).filter((m) => !m.endsWith('/'));
     for (const f of await files(layout.agents)) await this.addAgent(f, undefined, true);
     for (const f of await files(layout.commands)) await this.addCommand(f, undefined);
     for (const f of await files(layout.instructions)) await this.addInstruction(f, undefined);
@@ -1071,7 +1288,8 @@ class Scanner {
     this.entities = this.entities.filter((e) => keep.has(e.name));
     const present = new Set(this.entities.map((e) => `${e.kind}\0${e.name}`));
     for (const e of this.entities) {
-      if (e.def.kind === 'plugin') e.def.members = e.def.members.filter((m) => present.has(`${m.kind}\0${m.name}`));
+      if (e.def.kind === 'plugin')
+        e.def.members = e.def.members.filter((m) => present.has(`${m.kind}\0${m.name}`));
     }
   }
 
@@ -1110,6 +1328,9 @@ class Scanner {
   }
 }
 
-export const scanOrigin: ScanOriginFn = async (root: string, spec: OriginSpec): Promise<ScanResult> => {
+export const scanOrigin: ScanOriginFn = async (
+  root: string,
+  spec: OriginSpec,
+): Promise<ScanResult> => {
   return new Scanner(root, spec).run();
 };

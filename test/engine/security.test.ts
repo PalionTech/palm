@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { saveLock } from '../../src/core/lockfile.js';
 import type { LockEntry } from '../../src/core/types.js';
 import { uninstallEntities } from '../../src/engine/uninstall.js';
-import { removeDir } from '../core/helpers.js';
+import { removeDir } from '../support/sandbox.js';
 import { makeWorld, type World } from './world.js';
 
 const entry = (over: Partial<LockEntry>): LockEntry => ({
@@ -36,18 +36,31 @@ describe('lockfile paths can never make palm delete outside the scope', () => {
     const dir = await victim();
     await mkdir(join(w.sb.project, '.claude/skill'), { recursive: true });
     await writeFile(join(w.sb.project, '.claude/skill/x.txt'), 'x');
-    await saveLock(join(w.sb.project, 'palm.lock.yaml'), { version: 1, entries: [entry({ files: ['../victim/data', '.claude/skill/x.txt', '..'] })] });
+    await saveLock(join(w.sb.project, 'palm.lock.yaml'), {
+      version: 1,
+      entries: [entry({ files: ['../victim/data', '.claude/skill/x.txt', '..'] })],
+    });
 
-    const r = await uninstallEntities(w.ctx, [{ kind: 'skill', name: 'x' }], { scope: 'project' }, w.deps);
+    const r = await uninstallEntities(
+      w.ctx,
+      [{ kind: 'skill', name: 'x' }],
+      { scope: 'project' },
+      w.deps,
+    );
     expect(await readFile(join(dir, 'data'), 'utf8')).toBe('keep me');
     expect(existsSync(join(w.sb.project, '.claude/skill/x.txt'))).toBe(false);
-    expect(r.warnings.join('\n')).toMatch(/ignored lock paths outside the project scope: \.\.\/victim\/data, \.\./);
+    expect(r.warnings.join('\n')).toMatch(
+      /ignored lock paths outside the project scope: \.\.\/victim\/data, \.\./,
+    );
   });
 
   it('global: an absolute path outside home / palm home is ignored', async () => {
     w = await makeWorld();
     const dir = await victim();
-    await saveLock(join(w.sb.palmHome, 'palm.lock.yaml'), { version: 1, entries: [entry({ files: [join(dir, 'data'), join(w.sb.home, '..', 'victim')] })] });
+    await saveLock(join(w.sb.palmHome, 'palm.lock.yaml'), {
+      version: 1,
+      entries: [entry({ files: [join(dir, 'data'), join(w.sb.home, '..', 'victim')] })],
+    });
     await uninstallEntities(w.ctx, [{ kind: 'skill', name: 'x' }], { scope: 'global' }, w.deps);
     expect(await readFile(join(dir, 'data'), 'utf8')).toBe('keep me');
   });
@@ -58,9 +71,16 @@ describe('lockfile paths can never make palm delete outside the scope', () => {
     const dir = await victim();
     await saveLock(join(w.sb.project, 'palm.lock.yaml'), {
       version: 1,
-      entries: [entry({ kind: 'hook', name: '../../../victim', targets: ['claude', 'codex'], files: [] })],
+      entries: [
+        entry({ kind: 'hook', name: '../../../victim', targets: ['claude', 'codex'], files: [] }),
+      ],
     });
-    await uninstallEntities(w.ctx, [{ kind: 'hook', name: '../../../victim' }], { scope: 'project' }, w.deps);
+    await uninstallEntities(
+      w.ctx,
+      [{ kind: 'hook', name: '../../../victim' }],
+      { scope: 'project' },
+      w.deps,
+    );
     expect(await readFile(join(dir, 'data'), 'utf8')).toBe('keep me');
   });
 });
@@ -96,9 +116,19 @@ describe('literal secrets stay in the harness config only', () => {
     w.ctx.env = { ...w.ctx.env, DOCS_TOKEN: SECRET };
     await mkdir(join(w.sb.home, '.codex'), { recursive: true });
 
-    const adhocMcp = { name: 'docs', transport: 'http' as const, url: 'https://docs.example/mcp', headers: { Authorization: 'Bearer ${DOCS_TOKEN}' } };
+    const adhocMcp = {
+      name: 'docs',
+      transport: 'http' as const,
+      url: 'https://docs.example/mcp',
+      headers: { Authorization: 'Bearer ${DOCS_TOKEN}' },
+    };
     const targets = ['claude', 'codex', 'copilot', 'cursor'] as const;
-    const r = await installEntities(w.ctx, [{ kind: 'mcp', spec: 'docs', adhocMcp }], { scope: 'global', targets: [...targets] }, w.deps);
+    const r = await installEntities(
+      w.ctx,
+      [{ kind: 'mcp', spec: 'docs', adhocMcp }],
+      { scope: 'global', targets: [...targets] },
+      w.deps,
+    );
     expect(JSON.stringify(r)).not.toContain(SECRET);
 
     const harnessFiles = [

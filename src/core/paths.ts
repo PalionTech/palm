@@ -36,7 +36,9 @@ export function scopeRoot(paths: PalmPaths, scope: Scope): string {
 }
 
 export function manifestPath(paths: PalmPaths, scope: Scope): string {
-  return scope === 'project' ? join(paths.projectRoot, MANIFEST_FILE) : join(paths.palmHome, MANIFEST_FILE);
+  return scope === 'project'
+    ? join(paths.projectRoot, MANIFEST_FILE)
+    : join(paths.palmHome, MANIFEST_FILE);
 }
 
 export function lockPath(paths: PalmPaths, scope: Scope): string {
@@ -49,7 +51,8 @@ export function isSafeName(name: string): boolean {
 }
 
 export function hooksAssetDir(paths: PalmPaths, scope: Scope, entityName: string): string {
-  if (!isSafeName(entityName)) throw new PalmError('E_USAGE', `invalid entity name "${entityName}"`);
+  if (!isSafeName(entityName))
+    throw new PalmError('E_USAGE', `invalid entity name "${entityName}"`);
   return scope === 'project'
     ? join(paths.projectRoot, '.palm', 'hooks', entityName)
     : join(paths.palmHome, 'hooks', entityName);
@@ -59,7 +62,11 @@ export function hooksAssetDir(paths: PalmPaths, scope: Scope, entityName: string
  * Directories a scope may write to and delete from: the project root (project scope), or
  * the home directory, palm home and any harness home override (global scope).
  */
-export function scopeBoundaries(paths: PalmPaths, scope: Scope, env: NodeJS.ProcessEnv = {}): string[] {
+export function scopeBoundaries(
+  paths: PalmPaths,
+  scope: Scope,
+  env: NodeJS.ProcessEnv = {},
+): string[] {
   if (scope === 'project') return [resolve(paths.projectRoot)];
   const extra = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'COPILOT_HOME']
     .map((k) => env[k])
@@ -73,7 +80,12 @@ export function scopeBoundaries(paths: PalmPaths, scope: Scope, env: NodeJS.Proc
  * when it would leave the scope's boundaries (a tampered lockfile must never make palm
  * delete `../victim`). The boundary directories themselves are never returned.
  */
-export function safeScopePath(paths: PalmPaths, scope: Scope, file: string, env: NodeJS.ProcessEnv = {}): string | undefined {
+export function safeScopePath(
+  paths: PalmPaths,
+  scope: Scope,
+  file: string,
+  env: NodeJS.ProcessEnv = {},
+): string | undefined {
   const root = scope === 'project' ? paths.projectRoot : paths.home;
   const abs = resolve(root, file);
   const inside = scopeBoundaries(paths, scope, env).some((b) => {

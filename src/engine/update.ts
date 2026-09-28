@@ -1,11 +1,20 @@
-import { findOrigin } from '../core/config.js';
 import { getIndex } from '../core/cache.js';
+import { findOrigin } from '../core/config.js';
 import { PalmError } from '../core/errors.js';
 import { loadLock } from '../core/lockfile.js';
 import { isMcpManifestEntry, listDeps, loadManifest } from '../core/manifest.js';
 import { lockPath, manifestPath } from '../core/paths.js';
-import type { DepRef, InstallOutcome, InstallRequest, InstallResult, Kind, LockEntry, PalmContext, Scope } from '../core/types.js';
-import { resolveEngineDeps, type EngineDeps } from './deps.js';
+import type {
+  DepRef,
+  InstallOutcome,
+  InstallRequest,
+  InstallResult,
+  Kind,
+  LockEntry,
+  PalmContext,
+  Scope,
+} from '../core/types.js';
+import { type EngineDeps, resolveEngineDeps } from './deps.js';
 import { dedupeOutcomes, installEntities } from './install.js';
 import { nameMatchesEntry } from './query.js';
 
@@ -31,9 +40,15 @@ export async function updateEntities(
   if (refs.length) {
     selected = [];
     for (const ref of refs) {
-      const matches = lock.entries.filter((e) => (!ref.kind || e.kind === ref.kind) && nameMatchesEntry(e, ref.name));
+      const matches = lock.entries.filter(
+        (e) => (!ref.kind || e.kind === ref.kind) && nameMatchesEntry(e, ref.name),
+      );
       if (!matches.length) {
-        throw new PalmError('E_NOT_FOUND', `${ref.kind ?? 'Nothing'} named "${ref.name}" is ${ref.kind ? 'not ' : ''}installed`, 'See `palm list`.');
+        throw new PalmError(
+          'E_NOT_FOUND',
+          `${ref.kind ?? 'Nothing'} named "${ref.name}" is ${ref.kind ? 'not ' : ''}installed`,
+          'See `palm list`.',
+        );
       }
       selected.push(...matches);
     }
@@ -54,11 +69,17 @@ export async function updateEntities(
   for (const e of roots.values()) {
     let request: InstallRequest;
     if (e.origin === 'adhoc') {
-      outcomes.push({ entry: e, status: 'unchanged', notes: ['ad hoc MCP server: edit palm.yaml and run `palm install` to change it'] });
+      outcomes.push({
+        entry: e,
+        status: 'unchanged',
+        notes: ['ad hoc MCP server: edit palm.yaml and run `palm install` to change it'],
+      });
       continue;
     }
     const pinned = listDeps(manifest, e.kind).find((d) =>
-      isMcpManifestEntry(d) ? d.name.toLowerCase() === e.name.toLowerCase() || d.registry === e.path : d.name.toLowerCase() === e.name.toLowerCase(),
+      isMcpManifestEntry(d)
+        ? d.name.toLowerCase() === e.name.toLowerCase() || d.registry === e.path
+        : d.name.toLowerCase() === e.name.toLowerCase(),
     );
     if (e.origin === 'registry') {
       const spec: DepRef = { name: e.path };
@@ -68,7 +89,11 @@ export async function updateEntities(
       const spec = findOrigin(ctx, e.origin);
       if (!spec) {
         warnings.push(`${e.kind} ${e.name}: origin "${e.origin}" is no longer registered; skipped`);
-        outcomes.push({ entry: e, status: 'skipped', notes: [`origin "${e.origin}" not registered`] });
+        outcomes.push({
+          entry: e,
+          status: 'skipped',
+          notes: [`origin "${e.origin}" not registered`],
+        });
         continue;
       }
       const ref = pinned && !isMcpManifestEntry(pinned) ? pinned.ref : undefined;
@@ -92,7 +117,12 @@ export async function updateEntities(
   }
 
   for (const g of groups.values()) {
-    const r = await installEntities(ctx, g.requests, { scope: opts.scope, targets: g.targets, noSave: true }, deps);
+    const r = await installEntities(
+      ctx,
+      g.requests,
+      { scope: opts.scope, targets: g.targets, noSave: true },
+      deps,
+    );
     outcomes.push(...r.outcomes);
     warnings.push(...r.warnings);
   }

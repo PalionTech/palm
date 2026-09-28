@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { Scope } from '../core/types.js';
 import type { TargetLayout, TargetSpec } from './base.js';
-import { envDir, type Env } from './env.js';
+import { type Env, envDir } from './env.js';
 import { pathExists } from './fs-utils.js';
 
 /** `~/.claude` honouring CLAUDE_CONFIG_DIR (global), `<project>/.claude` (project). */
@@ -12,7 +12,9 @@ export function claudeDir(scope: Scope, scopeRoot: string, env: Env): string {
 
 /** User MCP config: `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json` when set. */
 export function claudeUserConfig(scopeRoot: string, env: Env): string {
-  return env.CLAUDE_CONFIG_DIR ? path.join(claudeDir('global', scopeRoot, env), '.claude.json') : path.join(scopeRoot, '.claude.json');
+  return env.CLAUDE_CONFIG_DIR
+    ? path.join(claudeDir('global', scopeRoot, env), '.claude.json')
+    : path.join(scopeRoot, '.claude.json');
 }
 
 export const claudeSpec: TargetSpec = {
@@ -20,7 +22,8 @@ export const claudeSpec: TargetSpec = {
   displayName: 'Claude Code',
   layout(scope, scopeRoot, env): TargetLayout {
     const base = claudeDir(scope, scopeRoot, env);
-    const mcpFile = scope === 'project' ? path.join(scopeRoot, '.mcp.json') : claudeUserConfig(scopeRoot, env);
+    const mcpFile =
+      scope === 'project' ? path.join(scopeRoot, '.mcp.json') : claudeUserConfig(scopeRoot, env);
     return {
       configDir: base,
       skillsDir: path.join(base, 'skills'),
@@ -34,7 +37,11 @@ export const claudeSpec: TargetSpec = {
     };
   },
   async detect(scope, scopeRoot, env) {
-    if (scope === 'project') return (await pathExists(path.join(scopeRoot, '.claude'))) || pathExists(path.join(scopeRoot, 'CLAUDE.md'));
+    if (scope === 'project')
+      return (
+        (await pathExists(path.join(scopeRoot, '.claude'))) ||
+        pathExists(path.join(scopeRoot, 'CLAUDE.md'))
+      );
     return pathExists(claudeDir('global', scopeRoot, env));
   },
 };

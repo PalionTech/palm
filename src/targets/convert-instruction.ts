@@ -9,18 +9,26 @@
 import type { InstructionDefinition, TargetId } from '../core/types.js';
 import { normalizeBody, withFrontmatter, yamlScalar } from './frontmatter.js';
 
-export function renderInstruction(def: InstructionDefinition, target: TargetId): { fileName: string; content: string } | { managedBlock: string } {
+export function renderInstruction(
+  def: InstructionDefinition,
+  target: TargetId,
+): { fileName: string; content: string } | { managedBlock: string } {
   const globs = (def.globs ?? []).filter((g) => g.trim() !== '');
   switch (target) {
     case 'claude': {
-      const fm = globs.length ? 'paths:\n' + globs.map((g) => `  - ${JSON.stringify(g)}`).join('\n') : '';
+      const fm = globs.length
+        ? 'paths:\n' + globs.map((g) => `  - ${JSON.stringify(g)}`).join('\n')
+        : '';
       return { fileName: `${def.name}.md`, content: withFrontmatter(fm, def.body) };
     }
     case 'copilot': {
       const lines: string[] = [];
       if (def.description) lines.push(`description: ${yamlScalar(def.description)}`);
       lines.push(`applyTo: ${JSON.stringify(globs.length ? globs.join(',') : '**')}`);
-      return { fileName: `${def.name}.instructions.md`, content: withFrontmatter(lines.join('\n'), def.body) };
+      return {
+        fileName: `${def.name}.instructions.md`,
+        content: withFrontmatter(lines.join('\n'), def.body),
+      };
     }
     case 'cursor': {
       const lines = [

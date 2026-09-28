@@ -209,8 +209,21 @@ origins:
 
 ## Development
 
+Node 24 for development (`.nvmrc`); the published CLI runs on Node 22+.
+
 ```sh
-npm test               # vitest
+npm run verify         # lint + typecheck + check:shape + test + build (run before every commit)
+npm test               # vitest (builds dist/ once; CLI tests run node dist/cli.js)
+npm run test:coverage  # vitest with v8 coverage and thresholds
 npm run typecheck      # tsc --noEmit
+npm run lint           # biome formatting check + lint ratchet (scripts/lint-baseline.json)
+npm run format         # biome format --write .
+npm run check:shape    # function length / parameter / nesting ratchet (scripts/shape-baseline.json)
+npm run knip           # unused files and exports (report only for now)
+npm run build          # tsdown -> dist/
+npm run bench          # scanner timing on a synthetic 4k-file origin
 scripts/e2e.sh         # end to end against real GitHub repos in a throwaway HOME (needs network)
 ```
+
+The lint and shape baselines may only go down: after fixing findings, lower them with
+`npm run lint:baseline` and `node scripts/check-shape.mjs --update`.

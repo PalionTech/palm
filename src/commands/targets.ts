@@ -3,13 +3,23 @@ import pc from 'picocolors';
 import { isPalmError } from '../core/errors.js';
 import { TARGET_IDS, type TargetId } from '../core/types.js';
 import { printTable } from '../ui/output.js';
-import { displayPath, makeContext, parseTargetList, printJson, scopeOf, scopeRootOf, type GlobalOptions } from './shared.js';
+import {
+  displayPath,
+  type GlobalOptions,
+  makeContext,
+  parseTargetList,
+  printJson,
+  scopeOf,
+  scopeRootOf,
+} from './shared.js';
 
 export function registerTargets(program: Command): void {
   program
     .command('targets')
     .summary('show which harnesses palm installs into, and why')
-    .description('Show which harnesses palm installs into for this scope, and which ones are detected at each scope.')
+    .description(
+      'Show which harnesses palm installs into for this scope, and which ones are detected at each scope.',
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       const g = cmd.optsWithGlobals<GlobalOptions>();
       const scope = scopeOf(g);
@@ -35,16 +45,36 @@ export function registerTargets(program: Command): void {
             t.detect('project', ctx.paths.projectRoot, ctx.env).catch(() => false),
             t.detect('global', ctx.paths.home, ctx.env).catch(() => false),
           ]);
-          return { id, name: t.displayName, active: active.includes(id), project, global, configDir: t.configDir(scope, scopeRootOf(ctx, scope), ctx.env) };
+          return {
+            id,
+            name: t.displayName,
+            active: active.includes(id),
+            project,
+            global,
+            configDir: t.configDir(scope, scopeRootOf(ctx, scope), ctx.env),
+          };
         }),
       );
 
       if (g.json) return printJson({ scope, active, unresolved, targets: rows });
-      console.log(`${pc.bold(scope)} scope ${pc.dim(scope === 'project' ? ctx.paths.projectRoot : ctx.paths.home)}`);
+      console.log(
+        `${pc.bold(scope)} scope ${pc.dim(scope === 'project' ? ctx.paths.projectRoot : ctx.paths.home)}`,
+      );
       printTable(
-        rows.map((r) => [r.id, r.name, r.active ? pc.green('✓ active') : '', r.project ? 'yes' : pc.dim('no'), r.global ? 'yes' : pc.dim('no'), displayPath(ctx, r.configDir)]),
+        rows.map((r) => [
+          r.id,
+          r.name,
+          r.active ? pc.green('✓ active') : '',
+          r.project ? 'yes' : pc.dim('no'),
+          r.global ? 'yes' : pc.dim('no'),
+          displayPath(ctx, r.configDir),
+        ]),
         ['target', 'harness', 'status', 'project', 'global', `${scope} config dir`],
       );
-      if (unresolved) console.log(pc.yellow(`\n⚠ no targets resolved: ${unresolved}`) + pc.dim('\n  set them with `palm init`, `palm config set targets …` or --target'));
+      if (unresolved)
+        console.log(
+          pc.yellow(`\n⚠ no targets resolved: ${unresolved}`) +
+            pc.dim('\n  set them with `palm init`, `palm config set targets …` or --target'),
+        );
     });
 }

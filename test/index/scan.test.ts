@@ -16,12 +16,16 @@ async function scan(fixture: string, extra: Partial<OriginSpec> = {}): Promise<S
 
 /** `kind:name path <plugin>` — compact, order-independent view of an index. */
 function summary(r: ScanResult): string[] {
-  return r.entities.map((e) => `${e.kind}:${e.name} ${e.path}${e.plugin ? ` <${e.plugin}>` : ''}`).sort();
+  return r.entities
+    .map((e) => `${e.kind}:${e.name} ${e.path}${e.plugin ? ` <${e.plugin}>` : ''}`)
+    .sort();
 }
 
 function members(r: ScanResult): Record<string, string[]> {
   const out: Record<string, string[]> = {};
-  for (const e of r.entities) if (e.def.kind === 'plugin') out[e.name] = e.def.members.map((m) => `${m.kind}:${m.name}`).sort();
+  for (const e of r.entities)
+    if (e.def.kind === 'plugin')
+      out[e.name] = e.def.members.map((m) => `${m.kind}:${m.name}`).sort();
   return out;
 }
 
@@ -54,7 +58,9 @@ const CASES: Case[] = [
       'skill:tdd skills/engineering/tdd <mattpocock-skills>',
     ],
     plugins: { 'mattpocock-skills': ['skill:grill-me', 'skill:handoff', 'skill:tdd'] },
-    warnings: [/plugin "mattpocock-skills" at \. does not declare 2 skills \(old-thing, git-guardrails\); indexed standalone/],
+    warnings: [
+      /plugin "mattpocock-skills" at \. does not declare 2 skills \(old-thing, git-guardrails\); indexed standalone/,
+    ],
   },
   {
     fixture: 'superpowers-like',
@@ -66,7 +72,14 @@ const CASES: Case[] = [
       'skill:test-driven-development skills/test-driven-development <superpowers>',
       'skill:writing-skills skills/writing-skills <superpowers>',
     ],
-    plugins: { superpowers: ['hook:superpowers', 'skill:brainstorming', 'skill:test-driven-development', 'skill:writing-skills'] },
+    plugins: {
+      superpowers: [
+        'hook:superpowers',
+        'skill:brainstorming',
+        'skill:test-driven-development',
+        'skill:writing-skills',
+      ],
+    },
     warnings: [],
   },
   {
@@ -91,7 +104,14 @@ const CASES: Case[] = [
       pstack: ['agent:comment-sicko', 'skill:poteto-mode', 'skill:tdd'],
       ahrefs: ['mcp:ahrefs'],
       // The duplicate `tdd` resolves to the first one indexed (pstack's).
-      'cursor-team-kit': ['agent:ci-watcher', 'hook:cursor-team-kit', 'instruction:no-inline-imports', 'instruction:typescript', 'skill:ci-watch', 'skill:tdd'],
+      'cursor-team-kit': [
+        'agent:ci-watcher',
+        'hook:cursor-team-kit',
+        'instruction:no-inline-imports',
+        'instruction:typescript',
+        'skill:ci-watch',
+        'skill:tdd',
+      ],
     },
     warnings: [
       /poteto-mode\/SKILL\.md: frontmatter name "Poteto Mode" is not a valid slug; using "poteto-mode"/,
@@ -112,7 +132,10 @@ const CASES: Case[] = [
       'skill:pdf skills/pdf <document-skills>',
       'skill:xlsx skills/xlsx <document-skills>',
     ],
-    plugins: { 'document-skills': ['skill:pdf', 'skill:xlsx'], 'example-skills': ['skill:canvas-design'] },
+    plugins: {
+      'document-skills': ['skill:pdf', 'skill:xlsx'],
+      'example-skills': ['skill:canvas-design'],
+    },
     warnings: [
       /skipped skills\/skeleton\/SKILL\.md: skill template/,
       /plugins "document-skills", "example-skills" at \. do not declare 1 skill \(internal-only\)/,
@@ -134,7 +157,12 @@ const CASES: Case[] = [
       'skill:sdk-helper plugins/agent-sdk-dev/skills/sdk-helper <agent-sdk-dev>',
     ],
     plugins: {
-      'agent-sdk-dev': ['agent:agent-sdk-verifier-py', 'command:new-sdk-app', 'hook:agent-sdk-dev', 'skill:sdk-helper'],
+      'agent-sdk-dev': [
+        'agent:agent-sdk-verifier-py',
+        'command:new-sdk-app',
+        'hook:agent-sdk-dev',
+        'skill:sdk-helper',
+      ],
       github: ['mcp:github'],
       context7: ['mcp:context7', 'mcp:fs'],
     },
@@ -161,7 +189,13 @@ const CASES: Case[] = [
       'skill:qdrant-scaling skills/qdrant-scaling',
       'skill:suggest-awesome-github-copilot-agents skills/suggest-awesome-github-copilot-agents <awesome-copilot>',
     ],
-    plugins: { 'awesome-copilot': ['agent:meta-agentic-project-scaffold', 'mcp:awesome-copilot', 'skill:suggest-awesome-github-copilot-agents'] },
+    plugins: {
+      'awesome-copilot': [
+        'agent:meta-agentic-project-scaffold',
+        'mcp:awesome-copilot',
+        'skill:suggest-awesome-github-copilot-agents',
+      ],
+    },
     warnings: [
       /remote plugin "agent-council" \(github:Avyayalaya\/agent-council#v0\.1\.3\)/,
       /remote plugin "anarlog" \(github:fastrepl\/anarlog\/agent-plugins\/anarlog@259b68866a7d\)/,
@@ -203,7 +237,15 @@ const CASES: Case[] = [
       'plugin:my-apm-pkg .',
       'skill:lint-fix .apm/skills/lint-fix <my-apm-pkg>',
     ],
-    plugins: { 'my-apm-pkg': ['agent:reviewer', 'command:release', 'hook:format-on-save', 'instruction:typescript', 'skill:lint-fix'] },
+    plugins: {
+      'my-apm-pkg': [
+        'agent:reviewer',
+        'command:release',
+        'hook:format-on-save',
+        'instruction:typescript',
+        'skill:lint-fix',
+      ],
+    },
     warnings: [],
   },
   {
@@ -232,7 +274,16 @@ const CASES: Case[] = [
       'skill:caveman skills/caveman <caveman>',
       'skill:caveman-commit skills/caveman-commit <caveman>',
     ],
-    plugins: { caveman: ['agent:cavecrew-builder', 'command:caveman', 'command:caveman-init', 'hook:caveman', 'skill:caveman', 'skill:caveman-commit'] },
+    plugins: {
+      caveman: [
+        'agent:cavecrew-builder',
+        'command:caveman',
+        'command:caveman-init',
+        'hook:caveman',
+        'skill:caveman',
+        'skill:caveman-commit',
+      ],
+    },
     warnings: [
       /duplicate command "caveman-init" at commands\/caveman-init\.toml ignored \(already indexed from commands\/caveman-init\.md\)/,
       /duplicate skill "caveman" at plugins\/caveman\/skills\/caveman ignored \(already indexed from skills\/caveman\)/,
@@ -261,7 +312,10 @@ const CASES: Case[] = [
       'skill:alpha-skill plugins/alpha/skills/alpha-skill <alpha>',
       'skill:loose skills/loose',
     ],
-    plugins: { alpha: ['command:go', 'skill:alpha-skill'], beta: ['command:hello', 'mcp:beta-server'] },
+    plugins: {
+      alpha: ['command:go', 'skill:alpha-skill'],
+      beta: ['command:hello', 'mcp:beta-server'],
+    },
     warnings: [],
   },
   {
@@ -272,7 +326,13 @@ const CASES: Case[] = [
   },
   {
     fixture: 'descriptor-like',
-    extra: { layout: { skills: ['catalog/skills/*'], agents: ['catalog/people/*.md', 'catalog/tests/*.md'], exclude: ['catalog/skills/gamma'] } },
+    extra: {
+      layout: {
+        skills: ['catalog/skills/*'],
+        agents: ['catalog/people/*.md', 'catalog/tests/*.md'],
+        exclude: ['catalog/skills/gamma'],
+      },
+    },
     detected: 'descriptor',
     entities: [
       'agent:helper catalog/tests/helper.md',
@@ -280,31 +340,43 @@ const CASES: Case[] = [
       'skill:alpha catalog/skills/alpha',
       'skill:beta-renamed catalog/skills/beta',
     ],
-    warnings: [/catalog\/skills\/beta\/SKILL\.md: frontmatter name "beta-renamed" differs from directory "beta"/],
+    warnings: [
+      /catalog\/skills\/beta\/SKILL\.md: frontmatter name "beta-renamed" differs from directory "beta"/,
+    ],
   },
 ];
 
 describe('scanOrigin fixtures', () => {
-  it.each(CASES.map((c) => [c.fixture + (c.extra ? ' (descriptor)' : ''), c] as const))('%s', async (_label, c) => {
-    const r = await scan(c.fixture, c.extra);
-    expect(r.detected).toBe(c.detected);
-    expect(summary(r)).toEqual([...c.entities].sort());
-    if (c.plugins) expect(members(r)).toEqual(c.plugins);
-    else expect(members(r)).toEqual({});
-    for (const re of c.warnings) expect(r.warnings.some((w) => re.test(w)), `no warning matches ${re}\n${r.warnings.join('\n')}`).toBe(true);
-    expect(r.warnings, r.warnings.join('\n')).toHaveLength(c.warnings.length);
-    for (const e of r.entities) {
-      expect(e.origin).toBe(c.fixture.replace(/-like$/, ''));
-      expect(e.def.kind).toBe(e.kind);
-    }
-  });
+  it.each(CASES.map((c) => [c.fixture + (c.extra ? ' (descriptor)' : ''), c] as const))(
+    '%s',
+    async (_label, c) => {
+      const r = await scan(c.fixture, c.extra);
+      expect(r.detected).toBe(c.detected);
+      expect(summary(r)).toEqual([...c.entities].sort());
+      if (c.plugins) expect(members(r)).toEqual(c.plugins);
+      else expect(members(r)).toEqual({});
+      for (const re of c.warnings)
+        expect(
+          r.warnings.some((w) => re.test(w)),
+          `no warning matches ${re}\n${r.warnings.join('\n')}`,
+        ).toBe(true);
+      expect(r.warnings, r.warnings.join('\n')).toHaveLength(c.warnings.length);
+      for (const e of r.entities) {
+        expect(e.origin).toBe(c.fixture.replace(/-like$/, ''));
+        expect(e.def.kind).toBe(e.kind);
+      }
+    },
+  );
 });
 
 describe('scanOrigin definitions', () => {
   it('mattpocock-like: skills carry the plugin version and never index agents/openai.yaml', async () => {
     const r = await scan('mattpocock-like');
     expect(r.entities.some((e) => e.kind === 'agent')).toBe(false);
-    expect(find(r, 'skill', 'tdd')).toMatchObject({ version: '1.2.3', description: 'Test-driven development with red-green-refactor.' });
+    expect(find(r, 'skill', 'tdd')).toMatchObject({
+      version: '1.2.3',
+      description: 'Test-driven development with red-green-refactor.',
+    });
     expect(find(r, 'skill', 'git-guardrails').version).toBeUndefined();
     expect(find(r, 'plugin', 'mattpocock-skills')).toMatchObject({
       version: '1.2.3',
@@ -327,14 +399,22 @@ describe('scanOrigin definitions', () => {
             SessionStart: [
               {
                 matcher: 'startup|clear|compact',
-                hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start', async: false }],
+                hooks: [
+                  {
+                    type: 'command',
+                    command: '"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start',
+                    async: false,
+                  },
+                ],
               },
             ],
           },
         },
       },
     });
-    expect(find(r, 'skill', 'test-driven-development').description).toBe('Use when implementing any feature or bugfix, before writing implementation code.');
+    expect(find(r, 'skill', 'test-driven-development').description).toBe(
+      'Use when implementing any feature or bugfix, before writing implementation code.',
+    );
     expect(find(r, 'plugin', 'superpowers').version).toBe('6.4.2');
   });
 
@@ -350,7 +430,9 @@ describe('scanOrigin definitions', () => {
         sourceFormat: 'cursor-md',
       },
     });
-    expect(find(r, 'agent', 'ci-watcher').def).toMatchObject({ agent: { model: 'fast', extra: { readonly: true }, sourceFormat: 'cursor-md' } });
+    expect(find(r, 'agent', 'ci-watcher').def).toMatchObject({
+      agent: { model: 'fast', extra: { readonly: true }, sourceFormat: 'cursor-md' },
+    });
     expect(find(r, 'instruction', 'typescript').def).toEqual({
       kind: 'instruction',
       instruction: {
@@ -362,21 +444,38 @@ describe('scanOrigin definitions', () => {
         sourceFormat: 'mdc',
       },
     });
-    expect(find(r, 'instruction', 'no-inline-imports').def).toMatchObject({ instruction: { alwaysApply: true } });
-    expect(find(r, 'hook', 'cursor-team-kit').def).toMatchObject({ hooks: { dialect: 'cursor', pluginRootRel: 'team-kit' } });
+    expect(find(r, 'instruction', 'no-inline-imports').def).toMatchObject({
+      instruction: { alwaysApply: true },
+    });
+    expect(find(r, 'hook', 'cursor-team-kit').def).toMatchObject({
+      hooks: { dialect: 'cursor', pluginRootRel: 'team-kit' },
+    });
     expect(find(r, 'mcp', 'ahrefs').def).toEqual({
       kind: 'mcp',
-      mcp: { name: 'ahrefs', transport: 'http', url: 'https://api.ahrefs.com/mcp/mcp', source: { type: 'origin', ref: 'cursor-monorepo', version: '1.0.0' } },
+      mcp: {
+        name: 'ahrefs',
+        transport: 'http',
+        url: 'https://api.ahrefs.com/mcp/mcp',
+        source: { type: 'origin', ref: 'cursor-monorepo', version: '1.0.0' },
+      },
     });
-    expect(find(r, 'plugin', 'pstack').def).toMatchObject({ manifestPath: 'pstack/.cursor-plugin/plugin.json' });
+    expect(find(r, 'plugin', 'pstack').def).toMatchObject({
+      manifestPath: 'pstack/.cursor-plugin/plugin.json',
+    });
     // .cursor/rules is maintainer config, not content.
     expect(r.entities.some((e) => e.path.startsWith('.cursor/'))).toBe(false);
   });
 
   it('anthropics-skills-like: strict:false subsets share the root; license passes through', async () => {
     const r = await scan('anthropics-skills-like');
-    expect(find(r, 'plugin', 'document-skills')).toMatchObject({ path: '.', description: 'Document processing suite', def: { manifestPath: '.claude-plugin/marketplace.json' } });
-    expect(find(r, 'skill', 'xlsx').def).toMatchObject({ skill: { license: 'Proprietary. LICENSE.txt has complete terms' } });
+    expect(find(r, 'plugin', 'document-skills')).toMatchObject({
+      path: '.',
+      description: 'Document processing suite',
+      def: { manifestPath: '.claude-plugin/marketplace.json' },
+    });
+    expect(find(r, 'skill', 'xlsx').def).toMatchObject({
+      skill: { license: 'Proprietary. LICENSE.txt has complete terms' },
+    });
     expect(r.entities.some((e) => e.name === 'template-skill')).toBe(false);
   });
 
@@ -394,7 +493,8 @@ describe('scanOrigin definitions', () => {
     });
     expect(find(r, 'agent', 'agent-sdk-verifier-py').def).toMatchObject({
       agent: {
-        description: 'Use this agent to verify a Python Agent SDK app. Examples: <example>Context: user created an app</example>',
+        description:
+          'Use this agent to verify a Python Agent SDK app. Examples: <example>Context: user created an app</example>',
         model: 'sonnet',
         tools: ['Read', 'Grep', 'Glob', 'Bash(python -m pytest:*)'],
         skills: ['sdk-helper'],
@@ -403,39 +503,90 @@ describe('scanOrigin definitions', () => {
         sourceFormat: 'claude-md',
       },
     });
-    expect(find(r, 'hook', 'agent-sdk-dev').def).toMatchObject({ hooks: { dialect: 'claude', pluginRootRel: 'plugins/agent-sdk-dev' } });
-    expect(find(r, 'mcp', 'github').def).toMatchObject({
-      mcp: { transport: 'http', secrets: [{ name: 'GITHUB_PERSONAL_ACCESS_TOKEN', in: 'header', header: 'Authorization', required: true, format: 'Bearer {value}' }] },
+    expect(find(r, 'hook', 'agent-sdk-dev').def).toMatchObject({
+      hooks: { dialect: 'claude', pluginRootRel: 'plugins/agent-sdk-dev' },
     });
-    expect(find(r, 'mcp', 'fs').def).toMatchObject({ mcp: { transport: 'stdio', command: 'npx', secrets: [{ name: 'FS_TOKEN', in: 'env', required: true }] } });
+    expect(find(r, 'mcp', 'github').def).toMatchObject({
+      mcp: {
+        transport: 'http',
+        secrets: [
+          {
+            name: 'GITHUB_PERSONAL_ACCESS_TOKEN',
+            in: 'header',
+            header: 'Authorization',
+            required: true,
+            format: 'Bearer {value}',
+          },
+        ],
+      },
+    });
+    expect(find(r, 'mcp', 'fs').def).toMatchObject({
+      mcp: {
+        transport: 'stdio',
+        command: 'npx',
+        secrets: [{ name: 'FS_TOKEN', in: 'env', required: true }],
+      },
+    });
     expect(find(r, 'skill', 'sdk-helper')).toMatchObject({
       version: '1.10',
-      def: { skill: { allowedTools: ['Read', 'Grep', 'WebFetch'], metadata: { version: '1.10', author: 'anthropic' } } },
+      def: {
+        skill: {
+          allowedTools: ['Read', 'Grep', 'WebFetch'],
+          metadata: { version: '1.10', author: 'anthropic' },
+        },
+      },
     });
   });
 
   it('awesome-copilot-like: materialized agent paths, instructions, Copilot hooks, sub-skills', async () => {
     const r = await scan('awesome-copilot-like');
     expect(find(r, 'agent', 'meta-agentic-project-scaffold').def).toMatchObject({
-      agent: { displayName: 'Meta Agentic Project Scaffold', tools: ['changes', 'codebase', 'fetch'], model: 'GPT-4.1', sourceFormat: 'copilot-agent-md' },
+      agent: {
+        displayName: 'Meta Agentic Project Scaffold',
+        tools: ['changes', 'codebase', 'fetch'],
+        model: 'GPT-4.1',
+        sourceFormat: 'copilot-agent-md',
+      },
     });
-    expect(find(r, 'agent', 'c-sharp-expert').def).toMatchObject({ agent: { displayName: 'C# Expert', extra: { 'mcp-servers': { nuget: { command: 'dnx' } } } } });
-    expect(find(r, 'instruction', 'a11y').def).toMatchObject({ instruction: { alwaysApply: true, sourceFormat: 'instructions-md' } });
-    expect(find(r, 'instruction', 'python').def).toMatchObject({ instruction: { globs: ['**/*.py', '**/*.pyi'], alwaysApply: false } });
-    expect(find(r, 'hook', 'license-checker').def).toMatchObject({ hooks: { dialect: 'copilot', pluginRootRel: 'hooks/license-checker' } });
+    expect(find(r, 'agent', 'c-sharp-expert').def).toMatchObject({
+      agent: { displayName: 'C# Expert', extra: { 'mcp-servers': { nuget: { command: 'dnx' } } } },
+    });
+    expect(find(r, 'instruction', 'a11y').def).toMatchObject({
+      instruction: { alwaysApply: true, sourceFormat: 'instructions-md' },
+    });
+    expect(find(r, 'instruction', 'python').def).toMatchObject({
+      instruction: { globs: ['**/*.py', '**/*.pyi'], alwaysApply: false },
+    });
+    expect(find(r, 'hook', 'license-checker').def).toMatchObject({
+      hooks: { dialect: 'copilot', pluginRootRel: 'hooks/license-checker' },
+    });
     expect(find(r, 'skill', 'qdrant-horizontal-scaling').def).toMatchObject({
-      skill: { parent: 'qdrant-scaling', dirName: 'horizontal-scaling', description: "Diagnoses horizontal scaling: 'vertical or horizontal?', 'how many nodes?'" },
+      skill: {
+        parent: 'qdrant-scaling',
+        dirName: 'horizontal-scaling',
+        description: "Diagnoses horizontal scaling: 'vertical or horizontal?', 'how many nodes?'",
+      },
     });
     expect(find(r, 'skill', 'qdrant-scaling').def).not.toHaveProperty('skill.parent');
     // .github/{skills,agents}, .vscode/mcp.json are install output / dev config.
-    expect(r.entities.some((e) => e.path.startsWith('.github/') || e.path.startsWith('.vscode/'))).toBe(false);
+    expect(
+      r.entities.some((e) => e.path.startsWith('.github/') || e.path.startsWith('.vscode/')),
+    ).toBe(false);
   });
 
   it('apm-like: APM sources win and install outputs are ignored', async () => {
     const r = await scan('apm-like');
-    expect(find(r, 'agent', 'reviewer').def).toMatchObject({ agent: { sourceFormat: 'apm-agent-md', tools: ['read', 'search'] } });
-    expect(find(r, 'plugin', 'my-apm-pkg')).toMatchObject({ version: '1.0.0', description: 'A sample APM package', def: { manifestPath: 'apm.yml' } });
-    expect(find(r, 'hook', 'format-on-save').def).toMatchObject({ hooks: { dialect: 'claude', pluginRootRel: '.' } });
+    expect(find(r, 'agent', 'reviewer').def).toMatchObject({
+      agent: { sourceFormat: 'apm-agent-md', tools: ['read', 'search'] },
+    });
+    expect(find(r, 'plugin', 'my-apm-pkg')).toMatchObject({
+      version: '1.0.0',
+      description: 'A sample APM package',
+      def: { manifestPath: 'apm.yml' },
+    });
+    expect(find(r, 'hook', 'format-on-save').def).toMatchObject({
+      hooks: { dialect: 'claude', pluginRootRel: '.' },
+    });
   });
 
   it('codex-agent-like: Codex TOML agent, Gemini command and Gemini hooks', async () => {
@@ -450,23 +601,40 @@ describe('scanOrigin definitions', () => {
         extra: { model_reasoning_effort: 'high', sandbox_mode: 'read-only' },
       },
     });
-    expect(find(r, 'command', 'review').def).toMatchObject({ command: { body: 'Review {{args}} carefully.', sourceFormat: 'gemini-toml' } });
-    expect(find(r, 'command', 'ship').def).toMatchObject({ command: { argumentHint: '[--dry-run]' } });
-    expect(find(r, 'hook', 'codex-agent').def).toMatchObject({ hooks: { dialect: 'gemini', pluginRootRel: '.' } });
-    expect(find(r, 'instruction', 'style').def).toMatchObject({ instruction: { globs: ['src/**/*.ts'], alwaysApply: false } });
+    expect(find(r, 'command', 'review').def).toMatchObject({
+      command: { body: 'Review {{args}} carefully.', sourceFormat: 'gemini-toml' },
+    });
+    expect(find(r, 'command', 'ship').def).toMatchObject({
+      command: { argumentHint: '[--dry-run]' },
+    });
+    expect(find(r, 'hook', 'codex-agent').def).toMatchObject({
+      hooks: { dialect: 'gemini', pluginRootRel: '.' },
+    });
+    expect(find(r, 'instruction', 'style').def).toMatchObject({
+      instruction: { globs: ['src/**/*.ts'], alwaysApply: false },
+    });
   });
 
   it('caveman-like: inline manifest hooks are wrapped', async () => {
     const r = await scan('caveman-like');
     expect(find(r, 'hook', 'caveman').def).toMatchObject({
-      hooks: { dialect: 'claude', pluginRootRel: '.', raw: { hooks: { SessionStart: [{ hooks: [{ type: 'command', timeout: 30 }] }] } } },
+      hooks: {
+        dialect: 'claude',
+        pluginRootRel: '.',
+        raw: { hooks: { SessionStart: [{ hooks: [{ type: 'command', timeout: 30 }] }] } },
+      },
     });
   });
 
   it('nested-plugins-like: one manifest per plugin (Claude beats Codex), Gemini inline MCP', async () => {
     const r = await scan('nested-plugins-like');
-    expect(find(r, 'plugin', 'alpha')).toMatchObject({ version: '0.1.0', def: { manifestPath: 'plugins/alpha/.claude-plugin/plugin.json' } });
-    expect(find(r, 'mcp', 'beta-server').def).toMatchObject({ mcp: { transport: 'http', url: 'https://beta.example.com/mcp' } });
+    expect(find(r, 'plugin', 'alpha')).toMatchObject({
+      version: '0.1.0',
+      def: { manifestPath: 'plugins/alpha/.claude-plugin/plugin.json' },
+    });
+    expect(find(r, 'mcp', 'beta-server').def).toMatchObject({
+      mcp: { transport: 'http', url: 'https://beta.example.com/mcp' },
+    });
   });
 
   it('root-skill-like: the whole origin is one skill, non-spec keys pass through', async () => {
@@ -493,31 +661,50 @@ describe('scanOrigin definitions', () => {
 });
 
 describe('scanOrigin layout options', () => {
-  const layoutScan = (fixture: string, layout: LayoutDescriptor, extra: Partial<OriginSpec> = {}) => scan(fixture, { layout, ...extra });
+  const layoutScan = (fixture: string, layout: LayoutDescriptor, extra: Partial<OriginSpec> = {}) =>
+    scan(fixture, { layout, ...extra });
 
   it('descriptor include restricts to canonical names', async () => {
-    const r = await layoutScan('descriptor-like', { skills: 'catalog/skills/*', include: ['alpha'] });
+    const r = await layoutScan('descriptor-like', {
+      skills: 'catalog/skills/*',
+      include: ['alpha'],
+    });
     expect(summary(r)).toEqual(['skill:alpha catalog/skills/alpha']);
   });
 
   it('nameFrom: dirname uses directory names', async () => {
-    const r = await layoutScan('descriptor-like', { skills: ['catalog/skills/*'], nameFrom: 'dirname', exclude: ['catalog/skills/gamma'] });
-    expect(summary(r)).toEqual(['skill:alpha catalog/skills/alpha', 'skill:beta catalog/skills/beta']);
+    const r = await layoutScan('descriptor-like', {
+      skills: ['catalog/skills/*'],
+      nameFrom: 'dirname',
+      exclude: ['catalog/skills/gamma'],
+    });
+    expect(summary(r)).toEqual([
+      'skill:alpha catalog/skills/alpha',
+      'skill:beta catalog/skills/beta',
+    ]);
     expect(r.warnings).toEqual([]);
   });
 
   it('descriptor globs match dot directories', async () => {
     const r = await layoutScan('openai-like', { skills: ['skills/.curated/*'] });
     expect(r.detected).toBe('descriptor');
-    expect(summary(r)).toEqual(['skill:gh-fix-ci skills/.curated/gh-fix-ci', 'skill:notion-spec skills/.curated/notion-spec']);
+    expect(summary(r)).toEqual([
+      'skill:gh-fix-ci skills/.curated/gh-fix-ci',
+      'skill:notion-spec skills/.curated/notion-spec',
+    ]);
   });
 
   it('include/exclude without kind globs keep auto-detection', async () => {
     const r = await layoutScan('vercel-like', { include: ['web-design-guidelines'] });
     expect(r.detected).toBe('convention');
     expect(summary(r)).toEqual(['skill:web-design-guidelines skills/web-design-guidelines']);
-    const ex = await layoutScan('openai-like', { exclude: ['skills/.system', 'skills/.experimental/**'] });
-    expect(summary(ex)).toEqual(['skill:gh-fix-ci skills/.curated/gh-fix-ci', 'skill:notion-spec skills/.curated/notion-spec']);
+    const ex = await layoutScan('openai-like', {
+      exclude: ['skills/.system', 'skills/.experimental/**'],
+    });
+    expect(summary(ex)).toEqual([
+      'skill:gh-fix-ci skills/.curated/gh-fix-ci',
+      'skill:notion-spec skills/.curated/notion-spec',
+    ]);
   });
 
   it('include also filters plugin members', async () => {

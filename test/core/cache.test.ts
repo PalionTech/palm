@@ -4,15 +4,24 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getAllIndexes, getIndex, invalidateIndex } from '../../src/core/cache.js';
 import { originId } from '../../src/core/config.js';
 import type { OriginSpec, ScanOriginFn, ScanResult } from '../../src/core/types.js';
+import { type FakeLogger, fakeLogger, makeContext } from '../support/fakes.js';
+import { removeDir, type Sandbox, sandbox, writeFiles } from '../support/sandbox.js';
 import { makeRemote } from './gitrepo.js';
-import { makeContext, removeDir, sandbox, writeFiles, type FakeLogger, fakeLogger, type Sandbox } from './helpers.js';
 
 function countingScan(): ScanOriginFn & { calls: string[] } {
   const calls: string[] = [];
   const fn = (async (root: string, spec: OriginSpec): Promise<ScanResult> => {
     calls.push(root);
     return {
-      entities: [{ kind: 'skill', name: 'a', path: 'a.txt', origin: spec.alias, def: { kind: 'skill', skill: { name: 'a', description: 'A' } } }],
+      entities: [
+        {
+          kind: 'skill',
+          name: 'a',
+          path: 'a.txt',
+          origin: spec.alias,
+          def: { kind: 'skill', skill: { name: 'a', description: 'A' } },
+        },
+      ],
       warnings: [],
       detected: 'convention',
     };
@@ -34,7 +43,12 @@ describe('index cache', () => {
     const scan = countingScan();
     const spec: OriginSpec = { alias: 'r', type: 'git', url: remote.bare };
     const idx = await getIndex(ctx, spec, { scan });
-    expect(idx).toMatchObject({ origin: 'r', sha: remote.shas['v1.1.0'], ref: 'v1.1.0', detected: 'convention' });
+    expect(idx).toMatchObject({
+      origin: 'r',
+      sha: remote.shas['v1.1.0'],
+      ref: 'v1.1.0',
+      detected: 'convention',
+    });
     expect(existsSync(join(sb.palmHome, 'cache', `${originId(spec)}.index.json`))).toBe(true);
     await getIndex(ctx, spec, { scan });
     expect(scan.calls).toHaveLength(1);

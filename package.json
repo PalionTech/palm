@@ -2,10 +2,33 @@
   "name": "@paliontech/palm",
   "version": "0.1.0",
   "description": "palm — package manager for agent resources: skills, agents, instructions, hooks, MCP servers and plugins, installed into Claude Code, Codex, Copilot and Cursor.",
-  "type": "module",
+  "keywords": [
+    "agent-skills",
+    "claude-code",
+    "codex",
+    "copilot",
+    "cursor",
+    "mcp",
+    "subagents",
+    "package-manager",
+    "cli"
+  ],
+  "homepage": "https://paliontech.github.io/palm",
+  "bugs": {
+    "url": "https://github.com/PalionTech/palm/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PalionTech/palm.git"
+  },
   "license": "MIT",
+  "author": "PalionTech / Maximilian Bertram",
+  "type": "module",
   "bin": {
     "palm": "./dist/cli.js"
+  },
+  "exports": {
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
@@ -13,12 +36,26 @@
   "engines": {
     "node": ">=22"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
-    "build": "tsup",
+    "build": "tsdown",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "biome check --linter-enabled=false . && node scripts/lint-ratchet.mjs",
+    "lint:fix": "biome check --write .",
+    "lint:baseline": "node scripts/lint-ratchet.mjs --update",
+    "format": "biome format --write .",
+    "check:shape": "node scripts/check-shape.mjs",
+    "knip": "knip --no-exit-code",
+    "bench": "node scripts/bench-scan.mjs",
+    "verify": "npm run lint && npm run typecheck && npm run check:shape && npm run test && npm run build",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@clack/prompts": "^1.0.0",
@@ -30,8 +67,12 @@
     "yaml": "^2.8.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
     "@types/node": "^24.0.0",
-    "tsup": "^8.5.0",
+    "@vitest/coverage-v8": "~3.2.7",
+    "fast-check": "^4.10.2",
+    "knip": "^6.38.0",
+    "tsdown": "^0.23.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"

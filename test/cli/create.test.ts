@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import type { LockEntry, OriginIndex, PickOption, UI } from '../../src/core/types.js';
 import {
+  type AgentAnswers,
   buildEntityOptions,
   buildInstructionOptions,
   collectAgentAnswers,
   pickManyWithSearch,
   renderAgentFile,
-  type AgentAnswers,
 } from '../../src/create/agent.js';
 import { renderCommandFile } from '../../src/create/command.js';
 import { parseGlobList, renderInstructionFile } from '../../src/create/instruction.js';
@@ -26,17 +26,26 @@ type Answer = unknown | ((options: PickOption<unknown>[], initial: unknown[]) =>
 function scriptedUI(answers: Answer[]): UI & { asked: string[] } {
   const queue = [...answers];
   const asked: string[] = [];
-  const next = (type: string, message: string, options: PickOption<unknown>[] = [], initial: unknown[] = []) => {
+  const next = (
+    type: string,
+    message: string,
+    options: PickOption<unknown>[] = [],
+    initial: unknown[] = [],
+  ) => {
     asked.push(`${type}: ${message}`);
     if (queue.length === 0) throw new Error(`unexpected prompt ${type}: ${message}`);
     const a = queue.shift();
-    return typeof a === 'function' ? (a as (o: PickOption<unknown>[], i: unknown[]) => unknown)(options, initial) : a;
+    return typeof a === 'function'
+      ? (a as (o: PickOption<unknown>[], i: unknown[]) => unknown)(options, initial)
+      : a;
   };
   return {
     isInteractive: true,
     asked,
-    pick: async <T>(m: string, o: PickOption<T>[]) => next('pick', m, o as PickOption<unknown>[]) as T,
-    pickMany: async <T>(m: string, o: PickOption<T>[], i?: T[]) => next('pickMany', m, o as PickOption<unknown>[], (i ?? []) as unknown[]) as T[],
+    pick: async <T>(m: string, o: PickOption<T>[]) =>
+      next('pick', m, o as PickOption<unknown>[]) as T,
+    pickMany: async <T>(m: string, o: PickOption<T>[], i?: T[]) =>
+      next('pickMany', m, o as PickOption<unknown>[], (i ?? []) as unknown[]) as T[],
     confirm: async (m: string) => next('confirm', m) as boolean,
     text: async (m: string, o?: { validate?: (v: string) => string | undefined }) => {
       const v = next('text', m) as string;
@@ -70,7 +79,15 @@ describe('renderAgentFile', () => {
   it('writes canonical Claude frontmatter plus skills, mcpServers and palm instructions', () => {
     const file = renderAgentFile(base);
     const { data, body } = frontmatter(file);
-    expect(Object.keys(data)).toEqual(['name', 'description', 'model', 'tools', 'skills', 'mcpServers', 'instructions']);
+    expect(Object.keys(data)).toEqual([
+      'name',
+      'description',
+      'model',
+      'tools',
+      'skills',
+      'mcpServers',
+      'instructions',
+    ]);
     expect(data).toEqual({
       name: 'code-reviewer',
       description: 'Use proactively after code changes: reviews diffs.',
@@ -84,7 +101,16 @@ describe('renderAgentFile', () => {
   });
 
   it('omits model when inherited and empty lists', () => {
-    const { data } = frontmatter(renderAgentFile({ ...base, model: 'inherit', tools: [], skills: [], mcpServers: [], instructions: [] }));
+    const { data } = frontmatter(
+      renderAgentFile({
+        ...base,
+        model: 'inherit',
+        tools: [],
+        skills: [],
+        mcpServers: [],
+        instructions: [],
+      }),
+    );
     expect(data).toEqual({ name: 'code-reviewer', description: base.description });
     const { data: noModel } = frontmatter(renderAgentFile({ ...base, model: undefined }));
     expect(noModel).not.toHaveProperty('model');
@@ -93,7 +119,8 @@ describe('renderAgentFile', () => {
 
 describe('stripHtmlComments', () => {
   it('removes single and multi-line comments and tidies blank lines', () => {
-    const input = '<!--\n  instructions\n  more\n-->\n\nYou are X.   \n\n<!-- inline -->\n\n\n## Steps\n1. a <!-- note --> b\n';
+    const input =
+      '<!--\n  instructions\n  more\n-->\n\nYou are X.   \n\n<!-- inline -->\n\n\n## Steps\n1. a <!-- note --> b\n';
     expect(stripHtmlComments(input)).toBe('You are X.\n\n## Steps\n1. a  b');
   });
 
@@ -104,27 +131,60 @@ describe('stripHtmlComments', () => {
 
 describe('other create renderers', () => {
   it('renderSkillFile has name, description and the section template', () => {
-    const { data, body } = frontmatter(renderSkillFile({ name: 'release-notes', description: 'Use when drafting release notes.' }));
-    expect(data).toEqual({ name: 'release-notes', description: 'Use when drafting release notes.' });
+    const { data, body } = frontmatter(
+      renderSkillFile({ name: 'release-notes', description: 'Use when drafting release notes.' }),
+    );
+    expect(data).toEqual({
+      name: 'release-notes',
+      description: 'Use when drafting release notes.',
+    });
     expect(body).toContain('# Release Notes');
     for (const h of ['## When to use', '## Steps', '## Notes']) expect(body).toContain(h);
   });
 
   it('renderInstructionFile writes paths only for globs and alwaysApply only when it differs', () => {
-    expect(frontmatter(renderInstructionFile({ description: 'TS style', globs: [], alwaysApply: true, body: '- a' })).data).toEqual({ description: 'TS style' });
-    expect(frontmatter(renderInstructionFile({ description: 'TS', globs: ['src/**/*.ts'], alwaysApply: false, body: '- a' })).data).toEqual({
+    expect(
+      frontmatter(
+        renderInstructionFile({
+          description: 'TS style',
+          globs: [],
+          alwaysApply: true,
+          body: '- a',
+        }),
+      ).data,
+    ).toEqual({ description: 'TS style' });
+    expect(
+      frontmatter(
+        renderInstructionFile({
+          description: 'TS',
+          globs: ['src/**/*.ts'],
+          alwaysApply: false,
+          body: '- a',
+        }),
+      ).data,
+    ).toEqual({
       description: 'TS',
       paths: ['src/**/*.ts'],
     });
-    expect(frontmatter(renderInstructionFile({ globs: [], alwaysApply: false, body: '- a' })).data).toEqual({ alwaysApply: false });
+    expect(
+      frontmatter(renderInstructionFile({ globs: [], alwaysApply: false, body: '- a' })).data,
+    ).toEqual({ alwaysApply: false });
     expect(parseGlobList(' a/**, ,b ')).toEqual(['a/**', 'b']);
   });
 
   it('renderCommandFile writes argument-hint when given', () => {
-    const { data, body } = frontmatter(renderCommandFile({ description: 'Fix an issue', argumentHint: '[n]', body: 'Fix $ARGUMENTS' }));
+    const { data, body } = frontmatter(
+      renderCommandFile({
+        description: 'Fix an issue',
+        argumentHint: '[n]',
+        body: 'Fix $ARGUMENTS',
+      }),
+    );
     expect(data).toEqual({ description: 'Fix an issue', 'argument-hint': '[n]' });
     expect(body).toBe('Fix $ARGUMENTS\n');
-    expect(frontmatter(renderCommandFile({ description: 'x', argumentHint: '', body: 'y' })).data).toEqual({ description: 'x' });
+    expect(
+      frontmatter(renderCommandFile({ description: 'x', argumentHint: '', body: 'y' })).data,
+    ).toEqual({ description: 'x' });
   });
 
   it('validates slugs and skill descriptions', () => {
@@ -148,7 +208,10 @@ describe('agent wizard options', () => {
     targets: ['claude'],
     files: [],
   });
-  const index = (origin: string, entities: Array<[OriginIndex['entities'][number]['kind'], string, string?]>): OriginIndex => ({
+  const index = (
+    origin: string,
+    entities: Array<[OriginIndex['entities'][number]['kind'], string, string?]>,
+  ): OriginIndex => ({
     origin,
     originId: origin,
     root: `/tmp/${origin}`,
@@ -169,7 +232,16 @@ describe('agent wizard options', () => {
     const opts = buildEntityOptions(
       'skill',
       [lock('skill', 'tdd', 'mattpocock'), lock('mcp', 'github', 'registry')],
-      [index('mattpocock', [['skill', 'tdd'], ['skill', 'wayfinder', 'Plan refactors']]), index('other', [['skill', 'wayfinder'], ['agent', 'x']])],
+      [
+        index('mattpocock', [
+          ['skill', 'tdd'],
+          ['skill', 'wayfinder', 'Plan refactors'],
+        ]),
+        index('other', [
+          ['skill', 'wayfinder'],
+          ['agent', 'x'],
+        ]),
+      ],
     );
     expect(opts).toEqual([
       { value: 'tdd', label: 'tdd @mattpocock', hint: 'installed' },
@@ -178,7 +250,9 @@ describe('agent wizard options', () => {
   });
 
   it('buildInstructionOptions keeps the origin in the value', () => {
-    expect(buildInstructionOptions([index('mine', [['instruction', 'ts-style']])])).toEqual([{ value: 'ts-style@mine', label: 'ts-style @mine', hint: undefined }]);
+    expect(buildInstructionOptions([index('mine', [['instruction', 'ts-style']])])).toEqual([
+      { value: 'ts-style@mine', label: 'ts-style @mine', hint: undefined },
+    ]);
   });
 
   it('pickManyWithSearch filters by a query and keeps earlier picks', async () => {
@@ -212,7 +286,8 @@ describe('collectAgentAnswers', () => {
       ['Read', 'Grep'], // tools
       byLabel('search skills'), // skills: search…
       'way',
-      (options: PickOption<unknown>[]) => options.filter((o) => o.label.startsWith('wayfinder')).map((o) => o.value),
+      (options: PickOption<unknown>[]) =>
+        options.filter((o) => o.label.startsWith('wayfinder')).map((o) => o.value),
       byLabel('search the MCP registry'), // mcp: registry
       'github',
       ['io.github.github/github-mcp-server'], // registry results
@@ -230,7 +305,12 @@ describe('collectAgentAnswers', () => {
         instructions: [{ value: 'ts-style@mine', label: 'ts-style @mine' }],
         searchRegistry: async (q) => {
           registryQueries.push(q);
-          return [{ value: 'io.github.github/github-mcp-server', label: 'io.github.github/github-mcp-server' }];
+          return [
+            {
+              value: 'io.github.github/github-mcp-server',
+              label: 'io.github.github/github-mcp-server',
+            },
+          ];
         },
         editBody: async (template) => {
           expect(template).toContain('code-reviewer');
@@ -272,7 +352,11 @@ describe('collectAgentAnswers', () => {
 
   it('rejects an invalid slug', async () => {
     await expect(
-      collectAgentAnswers(scriptedUI(['Not A Slug']), { skills: [], mcp: [], instructions: [], editBody: async () => '' }, {}),
+      collectAgentAnswers(
+        scriptedUI(['Not A Slug']),
+        { skills: [], mcp: [], instructions: [], editBody: async () => '' },
+        {},
+      ),
     ).rejects.toThrow(/lowercase/);
   });
 });

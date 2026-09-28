@@ -1,9 +1,15 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { findEntry, loadLock, removeEntry, saveLock, upsertEntry } from '../../src/core/lockfile.js';
+import {
+  findEntry,
+  loadLock,
+  removeEntry,
+  saveLock,
+  upsertEntry,
+} from '../../src/core/lockfile.js';
 import type { LockEntry } from '../../src/core/types.js';
-import { removeDir, tempDir } from './helpers.js';
+import { removeDir, tempDir } from '../support/sandbox.js';
 
 function entry(name: string, origin = 'o', extra: Partial<LockEntry> = {}): LockEntry {
   return {
@@ -44,7 +50,10 @@ describe('lockfile', () => {
 
   it('saves and loads', async () => {
     const file = join(dir, 'palm.lock.yaml');
-    const lock = upsertEntry(upsertEntry({ version: 1, entries: [] }, entry('b')), entry('a', 'o', { via: 'plugin:p', merged: [] }));
+    const lock = upsertEntry(
+      upsertEntry({ version: 1, entries: [] }, entry('b')),
+      entry('a', 'o', { via: 'plugin:p', merged: [] }),
+    );
     await saveLock(file, lock);
     const text = await readFile(file, 'utf8');
     expect(text).toMatch(/^# palm lockfile/);

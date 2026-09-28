@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { TargetLayout, TargetSpec } from './base.js';
-import { envDir, type Env } from './env.js';
+import { type Env, envDir } from './env.js';
 import { pathExists } from './fs-utils.js';
 
 /** Copilot CLI home: `$COPILOT_HOME` or `~/.copilot`. */
@@ -26,7 +26,10 @@ export const copilotSpec: TargetSpec = {
         commands: { dir: sub('prompts') },
         hooks: { dir: sub('hooks') },
         mcp: { json: mcpFile, pointer: '/servers' },
-        roots: [...['agents', 'instructions', 'prompts', 'hooks'].map((n) => ({ dir: sub(n), stop: gh })), skillsRoot],
+        roots: [
+          ...['agents', 'instructions', 'prompts', 'hooks'].map((n) => ({ dir: sub(n), stop: gh })),
+          skillsRoot,
+        ],
         mergedFiles: [mcpFile],
       };
     }
@@ -37,7 +40,9 @@ export const copilotSpec: TargetSpec = {
       skillsDir: skillsRoot.dir,
       agentsDir: path.join(home, 'agents'),
       instructions: { dir: path.join(home, 'instructions') },
-      commands: { skip: 'Copilot has no user-level prompt files; command skipped (install without -g for .github/prompts)' },
+      commands: {
+        skip: 'Copilot has no user-level prompt files; command skipped (install without -g for .github/prompts)',
+      },
       hooks: { dir: path.join(home, 'hooks') },
       mcp: { json: mcpFile, pointer: '/mcpServers' },
       roots: [{ dir: home, stop: home }, skillsRoot],

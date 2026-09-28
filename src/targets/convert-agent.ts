@@ -31,10 +31,30 @@ export function isClaudeModel(model: string): boolean {
 }
 
 /** Extra keys each harness understands (copied from `def.extra` when present). */
-const CODEX_EXTRA = ['model_reasoning_effort', 'model_verbosity', 'sandbox_mode', 'nickname_candidates'];
-const COPILOT_EXTRA = ['target', 'disable-model-invocation', 'user-invocable', 'metadata', 'mcp-servers'];
+const CODEX_EXTRA = [
+  'model_reasoning_effort',
+  'model_verbosity',
+  'sandbox_mode',
+  'nickname_candidates',
+];
+const COPILOT_EXTRA = [
+  'target',
+  'disable-model-invocation',
+  'user-invocable',
+  'metadata',
+  'mcp-servers',
+];
 const CURSOR_EXTRA = ['is_background', 'readonly'];
-const CLAUDE_KNOWN = ['name', 'description', 'model', 'tools', 'disallowedTools', 'skills', 'mcpServers', 'color'];
+const CLAUDE_KNOWN = [
+  'name',
+  'description',
+  'model',
+  'tools',
+  'disallowedTools',
+  'skills',
+  'mcpServers',
+  'color',
+];
 
 function nonEmpty<T>(xs: T[] | undefined): T[] | undefined {
   return xs && xs.length > 0 ? xs : undefined;
@@ -49,13 +69,19 @@ export function tomlMultilineString(s: string): string {
   let body = s
     .replace(/\\/g, '\\\\')
     .replace(/\r\n/g, '\n')
-    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
+    .replace(
+      /[\u0000-\u0008\u000b-\u001f\u007f]/g,
+      (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
+    )
     .replace(/"{2,}/g, (run) => run.replace(/"/g, '\\"'));
   if (body.endsWith('"') && !body.endsWith('\\"')) body = body.slice(0, -1) + '\\"';
   return `"""\n${body}"""`;
 }
 
-function pickExtra(extra: Record<string, unknown> | undefined, allowed: readonly string[]): { kept: Record<string, unknown>; dropped: string[] } {
+function pickExtra(
+  extra: Record<string, unknown> | undefined,
+  allowed: readonly string[],
+): { kept: Record<string, unknown>; dropped: string[] } {
   const kept: Record<string, unknown> = {};
   const dropped: string[] = [];
   for (const [k, v] of Object.entries(extra ?? {})) {
@@ -66,7 +92,10 @@ function pickExtra(extra: Record<string, unknown> | undefined, allowed: readonly
   return { kept, dropped };
 }
 
-export function renderAgent(def: AgentDefinition, target: TargetId): { fileName: string; content: string; dropped: string[] } {
+export function renderAgent(
+  def: AgentDefinition,
+  target: TargetId,
+): { fileName: string; content: string; dropped: string[] } {
   const dropped: string[] = [];
   const tools = nonEmpty(def.tools);
   const skills = nonEmpty(def.skills);
@@ -75,7 +104,9 @@ export function renderAgent(def: AgentDefinition, target: TargetId): { fileName:
 
   switch (target) {
     case 'claude': {
-      const extra = Object.fromEntries(Object.entries(def.extra ?? {}).filter(([k]) => !CLAUDE_KNOWN.includes(k)));
+      const extra = Object.fromEntries(
+        Object.entries(def.extra ?? {}).filter(([k]) => !CLAUDE_KNOWN.includes(k)),
+      );
       const fm = yamlMapping({
         name: def.name,
         description: def.description,
@@ -122,7 +153,8 @@ export function renderAgent(def: AgentDefinition, target: TargetId): { fileName:
       }
       let copilotTools = tools ? [...tools] : undefined;
       if (copilotTools && mcpServers) {
-        for (const s of mcpServers) if (!copilotTools.includes(`${s}/*`)) copilotTools.push(`${s}/*`);
+        for (const s of mcpServers)
+          if (!copilotTools.includes(`${s}/*`)) copilotTools.push(`${s}/*`);
       }
       if (mcpServers) dropped.push('mcpServers');
       if (skills) dropped.push('skills');

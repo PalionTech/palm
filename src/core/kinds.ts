@@ -40,7 +40,9 @@ export function isKind(word: string): word is Kind {
 }
 
 /** Manifest section name for a kind. */
-export function manifestKey(kind: Kind): 'skills' | 'agents' | 'instructions' | 'commands' | 'hooks' | 'mcp' | 'plugins' {
+export function manifestKey(
+  kind: Kind,
+): 'skills' | 'agents' | 'instructions' | 'commands' | 'hooks' | 'mcp' | 'plugins' {
   switch (kind) {
     case 'skill':
       return 'skills';

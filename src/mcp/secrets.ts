@@ -55,7 +55,11 @@ function addRef(list: SecretRef[], ref: SecretRef): void {
   }
 }
 
-function scan(value: string, make: (name: string, required: boolean, token: string) => SecretRef, out: SecretRef[]): void {
+function scan(
+  value: string,
+  make: (name: string, required: boolean, token: string) => SecretRef,
+  out: SecretRef[],
+): void {
   for (const m of value.matchAll(TOKEN)) {
     const name = m[1] as string;
     if (isRuntimeVar(name)) continue;
@@ -88,16 +92,22 @@ export function detectSecrets(cfg: McpServerConfig): SecretRef[] {
       out,
     );
   }
-  if (typeof cfg.url === 'string') scan(cfg.url, (name, required) => ({ name, in: 'env', required }), out);
+  if (typeof cfg.url === 'string')
+    scan(cfg.url, (name, required) => ({ name, in: 'env', required }), out);
   for (const arg of cfg.args ?? []) {
-    if (typeof arg === 'string') scan(arg, (name, required) => ({ name, in: 'env', required }), out);
+    if (typeof arg === 'string')
+      scan(arg, (name, required) => ({ name, in: 'env', required }), out);
   }
   return out;
 }
 
 /** Names of the optional secrets of `cfg` (declared `required: false`, or `${VAR:-default}`). */
 export function optionalSecretNames(cfg: McpServerConfig): Set<string> {
-  return new Set(allSecrets(cfg).filter((s) => !s.required).map((s) => s.name));
+  return new Set(
+    allSecrets(cfg)
+      .filter((s) => !s.required)
+      .map((s) => s.name),
+  );
 }
 
 /**

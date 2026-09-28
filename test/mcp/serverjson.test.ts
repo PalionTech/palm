@@ -24,8 +24,19 @@ const fixtureCases: Array<{ fixture: string; expected: McpServerConfig }> = [
       command: 'npx',
       args: ['-y', '@brave/brave-search-mcp-server@2.1.3'],
       env: { BRAVE_API_KEY: '${BRAVE_API_KEY}' },
-      secrets: [{ name: 'BRAVE_API_KEY', in: 'env', required: true, description: 'Your API key for the service' }],
-      source: { type: 'registry', ref: 'io.github.brave/brave-search-mcp-server', version: '2.1.3' },
+      secrets: [
+        {
+          name: 'BRAVE_API_KEY',
+          in: 'env',
+          required: true,
+          description: 'Your API key for the service',
+        },
+      ],
+      source: {
+        type: 'registry',
+        ref: 'io.github.brave/brave-search-mcp-server',
+        version: '2.1.3',
+      },
     },
   },
   {
@@ -59,7 +70,12 @@ const fixtureCases: Array<{ fixture: string; expected: McpServerConfig }> = [
       // NR_URL / NR_USER are optional, non-secret and have no default → omitted.
       env: { NR_TOKEN: '${NR_TOKEN}', NR_PASS: '${NR_PASS}' },
       secrets: [
-        { name: 'NR_TOKEN', in: 'env', required: false, description: 'Bearer token for Node-RED authentication' },
+        {
+          name: 'NR_TOKEN',
+          in: 'env',
+          required: false,
+          description: 'Bearer token for Node-RED authentication',
+        },
         { name: 'NR_PASS', in: 'env', required: false, description: 'Password for Basic Auth' },
       ],
       source: { type: 'registry', ref: 'io.github.Texan-NXTassist/nr-mcp', version: '1.2.2' },
@@ -160,13 +176,19 @@ describe('serverJsonToConfig (live registry fixtures)', () => {
   });
 
   it('accepts a registry item wrapper {server, _meta}', () => {
-    const item = { server: fixture('npm-stdio-env-secret'), _meta: { 'io.modelcontextprotocol.registry/official': { isLatest: true } } };
+    const item = {
+      server: fixture('npm-stdio-env-secret'),
+      _meta: { 'io.modelcontextprotocol.registry/official': { isLatest: true } },
+    };
     expect(serverJsonToConfig(item).command).toBe('npx');
   });
 
   it('rejects a local HTTP package palm cannot start', () => {
     expect(() => serverJsonToConfig(fixture('oci-http-package'))).toThrow(
-      expect.objectContaining({ code: 'E_USAGE', message: expect.stringContaining('localhost:8002') }),
+      expect.objectContaining({
+        code: 'E_USAGE',
+        message: expect.stringContaining('localhost:8002'),
+      }),
     );
   });
 });
@@ -185,7 +207,9 @@ describe('serverJsonToConfig (package rules)', () => {
             identifier: '@scope/demo',
             version: '2.0.0',
             transport: { type: 'stdio' },
-            runtimeArguments: [{ type: 'named', name: '--node-options', value: '--max-old-space-size=512' }],
+            runtimeArguments: [
+              { type: 'named', name: '--node-options', value: '--max-old-space-size=512' },
+            ],
             packageArguments: [
               { type: 'positional', value: 'serve' },
               { type: 'named', name: 'port', default: '8080' },
@@ -198,7 +222,15 @@ describe('serverJsonToConfig (package rules)', () => {
       expected: {
         name: 'demo',
         command: 'npx',
-        args: ['-y', '--node-options', '--max-old-space-size=512', '@scope/demo@2.0.0', 'serve', '--port', '8080'],
+        args: [
+          '-y',
+          '--node-options',
+          '--max-old-space-size=512',
+          '@scope/demo@2.0.0',
+          'serve',
+          '--port',
+          '8080',
+        ],
       },
     },
     {
@@ -210,18 +242,30 @@ describe('serverJsonToConfig (package rules)', () => {
             registryType: 'npm',
             identifier: 'demo-mcp',
             transport: { type: 'stdio' },
-            packageArguments: [{ type: 'positional', valueHint: 'root_dir', isRequired: true, description: 'Directory to serve' }],
+            packageArguments: [
+              {
+                type: 'positional',
+                valueHint: 'root_dir',
+                isRequired: true,
+                description: 'Directory to serve',
+              },
+            ],
           },
         ],
       },
       expected: {
         args: ['-y', 'demo-mcp', '${DEMO_ROOT_DIR}'],
-        secrets: [{ name: 'DEMO_ROOT_DIR', in: 'env', required: true, description: 'Directory to serve' }],
+        secrets: [
+          { name: 'DEMO_ROOT_DIR', in: 'env', required: true, description: 'Directory to serve' },
+        ],
       },
     },
     {
       title: 'pypi without version → unpinned uvx',
-      input: { ...base, packages: [{ registryType: 'pypi', identifier: 'demo-mcp', transport: { type: 'stdio' } }] },
+      input: {
+        ...base,
+        packages: [{ registryType: 'pypi', identifier: 'demo-mcp', transport: { type: 'stdio' } }],
+      },
       expected: { command: 'uvx', args: ['demo-mcp'] },
     },
     {
@@ -237,7 +281,8 @@ describe('serverJsonToConfig (package rules)', () => {
       expected: { command: 'npx', args: ['-y', 'demo@1'] },
     },
     {
-      title: 'oci: env passed with -e, templated -e runtime arg → env pass-through, version appended to untagged image',
+      title:
+        'oci: env passed with -e, templated -e runtime arg → env pass-through, version appended to untagged image',
       input: {
         ...base,
         packages: [
@@ -265,7 +310,20 @@ describe('serverJsonToConfig (package rules)', () => {
       },
       expected: {
         command: 'docker',
-        args: ['run', '-i', '--rm', '-e', 'DEMO_API_KEY', '-e', 'DEMO_MODE', '-e', 'STATIC=1', '-e', 'DEMO_PAT', 'docker.io/acme/demo:3.1.0'],
+        args: [
+          'run',
+          '-i',
+          '--rm',
+          '-e',
+          'DEMO_API_KEY',
+          '-e',
+          'DEMO_MODE',
+          '-e',
+          'STATIC=1',
+          '-e',
+          'DEMO_PAT',
+          'docker.io/acme/demo:3.1.0',
+        ],
         env: { DEMO_API_KEY: '${DEMO_API_KEY}', DEMO_MODE: 'fast', DEMO_PAT: '${DEMO_PAT}' },
         secrets: [
           { name: 'DEMO_API_KEY', in: 'env', required: true, description: 'API key' },
@@ -275,7 +333,17 @@ describe('serverJsonToConfig (package rules)', () => {
     },
     {
       title: 'oci: tagged identifier is kept as-is',
-      input: { ...base, packages: [{ registryType: 'oci', identifier: 'ghcr.io/acme/demo:1.2.3', version: '9', transport: { type: 'stdio' } }] },
+      input: {
+        ...base,
+        packages: [
+          {
+            registryType: 'oci',
+            identifier: 'ghcr.io/acme/demo:1.2.3',
+            version: '9',
+            transport: { type: 'stdio' },
+          },
+        ],
+      },
       expected: { args: ['run', '-i', '--rm', 'ghcr.io/acme/demo:1.2.3'] },
     },
     {
@@ -305,7 +373,11 @@ describe('serverJsonToConfig (package rules)', () => {
             version: '1',
             transport: { type: 'stdio' },
             environmentVariables: [
-              { name: 'DEMO_URL', value: 'https://{tenant}.demo.io', variables: { tenant: { isRequired: true, description: 'Tenant' } } },
+              {
+                name: 'DEMO_URL',
+                value: 'https://{tenant}.demo.io',
+                variables: { tenant: { isRequired: true, description: 'Tenant' } },
+              },
             ],
           },
         ],
@@ -317,19 +389,43 @@ describe('serverJsonToConfig (package rules)', () => {
     },
     {
       title: 'unknown registry type with runtimeHint uses the hint',
-      input: { ...base, packages: [{ registryType: 'cargo', identifier: 'demo', runtimeHint: 'cargo-run', transport: { type: 'stdio' } }] },
+      input: {
+        ...base,
+        packages: [
+          {
+            registryType: 'cargo',
+            identifier: 'demo',
+            runtimeHint: 'cargo-run',
+            transport: { type: 'stdio' },
+          },
+        ],
+      },
       expected: { command: 'cargo-run', args: ['demo'] },
     },
     {
       title: 'remote: undeclared {placeholder} in a header value is still templated',
       input: {
         ...base,
-        remotes: [{ type: 'sse', url: 'https://demo.io/sse', headers: [{ name: 'Authorization', value: 'Bearer {api_key}' }] }],
+        remotes: [
+          {
+            type: 'sse',
+            url: 'https://demo.io/sse',
+            headers: [{ name: 'Authorization', value: 'Bearer {api_key}' }],
+          },
+        ],
       },
       expected: {
         transport: 'sse',
         headers: { Authorization: 'Bearer ${DEMO_API_KEY}' },
-        secrets: [{ name: 'DEMO_API_KEY', in: 'header', header: 'Authorization', format: 'Bearer {value}', required: false }],
+        secrets: [
+          {
+            name: 'DEMO_API_KEY',
+            in: 'header',
+            header: 'Authorization',
+            format: 'Bearer {value}',
+            required: false,
+          },
+        ],
       },
     },
     {
@@ -359,10 +455,22 @@ describe('serverJsonToConfig (package rules)', () => {
   it('mcpb-only servers are not installable', () => {
     const input = {
       ...base,
-      packages: [{ registryType: 'mcpb', identifier: 'https://x/demo.mcpb', version: '1', transport: { type: 'stdio' } }],
+      packages: [
+        {
+          registryType: 'mcpb',
+          identifier: 'https://x/demo.mcpb',
+          version: '1',
+          transport: { type: 'stdio' },
+        },
+      ],
     };
     expect(() => serverJsonToConfig(input)).toThrow(PalmError);
-    expect(() => serverJsonToConfig(input)).toThrow(expect.objectContaining({ code: 'E_USAGE', hint: expect.stringContaining('palm install mcp demo --') }));
+    expect(() => serverJsonToConfig(input)).toThrow(
+      expect.objectContaining({
+        code: 'E_USAGE',
+        hint: expect.stringContaining('palm install mcp demo --'),
+      }),
+    );
   });
 
   it('mcpb is skipped when another package exists', () => {
@@ -379,13 +487,19 @@ describe('serverJsonToConfig (package rules)', () => {
   it('errors on servers with neither remotes nor packages, and on invalid input', () => {
     expect(() => serverJsonToConfig(base)).toThrow(expect.objectContaining({ code: 'E_PARSE' }));
     expect(() => serverJsonToConfig(null)).toThrow(expect.objectContaining({ code: 'E_PARSE' }));
-    expect(() => serverJsonToConfig({ description: 'no name' })).toThrow(expect.objectContaining({ code: 'E_PARSE' }));
+    expect(() => serverJsonToConfig({ description: 'no name' })).toThrow(
+      expect.objectContaining({ code: 'E_PARSE' }),
+    );
   });
 });
 
 describe('naming helpers', () => {
   it.each([
-    ['io.github.brave/brave-search-mcp-server', 'brave-search-mcp-server', 'brave-search-mcp-server'],
+    [
+      'io.github.brave/brave-search-mcp-server',
+      'brave-search-mcp-server',
+      'brave-search-mcp-server',
+    ],
     ['com.notion/mcp', 'mcp', 'notion'],
     ['io.github.netdata/mcp-server', 'mcp-server', 'netdata'],
     ['microsoft/markitdown', 'markitdown', 'markitdown'],
@@ -407,12 +521,22 @@ describe('naming helpers', () => {
   it('normalizes the legacy snake_case package shape', () => {
     const legacy = {
       name: 'microsoft/markitdown',
-      packages: [{ name: 'markitdown-mcp', registry_name: '', runtime_hint: 'uvx', version: '0.0.1a4' }],
+      packages: [
+        { name: 'markitdown-mcp', registry_name: '', runtime_hint: 'uvx', version: '0.0.1a4' },
+      ],
       version_detail: { version: '1.0.0', is_latest: true },
     };
     const sj = normalizeServerJson(legacy);
     expect(sj.version).toBe('1.0.0');
-    expect(sj.packages?.[0]).toMatchObject({ identifier: 'markitdown-mcp', registryType: 'pypi', runtimeHint: 'uvx' });
-    expect(serverJsonToConfig(legacy)).toMatchObject({ name: 'markitdown', command: 'uvx', args: ['markitdown-mcp==0.0.1a4'] });
+    expect(sj.packages?.[0]).toMatchObject({
+      identifier: 'markitdown-mcp',
+      registryType: 'pypi',
+      runtimeHint: 'uvx',
+    });
+    expect(serverJsonToConfig(legacy)).toMatchObject({
+      name: 'markitdown',
+      command: 'uvx',
+      args: ['markitdown-mcp==0.0.1a4'],
+    });
   });
 });

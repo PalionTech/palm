@@ -1,6 +1,6 @@
+import { PalmError } from '../core/errors.js';
 import type { Target, TargetId } from '../core/types.js';
 import { TARGET_IDS } from '../core/types.js';
-import { PalmError } from '../core/errors.js';
 import { GenericTarget, type TargetSpec } from './base.js';
 import { claudeSpec } from './claude.js';
 import { codexSpec } from './codex.js';
@@ -21,7 +21,12 @@ const SPECS: Record<TargetId, TargetSpec> = {
  */
 export function createTarget(id: TargetId, env?: NodeJS.ProcessEnv): GenericTarget {
   const spec = SPECS[id];
-  if (!spec) throw new PalmError('E_TARGET', `unknown target "${String(id)}"`, `valid targets: ${TARGET_IDS.join(', ')}`);
+  if (!spec)
+    throw new PalmError(
+      'E_TARGET',
+      `unknown target "${String(id)}"`,
+      `valid targets: ${TARGET_IDS.join(', ')}`,
+    );
   return new GenericTarget(spec, env);
 }
 
@@ -33,5 +38,5 @@ export function allTargets(): Target[] {
   return TARGET_IDS.map((id) => createTarget(id));
 }
 
-export { GenericTarget } from './base.js';
 export type { TargetLayout } from './base.js';
+export { GenericTarget } from './base.js';

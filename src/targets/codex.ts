@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { Scope } from '../core/types.js';
 import type { TargetLayout, TargetSpec } from './base.js';
-import { envDir, type Env } from './env.js';
+import { type Env, envDir } from './env.js';
 import { pathExists } from './fs-utils.js';
 
 /** `~/.codex` honouring CODEX_HOME (global), `<project>/.codex` (project). */
@@ -16,7 +16,8 @@ export const codexSpec: TargetSpec = {
   layout(scope, scopeRoot, env): TargetLayout {
     const base = codexDir(scope, scopeRoot, env);
     const agentsRoot = path.join(scopeRoot, '.agents');
-    const agentsMd = scope === 'project' ? path.join(scopeRoot, 'AGENTS.md') : path.join(base, 'AGENTS.md');
+    const agentsMd =
+      scope === 'project' ? path.join(scopeRoot, 'AGENTS.md') : path.join(base, 'AGENTS.md');
     return {
       configDir: base,
       skillsDir: path.join(agentsRoot, 'skills'),
@@ -24,7 +25,9 @@ export const codexSpec: TargetSpec = {
       instructions: { agentsMd },
       commands:
         scope === 'project'
-          ? { skip: 'Codex has no project-scoped custom prompts; command skipped (install with -g for ~/.codex/prompts)' }
+          ? {
+              skip: 'Codex has no project-scoped custom prompts; command skipped (install with -g for ~/.codex/prompts)',
+            }
           : { dir: path.join(base, 'prompts') },
       hooks: { mergeFile: path.join(base, 'hooks.json') },
       mcp: { toml: path.join(base, 'config.toml') },
@@ -36,7 +39,11 @@ export const codexSpec: TargetSpec = {
     };
   },
   async detect(scope, scopeRoot, env) {
-    if (scope === 'project') return (await pathExists(path.join(scopeRoot, '.codex'))) || pathExists(path.join(scopeRoot, 'AGENTS.md'));
+    if (scope === 'project')
+      return (
+        (await pathExists(path.join(scopeRoot, '.codex'))) ||
+        pathExists(path.join(scopeRoot, 'AGENTS.md'))
+      );
     return pathExists(codexDir('global', scopeRoot, env));
   },
 };

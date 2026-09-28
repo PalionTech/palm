@@ -22,7 +22,11 @@ describe('config get/set', () => {
   });
 
   it('unsets with an empty value', () => {
-    let c = setConfigValue({ origins: [], secrets: { project: 'literal' }, targets: ['claude'] }, 'secrets.project', '');
+    let c = setConfigValue(
+      { origins: [], secrets: { project: 'literal' }, targets: ['claude'] },
+      'secrets.project',
+      '',
+    );
     expect(c).not.toHaveProperty('secrets');
     c = setConfigValue(c, 'targets', 'none');
     expect(c).not.toHaveProperty('targets');
@@ -47,12 +51,20 @@ describe('init .gitignore', () => {
 
 describe('origin helpers', () => {
   it('maps GitHub marketplace URLs to a raw URL and repo base', () => {
-    expect(marketplaceUrlBase('https://github.com/obra/superpowers-marketplace/blob/main/.claude-plugin/marketplace.json')).toEqual({
-      rawUrl: 'https://raw.githubusercontent.com/obra/superpowers-marketplace/main/.claude-plugin/marketplace.json',
+    expect(
+      marketplaceUrlBase(
+        'https://github.com/obra/superpowers-marketplace/blob/main/.claude-plugin/marketplace.json',
+      ),
+    ).toEqual({
+      rawUrl:
+        'https://raw.githubusercontent.com/obra/superpowers-marketplace/main/.claude-plugin/marketplace.json',
       base: { url: 'https://github.com/obra/superpowers-marketplace.git', ref: 'main' },
       relPath: '.claude-plugin/marketplace.json',
     });
-    expect(marketplaceUrlBase('https://raw.githubusercontent.com/o/r/v1/.claude-plugin/marketplace.json').base).toEqual({
+    expect(
+      marketplaceUrlBase('https://raw.githubusercontent.com/o/r/v1/.claude-plugin/marketplace.json')
+        .base,
+    ).toEqual({
       url: 'https://github.com/o/r.git',
       ref: 'v1',
     });
@@ -72,7 +84,9 @@ describe('origin helpers', () => {
   });
 
   it('summarises kind counts', () => {
-    expect(kindCounts([{ kind: 'skill' }, { kind: 'mcp' }, { kind: 'skill' }, { kind: 'mcp' }])).toBe('2 skills, 2 MCP servers');
+    expect(
+      kindCounts([{ kind: 'skill' }, { kind: 'mcp' }, { kind: 'skill' }, { kind: 'mcp' }]),
+    ).toBe('2 skills, 2 MCP servers');
     expect(kindCounts([{ kind: 'agent' }])).toBe('1 agent');
     expect(kindCounts([])).toBe('no entities');
   });
@@ -93,7 +107,9 @@ describe('info / search / doctor helpers', () => {
   });
 
   it('builds install hints', () => {
-    expect(installHint({ kind: 'skill', name: 'wayfinder', origin: 'mattpocock' })).toBe('palm install skill wayfinder@mattpocock');
+    expect(installHint({ kind: 'skill', name: 'wayfinder', origin: 'mattpocock' })).toBe(
+      'palm install skill wayfinder@mattpocock',
+    );
   });
 
   it('formats byte sizes', () => {

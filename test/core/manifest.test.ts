@@ -11,7 +11,7 @@ import {
   removeDep,
   saveManifest,
 } from '../../src/core/manifest.js';
-import { removeDir, tempDir } from './helpers.js';
+import { removeDir, tempDir } from '../support/sandbox.js';
 
 describe('parseDepRef', () => {
   it.each([
@@ -19,7 +19,10 @@ describe('parseDepRef', () => {
     ['wayfinder@mattpocock', { name: 'wayfinder', origin: 'mattpocock' }],
     ['tdd@mattpocock#v1.2.3', { name: 'tdd', origin: 'mattpocock', ref: 'v1.2.3' }],
     ['io.github.github/github-mcp-server', { name: 'io.github.github/github-mcp-server' }],
-    ['io.github.github/github-mcp-server#1.0.0', { name: 'io.github.github/github-mcp-server', ref: '1.0.0' }],
+    [
+      'io.github.github/github-mcp-server#1.0.0',
+      { name: 'io.github.github/github-mcp-server', ref: '1.0.0' },
+    ],
     ['x#main', { name: 'x', ref: 'main' }],
     ['@scope/pkg', { name: '@scope/pkg' }],
   ])('%s', (input, expected) => {
@@ -61,7 +64,11 @@ describe('manifest deps', () => {
       { name: 'docs', transport: 'http', url: 'https://e.x/mcp' },
       { name: 'gh', registry: 'io.github.x/gh', version: '1.0.0' },
     ]);
-    expect(listDeps(m, 'mcp')[1]).toEqual({ name: 'docs', transport: 'http', url: 'https://e.x/mcp' });
+    expect(listDeps(m, 'mcp')[1]).toEqual({
+      name: 'docs',
+      transport: 'http',
+      url: 'https://e.x/mcp',
+    });
     // removal matches the registry name too
     m = removeDep(m, 'mcp', 'io.github.x/gh');
     expect(m.mcp).toHaveLength(2);

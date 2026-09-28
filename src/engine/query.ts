@@ -1,9 +1,9 @@
 import { getIndex } from '../core/cache.js';
 import { allOrigins, findOrigin, originId } from '../core/config.js';
 import { PalmError } from '../core/errors.js';
-import { loadLock, findEntry } from '../core/lockfile.js';
-import { lockPath } from '../core/paths.js';
+import { findEntry, loadLock } from '../core/lockfile.js';
 import { parseDepRef } from '../core/manifest.js';
+import { lockPath } from '../core/paths.js';
 import type {
   DepRef,
   Entity,
@@ -16,7 +16,7 @@ import type {
   ScanOriginFn,
   Scope,
 } from '../core/types.js';
-import { resolveEngineDeps, type EngineDeps } from './deps.js';
+import { type EngineDeps, resolveEngineDeps } from './deps.js';
 
 // ---------------------------------------------------------------------------
 // Shared helpers (also used by install/update)
@@ -58,7 +58,10 @@ export class IndexSession {
     const key = `${spec.alias}\0${originId(spec)}\0${spec.ref ?? ''}`;
     let p = this.one.get(key);
     if (!p) {
-      p = getIndex(this.ctx, spec, { refresh: this.refresh, scan: this.scan }).then((index) => ({ spec, index }));
+      p = getIndex(this.ctx, spec, { refresh: this.refresh, scan: this.scan }).then((index) => ({
+        spec,
+        index,
+      }));
       this.one.set(key, p);
     }
     return p;
@@ -72,7 +75,9 @@ export class IndexSession {
       throw new PalmError(
         'E_ORIGIN',
         `Unknown origin "${alias}"`,
-        known.length ? `Known origins: ${known.join(', ')}. Add one with \`palm origin add <owner/repo>\`.` : 'Add one with `palm origin add <owner/repo>`.',
+        known.length
+          ? `Known origins: ${known.join(', ')}. Add one with \`palm origin add <owner/repo>\`.`
+          : 'Add one with `palm origin add <owner/repo>`.',
       );
     }
     return this.get(ref ? { ...spec, ref } : spec);
@@ -99,12 +104,17 @@ export function sourceOf(si: SourcedIndex): CandidateSource {
   return s;
 }
 
-export function candidatesIn(pool: SourcedIndex[], kind: Kind | undefined, name: string): Candidate[] {
+export function candidatesIn(
+  pool: SourcedIndex[],
+  kind: Kind | undefined,
+  name: string,
+): Candidate[] {
   const lower = name.toLowerCase();
   const out: Candidate[] = [];
   for (const si of pool) {
     for (const e of si.index.entities) {
-      if ((kind === undefined || e.kind === kind) && e.name.toLowerCase() === lower) out.push({ entity: e, source: sourceOf(si) });
+      if ((kind === undefined || e.kind === kind) && e.name.toLowerCase() === lower)
+        out.push({ entity: e, source: sourceOf(si) });
     }
   }
   return out;
@@ -126,7 +136,12 @@ function levenshtein(a: string, b: string): number {
 }
 
 /** Up to `limit` names close to `name` (edit distance ≤ 3 or substring). */
-export function suggestNames(pool: SourcedIndex[], kind: Kind | undefined, name: string, limit = 5): string[] {
+export function suggestNames(
+  pool: SourcedIndex[],
+  kind: Kind | undefined,
+  name: string,
+  limit = 5,
+): string[] {
   const q = name.toLowerCase();
   const scored = new Map<string, number>();
   for (const si of pool) {
@@ -150,14 +165,21 @@ export function suggestNames(pool: SourcedIndex[], kind: Kind | undefined, name:
 
 export function nameMatchesEntry(e: LockEntry, name: string): boolean {
   const lower = name.toLowerCase();
-  return e.name.toLowerCase() === lower || (e.kind === 'mcp' && e.origin === 'registry' && e.path.toLowerCase() === lower);
+  return (
+    e.name.toLowerCase() === lower ||
+    (e.kind === 'mcp' && e.origin === 'registry' && e.path.toLowerCase() === lower)
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-export async function listInstalled(ctx: PalmContext, scope: Scope, kind?: Kind): Promise<LockEntry[]> {
+export async function listInstalled(
+  ctx: PalmContext,
+  scope: Scope,
+  kind?: Kind,
+): Promise<LockEntry[]> {
   const lock = await loadLock(lockPath(ctx.paths, scope));
   return kind ? lock.entries.filter((e) => e.kind === kind) : lock.entries;
 }
@@ -212,7 +234,10 @@ export async function searchIndex(
     }
   }
   return hits.sort(
-    (a, b) => b.score - a.score || a.entity.name.localeCompare(b.entity.name) || a.entity.origin.localeCompare(b.entity.origin),
+    (a, b) =>
+      b.score - a.score ||
+      a.entity.name.localeCompare(b.entity.name) ||
+      a.entity.origin.localeCompare(b.entity.origin),
   );
 }
 
@@ -238,15 +263,24 @@ export function agentDepSpecs(entity: Entity): Array<{ kind: Kind; dep: DepRef }
 
 /** Direct dependencies of an entity (plugin members; agent skills, MCP servers and instructions). */
 export function entityDeps(entity: Entity): EntityRef[] {
-  if (entity.def.kind === 'plugin') return entity.def.members.map((m) => ({ kind: m.kind, name: m.name }));
+  if (entity.def.kind === 'plugin')
+    return entity.def.members.map((m) => ({ kind: m.kind, name: m.name }));
   return agentDepSpecs(entity).map((d) => ({ kind: d.kind, name: d.dep.name }));
 }
 
 /** Scanner warnings about an entity whose name is taken twice in one origin (the first copy is indexed). */
-export function duplicateWarnings(index: Pick<OriginIndex, 'warnings'>, kind: Kind | undefined, name?: string): string[] {
+export function duplicateWarnings(
+  index: Pick<OriginIndex, 'warnings'>,
+  kind: Kind | undefined,
+  name?: string,
+): string[] {
   return index.warnings.filter((w) => {
     const m = /^duplicate (\w+) "([^"]+)"/.exec(w);
-    return !!m && (!kind || m[1] === kind) && (name === undefined || m[2]!.toLowerCase() === name.toLowerCase());
+    return (
+      !!m &&
+      (!kind || m[1] === kind) &&
+      (name === undefined || m[2]!.toLowerCase() === name.toLowerCase())
+    );
   });
 }
 
@@ -260,8 +294,13 @@ export async function getEntityInfo(
   const lockFile = await loadLock(lockPath(ctx.paths, opts.scope));
   const lock =
     findEntry(lockFile, kind, name, opts.origin) ??
-    lockFile.entries.find((e) => e.kind === kind && nameMatchesEntry(e, name) && (!opts.origin || e.origin === opts.origin));
-  const origin = opts.origin ?? (lock && lock.origin !== 'registry' && lock.origin !== 'adhoc' ? lock.origin : undefined);
+    lockFile.entries.find(
+      (e) =>
+        e.kind === kind && nameMatchesEntry(e, name) && (!opts.origin || e.origin === opts.origin),
+    );
+  const origin =
+    opts.origin ??
+    (lock && lock.origin !== 'registry' && lock.origin !== 'adhoc' ? lock.origin : undefined);
   let entity: Entity | undefined;
   const warnings: string[] = [];
   try {
@@ -270,7 +309,8 @@ export async function getEntityInfo(
     const cands = candidatesIn(await poolFor(session, { origin }), kind, lock?.name ?? name);
     const first = cands[0];
     entity = first?.entity;
-    if (first?.source.index) warnings.push(...duplicateWarnings(first.source.index, kind, first.entity.name));
+    if (first?.source.index)
+      warnings.push(...duplicateWarnings(first.source.index, kind, first.entity.name));
   } catch (e) {
     if (!lock) throw e;
     ctx.log.debug(`index lookup for ${kind} ${name} failed: ${(e as Error).message}`);

@@ -2,16 +2,28 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { allOrigins, loadConfig, parseOriginInput, validateOriginUrl } from '../../src/core/config.js';
+import {
+  allOrigins,
+  loadConfig,
+  parseOriginInput,
+  validateOriginUrl,
+} from '../../src/core/config.js';
 import { fetchOrigin, listRemoteTags, pingRemote } from '../../src/core/git.js';
-import { fakeLogger, makeContext, removeDir, sandbox, type Sandbox } from './helpers.js';
+import { fakeLogger, makeContext } from '../support/fakes.js';
+import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 
 describe('origin URL validation (git argument / transport injection)', () => {
   let sb: Sandbox;
   afterEach(async () => sb && removeDir(sb.root));
 
   it('accepts https, ssh, scp-like, file:// and absolute paths; warns for http and git://', () => {
-    for (const ok of ['https://github.com/a/b.git', 'ssh://git@host/a/b.git', 'git@github.com:a/b.git', 'file:///tmp/r.git', '/srv/repos/r.git']) {
+    for (const ok of [
+      'https://github.com/a/b.git',
+      'ssh://git@host/a/b.git',
+      'git@github.com:a/b.git',
+      'file:///tmp/r.git',
+      '/srv/repos/r.git',
+    ]) {
       expect(validateOriginUrl(ok)).toEqual({});
     }
     expect(validateOriginUrl('http://host/a/b.git').warning).toMatch(/unencrypted/);
@@ -45,11 +57,24 @@ describe('origin URL validation (git argument / transport injection)', () => {
     sb = await sandbox();
     const marker = join(sb.root, 'pwned');
     await mkdir(sb.palmHome, { recursive: true });
-    await writeFile(join(sb.palmHome, 'config.yaml'), `origins:\n  - alias: evil\n    url: "--upload-pack=touch ${marker};true"\n`);
-    await expect(loadConfig({ palmHome: sb.palmHome, home: sb.home, projectRoot: sb.project, cwd: sb.project })).rejects.toMatchObject({ code: 'E_ORIGIN' });
+    await writeFile(
+      join(sb.palmHome, 'config.yaml'),
+      `origins:\n  - alias: evil\n    url: "--upload-pack=touch ${marker};true"\n`,
+    );
+    await expect(
+      loadConfig({
+        palmHome: sb.palmHome,
+        home: sb.home,
+        projectRoot: sb.project,
+        cwd: sb.project,
+      }),
+    ).rejects.toMatchObject({ code: 'E_ORIGIN' });
 
     await writeFile(join(sb.palmHome, 'config.yaml'), 'origins: []\n');
-    await writeFile(join(sb.project, 'palm.yaml'), `origins:\n  - alias: evil\n    url: "--upload-pack=touch ${marker};true"\n`);
+    await writeFile(
+      join(sb.project, 'palm.yaml'),
+      `origins:\n  - alias: evil\n    url: "--upload-pack=touch ${marker};true"\n`,
+    );
     const log = fakeLogger();
     const ctx = await makeContext(sb, { log });
     expect(allOrigins(ctx)).toEqual([]);
@@ -62,10 +87,14 @@ describe('origin URL validation (git argument / transport injection)', () => {
     const ctx = await makeContext(sb);
     const marker = join(sb.root, 'pwned');
     const url = `--upload-pack=touch ${marker};true`;
-    await expect(fetchOrigin(ctx, { alias: 'evil', type: 'git', url })).rejects.toMatchObject({ code: 'E_ORIGIN' });
+    await expect(fetchOrigin(ctx, { alias: 'evil', type: 'git', url })).rejects.toMatchObject({
+      code: 'E_ORIGIN',
+    });
     await expect(listRemoteTags(url)).rejects.toMatchObject({ code: 'E_ORIGIN' });
     await expect(pingRemote(url)).rejects.toMatchObject({ code: 'E_ORIGIN' });
-    await expect(pingRemote('ext::sh -c touch% ' + marker)).rejects.toMatchObject({ code: 'E_ORIGIN' });
+    await expect(pingRemote('ext::sh -c touch% ' + marker)).rejects.toMatchObject({
+      code: 'E_ORIGIN',
+    });
     expect(existsSync(marker)).toBe(false);
   });
 });

@@ -7,8 +7,8 @@ import { saveManifest } from '../../src/core/manifest.js';
 import { installEntities } from '../../src/engine/install.js';
 import { syncManifest } from '../../src/engine/sync.js';
 import { updateEntities } from '../../src/engine/update.js';
-import { removeDir } from '../core/helpers.js';
-import { ORIGIN_ENTITIES, makeWorld, type World } from './world.js';
+import { removeDir } from '../support/sandbox.js';
+import { makeWorld, ORIGIN_ENTITIES, type World } from './world.js';
 
 describe('syncManifest', () => {
   let w: World;
@@ -17,7 +17,15 @@ describe('syncManifest', () => {
   it('installs missing entries, keeps present ones, reports and prunes extraneous', async () => {
     w = await makeWorld();
     const opts = { scope: 'project' as const, targets: ['claude' as const] };
-    await installEntities(w.ctx, [{ kind: 'skill', spec: 'wayfinder' }, { kind: 'skill', spec: 'dual' }], opts, w.deps);
+    await installEntities(
+      w.ctx,
+      [
+        { kind: 'skill', spec: 'wayfinder' },
+        { kind: 'skill', spec: 'dual' },
+      ],
+      opts,
+      w.deps,
+    );
     await saveManifest(join(w.sb.project, 'palm.yaml'), {
       targets: ['claude'],
       skills: ['wayfinder@a', 'tdd@a'],
@@ -30,7 +38,12 @@ describe('syncManifest', () => {
 
     const r = await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
     const status = Object.fromEntries(r.outcomes.map((o) => [o.entry.name, o.status]));
-    expect(status).toEqual({ wayfinder: 'unchanged', tdd: 'installed', weather: 'installed', fs: 'installed' });
+    expect(status).toEqual({
+      wayfinder: 'unchanged',
+      tdd: 'installed',
+      weather: 'installed',
+      fs: 'installed',
+    });
     expect(w.calls.deploy.length - deploysBefore).toBe(3);
     expect(r.extraneous.map((e) => e.name)).toEqual(['dual']);
 
@@ -48,9 +61,15 @@ describe('syncManifest', () => {
   it('reinstalls an ad hoc MCP entry whose definition changed', async () => {
     w = await makeWorld();
     const file = join(w.sb.project, 'palm.yaml');
-    await saveManifest(file, { targets: ['claude'], mcp: [{ name: 'fs', command: 'npx', args: ['a'] }] });
+    await saveManifest(file, {
+      targets: ['claude'],
+      mcp: [{ name: 'fs', command: 'npx', args: ['a'] }],
+    });
     await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
-    await saveManifest(file, { targets: ['claude'], mcp: [{ name: 'fs', command: 'npx', args: ['b'] }] });
+    await saveManifest(file, {
+      targets: ['claude'],
+      mcp: [{ name: 'fs', command: 'npx', args: ['b'] }],
+    });
     const r = await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
     expect(r.outcomes[0]!.status).toBe('updated');
   });
@@ -63,29 +82,61 @@ describe('updateEntities', () => {
   it('reinstalls entries whose content changed and refreshes plugin members', async () => {
     w = await makeWorld();
     const opts = { scope: 'project' as const, targets: ['claude' as const] };
-    await installEntities(w.ctx, [{ kind: 'skill', spec: 'wayfinder' }, { kind: 'plugin', spec: 'superpowers' }], opts, w.deps);
-    await writeFile(join(w.origins.a, 'plugins/superpowers/skills/brainstorm/SKILL.md'), 'brainstorm v2\n');
+    await installEntities(
+      w.ctx,
+      [
+        { kind: 'skill', spec: 'wayfinder' },
+        { kind: 'plugin', spec: 'superpowers' },
+      ],
+      opts,
+      w.deps,
+    );
+    await writeFile(
+      join(w.origins.a, 'plugins/superpowers/skills/brainstorm/SKILL.md'),
+      'brainstorm v2\n',
+    );
 
     const r = await updateEntities(w.ctx, [], { scope: 'project' }, w.deps);
     const status = Object.fromEntries(r.outcomes.map((o) => [o.entry.name, o.status]));
-    expect(status).toEqual({ wayfinder: 'unchanged', superpowers: 'updated', brainstorm: 'updated' });
+    expect(status).toEqual({
+      wayfinder: 'unchanged',
+      superpowers: 'updated',
+      brainstorm: 'updated',
+    });
     const lock = await loadLock(join(w.sb.project, 'palm.lock.yaml'));
     expect(lock.entries.find((e) => e.name === 'brainstorm')!.via).toBe('plugin:superpowers');
 
     // naming a member updates it through its plugin
-    const r2 = await updateEntities(w.ctx, [{ kind: 'skill', name: 'brainstorm' }], { scope: 'project' }, w.deps);
+    const r2 = await updateEntities(
+      w.ctx,
+      [{ kind: 'skill', name: 'brainstorm' }],
+      { scope: 'project' },
+      w.deps,
+    );
     expect(r2.outcomes.map((o) => o.entry.name)).toEqual(['superpowers', 'brainstorm']);
-    await expect(updateEntities(w.ctx, [{ name: 'nope' }], { scope: 'project' }, w.deps)).rejects.toMatchObject({ code: 'E_NOT_FOUND' });
+    await expect(
+      updateEntities(w.ctx, [{ name: 'nope' }], { scope: 'project' }, w.deps),
+    ).rejects.toMatchObject({ code: 'E_NOT_FOUND' });
   });
 
   it('drops members a plugin no longer declares, but keeps unresolved agent deps', async () => {
     w = await makeWorld();
     const opts = { scope: 'project' as const, targets: ['claude' as const] };
-    await installEntities(w.ctx, [{ kind: 'plugin', spec: 'superpowers' }, { kind: 'agent', spec: 'reviewer' }], opts, w.deps);
+    await installEntities(
+      w.ctx,
+      [
+        { kind: 'plugin', spec: 'superpowers' },
+        { kind: 'agent', spec: 'reviewer' },
+      ],
+      opts,
+      w.deps,
+    );
     const original = ORIGIN_ENTITIES.a!;
     try {
       ORIGIN_ENTITIES.a = original
-        .map((e) => (e.def.kind === 'plugin' ? { ...e, def: { kind: 'plugin' as const, members: [] } } : e))
+        .map((e) =>
+          e.def.kind === 'plugin' ? { ...e, def: { kind: 'plugin' as const, members: [] } } : e,
+        )
         .filter((e) => e.name !== 'tdd'); // tdd vanishes from the index, reviewer still declares it
       const r = await updateEntities(w.ctx, [], { scope: 'project' }, w.deps);
       expect(r.warnings.some((m) => m.includes('removed skill brainstorm'))).toBe(true);
@@ -93,7 +144,9 @@ describe('updateEntities', () => {
     } finally {
       ORIGIN_ENTITIES.a = original;
     }
-    const names = (await loadLock(join(w.sb.project, 'palm.lock.yaml'))).entries.map((e) => e.name).sort();
+    const names = (await loadLock(join(w.sb.project, 'palm.lock.yaml'))).entries
+      .map((e) => e.name)
+      .sort();
     expect(names).toEqual(['docs', 'reviewer', 'superpowers', 'tdd']);
     expect(existsSync(join(w.sb.project, '.claude/skill/brainstorm.txt'))).toBe(false);
   });
@@ -106,13 +159,29 @@ describe('bare palm install repairs deleted files', () => {
   it('redeploys a direct entry and a plugin member whose files were removed by hand', async () => {
     w = await makeWorld({ origins: ['d'] });
     const opts = { scope: 'project' as const, targets: ['claude' as const] };
-    await installEntities(w.ctx, [{ kind: 'skill', spec: 'shared' }, { kind: 'agent', spec: 'alpha' }], opts, w.deps);
-    const unchanged = await syncManifest(w.ctx, { scope: 'project', prune: false, targets: ['claude'] }, w.deps);
+    await installEntities(
+      w.ctx,
+      [
+        { kind: 'skill', spec: 'shared' },
+        { kind: 'agent', spec: 'alpha' },
+      ],
+      opts,
+      w.deps,
+    );
+    const unchanged = await syncManifest(
+      w.ctx,
+      { scope: 'project', prune: false, targets: ['claude'] },
+      w.deps,
+    );
     expect(unchanged.outcomes.every((o) => o.status === 'unchanged')).toBe(true);
 
     await rm(join(w.sb.project, '.claude/skill/shared.txt'));
     await rm(join(w.sb.project, '.claude/instruction/style.txt')); // pulled in by agent alpha
-    const r = await syncManifest(w.ctx, { scope: 'project', prune: false, targets: ['claude'] }, w.deps);
+    const r = await syncManifest(
+      w.ctx,
+      { scope: 'project', prune: false, targets: ['claude'] },
+      w.deps,
+    );
     const byName = Object.fromEntries(r.outcomes.map((o) => [o.entry.name, o]));
     expect(byName.shared?.status).toBe('updated');
     expect(byName.shared?.notes).toContain('restored missing files');

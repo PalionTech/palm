@@ -1,5 +1,12 @@
 import { PalmError } from '../core/errors.js';
-import type { EngineDeps, ResolveRegistryFn, ResolveSecretsFn, ScanOriginFn, Target, TargetId } from '../core/types.js';
+import type {
+  EngineDeps,
+  ResolveRegistryFn,
+  ResolveSecretsFn,
+  ScanOriginFn,
+  Target,
+  TargetId,
+} from '../core/types.js';
 
 export type { EngineDeps } from '../core/types.js';
 
@@ -11,7 +18,10 @@ const DISPLAY_NAMES: Record<TargetId, string> = {
 };
 
 function unavailable(what: string, file: string, e: unknown): PalmError {
-  return new PalmError('E_INTERNAL', `${what} module unavailable (${file}): ${(e as Error).message}`);
+  return new PalmError(
+    'E_INTERNAL',
+    `${what} module unavailable (${file}): ${(e as Error).message}`,
+  );
 }
 
 async function importScan() {
@@ -47,7 +57,8 @@ async function importSecrets() {
 }
 
 const lazyScan: ScanOriginFn = async (root, spec) => (await importScan()).scanOrigin(root, spec);
-const lazyResolveRegistry: ResolveRegistryFn = async (name, opts) => (await importRegistry()).resolveRegistry(name, opts);
+const lazyResolveRegistry: ResolveRegistryFn = async (name, opts) =>
+  (await importRegistry()).resolveRegistry(name, opts);
 const lazyResolveSecrets: ResolveSecretsFn = async (ctx, cfg, policy) =>
   (await importSecrets()).resolveSecrets(ctx, cfg, policy);
 
@@ -60,11 +71,16 @@ function lazyTarget(id: TargetId): Target {
     displayName: DISPLAY_NAMES[id],
     detect: async (scope, root, env) => (await load()).detect(scope, root, env),
     configDir: (scope, root, env) => {
-      if (!loaded) throw new PalmError('E_INTERNAL', `Target ${id} is not loaded yet; call an async method first`);
+      if (!loaded)
+        throw new PalmError(
+          'E_INTERNAL',
+          `Target ${id} is not loaded yet; call an async method first`,
+        );
       return loaded.configDir(scope, root, env);
     },
     deploy: async (input) => (await load()).deploy(input),
-    undeploy: async (entry, scope, root, dryRun, env) => (await load()).undeploy(entry, scope, root, dryRun, env),
+    undeploy: async (entry, scope, root, dryRun, env) =>
+      (await load()).undeploy(entry, scope, root, dryRun, env),
   };
 }
 
@@ -82,7 +98,10 @@ export function defaultEngineDeps(): EngineDeps {
  * Merge caller-supplied collaborators over the defaults. With `targets: true`
  * the real targets module is loaded up front (so `configDir` works synchronously).
  */
-export async function resolveEngineDeps(partial: Partial<EngineDeps> = {}, opts: { targets?: boolean } = {}): Promise<EngineDeps> {
+export async function resolveEngineDeps(
+  partial: Partial<EngineDeps> = {},
+  opts: { targets?: boolean } = {},
+): Promise<EngineDeps> {
   const defaults = defaultEngineDeps();
   let getTarget = partial.getTarget;
   if (!getTarget && opts.targets) getTarget = (await importTargets()).getTarget;

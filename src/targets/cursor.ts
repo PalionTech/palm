@@ -15,7 +15,9 @@ export const cursorSpec: TargetSpec = {
       instructions:
         scope === 'project'
           ? { dir: path.join(base, 'rules') }
-          : { skip: 'Cursor user rules live in Cursor Settings → Rules, not in files; instruction skipped (install without -g for .cursor/rules)' },
+          : {
+              skip: 'Cursor user rules live in Cursor Settings → Rules, not in files; instruction skipped (install without -g for .cursor/rules)',
+            },
       commands: { dir: path.join(base, 'commands') },
       hooks: { mergeFile: path.join(base, 'hooks.json'), versioned: true },
       mcp: { json: path.join(base, 'mcp.json'), pointer: '/mcpServers' },

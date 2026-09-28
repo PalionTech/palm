@@ -10,7 +10,12 @@ import type { OriginCheckout, OriginSpec, PalmContext } from './types.js';
 /** Never let git block on a credential prompt: private repos fail fast. */
 const GIT_ENV: Record<string, string> = { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
 
-const NETWORK_PATTERNS = [/could not resolve host/i, /unable to access/i, /network is unreachable/i, /connection (timed out|refused)/i];
+const NETWORK_PATTERNS = [
+  /could not resolve host/i,
+  /unable to access/i,
+  /network is unreachable/i,
+  /connection (timed out|refused)/i,
+];
 
 class GitFailure extends Error {
   constructor(
@@ -33,16 +38,25 @@ function isLocalRepoUrl(url: string | undefined): boolean {
  */
 async function git(args: string[], cwd?: string, url?: string, timeout?: number): Promise<string> {
   const hardening = [
-    '-c', 'protocol.ext.allow=never',
-    '-c', 'protocol.fd.allow=never',
-    '-c', `protocol.file.allow=${isLocalRepoUrl(url) ? 'user' : 'never'}`,
+    '-c',
+    'protocol.ext.allow=never',
+    '-c',
+    'protocol.fd.allow=never',
+    '-c',
+    `protocol.file.allow=${isLocalRepoUrl(url) ? 'user' : 'never'}`,
   ];
   try {
-    const r = await execa('git', [...hardening, ...args], { cwd, env: GIT_ENV, stdin: 'ignore', ...(timeout ? { timeout } : {}) });
+    const r = await execa('git', [...hardening, ...args], {
+      cwd,
+      env: GIT_ENV,
+      stdin: 'ignore',
+      ...(timeout ? { timeout } : {}),
+    });
     return r.stdout;
   } catch (e) {
     const err = e as { code?: string; stderr?: unknown; shortMessage?: string; message: string };
-    if (err.code === 'ENOENT') throw new PalmError('E_GIT', 'git is not installed or not on PATH', 'Install git and retry.');
+    if (err.code === 'ENOENT')
+      throw new PalmError('E_GIT', 'git is not installed or not on PATH', 'Install git and retry.');
     const stderr = typeof err.stderr === 'string' ? err.stderr : '';
     const detail =
       stderr
@@ -53,7 +67,10 @@ async function git(args: string[], cwd?: string, url?: string, timeout?: number)
         .join(' | ') ||
       err.shortMessage ||
       err.message;
-    throw new GitFailure(`git ${args.find((a) => !a.startsWith('-')) ?? args[0]} failed: ${detail}`, detail);
+    throw new GitFailure(
+      `git ${args.find((a) => !a.startsWith('-')) ?? args[0]} failed: ${detail}`,
+      detail,
+    );
   }
 }
 
@@ -61,7 +78,11 @@ function toPalmError(e: unknown, what: string, url: string): PalmError {
   if (e instanceof PalmError) return e;
   const detail = e instanceof GitFailure ? e.detail : (e as Error).message;
   if (NETWORK_PATTERNS.some((p) => p.test(detail))) {
-    return new PalmError('E_NETWORK', `${what} ${url}: ${detail}`, 'Check your network connection, or use --offline to work from the cache.');
+    return new PalmError(
+      'E_NETWORK',
+      `${what} ${url}: ${detail}`,
+      'Check your network connection, or use --offline to work from the cache.',
+    );
   }
   return new PalmError(
     'E_GIT',
@@ -77,10 +98,15 @@ function toPalmError(e: unknown, what: string, url: string): PalmError {
 /** Refuse unsafe URLs (see validateOriginUrl), refs git would parse as options, and roots that escape the checkout. */
 function assertSafeSpec(spec: { alias?: string; url?: string; ref?: string; root?: string }): void {
   const bad = (what: string, v: string): PalmError =>
-    new PalmError('E_ORIGIN', `Invalid ${what} "${v}"${spec.alias ? ` for origin "${spec.alias}"` : ''}`);
-  if (spec.url !== undefined) validateOriginUrl(spec.url, spec.alias ? `origin "${spec.alias}"` : 'origin');
+    new PalmError(
+      'E_ORIGIN',
+      `Invalid ${what} "${v}"${spec.alias ? ` for origin "${spec.alias}"` : ''}`,
+    );
+  if (spec.url !== undefined)
+    validateOriginUrl(spec.url, spec.alias ? `origin "${spec.alias}"` : 'origin');
   if (spec.ref?.startsWith('-')) throw bad('ref', spec.ref);
-  if (spec.root && (spec.root.split(/[\\/]+/).includes('..') || spec.root.startsWith('/'))) throw bad('root', spec.root);
+  if (spec.root && (spec.root.split(/[\\/]+/).includes('..') || spec.root.startsWith('/')))
+    throw bad('root', spec.root);
 }
 
 export async function listRemoteTags(url: string): Promise<string[]> {
@@ -121,7 +147,12 @@ const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)
 function parseSemver(tag: string): SemVer | undefined {
   const m = SEMVER.exec(tag);
   if (!m) return undefined;
-  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]), pre: m[4] ? m[4].split('.') : [] };
+  return {
+    major: Number(m[1]),
+    minor: Number(m[2]),
+    patch: Number(m[3]),
+    pre: m[4] ? m[4].split('.') : [],
+  };
 }
 
 function comparePre(a: string[], b: string[]): number {
@@ -153,7 +184,9 @@ function compareSemver(a: SemVer, b: SemVer): number {
 
 /** Highest semver tag (`v1.2.3` or `1.2.3`). Prereleases only count when there is no release. */
 export function latestSemverTag(tags: string[]): string | undefined {
-  const parsed = tags.map((t) => ({ t, v: parseSemver(t) })).filter((x): x is { t: string; v: SemVer } => !!x.v);
+  const parsed = tags
+    .map((t) => ({ t, v: parseSemver(t) }))
+    .filter((x): x is { t: string; v: SemVer } => !!x.v);
   const releases = parsed.filter((x) => x.v.pre.length === 0);
   const pool = releases.length ? releases : parsed;
   let best: { t: string; v: SemVer } | undefined;
@@ -189,11 +222,19 @@ async function readMeta(file: string): Promise<CheckoutMeta | undefined> {
 async function fetchSha(url: string, dir: string, sha: string): Promise<void> {
   try {
     await git(['fetch', '--depth', '1', 'origin', '--', sha], dir, url);
-    await git(['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', 'FETCH_HEAD'], dir, url);
+    await git(
+      ['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', 'FETCH_HEAD'],
+      dir,
+      url,
+    );
   } catch {
     // Servers that refuse unadvertised shas: fall back to a full fetch.
     await git(['fetch', '--tags', 'origin'], dir, url);
-    await git(['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', sha], dir, url);
+    await git(
+      ['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', sha],
+      dir,
+      url,
+    );
   }
 }
 
@@ -213,7 +254,11 @@ async function freshClone(url: string, dir: string, ref: string | undefined): Pr
     if (!ref || !SHORT_SHA.test(ref)) throw e;
     await rm(dir, { recursive: true, force: true });
     await git(['clone', '--quiet', '--', url, dir], undefined, url);
-    await git(['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', ref], dir, url);
+    await git(
+      ['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', ref],
+      dir,
+      url,
+    );
   }
 }
 
@@ -223,7 +268,11 @@ async function updateCheckout(url: string, dir: string, ref: string | undefined)
     await fetchSha(url, dir, ref);
   } else {
     await git(['fetch', '--quiet', '--depth', '1', 'origin', '--', ref ?? 'HEAD'], dir, url);
-    await git(['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', 'FETCH_HEAD'], dir, url);
+    await git(
+      ['-c', 'advice.detachedHead=false', 'checkout', '--force', '--detach', 'FETCH_HEAD'],
+      dir,
+      url,
+    );
   }
   await git(['clean', '-ffdxq'], dir, url);
 }
@@ -244,7 +293,12 @@ async function resolveLatestRef(url: string): Promise<string | undefined> {
   return tag ?? (await remoteDefaultBranch(url));
 }
 
-function checkoutResult(spec: OriginSpec, id: string, repoDir: string, meta: CheckoutMeta): OriginCheckout {
+function checkoutResult(
+  spec: OriginSpec,
+  id: string,
+  repoDir: string,
+  meta: CheckoutMeta,
+): OriginCheckout {
   const out: OriginCheckout = {
     spec,
     originId: id,
@@ -261,14 +315,22 @@ function checkoutResult(spec: OriginSpec, id: string, repoDir: string, meta: Che
  * Make an origin available on disk. Local origins are used in place; git
  * origins are cloned into `<palmHome>/cache/<originId>/repo` at the wanted ref.
  */
-export async function fetchOrigin(ctx: PalmContext, spec: OriginSpec, opts: { refresh?: boolean } = {}): Promise<OriginCheckout> {
+export async function fetchOrigin(
+  ctx: PalmContext,
+  spec: OriginSpec,
+  opts: { refresh?: boolean } = {},
+): Promise<OriginCheckout> {
   assertSafeSpec(spec);
   const id = originId(spec);
   if (spec.type === 'local') {
     if (!spec.path) throw new PalmError('E_ORIGIN', `Local origin "${spec.alias}" has no path`);
     const root = spec.root ? join(spec.path, spec.root) : spec.path;
     if (!existsSync(root)) {
-      throw new PalmError('E_ORIGIN', `Local origin "${spec.alias}" not found at ${root}`, `Fix or remove it: palm origin remove ${spec.alias}`);
+      throw new PalmError(
+        'E_ORIGIN',
+        `Local origin "${spec.alias}" not found at ${root}`,
+        `Fix or remove it: palm origin remove ${spec.alias}`,
+      );
     }
     return { spec, originId: id, root, repoDir: spec.path, fetchedAt: new Date().toISOString() };
   }
@@ -290,7 +352,11 @@ export async function fetchOrigin(ctx: PalmContext, spec: OriginSpec, opts: { re
     result = checkoutResult(spec, id, repoDir, meta);
   } else if (ctx.flags.offline) {
     const usable =
-      have && (!spec.ref || meta.ref === spec.ref || meta.requested === spec.ref || meta.sha.startsWith(spec.ref.toLowerCase()));
+      have &&
+      (!spec.ref ||
+        meta.ref === spec.ref ||
+        meta.requested === spec.ref ||
+        meta.sha.startsWith(spec.ref.toLowerCase()));
     if (!usable) {
       throw new PalmError(
         'E_NETWORK',
@@ -309,7 +375,9 @@ export async function fetchOrigin(ctx: PalmContext, spec: OriginSpec, opts: { re
         try {
           await updateCheckout(url, repoDir, wanted);
         } catch (e) {
-          ctx.log.debug(`update of cached ${spec.alias} failed (${(e as Error).message}); re-cloning`);
+          ctx.log.debug(
+            `update of cached ${spec.alias} failed (${(e as Error).message}); re-cloning`,
+          );
           await freshClone(url, repoDir, wanted);
         }
       } else {
@@ -325,7 +393,10 @@ export async function fetchOrigin(ctx: PalmContext, spec: OriginSpec, opts: { re
     }
   }
   if (spec.root && !existsSync(result.root)) {
-    throw new PalmError('E_ORIGIN', `Subdirectory "${spec.root}" not found in ${url}${result.ref ? `@${result.ref}` : ''}`);
+    throw new PalmError(
+      'E_ORIGIN',
+      `Subdirectory "${spec.root}" not found in ${url}${result.ref ? `@${result.ref}` : ''}`,
+    );
   }
   return result;
 }

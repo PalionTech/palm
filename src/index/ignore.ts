@@ -44,7 +44,14 @@ export const INSTALL_OUTPUT_DIRS = [
 ] as const;
 
 /** Repository-level files (contributor guidance / dev config), matched at the origin root only. */
-export const ROOT_IGNORED_FILES = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', '.mcp.json.example', '.cursor/mcp.json', '.cursor/hooks.json'] as const;
+export const ROOT_IGNORED_FILES = [
+  'AGENTS.md',
+  'CLAUDE.md',
+  'GEMINI.md',
+  '.mcp.json.example',
+  '.cursor/mcp.json',
+  '.cursor/hooks.json',
+] as const;
 
 /** fast-glob ignore patterns for auto-detected scans. */
 export function defaultIgnoreGlobs(extra: string[] = []): string[] {

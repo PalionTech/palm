@@ -6,7 +6,6 @@ import { findEntry, loadLock, removeEntry, saveLock, upsertEntry } from '../core
 import { addDep, deepEqual, loadManifest, normalizeDep, saveManifest } from '../core/manifest.js';
 import { lockPath, manifestPath, scopeRoot } from '../core/paths.js';
 import {
-  TARGET_IDS,
   type DeployInput,
   type DepRef,
   type Entity,
@@ -22,22 +21,28 @@ import {
   type MergedRecord,
   type PalmContext,
   type SecretPolicy,
+  TARGET_IDS,
   type TargetId,
 } from '../core/types.js';
 import { optionalSecretNames } from '../mcp/secrets.js';
-import { resolveEngineDeps, type EngineDeps } from './deps.js';
+import { type EngineDeps, resolveEngineDeps } from './deps.js';
 import {
-  IndexSession,
   agentDepSpecs,
-  candidatesIn,
-  entityDeps,
-  suggestNames,
   type Candidate,
   type CandidateSource,
+  candidatesIn,
+  entityDeps,
+  IndexSession,
   type SourcedIndex,
+  suggestNames,
 } from './query.js';
-import { absScopeFile, planRemoval, protectedFiles, reparent, undeployEntries } from './uninstall.js';
-
+import {
+  absScopeFile,
+  planRemoval,
+  protectedFiles,
+  reparent,
+  undeployEntries,
+} from './uninstall.js';
 
 interface Planned extends Candidate {
   direct: boolean;
@@ -85,7 +90,11 @@ function orderTargets(ids: Iterable<TargetId>): TargetId[] {
   return TARGET_IDS.filter((t) => set.has(t));
 }
 
-export function defaultSecretPolicy(ctx: PalmContext, scope: InstallOptions['scope'], override?: SecretPolicy): SecretPolicy {
+export function defaultSecretPolicy(
+  ctx: PalmContext,
+  scope: InstallOptions['scope'],
+  override?: SecretPolicy,
+): SecretPolicy {
   return override ?? ctx.config.secrets?.[scope] ?? (scope === 'global' ? 'literal' : 'env-ref');
 }
 
@@ -93,9 +102,15 @@ function lastSegment(name: string): string {
   return name.split('/').filter(Boolean).pop() ?? name;
 }
 
-function synthesizeMcp(cfg: McpServerConfig, origin: 'adhoc' | 'registry', path: string, extra: { version?: string; description?: string } = {}): Entity {
+function synthesizeMcp(
+  cfg: McpServerConfig,
+  origin: 'adhoc' | 'registry',
+  path: string,
+  extra: { version?: string; description?: string } = {},
+): Entity {
   const e: Entity = { kind: 'mcp', name: cfg.name, path, origin, def: { kind: 'mcp', mcp: cfg } };
-  const description = extra.description ?? cfg.url ?? [cfg.command, ...(cfg.args ?? [])].filter(Boolean).join(' ');
+  const description =
+    extra.description ?? cfg.url ?? [cfg.command, ...(cfg.args ?? [])].filter(Boolean).join(' ');
   if (description) e.description = description;
   if (extra.version) e.version = extra.version;
   return e;
@@ -122,24 +137,33 @@ export async function contentHashOf(c: Candidate): Promise<string> {
   if (!c.source.root) return hashValue(e.def);
   const abs = join(c.source.root, e.path);
   if (e.def.kind === 'hook' && e.def.hooks.pluginRootRel) {
-    return hashValue([await hashPath(abs), await hashPath(join(c.source.root, e.def.hooks.pluginRootRel))]);
+    return hashValue([
+      await hashPath(abs),
+      await hashPath(join(c.source.root, e.def.hooks.pluginRootRel)),
+    ]);
   }
   return hashPath(abs);
 }
 
 function candidateLabel(c: Candidate): string {
   const e = c.entity;
-  return [e.name, `(${e.kind})`, `@${e.origin}`, e.plugin ? `[${e.plugin}]` : '', e.version ?? ''].filter(Boolean).join('  ');
+  return [e.name, `(${e.kind})`, `@${e.origin}`, e.plugin ? `[${e.plugin}]` : '', e.version ?? '']
+    .filter(Boolean)
+    .join('  ');
 }
 
 /** Pick one of several candidates: --yes for byte-identical ones, else the picker, else E_AMBIGUOUS. */
 async function choose(ctx: PalmContext, name: string, cands: Candidate[]): Promise<Candidate> {
   if (cands.length === 1) return cands[0]!;
-  const hashes = await Promise.all(cands.map((c, i) => contentHashOf(c).catch(() => `unhashable-${i}`)));
+  const hashes = await Promise.all(
+    cands.map((c, i) => contentHashOf(c).catch(() => `unhashable-${i}`)),
+  );
   if (ctx.flags.yes && hashes.every((h) => h === hashes[0])) return cands[0]!;
   if (!ctx.ui.isInteractive) {
     const kinds = new Set(cands.map((c) => c.entity.kind));
-    const forms = cands.map((c) => `${kinds.size > 1 ? `${c.entity.kind} ` : ''}${c.entity.name}@${c.entity.origin}`);
+    const forms = cands.map(
+      (c) => `${kinds.size > 1 ? `${c.entity.kind} ` : ''}${c.entity.name}@${c.entity.origin}`,
+    );
     throw new PalmError(
       'E_AMBIGUOUS',
       `"${name}" matches ${cands.length} entities`,
@@ -149,14 +173,22 @@ async function choose(ctx: PalmContext, name: string, cands: Candidate[]): Promi
   return ctx.ui.pick(
     `"${name}" is available from several places. Which one?`,
     cands.map((c) => {
-      const opt: { value: Candidate; label: string; hint?: string } = { value: c, label: candidateLabel(c) };
+      const opt: { value: Candidate; label: string; hint?: string } = {
+        value: c,
+        label: candidateLabel(c),
+      };
       if (c.entity.description) opt.hint = c.entity.description;
       return opt;
     }),
   );
 }
 
-async function registryCandidates(ctx: PalmContext, deps: EngineDeps, name: string, version?: string): Promise<Candidate[]> {
+async function registryCandidates(
+  ctx: PalmContext,
+  deps: EngineDeps,
+  name: string,
+  version?: string,
+): Promise<Candidate[]> {
   if (ctx.flags.offline) {
     ctx.log.debug(`offline: not querying the MCP registry for ${name}`);
     return [];
@@ -178,7 +210,14 @@ async function registryCandidates(ctx: PalmContext, deps: EngineDeps, name: stri
   });
 }
 
-async function notFound(ctx: PalmContext, session: IndexSession, kind: Kind | undefined, name: string, origin?: string, pool?: SourcedIndex[]): Promise<PalmError> {
+async function notFound(
+  ctx: PalmContext,
+  session: IndexSession,
+  kind: Kind | undefined,
+  name: string,
+  origin?: string,
+  pool?: SourcedIndex[],
+): Promise<PalmError> {
   const searched = pool ?? (await session.all());
   const suggestions = suggestNames(searched, kind, name);
   const hint: string[] = [];
@@ -188,7 +227,11 @@ async function notFound(ctx: PalmContext, session: IndexSession, kind: Kind | un
       ? 'No origins are configured. Add one: palm origin add <owner/repo>'
       : 'Add an origin that provides it: palm origin add <owner/repo>',
   );
-  return new PalmError('E_NOT_FOUND', `No ${kind ?? 'entity'} named "${name}"${origin ? ` in origin "${origin}"` : ' in any origin'}`, hint.join(' '));
+  return new PalmError(
+    'E_NOT_FOUND',
+    `No ${kind ?? 'entity'} named "${name}"${origin ? ` in origin "${origin}"` : ' in any origin'}`,
+    hint.join(' '),
+  );
 }
 
 function manifestDepFor(entity: Entity, ref: string | undefined): DepRef | McpManifestEntry {
@@ -198,7 +241,8 @@ function manifestDepFor(entity: Entity, ref: string | undefined): DepRef | McpMa
     if (ref) dep.version = ref;
     return dep;
   }
-  if (entity.origin === 'adhoc' && entity.def.kind === 'mcp') return mcpManifestEntry(entity.def.mcp);
+  if (entity.origin === 'adhoc' && entity.def.kind === 'mcp')
+    return mcpManifestEntry(entity.def.mcp);
   const dep: DepRef = { name: entity.name, origin: entity.origin };
   if (ref) dep.ref = ref;
   return dep;
@@ -230,12 +274,19 @@ async function lookupIndexed(session: IndexSession, req: InstallRequest): Promis
   }
   const cands = candidatesIn(pool, req.kind, dep.name);
   const registryFallback =
-    cands.length === 0 && !scopedTo && (req.kind === 'mcp' || (req.kind === undefined && dep.name.includes('/')));
+    cands.length === 0 &&
+    !scopedTo &&
+    (req.kind === 'mcp' || (req.kind === undefined && dep.name.includes('/')));
   return { dep, pool, ...(scopedTo ? { scopedTo } : {}), cands, registryFallback };
 }
 
 /** Turn one request into a chosen entity (steps 3–5 of DESIGN §6). */
-async function resolveRequest(ctx: PalmContext, deps: EngineDeps, session: IndexSession, req: InstallRequest): Promise<Planned> {
+async function resolveRequest(
+  ctx: PalmContext,
+  deps: EngineDeps,
+  session: IndexSession,
+  req: InstallRequest,
+): Promise<Planned> {
   if (req.adhocMcp) {
     const cfg: McpServerConfig = { ...req.adhocMcp, source: { type: 'adhoc' } };
     const entity = synthesizeMcp(cfg, 'adhoc', cfg.name);
@@ -246,7 +297,11 @@ async function resolveRequest(ctx: PalmContext, deps: EngineDeps, session: Index
   if (req.registry) {
     const dep = normalizeDep(req.spec);
     const cands = await registryCandidates(ctx, deps, req.registry, dep.ref);
-    if (!cands.length) throw new PalmError('E_NOT_FOUND', `MCP registry has no server "${req.registry}"${dep.ref ? ` at ${dep.ref}` : ''}`);
+    if (!cands.length)
+      throw new PalmError(
+        'E_NOT_FOUND',
+        `MCP registry has no server "${req.registry}"${dep.ref ? ` at ${dep.ref}` : ''}`,
+      );
     const chosen = await choose(ctx, req.registry, cands);
     return { ...chosen, direct: true, manifestDep: manifestDepFor(chosen.entity, dep.ref) };
   }
@@ -262,7 +317,8 @@ async function resolveRequest(ctx: PalmContext, deps: EngineDeps, session: Index
       ctx.log.debug(`registry lookup for ${dep.name} failed: ${(e as Error).message}`);
     }
   }
-  if (cands.length === 0) throw await notFound(ctx, session, kind, dep.name, scopedTo, scopedTo ? pool : undefined);
+  if (cands.length === 0)
+    throw await notFound(ctx, session, kind, dep.name, scopedTo, scopedTo ? pool : undefined);
 
   let chosen = await choose(ctx, dep.name, cands);
   // `name#ref` without an origin: re-read the chosen origin at that ref.
@@ -270,7 +326,10 @@ async function resolveRequest(ctx: PalmContext, deps: EngineDeps, session: Index
     const at = await session.get({ ...chosen.source.spec, ref: dep.ref });
     const again = candidatesIn([at], chosen.entity.kind, chosen.entity.name)[0];
     if (!again) {
-      throw new PalmError('E_NOT_FOUND', `${chosen.entity.kind} "${chosen.entity.name}" not found in origin "${chosen.entity.origin}" at ${dep.ref}`);
+      throw new PalmError(
+        'E_NOT_FOUND',
+        `${chosen.entity.kind} "${chosen.entity.name}" not found in origin "${chosen.entity.origin}" at ${dep.ref}`,
+      );
     }
     chosen = again;
   }
@@ -278,13 +337,21 @@ async function resolveRequest(ctx: PalmContext, deps: EngineDeps, session: Index
 }
 
 /** Composite expansion (DESIGN §6 step 6): plugin → members, agent → skills/MCP servers/instructions. */
-async function expand(ctx: PalmContext, session: IndexSession, direct: Planned[], lock: Lockfile, warnings: string[]): Promise<Planned[]> {
+async function expand(
+  ctx: PalmContext,
+  session: IndexSession,
+  direct: Planned[],
+  lock: Lockfile,
+  warnings: string[],
+): Promise<Planned[]> {
   const plan: Planned[] = [];
   const seen = new Set<string>();
   const queue = [...direct];
 
   const alreadyElsewhere = (kind: Kind, name: string, via: string): LockEntry | undefined =>
-    lock.entries.find((e) => e.kind === kind && e.name.toLowerCase() === name.toLowerCase() && e.via !== via);
+    lock.entries.find(
+      (e) => e.kind === kind && e.name.toLowerCase() === name.toLowerCase() && e.via !== via,
+    );
 
   while (queue.length) {
     const item = queue.shift()!;
@@ -302,11 +369,19 @@ async function expand(ctx: PalmContext, session: IndexSession, direct: Planned[]
         const matches = pool.filter((x) => x.kind === m.kind && x.name === m.name);
         const member = matches.find((x) => x.plugin === e.name) ?? matches[0];
         if (!member) {
-          warnings.push(`plugin ${e.name} lists ${m.kind} "${m.name}", which its origin does not provide`);
+          warnings.push(
+            `plugin ${e.name} lists ${m.kind} "${m.name}", which its origin does not provide`,
+          );
           continue;
         }
         const keep = alreadyElsewhere(member.kind, member.name, via);
-        queue.push({ entity: member, source: item.source, direct: false, via, ...(keep ? { keep } : {}) });
+        queue.push({
+          entity: member,
+          source: item.source,
+          direct: false,
+          via,
+          ...(keep ? { keep } : {}),
+        });
       }
     } else if (e.def.kind === 'agent') {
       const via = `agent:${e.name}`;
@@ -314,7 +389,19 @@ async function expand(ctx: PalmContext, session: IndexSession, direct: Planned[]
         if (seen.has(entityKey(w.kind, w.dep.name))) continue;
         const keep = alreadyElsewhere(w.kind, w.dep.name, via);
         if (keep) {
-          queue.push({ entity: { kind: w.kind, name: keep.name, path: keep.path, origin: keep.origin, def: placeholderDef(w.kind) }, source: {}, direct: false, via, keep });
+          queue.push({
+            entity: {
+              kind: w.kind,
+              name: keep.name,
+              path: keep.path,
+              origin: keep.origin,
+              def: placeholderDef(w.kind),
+            },
+            source: {},
+            direct: false,
+            via,
+            keep,
+          });
           continue;
         }
         const chosen = await resolveAgentDep(ctx, session, item, w, lock);
@@ -351,10 +438,15 @@ async function resolveAgentDep(
     const cands = si ? candidatesIn([si], w.kind, w.dep.name) : [];
     return cands.length ? choose(ctx, w.dep.name, cands) : undefined;
   }
-  const own = agent.source.index && agent.source.spec ? candidatesIn([{ spec: agent.source.spec, index: agent.source.index }], w.kind, w.dep.name) : [];
+  const own =
+    agent.source.index && agent.source.spec
+      ? candidatesIn([{ spec: agent.source.spec, index: agent.source.index }], w.kind, w.dep.name)
+      : [];
   if (own.length) return choose(ctx, w.dep.name, own);
   const all = candidatesIn(await session.all(), w.kind, w.dep.name);
-  const prior = lock.entries.find((x) => x.kind === w.kind && x.name.toLowerCase() === w.dep.name.toLowerCase());
+  const prior = lock.entries.find(
+    (x) => x.kind === w.kind && x.name.toLowerCase() === w.dep.name.toLowerCase(),
+  );
   const sticky = prior ? all.filter((c) => c.entity.origin === prior.origin) : [];
   const cands = sticky.length ? sticky : all;
   return cands.length ? choose(ctx, w.dep.name, cands) : undefined;
@@ -374,11 +466,22 @@ interface DeployContext {
 }
 
 /** Deploy one planned entity to its targets and return the new lock + outcome. */
-async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): Promise<{ outcome: InstallOutcome; lock: Lockfile }> {
+async function deployItem(
+  dc: DeployContext,
+  item: Planned,
+  lockIn: Lockfile,
+): Promise<{ outcome: InstallOutcome; lock: Lockfile }> {
   const { ctx, deps, opts, warnings } = dc;
   let lock = lockIn;
   if (item.keep) {
-    return { outcome: { entry: item.keep, status: 'unchanged', notes: [`already installed${item.keep.via ? ` (${item.keep.via})` : ''}`] }, lock };
+    return {
+      outcome: {
+        entry: item.keep,
+        status: 'unchanged',
+        notes: [`already installed${item.keep.via ? ` (${item.keep.via})` : ''}`],
+      },
+      lock,
+    };
   }
   const { entity, source } = item;
   const scope = opts.scope;
@@ -386,7 +489,10 @@ async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): P
   const hash = await contentHashOf(item);
   const existing = findEntry(lock, entity.kind, entity.name, entity.origin);
   const others = lock.entries.filter(
-    (e) => e.kind === entity.kind && e.name.toLowerCase() === entity.name.toLowerCase() && e.origin !== entity.origin,
+    (e) =>
+      e.kind === entity.kind &&
+      e.name.toLowerCase() === entity.name.toLowerCase() &&
+      e.origin !== entity.origin,
   );
   const via = item.direct ? undefined : item.via;
   const withVia = (entry: LockEntry): LockEntry => {
@@ -406,7 +512,12 @@ async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): P
 
   const missingTargets = opts.targets.filter((t) => !existing?.targets.includes(t));
   const intact = !!existing && (await filesPresent(root, existing));
-  const sameContent = !!existing && intact && existing.contentHash === hash && !ctx.flags.force && others.length === 0;
+  const sameContent =
+    !!existing &&
+    intact &&
+    existing.contentHash === hash &&
+    !ctx.flags.force &&
+    others.length === 0;
   if (sameContent && missingTargets.length === 0) {
     const entry = withDeps(withVia(existing));
     return { outcome: { entry, status: 'unchanged', notes: [] }, lock: upsertEntry(lock, entry) };
@@ -415,11 +526,16 @@ async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): P
   const notes: string[] = [];
   // Reinstall with new content (or --force, or another origin's copy): remove the old deployment first.
   const previous = sameContent ? [] : [...(existing ? [existing] : []), ...others];
-  const deployTo = sameContent ? missingTargets : orderTargets([...(existing?.targets ?? []), ...opts.targets]);
+  const deployTo = sameContent
+    ? missingTargets
+    : orderTargets([...(existing?.targets ?? []), ...opts.targets]);
   // Files plus `file#pointer` for merged keys: everything this entity may overwrite.
   const ownedFiles = [
     ...new Set(
-      [...(existing ? [existing] : []), ...others].flatMap((p) => [...p.files, ...(p.merged ?? []).map((m) => `${m.file}#${m.pointer}`)]),
+      [...(existing ? [existing] : []), ...others].flatMap((p) => [
+        ...p.files,
+        ...(p.merged ?? []).map((m) => `${m.file}#${m.pointer}`),
+      ]),
     ),
   ];
 
@@ -437,26 +553,47 @@ async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): P
         const optional = optionalSecretNames(cfg);
         const required = r.envRefs.filter((v) => !optional.has(v));
         const maybe = r.envRefs.filter((v) => optional.has(v));
-        if (required.length) notes.push(`export ${required.join(', ')} before starting the harness`);
-        if (maybe.length) notes.push(`optional: export ${maybe.join(', ')} to use ${maybe.length === 1 ? 'it' : 'them'} (left empty otherwise)`);
+        if (required.length)
+          notes.push(`export ${required.join(', ')} before starting the harness`);
+        if (maybe.length)
+          notes.push(
+            `optional: export ${maybe.join(', ')} to use ${maybe.length === 1 ? 'it' : 'them'} (left empty otherwise)`,
+          );
         for (const v of r.envRefs) exported.add(v);
       }
     } else if (cfg.secrets?.length) {
       notes.push(`needs secrets: ${cfg.secrets.map((s) => s.name).join(', ')}`);
     }
-    if ((cfg.transport === 'http' || cfg.transport === 'sse') && !cfg.secrets?.length && !Object.keys(cfg.headers ?? {}).length) {
-      notes.push('no credentials declared; the harness will start OAuth on first connect if the server needs it');
+    if (
+      (cfg.transport === 'http' || cfg.transport === 'sse') &&
+      !cfg.secrets?.length &&
+      !Object.keys(cfg.headers ?? {}).length
+    ) {
+      notes.push(
+        'no credentials declared; the harness will start OAuth on first connect if the server needs it',
+      );
     }
   }
-  if (entity.def.kind === 'hook') notes.push(`hooks run shell commands on your machine; review ${absPath}`);
+  if (entity.def.kind === 'hook')
+    notes.push(`hooks run shell commands on your machine; review ${absPath}`);
 
   // Secrets are resolved first so a failed prompt leaves the old installation in place.
   if (previous.length && !ctx.flags.dryRun) {
     const leaving = new Set(previous.map((p) => `${p.kind}\0${p.name.toLowerCase()}\0${p.origin}`));
-    await undeployEntries(ctx, deps, scope, previous, protectedFiles(root, lock, leaving), warnings);
+    await undeployEntries(
+      ctx,
+      deps,
+      scope,
+      previous,
+      protectedFiles(root, lock, leaving),
+      warnings,
+    );
     for (const p of previous) lock = removeEntry(lock, p.kind, p.name, p.origin);
   }
-  if (others.length) notes.push(`replaces ${entity.kind} ${entity.name} from ${others.map((o) => o.origin).join(', ')}`);
+  if (others.length)
+    notes.push(
+      `replaces ${entity.kind} ${entity.name} from ${others.map((o) => o.origin).join(', ')}`,
+    );
 
   const files: string[] = sameContent && existing ? [...existing.files] : [];
   const merged: MergedRecord[] = sameContent && existing ? [...(existing.merged ?? [])] : [];
@@ -499,7 +636,10 @@ async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): P
       }
     }
     if (failures.length && failures.length === deployTo.length && okTargets.length === 0) {
-      if (previous.length && !ctx.flags.dryRun) ctx.log.warn(`${entity.kind} ${entity.name}: the previous installation was removed before the reinstall failed`);
+      if (previous.length && !ctx.flags.dryRun)
+        ctx.log.warn(
+          `${entity.kind} ${entity.name}: the previous installation was removed before the reinstall failed`,
+        );
       throw failures[0]!.error;
     }
     for (const f of failures) {
@@ -529,7 +669,10 @@ async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): P
   if (existing && !intact && existing.contentHash === hash) notes.push('restored missing files');
 
   const status: InstallOutcome['status'] =
-    entity.kind !== 'plugin' && deployTo.length > 0 && skipped === deployTo.length - failures.length && skipped > 0
+    entity.kind !== 'plugin' &&
+    deployTo.length > 0 &&
+    skipped === deployTo.length - failures.length &&
+    skipped > 0
       ? 'skipped'
       : existing || others.length
         ? 'updated'
@@ -544,7 +687,11 @@ async function deployItem(dc: DeployContext, item: Planned, lockIn: Lockfile): P
  * is ambiguity (the engine's picker). Git origins come from the index cache, so the engine's
  * own lookup afterwards fetches nothing again.
  */
-export async function preflightInstall(ctx: PalmContext, requests: InstallRequest[], depsIn?: Partial<EngineDeps>): Promise<void> {
+export async function preflightInstall(
+  ctx: PalmContext,
+  requests: InstallRequest[],
+  depsIn?: Partial<EngineDeps>,
+): Promise<void> {
   const deps = await resolveEngineDeps(depsIn);
   // installEntities reads the same origins and repeats their warnings; show them here only on failure.
   const warned: string[] = [];
@@ -555,7 +702,14 @@ export async function preflightInstall(ctx: PalmContext, requests: InstallReques
       if (req.adhocMcp || req.registry) continue;
       const l = await lookupIndexed(session, req);
       if (l.cands.length === 0 && !l.registryFallback) {
-        throw await notFound(quiet, session, req.kind, l.dep.name, l.scopedTo, l.scopedTo ? l.pool : undefined);
+        throw await notFound(
+          quiet,
+          session,
+          req.kind,
+          l.dep.name,
+          l.scopedTo,
+          l.scopedTo ? l.pool : undefined,
+        );
       }
     }
   } catch (e) {
@@ -602,7 +756,8 @@ export async function installEntities(
       const r = await deployItem(dc, item, lock);
       lock = r.lock;
       outcomes.push(r.outcome);
-      if (item.direct && !opts.noSave && item.manifestDep) manifest = addDep(manifest, item.entity.kind, item.manifestDep);
+      if (item.direct && !opts.noSave && item.manifestDep)
+        manifest = addDep(manifest, item.entity.kind, item.manifestDep);
     }
 
     // Dependencies a plugin/agent no longer declares (not merely ones that failed to resolve).
@@ -617,8 +772,17 @@ export async function installEntities(
     }
     if (orphans.length) {
       const removal = planRemoval(lock, orphans, { manifest, checkRoots: true });
-      const leaving = new Set(removal.removed.map((p) => `${p.kind}\0${p.name.toLowerCase()}\0${p.origin}`));
-      await undeployEntries(ctx, deps, opts.scope, removal.removed, protectedFiles(scopeRoot(ctx.paths, opts.scope), lock, leaving), warnings);
+      const leaving = new Set(
+        removal.removed.map((p) => `${p.kind}\0${p.name.toLowerCase()}\0${p.origin}`),
+      );
+      await undeployEntries(
+        ctx,
+        deps,
+        opts.scope,
+        removal.removed,
+        protectedFiles(scopeRoot(ctx.paths, opts.scope), lock, leaving),
+        warnings,
+      );
       for (const o of removal.removed) {
         lock = removeEntry(lock, o.kind, o.name, o.origin);
         warnings.push(`removed ${o.kind} ${o.name}: no longer part of ${o.via}`);

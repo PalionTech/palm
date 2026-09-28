@@ -12,10 +12,10 @@
  * edited is left alone).
  */
 import { parse, stringify } from 'smol-toml';
-import type { MergedRecord } from '../core/types.js';
 import { PalmError } from '../core/errors.js';
-import { atomicWrite, readTextOrUndefined } from './fs-utils.js';
+import type { MergedRecord } from '../core/types.js';
 import { containsAll, deepEqual, isPlainObject } from './deep-equal.js';
+import { atomicWrite, readTextOrUndefined } from './fs-utils.js';
 import { formatPointer, parsePointer } from './json-pointer.js';
 
 export interface TomlMergeOptions {
@@ -32,7 +32,11 @@ function parseToml(text: string, file: string): Table {
   try {
     return parse(text) as Table;
   } catch (e) {
-    throw new PalmError('E_PARSE', `cannot parse ${file}: ${(e as Error).message}`, 'fix the TOML syntax or move the file aside');
+    throw new PalmError(
+      'E_PARSE',
+      `cannot parse ${file}: ${(e as Error).message}`,
+      'fix the TOML syntax or move the file aside',
+    );
   }
 }
 
@@ -223,11 +227,16 @@ export async function unmergeTomlTable(file: string, record: MergedRecord): Prom
   try {
     const candidate = removeTableText(text, tablePath);
     const actual = candidate.trim() === '' ? {} : (parse(candidate) as Table);
-    if (deepEqual(pruneEmptyAncestors(actual, tablePath), pruneEmptyAncestors(structuredClone(expected), tablePath))) next = candidate;
+    if (
+      deepEqual(
+        pruneEmptyAncestors(actual, tablePath),
+        pruneEmptyAncestors(structuredClone(expected), tablePath),
+      )
+    )
+      next = candidate;
   } catch {
     next = undefined;
   }
   next ??= stringify(expected);
   await atomicWrite(file, next);
 }
-

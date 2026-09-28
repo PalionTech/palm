@@ -8,10 +8,10 @@ import { registerInstall } from './install.js';
 import { registerList } from './list.js';
 import { registerOrigin } from './origin.js';
 import { registerSearch } from './search.js';
+import { createRootProgram } from './shared.js';
 import { registerTargets } from './targets.js';
 import { registerUninstall } from './uninstall.js';
 import { registerUpdate } from './update.js';
-import { createRootProgram } from './shared.js';
 
 export interface ProgramOptions {
   version?: string;

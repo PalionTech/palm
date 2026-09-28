@@ -103,7 +103,9 @@ function lenientParse(raw: string): Record<string, unknown> {
       .slice(1)
       .map((l) => l.trim())
       .filter((l) => l !== '' && !l.startsWith('#'));
-    let value = [b.first, ...continuation].filter((s) => s !== '' && s !== '|' && s !== '>').join(' ');
+    let value = [b.first, ...continuation]
+      .filter((s) => s !== '' && s !== '|' && s !== '>')
+      .join(' ');
     value = unquote(value);
     out[b.key] = coerceScalar(value);
   }
@@ -111,7 +113,10 @@ function lenientParse(raw: string): Record<string, unknown> {
 }
 
 function unquote(s: string): string {
-  if (s.length >= 2 && ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))) {
+  if (
+    s.length >= 2 &&
+    ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))
+  ) {
     return s.slice(1, -1);
   }
   return s;

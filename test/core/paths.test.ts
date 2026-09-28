@@ -1,8 +1,14 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { hooksAssetDir, lockPath, manifestPath, resolvePaths, scopeRoot } from '../../src/core/paths.js';
-import { removeDir, tempDir } from './helpers.js';
+import {
+  hooksAssetDir,
+  lockPath,
+  manifestPath,
+  resolvePaths,
+  scopeRoot,
+} from '../../src/core/paths.js';
+import { removeDir, tempDir } from '../support/sandbox.js';
 
 describe('resolvePaths', () => {
   let root: string;
@@ -37,7 +43,10 @@ describe('resolvePaths', () => {
     const palmHome = join(root, 'ph');
     await mkdir(join(palmHome, 'mine'), { recursive: true });
     await writeFile(join(palmHome, 'palm.yaml'), 'skills: []\n');
-    const p = resolvePaths(join(palmHome, 'mine'), { HOME: join(root, 'home'), PALM_HOME: palmHome });
+    const p = resolvePaths(join(palmHome, 'mine'), {
+      HOME: join(root, 'home'),
+      PALM_HOME: palmHome,
+    });
     expect(p.projectRoot).toBe(join(palmHome, 'mine'));
   });
 

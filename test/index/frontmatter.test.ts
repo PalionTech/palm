@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { parseFrontmatter, splitFrontmatter, stringifyFrontmatter } from '../../src/index/frontmatter.js';
+import {
+  parseFrontmatter,
+  splitFrontmatter,
+  stringifyFrontmatter,
+} from '../../src/index/frontmatter.js';
 import { isValidSlug, slugify, toSlug } from '../../src/index/slug.js';
 
 describe('parseFrontmatter', () => {
@@ -19,13 +23,17 @@ describe('parseFrontmatter', () => {
   });
 
   it('tolerates CRLF line endings and a BOM', () => {
-    const r = parseFrontmatter('﻿---\r\nname: tdd\r\ndescription: Test first\r\n---\r\n\r\nBody line\r\nsecond\r\n');
+    const r = parseFrontmatter(
+      '﻿---\r\nname: tdd\r\ndescription: Test first\r\n---\r\n\r\nBody line\r\nsecond\r\n',
+    );
     expect(r.data).toEqual({ name: 'tdd', description: 'Test first' });
     expect(r.body).toBe('Body line\nsecond\n');
   });
 
   it('handles folded and literal block strings', () => {
-    const r = parseFrontmatter('---\ndescription: >\n  Use when implementing\n  any feature.\nnotes: |\n  line one\n  line two\n---\nbody');
+    const r = parseFrontmatter(
+      '---\ndescription: >\n  Use when implementing\n  any feature.\nnotes: |\n  line one\n  line two\n---\nbody',
+    );
     expect(r.data.description).toBe('Use when implementing any feature.\n');
     expect(r.data.notes).toBe('line one\nline two\n');
   });
@@ -44,7 +52,9 @@ describe('parseFrontmatter', () => {
   });
 
   it('keeps the literal text of numeric versions', () => {
-    const r = parseFrontmatter('---\nversion: 1.10\nmetadata:\n  version: 2.0\n  author: me\n---\n');
+    const r = parseFrontmatter(
+      '---\nversion: 1.10\nmetadata:\n  version: 2.0\n  author: me\n---\n',
+    );
     expect(r.data.version).toBe('1.10');
     expect(r.data.metadata).toEqual({ version: '2.0', author: 'me' });
   });
@@ -62,9 +72,17 @@ describe('parseFrontmatter', () => {
 
 describe('stringifyFrontmatter', () => {
   it('writes ---\\n<yaml>---\\n\\n<body> and round-trips', () => {
-    const text = stringifyFrontmatter({ name: 'x', description: 'Has: colons', tools: ['Read', 'Grep'], skip: undefined }, 'Body\n');
-    expect(text).toBe('---\nname: x\ndescription: "Has: colons"\ntools:\n  - Read\n  - Grep\n---\n\nBody\n');
-    expect(parseFrontmatter(text)).toEqual({ data: { name: 'x', description: 'Has: colons', tools: ['Read', 'Grep'] }, body: 'Body\n' });
+    const text = stringifyFrontmatter(
+      { name: 'x', description: 'Has: colons', tools: ['Read', 'Grep'], skip: undefined },
+      'Body\n',
+    );
+    expect(text).toBe(
+      '---\nname: x\ndescription: "Has: colons"\ntools:\n  - Read\n  - Grep\n---\n\nBody\n',
+    );
+    expect(parseFrontmatter(text)).toEqual({
+      data: { name: 'x', description: 'Has: colons', tools: ['Read', 'Grep'] },
+      body: 'Body\n',
+    });
   });
 });
 

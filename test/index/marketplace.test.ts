@@ -4,14 +4,21 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { isPalmError } from '../../src/core/errors.js';
-import { findMarketplaceFile, normalizeSource, parseMarketplace } from '../../src/index/marketplace.js';
+import {
+  findMarketplaceFile,
+  normalizeSource,
+  parseMarketplace,
+} from '../../src/index/marketplace.js';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures/', import.meta.url));
 const mp = (name: string) => join(FIXTURES, 'marketplaces', name);
 
 describe('parseMarketplace (real marketplace files)', () => {
   it('APM cache skills.json: single "./" entry becomes the repo itself', async () => {
-    const r = await parseMarketplace(mp('apm-cache-skills.json'), { url: 'https://github.com/mattpocock/skills', ref: 'v1.2.3' });
+    const r = await parseMarketplace(mp('apm-cache-skills.json'), {
+      url: 'https://github.com/mattpocock/skills',
+      ref: 'v1.2.3',
+    });
     expect(r.warnings).toEqual([]);
     expect(r.origins).toEqual([
       {
@@ -25,19 +32,38 @@ describe('parseMarketplace (real marketplace files)', () => {
   });
 
   it('APM cache superpowers.json with a local base path', async () => {
-    const r = await parseMarketplace(mp('apm-cache-superpowers.json'), { path: '/srv/superpowers' });
-    expect(r.origins).toEqual([{ alias: 'superpowers', type: 'local', path: '/srv/superpowers', description: expect.any(String) }]);
+    const r = await parseMarketplace(mp('apm-cache-superpowers.json'), {
+      path: '/srv/superpowers',
+    });
+    expect(r.origins).toEqual([
+      {
+        alias: 'superpowers',
+        type: 'local',
+        path: '/srv/superpowers',
+        description: expect.any(String),
+      },
+    ]);
   });
 
   it('without a base, relative entries resolve against the marketplace directory', async () => {
     const r = await parseMarketplace(mp('apm-cache-superpowers.json'), {});
     expect(r.origins[0]?.path).toBe(join(FIXTURES, 'marketplaces'));
-    const inRepo = await parseMarketplace(join(FIXTURES, 'mattpocock-like/.claude-plugin/marketplace.json'), {});
-    expect(inRepo.origins[0]).toMatchObject({ alias: 'mattpocock-skills', type: 'local', path: join(FIXTURES, 'mattpocock-like') });
+    const inRepo = await parseMarketplace(
+      join(FIXTURES, 'mattpocock-like/.claude-plugin/marketplace.json'),
+      {},
+    );
+    expect(inRepo.origins[0]).toMatchObject({
+      alias: 'mattpocock-skills',
+      type: 'local',
+      path: join(FIXTURES, 'mattpocock-like'),
+    });
   });
 
   it('claude-plugins-official: git-subdir, url+sha and relative entries', async () => {
-    const r = await parseMarketplace(mp('claude-plugins-official.json'), { url: 'https://github.com/anthropics/claude-plugins-official.git', ref: 'main' });
+    const r = await parseMarketplace(mp('claude-plugins-official.json'), {
+      url: 'https://github.com/anthropics/claude-plugins-official.git',
+      ref: 'main',
+    });
     const byAlias = Object.fromEntries(r.origins.map((o) => [o.alias, o]));
     expect(byAlias['42crunch-api-security-testing']).toMatchObject({
       type: 'git',
@@ -62,7 +88,10 @@ describe('parseMarketplace (real marketplace files)', () => {
   });
 
   it('cursor/plugins: bare relative sources become roots of the same repo', async () => {
-    const r = await parseMarketplace(mp('cursor-plugins.json'), { url: 'https://github.com/cursor/plugins.git', ref: 'main' });
+    const r = await parseMarketplace(mp('cursor-plugins.json'), {
+      url: 'https://github.com/cursor/plugins.git',
+      ref: 'main',
+    });
     expect(r.origins.map((o) => [o.alias, o.url, o.ref, o.root])).toEqual([
       ['teaching', 'https://github.com/cursor/plugins.git', 'main', 'teaching'],
       ['pstack', 'https://github.com/cursor/plugins.git', 'main', 'pstack'],
@@ -71,22 +100,50 @@ describe('parseMarketplace (real marketplace files)', () => {
   });
 
   it('awesome-copilot: string sources and github sources with path/ref/sha', async () => {
-    const r = await parseMarketplace(mp('awesome-copilot.json'), { url: 'https://github.com/github/awesome-copilot.git' });
+    const r = await parseMarketplace(mp('awesome-copilot.json'), {
+      url: 'https://github.com/github/awesome-copilot.git',
+    });
     expect(r.origins.map((o) => [o.alias, o.url, o.ref, o.root])).toEqual([
-      ['accessibility-kanban', 'https://github.com/github/awesome-copilot.git', undefined, 'plugins/accessibility-kanban'],
-      ['acreadiness-cockpit', 'https://github.com/github/awesome-copilot.git', undefined, 'plugins/acreadiness-cockpit'],
+      [
+        'accessibility-kanban',
+        'https://github.com/github/awesome-copilot.git',
+        undefined,
+        'plugins/accessibility-kanban',
+      ],
+      [
+        'acreadiness-cockpit',
+        'https://github.com/github/awesome-copilot.git',
+        undefined,
+        'plugins/acreadiness-cockpit',
+      ],
       ['agent-council', 'https://github.com/Avyayalaya/agent-council.git', 'v0.1.3', undefined],
       ['ai-ready', 'https://github.com/johnpapa/ai-ready.git', 'v1.3.0', '.github/plugin'],
-      ['anarlog', 'https://github.com/fastrepl/anarlog.git', '259b68866a7d6c331cd428aaa33a33300a700c5d', 'agent-plugins/anarlog'],
+      [
+        'anarlog',
+        'https://github.com/fastrepl/anarlog.git',
+        '259b68866a7d6c331cd428aaa33a33300a700c5d',
+        'agent-plugins/anarlog',
+      ],
     ]);
   });
 
   it('anthropics/skills: several "./" subsets of one repo are imported once', async () => {
-    const r = await parseMarketplace(mp('anthropics-skills.json'), { url: 'https://github.com/anthropics/skills.git' });
+    const r = await parseMarketplace(mp('anthropics-skills.json'), {
+      url: 'https://github.com/anthropics/skills.git',
+    });
     expect(r.origins).toEqual([
-      { alias: 'anthropic-agent-skills', type: 'git', url: 'https://github.com/anthropics/skills.git', description: 'marketplace anthropic-agent-skills' },
+      {
+        alias: 'anthropic-agent-skills',
+        type: 'git',
+        url: 'https://github.com/anthropics/skills.git',
+        description: 'marketplace anthropic-agent-skills',
+      },
     ]);
-    expect(r.warnings).toEqual([expect.stringMatching(/"document-skills", "example-skills".*share one source; imported once as origin "anthropic-agent-skills"/)]);
+    expect(r.warnings).toEqual([
+      expect.stringMatching(
+        /"document-skills", "example-skills".*share one source; imported once as origin "anthropic-agent-skills"/,
+      ),
+    ]);
   });
 
   it('Codex marketplace ({source:"url", url:"./"}) resolves to the repo', async () => {
@@ -95,14 +152,49 @@ describe('parseMarketplace (real marketplace files)', () => {
   });
 
   it('catalog with every source form; npm and unknown sources are warned about', async () => {
-    const r = await parseMarketplace(mp('catalog.json'), { url: 'https://github.com/acme/catalog.git', ref: 'v1' });
-    expect(r.origins.map((o) => ({ alias: o.alias, url: o.url, ref: o.ref, root: o.root }))).toEqual([
-      { alias: 'local-skills', url: 'https://github.com/acme/catalog.git', ref: 'v1', root: undefined },
-      { alias: 'superpowers', url: 'https://github.com/obra/superpowers.git', ref: undefined, root: undefined },
-      { alias: 'caveman-skill', url: 'https://github.com/juliusbrussee/caveman.git', ref: undefined, root: 'skills/caveman' },
-      { alias: 'pstack', url: 'https://github.com/cursor/plugins.git', ref: 'main', root: 'pstack' },
-      { alias: 'pinned', url: 'https://github.com/mattpocock/skills.git', ref: '3f2a9c0ffee', root: undefined },
-      { alias: 'plain-git', url: 'https://gitlab.com/acme/agent-kit.git', ref: 'v2.0.0', root: undefined },
+    const r = await parseMarketplace(mp('catalog.json'), {
+      url: 'https://github.com/acme/catalog.git',
+      ref: 'v1',
+    });
+    expect(
+      r.origins.map((o) => ({ alias: o.alias, url: o.url, ref: o.ref, root: o.root })),
+    ).toEqual([
+      {
+        alias: 'local-skills',
+        url: 'https://github.com/acme/catalog.git',
+        ref: 'v1',
+        root: undefined,
+      },
+      {
+        alias: 'superpowers',
+        url: 'https://github.com/obra/superpowers.git',
+        ref: undefined,
+        root: undefined,
+      },
+      {
+        alias: 'caveman-skill',
+        url: 'https://github.com/juliusbrussee/caveman.git',
+        ref: undefined,
+        root: 'skills/caveman',
+      },
+      {
+        alias: 'pstack',
+        url: 'https://github.com/cursor/plugins.git',
+        ref: 'main',
+        root: 'pstack',
+      },
+      {
+        alias: 'pinned',
+        url: 'https://github.com/mattpocock/skills.git',
+        ref: '3f2a9c0ffee',
+        root: undefined,
+      },
+      {
+        alias: 'plain-git',
+        url: 'https://gitlab.com/acme/agent-kit.git',
+        ref: 'v2.0.0',
+        root: undefined,
+      },
     ]);
     expect(r.warnings).toEqual([
       expect.stringMatching(/"from-npm": npm source @acme\/claude-plugin is not supported/),
@@ -123,7 +215,9 @@ describe('parseMarketplace (real marketplace files)', () => {
         const err = await parseMarketplace(join(dir, f), {}).catch((e: unknown) => e);
         expect(isPalmError(err) && err.code).toBe('E_PARSE');
       }
-      const missing = await parseMarketplace(join(dir, 'missing.json'), {}).catch((e: unknown) => e);
+      const missing = await parseMarketplace(join(dir, 'missing.json'), {}).catch(
+        (e: unknown) => e,
+      );
       expect(isPalmError(missing) && missing.code).toBe('E_IO');
     });
   });
@@ -136,10 +230,22 @@ describe('normalizeSource', () => {
     ['./plugins/x/', { type: 'local', path: 'plugins/x' }],
     ['github:obra/superpowers', { type: 'github', repo: 'obra/superpowers' }],
     ['https://github.com/a/b.git', { type: 'git', url: 'https://github.com/a/b.git' }],
-    [{ source: 'local', path: './plugins/y' }, { type: 'local', path: 'plugins/y' }],
-    [{ source: 'url', url: './' }, { type: 'local', path: '' }],
-    [{ source: 'github', repo: 'o/r', path: './sub/', sha: 'abc' }, { type: 'github', repo: 'o/r', path: 'sub', sha: 'abc' }],
-    [{ source: 'npm', package: 'p' }, { type: 'npm', package: 'p' }],
+    [
+      { source: 'local', path: './plugins/y' },
+      { type: 'local', path: 'plugins/y' },
+    ],
+    [
+      { source: 'url', url: './' },
+      { type: 'local', path: '' },
+    ],
+    [
+      { source: 'github', repo: 'o/r', path: './sub/', sha: 'abc' },
+      { type: 'github', repo: 'o/r', path: 'sub', sha: 'abc' },
+    ],
+    [
+      { source: 'npm', package: 'p' },
+      { type: 'npm', package: 'p' },
+    ],
   ])('%j', (input, expected) => {
     expect(normalizeSource(input)).toEqual(expected);
   });

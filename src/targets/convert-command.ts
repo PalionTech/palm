@@ -8,7 +8,10 @@
 import type { CommandDefinition, TargetId } from '../core/types.js';
 import { normalizeBody, withFrontmatter, yamlMapping } from './frontmatter.js';
 
-export function renderCommand(def: CommandDefinition, target: TargetId): { fileName: string; content: string } {
+export function renderCommand(
+  def: CommandDefinition,
+  target: TargetId,
+): { fileName: string; content: string } {
   const fm = yamlMapping({ description: def.description, 'argument-hint': def.argumentHint });
   switch (target) {
     case 'claude':

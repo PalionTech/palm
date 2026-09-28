@@ -10,8 +10,8 @@
  * newline after an upsert. Record: `{ file, pointer: "block:<id>", value: content }`.
  */
 import { promises as fs } from 'node:fs';
-import type { MergedRecord } from '../core/types.js';
 import { PalmError } from '../core/errors.js';
+import type { MergedRecord } from '../core/types.js';
 import { atomicWrite, readTextOrUndefined } from './fs-utils.js';
 
 export const BLOCK_POINTER_PREFIX = 'block:';
@@ -29,14 +29,20 @@ export function renderBlock(id: string, content: string): string {
 }
 
 /** Locate a block: `start` = index of the begin marker, `end` = index just past the end marker. */
-export function findManagedBlock(text: string, id: string): { start: number; end: number; content: string } | undefined {
+export function findManagedBlock(
+  text: string,
+  id: string,
+): { start: number; end: number; content: string } | undefined {
   const begin = beginMarker(id);
   const end = endMarker(id);
   const start = text.indexOf(begin);
   if (start < 0) return undefined;
   const endIdx = text.indexOf(end, start + begin.length);
   if (endIdx < 0) return undefined;
-  const inner = text.slice(start + begin.length, endIdx).replace(/^\r?\n/, '').replace(/\r?\n$/, '');
+  const inner = text
+    .slice(start + begin.length, endIdx)
+    .replace(/^\r?\n/, '')
+    .replace(/\r?\n$/, '');
   return { start, end: endIdx + end.length, content: inner };
 }
 
@@ -47,7 +53,12 @@ export interface ManagedBlockOptions {
   displayFile?: string;
 }
 
-export async function upsertManagedBlock(file: string, id: string, content: string, opts: ManagedBlockOptions): Promise<MergedRecord> {
+export async function upsertManagedBlock(
+  file: string,
+  id: string,
+  content: string,
+  opts: ManagedBlockOptions,
+): Promise<MergedRecord> {
   const record: MergedRecord = { file, pointer: `${BLOCK_POINTER_PREFIX}${id}`, value: content };
   const text = (await readTextOrUndefined(file)) ?? '';
   const block = renderBlock(id, content);

@@ -4,9 +4,9 @@
  * when they stay inside the origin (with loop protection).
  */
 
-import fg from 'fast-glob';
 import { realpath, stat } from 'node:fs/promises';
 import { join, sep } from 'node:path';
+import fg from 'fast-glob';
 import { isIgnoredRel, rebaseIgnore } from './ignore.js';
 import { baseOf, dirOf } from './util.js';
 
@@ -62,7 +62,13 @@ export async function buildFileIndex(rootAbs: string, opts: FileIndexOptions): P
     index.real.set(rel, real);
   };
 
-  const walk = async (absDir: string, prefix: string, realDir: string, deep: number, chain: Set<string>): Promise<void> => {
+  const walk = async (
+    absDir: string,
+    prefix: string,
+    realDir: string,
+    deep: number,
+    chain: Set<string>,
+  ): Promise<void> => {
     const ignore = prefix === '' ? opts.ignore : rebaseIgnore(opts.ignore, prefix);
     const entries = await fg('**/*', {
       cwd: absDir,

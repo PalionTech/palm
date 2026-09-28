@@ -1,12 +1,21 @@
 /** SKILL.md parsing (Agent Skills spec, https://agentskills.io) with non-spec keys passed through. */
 
-import type { SkillDefinition } from '../core/types.js';
 import { PalmError } from '../core/errors.js';
+import type { SkillDefinition } from '../core/types.js';
 import { parseFrontmatterYaml, splitFrontmatter } from './frontmatter.js';
 import { isValidSlug, slugify, toSlug } from './slug.js';
 import { asList, asString, compact, isRecord } from './util.js';
 
-const SPEC_KEYS = new Set(['name', 'description', 'license', 'compatibility', 'metadata', 'allowed-tools', 'allowedTools', 'version']);
+const SPEC_KEYS = new Set([
+  'name',
+  'description',
+  'license',
+  'compatibility',
+  'metadata',
+  'allowed-tools',
+  'allowedTools',
+  'version',
+]);
 
 export interface ParsedSkill {
   def: SkillDefinition;
@@ -32,7 +41,11 @@ export function parseSkillMd(dirName: string, text: string): SkillDefinition {
   return parseSkillMdDetailed(dirName, text).def;
 }
 
-export function parseSkillMdDetailed(dirName: string, text: string, opts: ParseSkillOptions = {}): ParsedSkill {
+export function parseSkillMdDetailed(
+  dirName: string,
+  text: string,
+  opts: ParseSkillOptions = {},
+): ParsedSkill {
   const split = splitFrontmatter(text);
   if (!split.hasFrontmatter) {
     throw new PalmError('E_PARSE', `SKILL.md in "${dirName}" has no YAML frontmatter`);
@@ -47,19 +60,29 @@ export function parseSkillMdDetailed(dirName: string, text: string, opts: ParseS
     name = toSlug(dirName, fmName);
   } else if (fmName === undefined) {
     name = toSlug(dirName);
-    issues.push({ code: 'name-missing', message: `missing frontmatter name; using directory name "${name}"` });
+    issues.push({
+      code: 'name-missing',
+      message: `missing frontmatter name; using directory name "${name}"`,
+    });
   } else if (isValidSlug(fmName)) {
     name = fmName;
     if (fmName !== dirName) {
-      issues.push({ code: 'name-mismatch', message: `frontmatter name "${fmName}" differs from directory "${dirName}"; keeping "${fmName}"` });
+      issues.push({
+        code: 'name-mismatch',
+        message: `frontmatter name "${fmName}" differs from directory "${dirName}"; keeping "${fmName}"`,
+      });
     }
   } else {
     name = dirSlug !== '' ? dirSlug : toSlug(fmName);
-    issues.push({ code: 'name-invalid', message: `frontmatter name "${fmName}" is not a valid slug; using "${name}"` });
+    issues.push({
+      code: 'name-invalid',
+      message: `frontmatter name "${fmName}" is not a valid slug; using "${name}"`,
+    });
   }
 
   const description = asString(data.description);
-  if (description === undefined) issues.push({ code: 'description-missing', message: 'missing frontmatter description' });
+  if (description === undefined)
+    issues.push({ code: 'description-missing', message: 'missing frontmatter description' });
 
   const metadataRaw = data.metadata;
   let metadata: Record<string, string> | undefined;
@@ -71,7 +94,8 @@ export function parseSkillMdDetailed(dirName: string, text: string, opts: ParseS
     }
   }
 
-  const version = asString(isRecord(metadataRaw) ? metadataRaw.version : undefined) ?? asString(data.version);
+  const version =
+    asString(isRecord(metadataRaw) ? metadataRaw.version : undefined) ?? asString(data.version);
   const allowedTools = asList(data['allowed-tools'] ?? data.allowedTools, { whitespace: true });
 
   const extra: Record<string, unknown> = {};

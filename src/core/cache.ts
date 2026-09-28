@@ -5,7 +5,13 @@ import { PalmError } from './errors.js';
 import { fetchOrigin } from './git.js';
 import { hashValue } from './hash.js';
 import { cacheDir } from './paths.js';
-import type { OriginCheckout, OriginIndex, OriginSpec, PalmContext, ScanOriginFn } from './types.js';
+import type {
+  OriginCheckout,
+  OriginIndex,
+  OriginSpec,
+  PalmContext,
+  ScanOriginFn,
+} from './types.js';
 
 /** Bump when the shape of cached indexes changes. */
 const INDEX_FORMAT = 1;
@@ -21,27 +27,44 @@ interface StoredIndex extends OriginIndex {
 export function indexFilePath(ctx: PalmContext, spec: OriginSpec): string {
   const ref = spec.type === 'git' ? spec.ref : undefined;
   const suffix = ref ? `@${ref.replace(/[^A-Za-z0-9._-]/g, '-')}` : '';
-  const layout = spec.layout ? `~${hashValue(spec.layout).replace(/^sha256:/, '').slice(0, 8)}` : '';
+  const layout = spec.layout
+    ? `~${hashValue(spec.layout)
+        .replace(/^sha256:/, '')
+        .slice(0, 8)}`
+    : '';
   return join(cacheDir(ctx.paths), `${originId(spec)}${suffix}${layout}.index.json`);
 }
 
 function cacheKey(spec: OriginSpec, checkout: OriginCheckout): string {
-  return hashValue({ format: INDEX_FORMAT, sha: checkout.sha, root: spec.root ?? '', layout: spec.layout ?? null });
+  return hashValue({
+    format: INDEX_FORMAT,
+    sha: checkout.sha,
+    root: spec.root ?? '',
+    layout: spec.layout ?? null,
+  });
 }
 
 /** Default scanner, loaded lazily so a missing module gives a clear error. */
 export async function loadDefaultScan(): Promise<ScanOriginFn> {
   try {
+    // biome-ignore lint/style/noRestrictedImports: known layer violation (core -> index); PLAN.md wave 2/3 inverts it by injecting the scanner.
     const mod = await import('../index/scan.js');
     return mod.scanOrigin;
   } catch (e) {
-    throw new PalmError('E_INTERNAL', `Scanner module unavailable (src/index/scan.ts): ${(e as Error).message}`);
+    throw new PalmError(
+      'E_INTERNAL',
+      `Scanner module unavailable (src/index/scan.ts): ${(e as Error).message}`,
+    );
   }
 }
 
 function withAlias(index: OriginIndex, alias: string): OriginIndex {
   if (index.origin === alias && index.entities.every((e) => e.origin === alias)) return index;
-  return { ...index, origin: alias, entities: index.entities.map((e) => ({ ...e, origin: alias })) };
+  return {
+    ...index,
+    origin: alias,
+    entities: index.entities.map((e) => ({ ...e, origin: alias })),
+  };
 }
 
 /**
@@ -49,7 +72,11 @@ function withAlias(index: OriginIndex, alias: string): OriginIndex {
  * reuse `<originId>.index.json` while the checked-out sha is unchanged; local
  * origins are rescanned every time.
  */
-export async function getIndex(ctx: PalmContext, spec: OriginSpec, opts: { refresh?: boolean; scan?: ScanOriginFn } = {}): Promise<OriginIndex> {
+export async function getIndex(
+  ctx: PalmContext,
+  spec: OriginSpec,
+  opts: { refresh?: boolean; scan?: ScanOriginFn } = {},
+): Promise<OriginIndex> {
   const checkout = await fetchOrigin(ctx, spec, { refresh: opts.refresh });
   const file = indexFilePath(ctx, spec);
   const key = cacheKey(spec, checkout);
@@ -66,7 +93,10 @@ export async function getIndex(ctx: PalmContext, spec: OriginSpec, opts: { refre
   }
   const scan = opts.scan ?? (await loadDefaultScan());
   // The scanner derives versions from a semver tag: give it the ref actually checked out.
-  const result = await scan(checkout.root, checkout.ref && !spec.ref ? { ...spec, ref: checkout.ref } : spec);
+  const result = await scan(
+    checkout.root,
+    checkout.ref && !spec.ref ? { ...spec, ref: checkout.ref } : spec,
+  );
   const index: OriginIndex = {
     entities: result.entities.map((e) => ({ ...e, origin: spec.alias })),
     warnings: result.warnings ?? [],
@@ -89,7 +119,10 @@ export async function getIndex(ctx: PalmContext, spec: OriginSpec, opts: { refre
 }
 
 /** Indexes of every configured origin (config + project manifest). Failing origins are skipped with a warning. */
-export async function getAllIndexes(ctx: PalmContext, opts: { refresh?: boolean; scan?: ScanOriginFn } = {}): Promise<OriginIndex[]> {
+export async function getAllIndexes(
+  ctx: PalmContext,
+  opts: { refresh?: boolean; scan?: ScanOriginFn } = {},
+): Promise<OriginIndex[]> {
   const results = await Promise.all(
     allOrigins(ctx).map(async (o) => {
       try {

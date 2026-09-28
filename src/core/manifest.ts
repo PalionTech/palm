@@ -1,7 +1,15 @@
 import { randomBytes } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { Document, isMap, isNode, isScalar, isSeq, parseDocument, type Node as YamlNode } from 'yaml';
+import {
+  Document,
+  isMap,
+  isNode,
+  isScalar,
+  isSeq,
+  parseDocument,
+  type Node as YamlNode,
+} from 'yaml';
 import { PalmError } from './errors.js';
 import { manifestKey } from './kinds.js';
 import type { DepRef, DepSpec, Kind, Manifest, McpManifestEntry } from './types.js';
@@ -26,7 +34,12 @@ export function parseDepRef(spec: string): DepRef {
     rest = rest.slice(0, at);
   }
   const name = rest.trim();
-  if (!name) throw new PalmError('E_USAGE', `Invalid dependency "${spec}": missing name`, 'Expected <name>[@<origin>][#<ref>]');
+  if (!name)
+    throw new PalmError(
+      'E_USAGE',
+      `Invalid dependency "${spec}": missing name`,
+      'Expected <name>[@<origin>][#<ref>]',
+    );
   const out: DepRef = { name };
   if (origin) out.origin = origin;
   if (ref) out.ref = ref;
@@ -48,7 +61,16 @@ export function normalizeDep(spec: DepSpec): DepRef {
   return out;
 }
 
-const MCP_ENTRY_KEYS = ['transport', 'command', 'args', 'env', 'url', 'headers', 'registry', 'version'] as const;
+const MCP_ENTRY_KEYS = [
+  'transport',
+  'command',
+  'args',
+  'env',
+  'url',
+  'headers',
+  'registry',
+  'version',
+] as const;
 
 /** True when the object is an MCP manifest entry rather than a plain DepRef. */
 export function isMcpManifestEntry(dep: unknown): dep is McpManifestEntry {
@@ -212,7 +234,11 @@ async function atomicWrite(file: string, text: string, mode?: number): Promise<v
  * Write `value` as YAML. When the file already exists, its comments, key
  * order and unchanged nodes are preserved (yaml Document API).
  */
-export async function writeYamlPreserving(file: string, value: unknown, opts: { flowKeys?: string[]; mode?: number } = {}): Promise<void> {
+export async function writeYamlPreserving(
+  file: string,
+  value: unknown,
+  opts: { flowKeys?: string[]; mode?: number } = {},
+): Promise<void> {
   let existing: string | undefined;
   try {
     existing = await readFile(file, 'utf8');
@@ -243,7 +269,17 @@ export async function writeYamlPreserving(file: string, value: unknown, opts: { 
 // Manifest load/save
 // ---------------------------------------------------------------------------
 
-const MANIFEST_ORDER = ['targets', 'origins', 'skills', 'agents', 'instructions', 'commands', 'hooks', 'mcp', 'plugins'];
+const MANIFEST_ORDER = [
+  'targets',
+  'origins',
+  'skills',
+  'agents',
+  'instructions',
+  'commands',
+  'hooks',
+  'mcp',
+  'plugins',
+];
 
 function orderManifest(m: Manifest): Record<string, unknown> {
   const src = m as Record<string, unknown>;

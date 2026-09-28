@@ -6,9 +6,9 @@
 
 import { readFile, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
-import type { OriginSpec, ParseMarketplaceFn } from '../core/types.js';
 import { PalmError } from '../core/errors.js';
-import { parseComponentDecls, type ComponentDecls } from './plugin-manifest.js';
+import type { OriginSpec, ParseMarketplaceFn } from '../core/types.js';
+import { type ComponentDecls, parseComponentDecls } from './plugin-manifest.js';
 import { slugify, toSlug } from './slug.js';
 import { asBool, asString, compact, isRecord, joinRel, normRel } from './util.js';
 
@@ -67,7 +67,8 @@ export async function findMarketplaceFile(root: string): Promise<string | undefi
 export function marketplaceRootFor(fileAbs: string): string {
   const dir = dirname(fileAbs);
   const parent = basename(dir);
-  if (parent === '.claude-plugin' || parent === '.cursor-plugin' || parent === '.codex-plugin') return dirname(dir);
+  if (parent === '.claude-plugin' || parent === '.cursor-plugin' || parent === '.codex-plugin')
+    return dirname(dir);
   if (parent === 'plugin' && basename(dirname(dir)) === '.github') return dirname(dirname(dir));
   if (parent === 'plugins' && basename(dirname(dir)) === '.agents') return dirname(dirname(dir));
   return dir;
@@ -91,7 +92,13 @@ export function normalizeSource(src: unknown): MarketplaceSource {
     case 'github': {
       const repo = asString(src.repo);
       if (!repo) return { type: 'unknown', raw: src };
-      return compact({ type: 'github' as const, repo, path: path ? normRel(path) : undefined, ref, sha });
+      return compact({
+        type: 'github' as const,
+        repo,
+        path: path ? normRel(path) : undefined,
+        ref,
+        sha,
+      });
     }
     case 'git-subdir': {
       const url = asString(src.url);
@@ -103,7 +110,8 @@ export function normalizeSource(src: unknown): MarketplaceSource {
       const url = asString(src.url);
       if (!url) return { type: 'unknown', raw: src };
       // Codex writes `{source:"url", url:"./"}` for the marketplace repo itself.
-      if (!REMOTE_STRING.test(url) && !/^[a-z]+:\/\//i.test(url)) return { type: 'local', path: normRel(url) };
+      if (!REMOTE_STRING.test(url) && !/^[a-z]+:\/\//i.test(url))
+        return { type: 'local', path: normRel(url) };
       return compact({ type: kind, url, ref, sha });
     }
     case 'local':
@@ -195,8 +203,11 @@ export function parseMarketplaceJson(text: string, file: string): Marketplace {
       return;
     }
     let source = normalizeSource(p.source);
-    if (source.type === 'local' && pluginRoot) source = { type: 'local', path: joinRel(pluginRoot, source.path) };
-    const name = asString(p.name) ?? (source.type === 'local' && source.path !== '' ? basename(source.path) : undefined);
+    if (source.type === 'local' && pluginRoot)
+      source = { type: 'local', path: joinRel(pluginRoot, source.path) };
+    const name =
+      asString(p.name) ??
+      (source.type === 'local' && source.path !== '' ? basename(source.path) : undefined);
     if (!name) {
       warnings.push(`marketplace entry #${i + 1} has no name; skipped`);
       return;
@@ -238,7 +249,11 @@ function baseFromUrl(file: string): { url?: string; ref?: string; root?: string 
   if (!m) return {};
   const [, owner, repo, ref, filePath] = m;
   const root = marketplaceRootFor('/' + (filePath ?? '')).slice(1);
-  return compact({ url: `https://github.com/${owner}/${repo}.git`, ref, root: root === '' ? undefined : root });
+  return compact({
+    url: `https://github.com/${owner}/${repo}.git`,
+    ref,
+    root: root === '' ? undefined : root,
+  });
 }
 
 /**
@@ -263,16 +278,36 @@ export const parseMarketplace: ParseMarketplaceFn = async (file, base) => {
     switch (s.type) {
       case 'local': {
         const rel = joinRel(baseRoot, s.path);
-        if (baseUrl) spec = { type: 'git', url: normalizeGitUrl(baseUrl), ref: baseRef, root: rel === '' ? undefined : rel };
-        else if (basePath) spec = { type: 'local', path: resolve(basePath, rel === '' ? '.' : rel) };
-        else warnings.push(`plugin "${e.name}": relative source ${describeSource(s)} cannot be resolved without a base path or URL; skipped`);
+        if (baseUrl)
+          spec = {
+            type: 'git',
+            url: normalizeGitUrl(baseUrl),
+            ref: baseRef,
+            root: rel === '' ? undefined : rel,
+          };
+        else if (basePath)
+          spec = { type: 'local', path: resolve(basePath, rel === '' ? '.' : rel) };
+        else
+          warnings.push(
+            `plugin "${e.name}": relative source ${describeSource(s)} cannot be resolved without a base path or URL; skipped`,
+          );
         break;
       }
       case 'github':
-        spec = { type: 'git', url: `https://github.com/${s.repo.replace(/\.git$/, '')}.git`, ref: s.sha ?? s.ref, root: s.path || undefined };
+        spec = {
+          type: 'git',
+          url: `https://github.com/${s.repo.replace(/\.git$/, '')}.git`,
+          ref: s.sha ?? s.ref,
+          root: s.path || undefined,
+        };
         break;
       case 'git-subdir':
-        spec = { type: 'git', url: normalizeGitUrl(s.url), ref: s.sha ?? s.ref, root: s.path || undefined };
+        spec = {
+          type: 'git',
+          url: normalizeGitUrl(s.url),
+          ref: s.sha ?? s.ref,
+          root: s.path || undefined,
+        };
         break;
       case 'url':
       case 'git':
@@ -312,7 +347,9 @@ export const parseMarketplace: ParseMarketplaceFn = async (file, base) => {
     let alias: string;
     if (group.length > 1) {
       alias = uniqueAlias(toSlug(mp.name, first.entry));
-      warnings.push(`plugins ${group.map((g) => `"${g.entry}"`).join(', ')} share one source; imported once as origin "${alias}"`);
+      warnings.push(
+        `plugins ${group.map((g) => `"${g.entry}"`).join(', ')} share one source; imported once as origin "${alias}"`,
+      );
       first.spec.description = mp.name ? `marketplace ${mp.name}` : first.spec.description;
     } else {
       alias = uniqueAlias(slugify(first.entry) || 'plugin');

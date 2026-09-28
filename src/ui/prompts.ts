@@ -29,7 +29,10 @@ function cancelled(output: Writable | undefined): never {
 }
 
 /** Case-insensitive match of every whitespace-separated term against label + hint. */
-export function matchesQuery(option: { label?: string; hint?: string; value: unknown }, query: string): boolean {
+export function matchesQuery(
+  option: { label?: string; hint?: string; value: unknown },
+  query: string,
+): boolean {
   const hay = `${option.label ?? String(option.value)} ${option.hint ?? ''}`.toLowerCase();
   return query
     .toLowerCase()
@@ -41,7 +44,9 @@ export function matchesQuery(option: { label?: string; hint?: string; value: unk
 type SelectOpts<T> = Parameters<typeof p.select<T>>[0]['options'];
 
 function toClack<T>(options: PickOption<T>[]): SelectOpts<T> {
-  return options.map((o) => (o.hint ? { value: o.value, label: o.label, hint: o.hint } : { value: o.value, label: o.label })) as unknown as SelectOpts<T>;
+  return options.map((o) =>
+    o.hint ? { value: o.value, label: o.label, hint: o.hint } : { value: o.value, label: o.label },
+  ) as unknown as SelectOpts<T>;
 }
 
 export function createClackUI(opts: { output?: Writable } = {}): MultilineUI {
@@ -57,16 +62,25 @@ export function createClackUI(opts: { output?: Writable } = {}): MultilineUI {
     if (p.isCancel(value)) cancelled(output);
     return value as V;
   };
-  const filter = (search: string, option: { label?: string; hint?: string; value: unknown }) => matchesQuery(option, search);
+  const filter = (search: string, option: { label?: string; hint?: string; value: unknown }) =>
+    matchesQuery(option, search);
 
   return {
     isInteractive: true,
 
     async pick<T>(message: string, options: PickOption<T>[]): Promise<T> {
-      if (options.length === 0) throw new PalmError('E_USAGE', `nothing to choose from: ${message}`);
+      if (options.length === 0)
+        throw new PalmError('E_USAGE', `nothing to choose from: ${message}`);
       if (options.length > AUTOCOMPLETE_THRESHOLD) {
         return unwrap(
-          await p.autocomplete<T>({ message, options: toClack(options), maxItems: 10, placeholder: 'type to filter', filter, output }),
+          await p.autocomplete<T>({
+            message,
+            options: toClack(options),
+            maxItems: 10,
+            placeholder: 'type to filter',
+            filter,
+            output,
+          }),
         );
       }
       return unwrap(await p.select<T>({ message, options: toClack(options), output }));
@@ -88,7 +102,15 @@ export function createClackUI(opts: { output?: Writable } = {}): MultilineUI {
           }),
         );
       }
-      return unwrap(await p.multiselect<T>({ message, options: toClack(options), initialValues: initial, required: false, output }));
+      return unwrap(
+        await p.multiselect<T>({
+          message,
+          options: toClack(options),
+          initialValues: initial,
+          required: false,
+          output,
+        }),
+      );
     },
 
     async confirm(message: string, initial = true): Promise<boolean> {
@@ -110,7 +132,15 @@ export function createClackUI(opts: { output?: Writable } = {}): MultilineUI {
     },
 
     async multiline(message, o = {}): Promise<string> {
-      const value = unwrap(await p.multiline({ message, placeholder: o.placeholder, initialValue: o.initial, showSubmit: true, output }));
+      const value = unwrap(
+        await p.multiline({
+          message,
+          placeholder: o.placeholder,
+          initialValue: o.initial,
+          showSubmit: true,
+          output,
+        }),
+      );
       return value ?? '';
     },
 

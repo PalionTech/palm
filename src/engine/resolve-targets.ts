@@ -2,15 +2,19 @@ import { saveConfig } from '../core/config.js';
 import { PalmError } from '../core/errors.js';
 import { loadManifest, saveManifest } from '../core/manifest.js';
 import { manifestPath, scopeRoot } from '../core/paths.js';
-import { TARGET_IDS, type PalmContext, type Scope, type TargetId } from '../core/types.js';
-import { resolveEngineDeps, type EngineDeps } from './deps.js';
+import { type PalmContext, type Scope, TARGET_IDS, type TargetId } from '../core/types.js';
+import { type EngineDeps, resolveEngineDeps } from './deps.js';
 
 function validate(ids: readonly string[], where: string): TargetId[] {
   const out: TargetId[] = [];
   for (const raw of ids) {
     const id = raw.trim().toLowerCase();
     if (!(TARGET_IDS as readonly string[]).includes(id)) {
-      throw new PalmError('E_USAGE', `Unknown target "${raw}" in ${where}`, `Valid targets: ${TARGET_IDS.join(', ')}`);
+      throw new PalmError(
+        'E_USAGE',
+        `Unknown target "${raw}" in ${where}`,
+        `Valid targets: ${TARGET_IDS.join(', ')}`,
+      );
     }
     if (!out.includes(id as TargetId)) out.push(id as TargetId);
   }
@@ -20,7 +24,8 @@ function validate(ids: readonly string[], where: string): TargetId[] {
 /** Persist targets: `targets:` in palm.yaml (project) or config.yaml (global), when they differ. */
 async function saveTargets(ctx: PalmContext, scope: Scope, targets: TargetId[]): Promise<void> {
   if (ctx.flags.dryRun) return;
-  const same = (a: readonly string[] | undefined): boolean => !!a && a.length === targets.length && a.every((t, i) => t === targets[i]);
+  const same = (a: readonly string[] | undefined): boolean =>
+    !!a && a.length === targets.length && a.every((t, i) => t === targets[i]);
   if (scope === 'project') {
     const file = manifestPath(ctx.paths, 'project');
     const m = await loadManifest(file);
@@ -97,7 +102,8 @@ export async function resolveTargets(
     }),
     [],
   );
-  if (!picked.length) throw new PalmError('E_TARGET', 'No target selected', '--target claude,codex');
+  if (!picked.length)
+    throw new PalmError('E_TARGET', 'No target selected', '--target claude,codex');
   const targets = validate(picked, 'selection');
   if (opts.save) await saveTargets(ctx, opts.scope, targets);
   return targets;

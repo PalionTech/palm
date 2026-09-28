@@ -1,9 +1,21 @@
 import type { Command } from 'commander';
 import pc from 'picocolors';
 import type { PalmConfig } from '../core/types.js';
-import { makeContext, parseSecretPolicy, parseTargetList, printJson, usage, type GlobalOptions } from './shared.js';
+import {
+  type GlobalOptions,
+  makeContext,
+  parseSecretPolicy,
+  parseTargetList,
+  printJson,
+  usage,
+} from './shared.js';
 
-export const CONFIG_KEYS = ['targets', 'mcpRegistryUrl', 'secrets.project', 'secrets.global'] as const;
+export const CONFIG_KEYS = [
+  'targets',
+  'mcpRegistryUrl',
+  'secrets.project',
+  'secrets.global',
+] as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
 function assertKey(key: string): ConfigKey {
@@ -59,7 +71,10 @@ export function setConfigValue(cfg: PalmConfig, key: ConfigKey, raw: string): Pa
 }
 
 export function registerConfig(program: Command): void {
-  const config = program.command('config').summary('read or change global settings').description(`Read or change palm's global config (${CONFIG_KEYS.join(', ')}).`);
+  const config = program
+    .command('config')
+    .summary('read or change global settings')
+    .description(`Read or change palm's global config (${CONFIG_KEYS.join(', ')}).`);
 
   config
     .command('get')
@@ -79,7 +94,8 @@ export function registerConfig(program: Command): void {
       }
       const all = Object.fromEntries(CONFIG_KEYS.map((k) => [k, getConfigValue(cfg, k) ?? null]));
       if (g.json) return printJson(all);
-      for (const [k, v] of Object.entries(all)) console.log(`${k.padEnd(16)}${v ?? pc.dim('(unset)')}`);
+      for (const [k, v] of Object.entries(all))
+        console.log(`${k.padEnd(16)}${v ?? pc.dim('(unset)')}`);
     });
 
   config
