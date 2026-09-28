@@ -412,7 +412,8 @@ Options:
   --prune               no names only: remove installed entries no longer in
                         palm.yaml
   --frozen              no names only: install exactly what palm.lock.yaml
-                        records; fail on any difference, write nothing
+                        records, restoring missing files and config entries;
+                        fail on any other difference
   -h, --help            display help for command
 
 Ad hoc MCP server options:
@@ -576,7 +577,7 @@ Global Options:
   --no-color          no colours (also NO_COLOR=1)
   -V, --version       print the palm version
 
-Files you changed since palm wrote them stay on disk (listed); --force removes them too.
+An entity whose files you changed since palm wrote them is kept (exit 1); --force removes it and your edits.
 
 Examples:
   palm uninstall skill tdd                  remove a skill and what nothing else needs
