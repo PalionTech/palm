@@ -90,10 +90,6 @@ export async function removeFileIfExists(p: string): Promise<void> {
   }
 }
 
-export async function removeDirIfExists(p: string): Promise<void> {
-  await fs.rm(p, { recursive: true, force: true });
-}
-
 /**
  * Recursively list the files to copy from `root`, skipping `COPY_SKIP` (`.git`, `node_modules`,
  * `.DS_Store`, `*.zip`) at any depth and the names in `skipTop` at the top level. Sorted for

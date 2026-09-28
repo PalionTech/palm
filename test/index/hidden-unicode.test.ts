@@ -4,9 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Entity, ScanResult } from '../../src/core/types.js';
-import { MAY_HIDE_UNICODE } from '../../src/index/hidden-unicode.js';
 import { scanOrigin } from '../../src/index/scan.js';
-import { scanHiddenUnicode } from '../../src/lib/unicode.js';
 import { putFile } from '../support/sandbox.js';
 
 const FIXTURE = fileURLToPath(new URL('../fixtures/hidden-unicode-like', import.meta.url));
@@ -128,22 +126,5 @@ describe('hidden Unicode during the scan', () => {
       expect(r.entities[0]).not.toHaveProperty('issues');
       expect(r.warnings).toEqual([]);
     });
-  });
-
-  it('the pre-check matches every code point scanHiddenUnicode reports', () => {
-    const missed: string[] = [];
-    const planes: Array<[number, number]> = [
-      [0x0, 0x1ffff],
-      [0xe0000, 0xeffff],
-    ];
-    for (const [from, to] of planes) {
-      for (let cp = from; cp <= to; cp++) {
-        if (cp >= 0xd800 && cp <= 0xdfff) continue;
-        const text = `a${String.fromCodePoint(cp)}b`;
-        if (scanHiddenUnicode(text).length > 0 && !MAY_HIDE_UNICODE.test(text))
-          missed.push(cp.toString(16));
-      }
-    }
-    expect(missed).toEqual([]);
   });
 });

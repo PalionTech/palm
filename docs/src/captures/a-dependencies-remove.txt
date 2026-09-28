@@ -1,0 +1,27 @@
+$ palm install agent agent-sdk-verifier-py --target claude,copilot
+i saved targets claude, copilot to palm.yaml
+project scope → claude, copilot
+status       kind   name                                      origin    targets         files
+───────────  ─────  ────────────────────────────────────────  ────────  ──────────────  ─────────────
++ installed  agent  agent-sdk-verifier-py                     official  claude,copilot  2
++ installed  skill  sdk-helper (agent:agent-sdk-verifier-py)  official  claude,copilot  2
++ installed  mcp    context7 (agent:agent-sdk-verifier-py)    official  claude,copilot  0 (+2 merged)
+3 installed
+
+i agent-sdk-verifier-py: copilot: .github/agents/agent-sdk-verifier-py.agent.md: dropped model (sonnet), mcpServers, skills, color (not supported by GitHub Copilot)
+i context7: optional: export CONTEXT7_API_KEY to use it (left empty otherwise)
+$ palm install skill sdk-helper
+project scope → claude, copilot
+status       kind   name        origin    targets         files
+───────────  ─────  ──────────  ────────  ──────────────  ─────
+= unchanged  skill  sdk-helper  official  claude,copilot  2
+1 unchanged
+$ palm uninstall agent agent-sdk-verifier-py
+status     kind   name                   origin    files              via
+─────────  ─────  ─────────────────────  ────────  ─────────────────  ───────────────────────────
+- removed  agent  agent-sdk-verifier-py  official  2 files
+- removed  mcp    context7               official  0 files +2 merged  agent:agent-sdk-verifier-py
+$ palm get
+kind   name        origin    version  targets         via
+─────  ──────────  ────────  ───────  ──────────────  ───
+skill  sdk-helper  official           claude,copilot

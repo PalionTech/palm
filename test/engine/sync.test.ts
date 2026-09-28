@@ -91,7 +91,7 @@ describe('machine-independent targets', () => {
   let w: World;
   afterEach(async () => removeDir(w.sb.root));
 
-  it('persists detected targets to palm.yaml (project) and config.yaml (global) when absent', async () => {
+  it('persists detected targets to palm.yaml (project), never to config.yaml (global)', async () => {
     w = await makeWorld({ detect: ['claude', 'cursor'] });
     const project = await resolveTargets(w.ctx, { scope: 'project', save: true }, w.deps);
     expect(project).toEqual(['claude', 'cursor']);
@@ -113,8 +113,13 @@ describe('machine-independent targets', () => {
     ]);
     await removeDir(other.sb.root);
 
+    // config.yaml `targets` would become every project's default: -g saves only --target.
+    const logged = w.log.messages.length;
     await resolveTargets(w.ctx, { scope: 'global', save: true }, w.deps);
-    expect((await loadConfig(w.ctx.paths)).targets).toEqual(['claude', 'cursor']);
+    expect((await loadConfig(w.ctx.paths)).targets).toBeUndefined();
+    expect(w.log.messages.slice(logged).filter((m) => m.level === 'info')).toEqual([]);
+    await resolveTargets(w.ctx, { scope: 'global', flag: ['codex'], save: true }, w.deps);
+    expect((await loadConfig(w.ctx.paths)).targets).toEqual(['codex']);
   });
 
   it('shrinking targets removes the dropped harness files on the next install', async () => {

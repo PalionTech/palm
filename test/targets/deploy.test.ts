@@ -559,6 +559,30 @@ describe('shared .agents/skills', () => {
   });
 });
 
+describe('hook assets', () => {
+  it('undeploy removes only the asset files the lock entry lists, then the emptied dirs', async () => {
+    const origin = await makeOrigin();
+    const root = await tmpDir();
+    const target = createTarget('claude', fakeEnv(root));
+    const { hook } = entities(origin);
+    const r = await target.deploy(mkInput({ ...hook, originRoot: origin.root, scopeRoot: root }));
+    const assets = path.join(root, '.palm/hooks/fmt');
+    // A file the entry does not list (the user's, or a newer install's) stays.
+    await write(path.join(assets, 'hooks/local.sh'), 'mine');
+    const listed = r.files.filter((f) => f.startsWith('.palm/'));
+    const [kept, ...gone] = listed;
+    await target.undeploy(mkLock(hook.entity, ['claude'], gone, r.merged), 'project', root, false);
+    expect(await read(path.join(assets, 'hooks/local.sh'))).toBe('mine');
+    expect(await exists(path.join(root, kept!))).toBe(true);
+    for (const f of gone) expect(await exists(path.join(root, f))).toBe(false);
+    expect(await exists(path.join(assets, 'skills'))).toBe(false); // emptied: pruned
+
+    await target.undeploy(mkLock(hook.entity, ['claude'], [kept!]), 'project', root, false);
+    expect(await exists(path.join(root, kept!))).toBe(false);
+    expect(await read(path.join(assets, 'hooks/local.sh'))).toBe('mine');
+  });
+});
+
 describe('undeploy keeps unrelated content', () => {
   it('JSON keys, TOML tables with comments, AGENTS.md text and JSONC inputs survive', async () => {
     const origin = await makeOrigin();

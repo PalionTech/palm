@@ -12,31 +12,34 @@ palm install agent reviewer
 palm install mcp io.github.upstash/context7
 ```
 
-Each command names a kind and an entity.
-palm finds the entity in your [origins](/palm/concepts/origins/) and writes one file per [target](/palm/concepts/targets/).
+Each command names a kind, then an entity.
+palm finds the entity in your [origins](/palm/concepts/origins/) and writes it for each [target](/palm/concepts/targets/).
+The third command resolves its name through the official MCP registry instead.
 
 ## The seven kinds
 
-| Kind | What it is | Also accepted |
-| --- | --- | --- |
-| `skill` | A folder with a `SKILL.md`, plus optional `scripts/`, `references/` and `assets/`. The harness loads it on demand. | `skills` |
-| `agent` | An agent (subagent): one file with a system prompt, a delegation description, tools and a model. | `agents`, `subagent`, `subagents` |
-| `instruction` | Markdown context that is always on or scoped to paths. It advises the model and enforces nothing. | `instructions`, `rule`, `rules` |
-| `command` | A `/name` prompt template that you invoke. Most harnesses now prefer skills. | `commands`, `prompt`, `prompts` |
-| `hook` | A lifecycle event, a matcher and a shell command. It runs code on your machine. | `hooks` |
-| `mcp` | An MCP server connection: a command that starts it, or a URL. | `mcp-server`, `server`, and their plurals |
-| `plugin` | A bundle with a manifest and any of the kinds above. | `plugins`, `bundle`, `bundles` |
+| Kind | Short name | What it is | Also accepted |
+| --- | --- | --- | --- |
+| `skill` | `sk` | A folder with a `SKILL.md`, plus optional `scripts/`, `references/` and `assets/`. The harness loads it on demand. | `skills` |
+| `agent` | `ag` | An agent (subagent). One file holds a system prompt, a delegation description, tools and a model. | `agents`, `subagent`, `subagents` |
+| `instruction` | `ins` | Markdown context that is always on or scoped to paths. It advises the model and enforces nothing. | `instructions`, `rule`, `rules` |
+| `command` | `cmd` | A `/name` prompt template that you invoke. Most harnesses now prefer skills. | `commands`, `prompt`, `prompts` |
+| `hook` | `hk` | A lifecycle event, a matcher and a shell command. It runs code on your machine. | `hooks` |
+| `mcp` | `mcp` | An MCP server connection, either a command that starts it or a URL. | `mcps`, `mcp-server`, `server`, and their plurals |
+| `plugin` | `pl` | A bundle with a manifest and any of the kinds above. | `plugins`, `bundle`, `bundles` |
 
-Without a kind, palm searches every kind: `palm install tdd`.
-A plural installs several entities of one kind: `palm install skills tdd grill-me`.
+The kind word is optional.
+`palm install tdd` searches every kind for `tdd`.
+A plural installs several entities of one kind, as in `palm install skills tdd grill-me`.
 
-## Primitives and composites
+## Bundles and dependencies
 
-Six kinds are **primitives**: a harness reads them directly.
-A plugin is a **composite**: installing it installs its members, and uninstalling it removes them.
+A harness reads six of the kinds directly.
+A plugin is different, because no harness file holds a plugin.
+Installing a plugin installs its members, and uninstalling it removes them.
 
-An agent is a primitive with dependencies.
-Its frontmatter can name skills and MCP servers, and palm installs those with it.
+An agent is one file, but it can name other entities.
+Its frontmatter lists the skills and MCP servers it uses, and palm installs those with it.
 
 ```md title="agents/reviewer.md"
 ---
@@ -49,21 +52,42 @@ mcpServers: [github]
 You review diffs. Report bugs with file and line.
 ```
 
-palm records who pulled each dependency in.
+palm records which entry pulled each dependency in.
 When you uninstall the agent, a dependency goes too, unless another entry still needs it.
+[Dependencies](/palm/concepts/dependencies/) shows a full session.
+
+## Executable kinds
+
+Hooks and stdio MCP servers start programs on your machine.
+Before palm writes one, it lists the command and asks once.
+A script passes `--yes` instead.
+The [security model](/palm/explanation/security/) covers what palm checks for every kind.
 
 ## Names
 
-An entity name is one path segment: letters, digits, `.`, `_` and `-`, starting with a letter or digit.
+An entity name is one path segment.
+It uses letters, digits, `.`, `_` and `-`, and starts with a letter or a digit.
 palm refuses any other name before it writes a file.
+
 A skill takes its name from the `name` in its `SKILL.md`, else from its folder.
+An agent takes the file name without `.md` or `.agent.md`.
 The [scan rules](/palm/reference/scan-rules/#names-and-versions) list the source of every other name.
 
-To pick an entity from one origin, add `@origin`. To pin a version, add `#ref`:
+## Pick an origin and a version
+
+A request has the form `<name>[@<origin>][#<ref>]`.
 
 ```sh
+palm install skill tdd@mattpocock
 palm install skill tdd@mattpocock#v1.2.3
+palm install skill tdd@mattpocock#^1.2
 ```
+
+- `@mattpocock` takes the skill from the origin with that alias.
+- `#v1.2.3` pins a tag. A branch or a commit works the same way.
+- `#^1.2` takes the highest tag in a semver range.
+
+The lockfile records the tag and the commit palm installed.
 
 ## Related
 

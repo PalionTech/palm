@@ -1,0 +1,30 @@
+$ palm why --help
+Usage: palm why [options] <kind> <name>
+
+Show why an entity is installed: palm.yaml, or the plugin or agent that pulled
+it in, and what still needs it.
+
+Arguments:
+  kind                skill, agent, instruction, command, hook, mcp, plugin
+                      (plurals and short names work)
+  name                name[@origin]
+
+Options:
+  -h, --help          display help for command
+
+Global Options:
+  -g, --global        use the global scope (~), not this project
+  -t, --target <ids>  targets: claude,codex,copilot,cursor
+  --dry-run           show what would change; write nothing
+  --force             overwrite files palm does not own
+  -y, --yes           accept defaults instead of prompting
+  --offline           use cached origins only; no network
+  --verbose           debug output and stack traces
+  --json              JSON on stdout; everything else on stderr
+  --no-color          no colours (also NO_COLOR=1)
+  -V, --version       print the palm version
+
+Examples:
+  palm why skill brainstorm                 the plugin or agent that pulled it in
+  palm why skill tdd@mattpocock             one origin's copy
+  palm why mcp docs -g --json               in the global scope, as JSON

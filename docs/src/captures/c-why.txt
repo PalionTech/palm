@@ -1,0 +1,5 @@
+$ palm why skill brainstorming
+skill brainstorming  (origin superpowers, project scope)
+  installed by  plugin superpowers
+  chain         skill brainstorming ← plugin superpowers ← palm.yaml (plugins)
+  needed by     plugin superpowers

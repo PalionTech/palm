@@ -1,0 +1,123 @@
+---
+title: Origins
+description: An origin is a git repository, a folder in one, or a local directory that palm installs entities from.
+---
+
+import Capture from '../../../components/Capture.astro';
+
+An **origin** is a place palm installs entities from: a git repository, a folder inside one, or a local directory.
+You add an origin once, and every entity in it becomes installable by name.
+
+```sh
+palm install origin mattpocock/skills
+palm install origin cursor/plugins/pstack --alias pstack
+palm install skill tdd
+```
+
+`palm install origin` clones the repository, scans it and stores an index.
+It saves the origin only when the clone and the scan succeed, so a typo in a repository name saves nothing.
+`palm install skill tdd` then searches the indexes of all your origins.
+
+## What you can add
+
+| Spec | Example |
+| --- | --- |
+| GitHub `owner/repo` | `mattpocock/skills` |
+| A folder in a repository | `cursor/plugins/pstack` |
+| GitHub shorthand | `github:obra/superpowers` |
+| Any git URL, with an optional `#ref` | `https://gitlab.com/team/agents.git#v2.0.0` |
+| A local directory | `./my-skills` |
+| A marketplace file, by path or URL | `./.claude-plugin/marketplace.json` |
+
+A marketplace file becomes one origin per plugin it lists.
+palm scans each origin as its author published it.
+[How palm reads a repository](/palm/concepts/scanning/) explains what it finds.
+
+## Manage origins
+
+| Command | What it does |
+| --- | --- |
+| `palm get origins` | Lists your origins, their location, ref and what they hold. |
+| `palm describe origin <alias>` | Shows one origin: URL, ref, commit, layout, counts per kind and scan warnings. |
+| `palm update origins` | Fetches and rescans every origin. Name aliases to refresh only those. |
+| `palm uninstall origin <alias>` | Forgets the origin. Entities you installed from it stay installed. |
+
+## Refs
+
+A **ref** decides which version of an origin palm reads.
+Without one, palm uses the latest semver tag, else the default branch.
+Set one with `--ref` or a `#ref` suffix.
+
+```sh
+palm install origin acme/agent-kit --ref v2.0.0
+palm install origin mattpocock/skills --ref '^1.2'
+```
+
+A ref is a tag, a branch, a commit or a semver range such as `^1.2`, `~1.2` or `>=1.2 <2`.
+palm resolves a range to the highest matching tag on the remote.
+A branch or tag named exactly like the range wins, so a `v1` tag that moves is read as that tag.
+The lockfile records the tag and the commit palm installed.
+
+## Aliases
+
+The **alias** is the short name after `@` in `tdd@mattpocock`.
+By default it is the repository name, so `obra/superpowers` becomes `superpowers`.
+
+Some repository names are generic, such as `skills`, `plugins`, `agents` or `rules`.
+For those, the alias is the owner, so `mattpocock/skills` becomes `mattpocock`.
+When the alias is taken, palm uses `owner-repo`.
+A folder origin takes the folder's last segment.
+Choose your own with `--alias`.
+
+Aliases use lowercase letters, digits, `.`, `_` and `-`, and start with a letter or a digit.
+
+## When several origins have the name
+
+`palm install skill tdd` installs directly when one origin has `tdd`.
+When several do, palm shows a picker in a terminal.
+Without a terminal, it stops with `E_AMBIGUOUS` and lists the `name@origin` forms to use.
+
+<Capture name="a-ambiguity" title="~/project" />
+
+This session ran with two origins that both offer `tdd`.
+`palm search skill tdd` shows both, and `tdd@mattpocock` picks one.
+palm writes `tdd@mattpocock` to `palm.yaml`, so the next `palm install` never asks again.
+
+## Project origins
+
+An origin can also belong to a project.
+`--project` saves it under `origins:` in the project's `palm.yaml` instead of your config.
+
+```sh
+palm install origin acme/agent-kit --alias acme --project
+```
+
+A teammate who clones the project gets the origin with the manifest.
+palm checks each project origin.
+
+- A project origin cannot reuse an alias your config uses for another source. palm stops with `E_CONFLICT` and names both.
+- A local project origin must live inside the project. palm does not install from one that points elsewhere.
+- Global installs (`-g`) ignore project origins.
+
+When the lockfile names an alias your machine lacks, a bare `palm install` recreates it from the URL in the lockfile.
+It adds the alias to `palm.yaml` as a project origin and prints a warning.
+
+## Where origins live
+
+| What | Where |
+| --- | --- |
+| Your origins | `~/.palm/config.yaml` |
+| A project's own origins | `origins:` in the project's `palm.yaml` |
+| Checkouts and scan results | `~/.palm/cache/` |
+
+## Two built-in sources
+
+- `mine` is a local origin at `~/.palm/mine`. `palm create` writes new entities there.
+- The official MCP registry serves `palm install mcp <registry name>`. It is the only registry palm reads.
+
+## Related
+
+- [Why origins, not a registry](/palm/explanation/why-origins/)
+- [How palm reads a repository](/palm/concepts/scanning/)
+- [Layout descriptor for unusual repositories](/palm/reference/layout/)
+- [Security model](/palm/explanation/security/)

@@ -92,7 +92,7 @@ describe('origin URL validation (git argument / transport injection)', () => {
     });
     await expect(listRemoteTags(url)).rejects.toMatchObject({ code: 'E_ORIGIN' });
     await expect(pingRemote(url)).rejects.toMatchObject({ code: 'E_ORIGIN' });
-    await expect(pingRemote('ext::sh -c touch% ' + marker)).rejects.toMatchObject({
+    await expect(pingRemote(`ext::sh -c touch% ${marker}`)).rejects.toMatchObject({
       code: 'E_ORIGIN',
     });
     expect(existsSync(marker)).toBe(false);

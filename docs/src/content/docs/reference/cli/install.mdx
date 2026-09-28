@@ -1,0 +1,134 @@
+---
+title: palm install
+description: Install entities, install what palm.yaml lists, or register an origin.
+---
+
+import Capture from '../../../../components/Capture.astro';
+import CaptureTree from '../../../../components/CaptureTree.astro';
+
+`palm install` writes entities into every target harness and records them in `palm.yaml` and `palm.lock.yaml`.
+
+```sh
+palm install [kind] <name[@origin][#ref]>... [options]
+palm install [options]
+palm install origin <spec>... [options]
+palm install mcp <name> [--env K=V]... -- <command> [args...]
+palm install mcp <name> --url <url> [--header K=V]... [--transport http|sse]
+```
+
+Aliases: `palm add`, `palm i`.
+Kinds: `skill`, `agent`, `instruction`, `command`, `hook`, `mcp`, `plugin` and `origin`, as singular, plural or [short name](/palm/reference/cli/#kinds).
+Without a kind, palm searches every entity kind.
+
+| Command | Meaning |
+| --- | --- |
+| `palm install skill tdd@mattpocock` | Install one skill from the origin `mattpocock`. |
+| `palm install skills grill-me handoff` | Install several skills. |
+| `palm install plugin superpowers -g` | Install a plugin and its members into your home directory. |
+| `palm install agent reviewer --target claude,codex` | Install an agent (subagent) and the skills and MCP servers it names, for two targets. |
+| `palm install mcp io.github.upstash/context7` | Install an MCP server from the MCP registry. |
+| `palm install mcp fs -- npx -y @modelcontextprotocol/server-filesystem .` | Define a stdio MCP server without an origin. |
+| `palm install` | Install everything `palm.yaml` lists, at the commits `palm.lock.yaml` records. |
+| `palm install origin mattpocock/skills` | Register a repository as an origin. |
+
+<Capture name="c-install" />
+
+The first command saved the targets to `palm.yaml`, so the next ones used them.
+These files changed in the project:
+
+<CaptureTree name="c-install" />
+
+## Options
+
+{/* cli-reference:options install */}
+{/* /cli-reference */}
+
+## Register an origin
+
+`palm install origin <spec>` accepts these forms:
+
+| Spec | Example |
+| --- | --- |
+| GitHub repository | `mattpocock/skills` |
+| Folder in a GitHub repository | `cursor/plugins/pstack` |
+| GitHub shorthand | `github:obra/superpowers` |
+| Git URL, with an optional `#ref` | `https://gitlab.com/acme/agents.git#v2.0.0`, `git@github.com:acme/agents.git` |
+| Local directory | `~/src/my-skills` |
+| Marketplace file, folder or URL | `.claude-plugin/marketplace.json` |
+
+palm fetches and indexes the origin first, and saves nothing when that fails.
+It saves the origin to `~/.palm/config.yaml`, or to the project's `palm.yaml` with `--project`.
+A marketplace adds one origin per plugin it lists and skips plugins already registered.
+`--alias`, `--ref`, `--root` and `--layout` apply to one origin per command.
+See [origins](/palm/concepts/origins/#aliases) for the default alias and [layout descriptor](/palm/reference/layout/) for `--layout`.
+
+## Ad hoc MCP servers
+
+`palm install mcp <name>` defines a server without an origin: a command after `--`, or `--url`.
+`--env` and `--header` repeat, one `K=V` each.
+A `${VAR}` in a value stays an environment reference in project scope, or is filled in under the `literal` secret policy.
+One name per command, and either `--` or `--url`, not both.
+
+## Install what palm.yaml lists
+
+Without names, `palm install` makes the scope match `palm.yaml` and `palm.lock.yaml`:
+
+- An entry the lockfile realizes, with every file on disk, stays as it is. palm needs no network for it.
+- Any other locked entry is replayed at the commit the lockfile records. A newer tag changes nothing; `palm update` does that.
+- An entry the lockfile lacks, or whose `#ref` changed, is resolved fresh.
+- An origin alias the lockfile names but this machine lacks is added to `palm.yaml` from the lockfile's `url`, with a warning. With `-g`, that is a failure whose hint names the `palm install origin` command.
+- `targets:` is the exact set: files for a target that `palm.yaml` no longer lists are removed.
+- Lockfile entries that `palm.yaml` does not list are reported. `--prune` removes them.
+
+`--frozen` checks instead of changing: see [`--frozen`](/palm/reference/cli/#--frozen).
+
+## Behavior
+
+### What it writes
+
+- The harness files of each target, as listed in the [targets matrix](/palm/reference/targets-matrix/). Hook scripts go to `.palm/hooks/<name>/`, or `~/.palm/hooks/<name>/` with `-g`.
+- `palm.yaml`: each direct request as `name@origin`, with `#ref` when you gave one, and `targets:` as described in [targets](/palm/reference/cli/#targets). Dependencies are not listed.
+- `palm.lock.yaml`: one entry per entity, saved after every entity, so an interrupted run leaves a lockfile that matches the disk.
+- With `-g`: `~/.palm/palm.yaml`, `~/.palm/palm.lock.yaml`, and `targets:` in `~/.palm/config.yaml`.
+- The origin checkout and index in `~/.palm/cache/`, also under `--dry-run`.
+- `--save-origin`: the `--from` origin in `palm.yaml`, or in `~/.palm/config.yaml` with `-g`.
+- MCP secrets: environment references in project files. Under the `literal` policy, the default with `-g`, the value goes into a user config file created with mode `0600`.
+
+### What it asks
+
+Only in a terminal; see [prompts](/palm/reference/cli/#prompts-and---yes) for the behavior without one.
+
+- Which origin, when several origins have the name.
+- Which targets, when palm finds no target set.
+- Consent, once per run, before it writes a hook or a stdio MCP server. The default is yes.
+- The value of each secret that is not in the environment, under the `literal` policy. Input is masked.
+
+### What it refuses
+
+- A file that exists and that palm did not write: `E_CONFLICT`, unless `--force`.
+- A file you changed since palm wrote it: `E_CONFLICT`, and the entity stays as it was, unless `--force`.
+- An entity with hidden Unicode of critical severity: `E_CONFLICT`, unless `--force`. See [`palm audit`](/palm/reference/cli/audit/).
+- A repository instead of a name, as in `palm install mattpocock/skills`: a usage error that points to `palm install origin` and `--from`.
+- Project scope in your home directory without a `palm.yaml` or `.git`: a usage error. Use `-g`, or run it in a project.
+- A project origin whose alias you already use for another source: `E_CONFLICT`.
+- `--prune` or `--frozen` with names, `--frozen` with `--prune`, `--save-origin` without `--from`, origin options on an entity, and ad hoc MCP options without the `mcp` kind: usage errors.
+
+One failed target does not stop the others.
+The lockfile records only what succeeded, and palm exits 1.
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | Every entity is installed or unchanged. |
+| `1` | A name matches nothing (`E_NOT_FOUND`) or several entities (`E_AMBIGUOUS`), or any entity, target or origin failed. |
+| `2` | A usage error. |
+| `130` | You declined consent, pressed Esc at a prompt, or pressed Ctrl-C. After Ctrl-C, palm finishes the current entity and saves the lockfile. |
+
+## Related
+
+- [`palm uninstall`](/palm/reference/cli/uninstall/)
+- [`palm update`](/palm/reference/cli/update/)
+- [palm.yaml](/palm/reference/palm-yaml/)
+- [palm.lock.yaml](/palm/reference/palm-lock-yaml/)
+- [Targets matrix](/palm/reference/targets-matrix/)

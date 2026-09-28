@@ -4,7 +4,7 @@
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { getIndex, indexFilePath } from '../../src/core/cache.js';
+import { getIndex, indexFilePath, readCachedIndex } from '../../src/core/cache.js';
 import type { EngineDeps, OriginSpec, ScanResult } from '../../src/core/types.js';
 import { makeRemote } from '../core/gitrepo.js';
 import { makeContext } from '../support/fakes.js';
@@ -75,5 +75,21 @@ describe('index cache shape check', () => {
       expect(idx.entities.map((e) => e.name)).toEqual(['a']);
       expect(scan.calls, `case ${i}`).toBe(i + 2);
     }
+  });
+
+  it('readCachedIndex (get/describe origin) applies the same check, without fetching', async () => {
+    const remote = await makeRemote(sb.root);
+    const ctx = await makeContext(sb);
+    const spec: OriginSpec = { alias: 'r', type: 'git', url: remote.bare };
+    expect(await readCachedIndex(ctx, spec)).toBeUndefined();
+    const scanned = await getIndex(ctx, spec, { scan: countingScan() });
+    expect(await readCachedIndex(ctx, spec)).toEqual(scanned);
+    const file = indexFilePath(ctx, spec);
+    const good = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    // an older palm's index: entities present, but no format
+    await writeFile(file, JSON.stringify({ ...good, format: undefined }));
+    expect(await readCachedIndex(ctx, spec)).toBeUndefined();
+    await writeFile(file, JSON.stringify({ ...good, entities: [{ kind: 'skill' }] }));
+    expect(await readCachedIndex(ctx, spec)).toBeUndefined();
   });
 });

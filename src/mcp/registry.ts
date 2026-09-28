@@ -120,25 +120,27 @@ function errorDetail(text: string): string {
   return text.slice(0, 200).trim();
 }
 
-/** GET a JSON document. Returns `undefined` for the statuses listed in `missing` (e.g. 404). */
-async function getJson(c: Client, url: string, missing: number[] = []): Promise<unknown> {
+function timeoutLabel(ms: number): string {
+  return ms >= 1000 ? `${Math.round(ms / 1000)}s` : `${ms}ms`;
+}
+
+/** GET `url`: status and body, or E_NETWORK when the registry cannot be reached in time. */
+async function fetchText(c: Client, url: string): Promise<{ status: number; text: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), c.timeoutMs);
-  let status: number;
-  let text: string;
   try {
     const res = await c.fetch(url, {
       headers: { accept: 'application/json', 'user-agent': 'palm (MCP registry client)' },
       signal: controller.signal,
     });
-    status = res.status;
-    text = await res.text();
+    return { status: res.status, text: await res.text() };
   } catch (e) {
     const hint = `Check your network connection, or use another registry: palm config set mcpRegistryUrl <url>`;
     if (controller.signal.aborted) {
+      const within = timeoutLabel(c.timeoutMs);
       throw new PalmError(
         'E_NETWORK',
-        `MCP registry ${c.host} did not respond within ${c.timeoutMs >= 1000 ? `${Math.round(c.timeoutMs / 1000)}s` : `${c.timeoutMs}ms`}`,
+        `MCP registry ${c.host} did not respond within ${within}`,
         hint,
       );
     }
@@ -148,6 +150,11 @@ async function getJson(c: Client, url: string, missing: number[] = []): Promise<
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** GET a JSON document. Returns `undefined` for the statuses listed in `missing` (e.g. 404). */
+async function getJson(c: Client, url: string, missing: number[] = []): Promise<unknown> {
+  const { status, text } = await fetchText(c, url);
   if (missing.includes(status)) return undefined;
   if (status < 200 || status >= 300) {
     const detail = errorDetail(text);
@@ -170,6 +177,14 @@ async function getJson(c: Client, url: string, missing: number[] = []): Promise<
   }
 }
 
+/** `isLatest` and `status` from the official `_meta` (or the legacy keys), first value wins. */
+function applyMeta(entry: RegistryEntry, meta: unknown): void {
+  if (!isRecord(meta)) return;
+  const latest = meta.isLatest ?? meta.is_latest;
+  if (typeof latest === 'boolean' && entry.isLatest === undefined) entry.isLatest = latest;
+  if (typeof meta.status === 'string' && entry.status === undefined) entry.status = meta.status;
+}
+
 function parseEntry(item: unknown): RegistryEntry | undefined {
   if (!isRecord(item)) return undefined;
   let server: ServerJson;
@@ -180,14 +195,8 @@ function parseEntry(item: unknown): RegistryEntry | undefined {
   }
   const entry: RegistryEntry = { server };
   const metaRoot = isRecord(item._meta) ? item._meta : undefined;
-  const official = metaRoot?.[OFFICIAL_META] ?? item[LEGACY_META];
-  const vd = (server as unknown as Record<string, unknown>).versionDetail;
-  for (const meta of [official, vd]) {
-    if (!isRecord(meta)) continue;
-    const latest = meta.isLatest ?? meta.is_latest;
-    if (typeof latest === 'boolean' && entry.isLatest === undefined) entry.isLatest = latest;
-    if (typeof meta.status === 'string' && entry.status === undefined) entry.status = meta.status;
-  }
+  applyMeta(entry, metaRoot?.[OFFICIAL_META] ?? item[LEGACY_META]);
+  applyMeta(entry, (server as unknown as Record<string, unknown>).versionDetail);
   return entry;
 }
 
@@ -313,6 +322,27 @@ export async function searchRegistry(
   return [...exact, ...rest].slice(0, limit);
 }
 
+/** Candidates for the servers `matches` names, at `version`; the first non-network error is thrown only when none resolved. */
+async function candidatesAt(
+  c: Client,
+  matches: RegistryEntry[],
+  version: string,
+): Promise<RegistryCandidate[]> {
+  const out: RegistryCandidate[] = [];
+  let firstError: unknown;
+  for (const m of matches) {
+    try {
+      const entry = version === 'latest' ? m : await getServer(c, m.server.name, version);
+      if (entry) out.push(toCandidate(entry.server));
+    } catch (e) {
+      if (e instanceof PalmError && e.code === 'E_NETWORK') throw e;
+      firstError ??= e;
+    }
+  }
+  if (!out.length && firstError) throw firstError;
+  return out;
+}
+
 /**
  * Resolve a registry reference to install candidates.
  *
@@ -343,18 +373,5 @@ export async function resolveRegistry(
   const matches = (await listLatest(c, search, PAGE_SIZE * MAX_PAGES)).filter((e) =>
     nameMatches(query, e.server.name),
   );
-
-  const out: RegistryCandidate[] = [];
-  let firstError: unknown;
-  for (const m of matches) {
-    try {
-      const entry = version === 'latest' ? m : await getServer(c, m.server.name, version);
-      if (entry) out.push(toCandidate(entry.server));
-    } catch (e) {
-      if (e instanceof PalmError && e.code === 'E_NETWORK') throw e;
-      firstError ??= e;
-    }
-  }
-  if (!out.length && firstError) throw firstError;
-  return out;
+  return candidatesAt(c, matches, version);
 }

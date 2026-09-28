@@ -1,12 +1,13 @@
-$ palm install agent comment-sicko --target claude,codex,copilot,cursor
-project scope → claude, codex, copilot, cursor
-status     kind   name           origin  targets                      files
-─────────  ─────  ─────────────  ──────  ───────────────────────────  ─────
-installed  agent  comment-sicko  pstack  claude,codex,copilot,cursor  4
+$ palm install agent comment-sicko --target claude,codex,copilot,cursor,gemini,opencode
+i saved targets claude, codex, copilot, cursor, gemini, opencode to palm.yaml
+project scope → claude, codex, copilot, cursor, gemini, opencode
+status       kind   name           origin  targets                                      files
+───────────  ─────  ─────────────  ──────  ───────────────────────────────────────────  ─────
++ installed  agent  comment-sicko  pstack  claude,codex,copilot,cursor,gemini,opencode  6
 1 installed
 $ palm install skill tdd@mattpocock
-project scope → claude, codex, copilot, cursor
-status     kind   name  origin      targets                      files
-─────────  ─────  ────  ──────────  ───────────────────────────  ─────
-installed  skill  tdd   mattpocock  claude,codex,copilot,cursor  6
+project scope → claude, codex, copilot, cursor, gemini, opencode
+status       kind   name  origin      targets                                      files
+───────────  ─────  ────  ──────────  ───────────────────────────────────────────  ─────
++ installed  skill  tdd   mattpocock  claude,codex,copilot,cursor,gemini,opencode  6
 1 installed

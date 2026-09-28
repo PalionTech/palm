@@ -1,0 +1,19 @@
+$ palm describe skill tdd
+skill tdd  installed (project)
+  Test-driven development with red-green-refactor.
+
+  origin      mattpocock
+  url         ~/src/skills
+  path        skills/engineering/tdd
+  version     1.2.3
+  plugin      mattpocock-skills
+
+  targets     claude, codex
+  shared .agents
+    .agents/skills/tdd/SKILL.md
+    .agents/skills/tdd/agents/openai.yaml
+    .agents/skills/tdd/references/mocking.md
+  claude
+    .claude/skills/tdd/SKILL.md
+    .claude/skills/tdd/agents/openai.yaml
+    .claude/skills/tdd/references/mocking.md

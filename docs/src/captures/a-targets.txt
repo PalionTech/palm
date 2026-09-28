@@ -1,0 +1,17 @@
+$ palm install skill tdd --target claude,codex
+i saved targets claude, codex to palm.yaml
+project scope → claude, codex
+status       kind   name  origin      targets       files
+───────────  ─────  ────  ──────────  ────────────  ─────
++ installed  skill  tdd   mattpocock  claude,codex  6
+1 installed
+$ palm get targets
+project scope ~/project  (targets from palm.yaml)
+target    harness         status  project  global  project config dir
+────────  ──────────────  ──────  ───────  ──────  ──────────────────
+claude    Claude Code     active  yes      no      ./.claude
+codex     Codex           active  no       no      ./.codex
+copilot   GitHub Copilot          no       no      ./.github
+cursor    Cursor                  no       no      ./.cursor
+gemini    Gemini CLI              no       no      ./.gemini
+opencode  OpenCode                no       no      ./.opencode

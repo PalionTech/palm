@@ -98,8 +98,17 @@ function isBidiControl(cp: number): boolean {
   return (cp >= 0x202a && cp <= 0x202e) || (cp >= 0x2066 && cp <= 0x2069);
 }
 
+/**
+ * Cheap pre-check, a superset of what `hiddenUnicodeSeverity` reports (format characters, the
+ * invisible fillers, tag characters, supplementary variation selectors): most text contains none
+ * of these, and the native regex spares it the per-code-point scan. test/lib/unicode checks the
+ * superset property over the planes where such characters live.
+ */
+export const MAY_HIDE_UNICODE =
+  /[\p{Cf}\u115f\u1160\u3164\uffa0\u{E0000}-\u{E007F}]|\u034f|[\u{E0100}-\u{E01EF}]/u;
+
 /** Severity of `cp` by itself, ignoring its position; undefined for ordinary characters. */
-function classify(cp: number): HiddenUnicodeSeverity | undefined {
+export function hiddenUnicodeSeverity(cp: number): HiddenUnicodeSeverity | undefined {
   if (isBidiControl(cp) || isTag(cp) || isSupplementaryVariationSelector(cp)) return 'critical';
   if (EXTRA_INVISIBLE.has(cp)) return 'warning';
   if (VISIBLE_FORMAT.has(cp)) return undefined;
@@ -166,11 +175,12 @@ function codePointsOf(text: string): CodePointAt[] {
  * warning. A ZWJ joining two emoji is not reported.
  */
 export function scanHiddenUnicode(text: string): HiddenUnicodeFinding[] {
+  if (!MAY_HIDE_UNICODE.test(text)) return [];
   const points = codePointsOf(text);
   const cps = points.map((p) => p.cp);
   const findings: HiddenUnicodeFinding[] = [];
   points.forEach(({ cp, index }, i) => {
-    const severity = classify(cp);
+    const severity = hiddenUnicodeSeverity(cp);
     if (severity === undefined) return;
     if (cp === BOM && index === 0) return;
     if (cp === ZWJ && isEmojiJoiner(cps, i)) return;

@@ -6,6 +6,7 @@ import { loadLock } from '../../src/core/lockfile.js';
 import { saveManifest } from '../../src/core/manifest.js';
 import type { EngineDeps, Entity, McpServerConfig, ScanResult } from '../../src/core/types.js';
 import { installEntities, requestInstallStop } from '../../src/engine/install.js';
+import { applyUpdate, planExecutables, planUpdate } from '../../src/engine/update.js';
 import { fakeUI, makeContext } from '../support/fakes.js';
 import { removeDir } from '../support/sandbox.js';
 import { makeWorld, type World } from './world.js';
@@ -271,6 +272,63 @@ describe('executable consent', () => {
       w.deps,
     );
     expect(yes.outcomes[0]!.status).toBe('installed');
+  });
+
+  it('does not ask again about executables the caller already allowed (consented)', async () => {
+    w = await makeWorld();
+    withEntities(w, [HOOK]);
+    const asked = recordConfirms(w);
+    const requests = [
+      { kind: 'hook' as const, spec: 'fmt' },
+      { kind: 'mcp' as const, spec: 'fs', adhocMcp: FS_MCP },
+    ];
+    const consented = ['mcp fs: npx -y server-fs'];
+    await installEntities(w.ctx, requests, { ...PROJECT, consented }, w.deps);
+    expect(asked).toHaveLength(1);
+    const info = w.log.messages.filter((m) => m.level === 'info').map((m) => m.msg);
+    expect(info).toContain('This install adds a command that runs on your machine:');
+    expect(info).not.toContain('  mcp fs: npx -y server-fs');
+
+    const all = ['hook fmt (claude): PostToolUse → ./fmt.sh', ...consented];
+    await installEntities(
+      w.ctx,
+      [{ kind: 'hook', spec: 'fmt' }],
+      { ...PROJECT, consented: all, targets: ['claude', 'codex'] },
+      w.deps,
+    );
+    expect(asked).toHaveLength(1);
+  });
+
+  it('palm update lists what it would allow to run; its one confirmation covers the install', async () => {
+    w = await makeWorld();
+    const members: Array<{ kind: 'skill' | 'hook'; name: string }> = [
+      { kind: 'skill', name: 'tdd' },
+    ];
+    const kit: Entity = {
+      kind: 'plugin',
+      name: 'kit',
+      path: 'plugins/superpowers',
+      origin: 'a',
+      def: { kind: 'plugin', members },
+    };
+    withEntities(w, [kit, { ...HOOK, plugin: 'kit' }]);
+    const asked = recordConfirms(w);
+    await installEntities(w.ctx, [{ kind: 'plugin', spec: 'kit' }], PROJECT, w.deps);
+    expect(asked).toEqual([]); // a skill only: nothing to allow
+
+    members.push({ kind: 'hook', name: 'fmt' }); // the new version adds a hook
+    await writeFile(join(w.origins.a, 'skills/tdd/SKILL.md'), '---\nname: tdd\n---\ntdd v2\n');
+    const plan = await planUpdate(w.ctx, [], { scope: 'project' }, w.deps);
+    const runs = ['hook fmt (claude): PostToolUse → ./fmt.sh'];
+    expect(plan.items).toContainEqual(
+      expect.objectContaining({ mark: 'added', kind: 'hook', name: 'fmt', executables: runs }),
+    );
+    expect(planExecutables(plan)).toEqual(runs);
+
+    const r = await applyUpdate(w.ctx, plan, w.deps);
+    expect(r.failures).toEqual([]);
+    expect(r.outcomes.map((o) => [o.entry.name, o.status])).toContainEqual(['fmt', 'installed']);
+    expect(asked).toEqual([]); // the update's confirmation was the consent
   });
 
   it('--dry-run lists the executables without asking', async () => {

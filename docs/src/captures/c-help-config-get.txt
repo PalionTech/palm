@@ -1,0 +1,19 @@
+$ palm config get --help
+Usage: palm config get [options] [key]
+
+Print one config value, or all of them.
+
+Options:
+  -h, --help          display help for command
+
+Global Options:
+  -g, --global        use the global scope (~), not this project
+  -t, --target <ids>  targets: claude,codex,copilot,cursor
+  --dry-run           show what would change; write nothing
+  --force             overwrite files palm does not own
+  -y, --yes           accept defaults instead of prompting
+  --offline           use cached origins only; no network
+  --verbose           debug output and stack traces
+  --json              JSON on stdout; everything else on stderr
+  --no-color          no colours (also NO_COLOR=1)
+  -V, --version       print the palm version

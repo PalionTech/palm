@@ -35,7 +35,7 @@ import { Lock } from '../domain/lock.js';
 import { isMcpManifestEntry, Manifest } from '../domain/manifest.js';
 import { ScopePaths } from '../domain/scope-paths.js';
 import { type EngineDeps, resolveEngineDeps } from './deps.js';
-import { dedupeOutcomes, installEntities } from './install.js';
+import { dedupeOutcomes, executablesOf, installEntities } from './install.js';
 import { contentHashOf } from './plan.js';
 import {
   type Candidate,
@@ -61,6 +61,8 @@ export interface UpdatePlanItem {
   to?: string;
   /** Files palm wrote that the user changed since (an update would overwrite them; only with --force). */
   atRisk: string[];
+  /** Hook commands and stdio MCP servers applying this item writes (`executablesOf` lines). */
+  executables?: string[];
   /** Why an item is unchanged, skipped or failed. */
   note?: string;
 }
@@ -83,6 +85,14 @@ export interface UpdateResult extends InstallResult {
 /** True when applying the plan would change something. */
 export function planChanges(plan: UpdatePlan): number {
   return plan.items.filter((i) => ['updated', 'added', 'removed'].includes(i.mark)).length;
+}
+
+/**
+ * Every command applying the plan allows to run on the user's machine: the plan shows them, and
+ * its one confirmation is the install's executable consent for them.
+ */
+export function planExecutables(plan: UpdatePlan): string[] {
+  return [...new Set(plan.items.flatMap((i) => i.executables ?? []))];
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +294,8 @@ async function updatedItem(
       to: `content ${shortHash(r.hash)}`,
     });
   item.atRisk = await Lock.modifiedFiles(e, p.paths, (abs) => hashPath(abs));
+  const runs = executablesOf(r.found.entity);
+  if (runs.length) item.executables = runs;
   return item;
 }
 
@@ -333,18 +345,28 @@ async function planEntry(
   return { changed: false, found: r.found };
 }
 
+/** What a newly declared member or dependency would run, when the root's own origin has it. */
+function addedExecutables(found: Candidate, dep: EntityRef): string[] {
+  const { spec, index } = found.source;
+  const c = spec && index ? candidatesIn([{ spec, index }], dep.kind, dep.name)[0] : undefined;
+  return c ? executablesOf(c.entity) : [];
+}
+
 /**
  * `+ added` for what the new version declares and the installed one did not (and is not
  * installed otherwise), `- removed` for dependencies it no longer declares that nothing else
  * uses. Returns the lock ids of the removed ones.
  */
-function membershipChanges(p: Planner, root: LockEntry, declared: EntityRef[]): Set<string> {
+function membershipChanges(p: Planner, root: LockEntry, found: Candidate): Set<string> {
+  const declared = entityDeps(found.entity);
   const recorded = new Set((root.deps ?? []).map(entityId));
   const now = new Set(declared.map(entityId));
   const via = Via.of(root).toString();
   for (const d of declared) {
     if (recorded.has(entityId(d)) || p.lock.find(d)) continue;
     const item: UpdatePlanItem = { mark: 'added', ...d, origin: root.origin, via, atRisk: [] };
+    const runs = addedExecutables(found, d);
+    if (runs.length) item.executables = runs;
     p.plan.items.push(item);
   }
   const removed = new Set<string>();
@@ -390,7 +412,7 @@ async function planRoot(p: Planner, root: LockEntry): Promise<void> {
   let changed = r.changed;
   if (isViaKind(root.kind)) {
     const before = p.plan.items.length;
-    const removed = membershipChanges(p, root, entityDeps(r.found.entity));
+    const removed = membershipChanges(p, root, r.found);
     changed ||= p.plan.items.length > before;
     changed = (await planDependents(p, root, ref, removed)) || changed;
   }
@@ -435,7 +457,11 @@ export async function planUpdate(
 // Apply
 // ---------------------------------------------------------------------------
 
-/** Reinstalls the plan's roots (installEntities writes the lock); unchanged entries become `unchanged` outcomes. */
+/**
+ * Reinstalls the plan's roots (installEntities writes the lock); unchanged entries become
+ * `unchanged` outcomes. The caller confirmed the plan, so the executables it lists count as
+ * consented; the install asks only about any the plan could not foresee.
+ */
 export async function applyUpdate(
   ctx: PalmContext,
   plan: UpdatePlan,
@@ -449,8 +475,9 @@ export async function applyUpdate(
   }));
   const warnings = [...plan.warnings];
   const failures = [...plan.failures];
+  const consented = planExecutables(plan);
   for (const g of plan.apply) {
-    const opts = { scope: plan.scope, targets: g.targets, noSave: true };
+    const opts = { scope: plan.scope, targets: g.targets, noSave: true, consented };
     const r = await installEntities(ctx, g.requests, opts, deps);
     outcomes.push(...r.outcomes);
     warnings.push(...r.warnings);

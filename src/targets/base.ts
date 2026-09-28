@@ -22,7 +22,7 @@ import { type MergedRecord, parseMergedRecord } from '../domain/merged-record.js
 import { ScopePaths } from '../domain/scope-paths.js';
 import { isWithin, removeEmptyParents } from '../lib/fs.js';
 import { isSafeName } from '../lib/names.js';
-import { removeDirIfExists, removeFileIfExists } from './fs-utils.js';
+import { removeFileIfExists } from './fs-utils.js';
 import { unmergeJsonFile } from './json-merge.js';
 import type { CleanupRoot, TargetLayout, TargetSpec } from './layout.js';
 import { removeManagedBlock } from './managed-block.js';
@@ -61,7 +61,11 @@ function rootOf(roots: readonly CleanupRoot[], abs: string): CleanupRoot | undef
     .sort((a, b) => b.dir.length - a.dir.length)[0];
 }
 
-/** Files of `entry` inside this target's roots (shared `.palm/hooks` included), pruning emptied dirs. */
+/**
+ * Files of `entry` inside this target's roots (shared `.palm/hooks` included), pruning emptied
+ * dirs. Only the listed files go: a hook's asset directory keeps anything palm did not write
+ * there (or a newer install of the same name wrote since).
+ */
 async function removeOwnFiles(
   entry: LockEntry,
   paths: ScopePaths,
@@ -89,14 +93,6 @@ async function unmergeOwn(
       layout.mergedFiles.includes(abs) || layout.roots.some((r) => isWithin(abs, r.dir));
     if (claimed) await unmerge(parseMergedRecord({ ...stored, file: abs }));
   }
-}
-
-/** A hook entry's copied scripts (`.palm/hooks/<name>` or `$PALM_HOME/hooks/<name>`). */
-async function removeHookAssets(entry: LockEntry, paths: ScopePaths): Promise<void> {
-  if (entry.kind !== 'hook' || !isSafeName(entry.name)) return;
-  const dir = paths.hooksAssetDir(entry.name);
-  await removeDirIfExists(dir);
-  await removeEmptyParents(dir, paths.palmDir);
 }
 
 export class GenericTarget implements Target {
@@ -148,9 +144,10 @@ export class GenericTarget implements Target {
 
   /**
    * Remove this target's share of a lock entry (`Target.undeploy(entry, scope, scopeRoot,
-   * dryRun, env?)`). Files outside this target's roots (another target's files) are ignored;
-   * missing files are fine. Shared `.agents/skills` and `.palm/hooks` paths are claimed by
-   * several targets and removed by whichever runs first.
+   * dryRun, env?)`): the files `entry.files` lists and the records `entry.merged` lists, nothing
+   * else. Files outside this target's roots (another target's files) are ignored; missing files
+   * are fine. Shared `.agents/skills` and `.palm/hooks` paths are claimed by several targets and
+   * removed by whichever runs first.
    */
   async undeploy(...args: Parameters<Target['undeploy']>): Promise<void> {
     const [entry, scope, scopeRoot, dryRun, env] = args;
@@ -159,6 +156,5 @@ export class GenericTarget implements Target {
     const layout = this.spec.layout(paths);
     await removeOwnFiles(entry, paths, layout);
     await unmergeOwn(entry.merged ?? [], paths, layout);
-    await removeHookAssets(entry, paths);
   }
 }

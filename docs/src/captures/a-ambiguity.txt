@@ -1,0 +1,14 @@
+$ palm search skill tdd
+kind   name  origin      version  description
+─────  ────  ──────────  ───────  ────────────────────────────────────────────────
+skill  tdd   mattpocock  1.2.3    Test-driven development with red-green-refactor.
+skill  tdd   pstack      0.14.2   Use only when the user explicitly asks for TDD.
+
+install with: palm install skill tdd@mattpocock
+$ palm install skill tdd@mattpocock --target claude,cursor
+i saved targets claude, cursor to palm.yaml
+project scope → claude, cursor
+status       kind   name  origin      targets        files
+───────────  ─────  ────  ──────────  ─────────────  ─────
++ installed  skill  tdd   mattpocock  claude,cursor  6
+1 installed

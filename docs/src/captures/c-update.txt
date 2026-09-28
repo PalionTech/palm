@@ -1,0 +1,14 @@
+$ palm update --dry-run
+Update plan (project scope)
+~ updated  skill  tdd  mattpocock  v1.0.0 (4747051) → v1.1.0 (13365b4)
+
+dry run: nothing written
+$ palm update --yes
+Update plan (project scope)
+~ updated  skill  tdd  mattpocock  v1.0.0 (4747051) → v1.1.0 (13365b4)
+
+project scope → claude
+status     kind   name  origin      targets  files
+─────────  ─────  ────  ──────────  ───────  ─────
+~ updated  skill  tdd   mattpocock  claude   3
+1 updated

@@ -1,0 +1,30 @@
+$ palm find --help
+Usage: palm find [options] <path>
+
+Show which installed entity wrote a file (or merged a fragment into it).
+
+Arguments:
+  path                file or directory palm wrote
+
+Options:
+  -h, --help          display help for command
+
+Global Options:
+  -g, --global        use the global scope (~), not this project
+  -t, --target <ids>  targets: claude,codex,copilot,cursor
+  --dry-run           show what would change; write nothing
+  --force             overwrite files palm does not own
+  -y, --yes           accept defaults instead of prompting
+  --offline           use cached origins only; no network
+  --verbose           debug output and stack traces
+  --json              JSON on stdout; everything else on stderr
+  --no-color          no colours (also NO_COLOR=1)
+  -V, --version       print the palm version
+
+The path may be absolute, ~/…, or relative to this directory or the scope root. Without -g
+the project and the global lockfile are searched. Exit 1 when no entity wrote the path.
+
+Examples:
+  palm find .claude/skills/tdd/SKILL.md     the entity that wrote it
+  palm find .mcp.json                       merged config: every entity with a fragment in it
+  palm find ~/.codex/AGENTS.md -g --json    global scope only, as JSON

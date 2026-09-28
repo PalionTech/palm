@@ -5,6 +5,8 @@ sidebar:
   label: Scopes
 ---
 
+import Capture from '../../../components/Capture.astro';
+
 The **scope** decides where palm writes: `project` (the default) or `global`.
 Project scope writes under the project root. Global scope, chosen with `-g`, writes under your home directory.
 
@@ -13,15 +15,33 @@ palm install skill tdd        # .claude/skills/tdd/ in this project
 palm install skill tdd -g     # ~/.claude/skills/tdd/ for every project
 ```
 
+<Capture name="a-scopes" title="~/project" />
+
+The first install wrote the skill into the project and saved the target to `palm.yaml`.
+The second wrote it under `~/.claude` and saved the target to `~/.palm/config.yaml`.
+Each scope has its own manifest, lockfile and saved targets.
+
+## When to use each
+
+| Use | Scope |
+| --- | --- |
+| The project needs it, and your team should get it too | project |
+| You want it in every project on your machine, such as a personal style skill | global (`-g`) |
+| An MCP server needs a secret that should not be in the repository | either, as [MCP servers and secrets](/palm/concepts/mcp-and-secrets/) explains |
+
 Every command takes `-g`, and the same command works in both scopes.
 
 ## The project root
 
-palm looks upward from the current directory and takes the first match:
+palm looks upward from the current directory and takes the first match.
 
 1. The nearest directory with a `palm.yaml`.
 2. The nearest directory with a `.git`.
 3. The current directory.
+
+When that root is your home directory and it has no `palm.yaml`, palm refuses project scope.
+It asks you to run inside a project or to add `-g`.
+This keeps a stray command from writing project files into `~`.
 
 ## What changes with the scope
 
@@ -32,28 +52,32 @@ palm looks upward from the current directory and takes the first match:
 | Lockfile | `palm.lock.yaml` in the project root | `~/.palm/palm.lock.yaml` |
 | Saved targets | `targets:` in `palm.yaml` | `targets:` in `~/.palm/config.yaml` |
 | Hook scripts | `.palm/hooks/<name>/` | `~/.palm/hooks/<name>/` |
+| Project origins | read from `palm.yaml` | ignored |
 | MCP secrets, by default | an environment reference | the value, in a user config file created with mode `0600` |
 
 Commit the project's `palm.yaml` and `palm.lock.yaml`.
-Add `.palm/` to `.gitignore`: `palm init` does this for you.
+Keep `.palm/` out of git, because it holds copies of hook scripts that `palm install` restores.
+`palm init` adds `.palm/` to the project's `.gitignore` when that file exists.
 
 ## Harness homes
 
-For the global scope, palm follows the same variables the harnesses use:
+For the global scope, palm follows the variables the harnesses themselves read.
 
 | Variable | Replaces |
 | --- | --- |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` |
 | `CODEX_HOME` | `~/.codex` |
 | `COPILOT_HOME` | `~/.copilot` |
+| `GEMINI_CLI_HOME` | the home that holds `.gemini`, so `~/.gemini` becomes `$GEMINI_CLI_HOME/.gemini` |
+| `XDG_CONFIG_HOME` | `~/.config`, so OpenCode's `~/.config/opencode` moves with it |
 | `PALM_HOME` | `~/.palm` |
 
 Some paths differ between the scopes.
 Claude Code keeps global MCP servers in `~/.claude.json`, and Copilot keeps them in `~/.copilot/mcp-config.json`.
-The [targets matrix](/palm/reference/targets-matrix/) lists both scopes for every kind.
+`palm describe target <id> -g` prints every global path for one harness.
 
 ## Related
 
 - [Targets](/palm/concepts/targets/)
-- [Glossary](/palm/reference/glossary/)
+- [Manifest and lockfile](/palm/concepts/manifest-and-lockfile/)
 - [Security model](/palm/explanation/security/)

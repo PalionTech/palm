@@ -39,11 +39,11 @@ function isStoredIndex(v: unknown): v is StoredIndex {
   return Array.isArray(v.entities) && v.entities.every(hasEntityShape);
 }
 
-/** The cached index at `file` when it is well-formed and was written for `key`. */
-async function readStoredIndex(file: string, key: string): Promise<OriginIndex | undefined> {
+/** The cached index at `file` when it is well-formed (and, given a `key`, was written for it). */
+async function readStoredIndex(file: string, key?: string): Promise<OriginIndex | undefined> {
   try {
     const cached: unknown = await readJsonFile<unknown>(file);
-    if (!isStoredIndex(cached) || cached.cacheKey !== key) return undefined;
+    if (!isStoredIndex(cached) || (key !== undefined && cached.cacheKey !== key)) return undefined;
     const { cacheKey: _k, format: _f, ...index } = cached;
     return index;
   } catch {
@@ -54,6 +54,17 @@ async function readStoredIndex(file: string, key: string): Promise<OriginIndex |
 /** `<palmHome>/cache/<originId>[@<ref>][~<layout hash>].index.json` (Origin.indexFile). */
 export function indexFilePath(ctx: PalmContext, spec: OriginSpec): string {
   return new Origin(spec).indexFile(cacheDir(ctx.paths));
+}
+
+/**
+ * The index last written for an origin, without fetching (`palm get origins`, `describe origin`):
+ * the same shape and format check as `getIndex`, but any sha. Undefined when absent or stale.
+ */
+export function readCachedIndex(
+  ctx: PalmContext,
+  spec: OriginSpec,
+): Promise<OriginIndex | undefined> {
+  return readStoredIndex(indexFilePath(ctx, spec));
 }
 
 function cacheKey(spec: OriginSpec, checkout: OriginCheckout): string {

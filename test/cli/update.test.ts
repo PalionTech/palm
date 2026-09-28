@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { UI } from '../../src/core/types.js';
+import type { Entity, UI } from '../../src/core/types.js';
 import { Lock } from '../../src/domain/lock.js';
 import { installEntities } from '../../src/engine/install.js';
 import { makeWorld, type World } from '../engine/world.js';
@@ -109,6 +109,42 @@ describe('palm update (CLI): plan, confirm, apply', () => {
     expect(nothing.code).toBe(0);
     expect(nothing.stdout).toContain('Nothing to update.');
     expect(again.calls).toEqual([]);
+  });
+
+  it('lists the commands the update would allow to run; its one prompt covers them', async () => {
+    const scan = w.deps.scan!;
+    const hook: Entity = {
+      kind: 'hook',
+      name: 'fmt',
+      path: 'skills/tdd',
+      origin: 'a',
+      def: {
+        kind: 'hook',
+        hooks: {
+          name: 'fmt',
+          dialect: 'claude',
+          raw: { hooks: { PostToolUse: [{ hooks: [{ type: 'command', command: './fmt.sh' }] }] } },
+        },
+      },
+    };
+    w.deps.scan = async (root, spec) => {
+      const r = await scan(root, spec);
+      return { ...r, entities: [...r.entities, hook] };
+    };
+    w.ctx.flags.yes = true;
+    const project = { scope: 'project' as const, targets: ['claude' as const] };
+    await installEntities(w.ctx, [{ kind: 'hook', spec: 'fmt' }], project, w.deps);
+    await writeFile(join(w.origins.a, 'skills/tdd/SKILL.md'), 'tdd v2\n');
+
+    const { ui, calls } = confirmUI(true);
+    const r = await update(['hook', 'fmt'], ui);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain('! this update writes a command that runs on your machine:');
+    expect(r.stdout).toContain('    hook fmt (claude): PostToolUse → ./fmt.sh');
+    expect(calls).toEqual([
+      { message: 'Apply 1 change and allow that command to run?', initial: false },
+    ]);
+    expect(r.stdout).toMatch(/~ updated\s+hook\s+fmt/);
   });
 
   it('an unreachable origin exits 1 even with nothing else to do', async () => {

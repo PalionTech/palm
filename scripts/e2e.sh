@@ -383,7 +383,10 @@ s13_uninstall() {
 s14_global() {
   mkdir -p "$HOME/.claude" "$HOME/.codex"
   run "$P1" install -g skill unslop -y
-  has "saved targets claude, codex to config.yaml"
+  # Detected global targets are used, never saved: config.yaml `targets` would become the
+  # default of every project without its own.
+  lacks "saved targets"
+  js_yaml "$PALM_HOME/config.yaml" '!d.targets'
   file "$HOME/.claude/skills/unslop/SKILL.md"
   file "$HOME/.agents/skills/unslop/SKILL.md"
   nofile "$P1/.claude/skills/unslop"
@@ -405,10 +408,9 @@ s15_four_targets() {
   has "claude"
   has "copilot"
   has "cursor"
-  # -g in step 14 saved its detected targets to config.yaml, the default for projects without
-  # their own; this project names its four, and they are saved to its palm.yaml
-  run "$P4" install skill unslop@pstack -y -t claude,codex,copilot,cursor
-  has "claude,codex,copilot,cursor"
+  # Detected here (step 14's -g run saved nothing global) and saved to this project's palm.yaml.
+  run "$P4" install skill unslop@pstack -y
+  has "saved targets claude, codex, copilot, cursor to palm.yaml"
   contains "$P4/palm.yaml" "targets: [claude, codex, copilot, cursor]"
   file "$P4/.claude/skills/unslop/SKILL.md"
   file "$P4/.agents/skills/unslop/SKILL.md"

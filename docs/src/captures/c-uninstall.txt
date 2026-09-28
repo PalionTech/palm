@@ -1,0 +1,10 @@
+$ palm uninstall skill tdd --dry-run
+status          kind   name  origin      files    via
+──────────────  ─────  ────  ──────────  ───────  ───
+- would remove  skill  tdd   mattpocock  6 files
+
+dry run: nothing was removed
+$ palm uninstall skill tdd
+status     kind   name  origin      files    via
+─────────  ─────  ────  ──────────  ───────  ───
+- removed  skill  tdd   mattpocock  6 files

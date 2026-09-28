@@ -2,24 +2,17 @@
 import { join } from 'node:path';
 import pc from 'picocolors';
 import type { OriginIndex, OriginSpec, PalmContext } from '../core/types.js';
-import { readJsonFile } from '../lib/fs.js';
 import type { Output } from '../ui/output.js';
 import { usage } from './grammar.js';
 import { countMap, describeLocation, indexOrigin, kindCounts } from './origin.js';
 import { displayPath, shortSha } from './shared.js';
 
-/** Read the cached index of an origin without fetching (DESIGN.md §5). */
-export async function readCachedIndex(
+/** The cached index of an origin, without fetching (core/cache checks its shape and format). */
+async function readCachedIndex(
   ctx: PalmContext,
   spec: OriginSpec,
 ): Promise<OriginIndex | undefined> {
-  try {
-    const { indexFilePath } = await import('../core/cache.js');
-    const parsed = await readJsonFile<Partial<OriginIndex>>(indexFilePath(ctx, spec));
-    return Array.isArray(parsed.entities) ? (parsed as OriginIndex) : undefined;
-  } catch {
-    return undefined;
-  }
+  return (await import('../core/cache.js')).readCachedIndex(ctx, spec);
 }
 
 function scopeOfOrigin(ctx: PalmContext, spec: OriginSpec): 'global' | 'project' {

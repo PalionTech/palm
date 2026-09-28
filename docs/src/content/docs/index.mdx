@@ -1,12 +1,12 @@
 ---
 title: palm
-description: palm installs skills, subagents, hooks and MCP servers from git repositories. It writes them into Claude Code, Codex, GitHub Copilot and Cursor, each in its native format.
+description: palm installs skills, subagents, hooks and MCP servers from git repositories into Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI and OpenCode, each in its native format.
 template: splash
 lastUpdated: false
 editUrl: false
 hero:
   title: One setup for every coding agent.
-  tagline: palm installs skills, subagents, instructions, hooks, MCP servers and plugins from git repositories. It writes them into Claude Code, Codex, GitHub Copilot and Cursor, in each tool's native format. A lockfile records every file it writes, so installs repeat and removals are exact.
+  tagline: palm installs skills, subagents, instructions, hooks, MCP servers and plugins from git repositories. It writes each one into Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI and OpenCode, in each tool's format. A lockfile records every file, so teammates get the same setup and uninstall removes exactly what palm wrote.
   image:
     light: ../../assets/brand/mark-light.svg
     dark: ../../assets/brand/mark-dark.svg
@@ -26,7 +26,7 @@ import Capture from '../../components/Capture.astro';
 import CaptureTree from '../../components/CaptureTree.astro';
 import GuideCard from '../../components/GuideCard.astro';
 
-## One agent, four native files
+## One agent, six native files
 
 <div class="palm-show">
   <div>
@@ -40,20 +40,34 @@ import GuideCard from '../../components/GuideCard.astro';
   <CaptureTree name="landing" depth={3} />
 </div>
 
-The agent became `.md` for Claude Code and Cursor, `.toml` for Codex and `.agent.md` for Copilot.
-The skill went to `.claude/skills` for Claude Code and once to `.agents/skills`, which the other three read.
+The agent became a Markdown file for Claude Code, Cursor, Gemini CLI and OpenCode.
+Codex got a TOML file, and Copilot got an `.agent.md` file.
+The skill went to `.claude/skills` for Claude Code and once to `.agents/skills`, which the other five read.
 `palm.yaml` lists what you asked for, and `palm.lock.yaml` records every file palm wrote.
+
+## One name in two origins
+
+<Capture name="a-ambiguity" title="~/project" />
+
+Two origins offer a skill named `tdd`, and `palm search` shows both.
+In a terminal, `palm install skill tdd` opens a picker.
+In a script, it exits with `E_AMBIGUOUS` and prints `tdd@mattpocock` and `tdd@pstack`.
+The `@origin` suffix picks one, and palm records that choice in `palm.yaml`.
 
 ## How it works
 
 <CardGrid>
   <Card title="Any repository, as it is" icon="open-book">
-    palm reads plugins, marketplaces, APM packages and plain `SKILL.md` folders. It detects the
-    layout, so authors repackage nothing.
+    palm reads Claude Code and Cursor plugins, marketplaces, APM packages and plain `SKILL.md`
+    folders. It detects the layout, so authors repackage nothing.
   </Card>
   <Card title="Native files per harness" icon="document">
     An agent becomes `.md`, `.toml` or `.agent.md`. Hooks and MCP servers merge into each tool's
     own config file, and uninstall removes exactly those entries.
+  </Card>
+  <Card title="One name across your origins" icon="magnifier">
+    `palm install skill tdd` searches every origin you added. When two match, palm asks, or
+    names the `tdd@origin` forms in a script.
   </Card>
   <Card title="Agents bring their tools" icon="puzzle">
     An agent names the skills and MCP servers it uses. palm installs them with the agent and
@@ -63,6 +77,10 @@ The skill went to `.claude/skills` for Claude Code and once to `.agents/skills`,
     Project files get each harness's environment reference, such as `${env:TOKEN}` for Cursor. The
     lockfile stores the placeholder, never the value.
   </Card>
+  <Card title="Reproducible for the whole team" icon="approve-check">
+    The lockfile pins each commit and hashes every file. `palm install --frozen` fails in CI on any
+    difference. Hooks and stdio MCP servers install only after you confirm them.
+  </Card>
 </CardGrid>
 
 ## Use cases
@@ -71,69 +89,76 @@ The skill went to `.claude/skills` for Claude Code and once to `.agents/skills`,
   <GuideCard
     slug="guides/new-project"
     title="Set up a new project"
-    description="Write palm.yaml, add a skill, an agent and an MCP server, then commit the lockfile."
+    description="Choose targets, add a skill, an agent and an MCP server, then commit palm.yaml and the lockfile."
   />
   <GuideCard
     slug="guides/four-harnesses"
-    title="One setup, four harnesses"
-    description="Install one agent for Claude Code, Codex, Copilot and Cursor with one command."
+    title="Install for several harnesses"
+    description="One command writes an agent for Claude Code, Codex, Copilot, Cursor, Gemini CLI and OpenCode."
   />
   <GuideCard
     slug="guides/team-baseline"
     title="Share a team baseline"
-    description="Commit palm.yaml, and every clone gets the same files at the same commit."
+    description="Commit palm.yaml and palm.lock.yaml, and every clone gets the same files from the same commits."
   />
   <GuideCard
     slug="guides/mcp-secrets"
     title="Add an MCP server with a secret"
     description="Keep the token in your environment and a reference in the repository."
   />
+  <GuideCard
+    slug="guides/ci"
+    title="Check the setup in CI"
+    description="Run palm install --frozen, so a pull request fails when palm.yaml, the lockfile and the files disagree."
+  />
+  <GuideCard
+    slug="guides/migrate-from-apm"
+    title="Move from APM"
+    description="Install the same APM packages with palm and remove what APM wrote."
+  />
 </CardGrid>
 
 ## Where files go
 
-Project scope, for the four targets palm supports today.
-The [targets matrix](/palm/reference/targets-matrix/) adds commands, hooks, global paths and the targets planned for 1.0.
+Project scope, for the six targets.
+The [targets matrix](/palm/reference/targets-matrix/) adds commands, global paths and the combinations a harness does not support.
 
 <div class="palm-wide">
 
-| Kind | Claude Code | Codex | GitHub Copilot | Cursor |
-| --- | --- | --- | --- | --- |
-| skill | `.claude/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/<n>/` |
-| agent | `.claude/agents/<n>.md` | `.codex/agents/<n>.toml` | `.github/agents/<n>.agent.md` | `.cursor/agents/<n>.md` |
-| instruction | `.claude/rules/<n>.md` | block in `AGENTS.md` | `.github/instructions/<n>.instructions.md` | `.cursor/rules/<n>.mdc` |
-| mcp | `.mcp.json` | `.codex/config.toml` | `.vscode/mcp.json` | `.cursor/mcp.json` |
+| Kind | Claude Code | Codex | GitHub Copilot | Cursor | Gemini CLI | OpenCode |
+| --- | --- | --- | --- | --- | --- | --- |
+| skill | `.claude/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/<n>/` |
+| agent | `.claude/agents/<n>.md` | `.codex/agents/<n>.toml` | `.github/agents/<n>.agent.md` | `.cursor/agents/<n>.md` | `.gemini/agents/<n>.md` | `.opencode/agents/<n>.md` |
+| instruction | `.claude/rules/<n>.md` | block in `AGENTS.md` | `.github/instructions/<n>.instructions.md` | `.cursor/rules/<n>.mdc` | block in `GEMINI.md` | `.opencode/instructions/<n>.md` |
+| hook | `.claude/settings.json` | `.codex/hooks.json` | `.github/hooks/<n>.json` | `.cursor/hooks.json` | `.gemini/settings.json` | not supported |
+| mcp | `.mcp.json` | `.codex/config.toml` | `.vscode/mcp.json` | `.cursor/mcp.json` | `.gemini/settings.json` | `opencode.json` |
 
 </div>
 
 ## Compared with other tools
 
 Checked on 2026-09-28 against each tool's documentation and source.
-"n/a" marks a cell we have not verified.
+"Unverified" marks a cell we could not confirm.
+[palm compared](/palm/explanation/comparison/) has the full table and when another tool fits better.
 
 <div class="palm-wide">
 
-| | palm | Microsoft APM | skills.sh | Claude Code `plugin` | Copying by hand |
-| --- | --- | --- | --- | --- | --- |
-| Kinds | all 7 | all 7, plus LSP servers and binaries | skills | 6, no instructions | any |
-| Harnesses | 4, with 6 planned for 1.0 | 13 | 79 | 1 | each one by hand |
-| Repositories as published | yes, with a layout override | 6 fixed layouts | skill folders | needs `marketplace.json` | yes |
-| Lockfile | commit, hashes, every file and merged entry | commit, file hashes, `--frozen` | no commit pinning | per user, no pinning | none |
-| Secrets in project files | an environment reference per harness | literal values for Cursor, Codex and Gemini | no MCP servers | `${VAR}` references | by hand |
-| Agent dependencies | installed and reference-counted | declared by the author in `apm.yml` | no agents | n/a | by hand |
-| License | MIT | MIT | MIT | proprietary | none |
+| | palm | APM 0.32 | Vercel `skills` | `claude plugin` | `codex plugin`, `gemini extensions` | By hand |
+| --- | --- | --- | --- | --- | --- | --- |
+| Kinds | all 7 | all 7, plus LSP servers and binaries | skills | 6, no instructions | Codex 4, Gemini 7 | any |
+| Harnesses | 6 | 13 | 79 | 1 | 1 each | each one by hand |
+| Install by short name | yes, with a picker | `name@marketplace` | no | when the name is unique | no | no |
+| Reproducible install | commit, per-file hashes, `--frozen` | commit, per-file hashes, `--frozen` | experimental restore from a branch or tag | no committed lockfile | no lockfile | none |
+| Hook consent | lists hooks and stdio servers, asks once | opt-in with `executables:` | no hooks | trust warning, hook commands not shown | Codex asks you to trust hooks, Gemini lists commands | you read them |
+| Secrets in project files | environment reference per harness | resolved values for Codex, Cursor and Gemini | no MCP servers | `${VAR}` references | `env_vars` in Codex, keychain in Gemini | by hand |
 
 </div>
 
-APM covers more harnesses and ships native binaries.
-skills.sh reaches the most agents, for skills only.
-palm covers every kind across four harnesses, from repositories as they are published.
-
 <div class="palm-trust">
-  MIT license. No telemetry and no update checks. Published to npm with provenance. Tested end to
-  end against <code>mattpocock/skills</code>, <code>obra/superpowers</code>,{' '}
-  <code>anthropics/skills</code>, <code>openai/skills</code>, <code>cursor/plugins</code> and{' '}
-  <code>github/awesome-copilot</code>.
+  MIT license. No telemetry and no update checks. Releases publish to npm from CI with
+  provenance. Tested nightly, end to end, against <code>mattpocock/skills</code>,{' '}
+  <code>obra/superpowers</code>, <code>anthropics/skills</code>, <code>openai/skills</code>,{' '}
+  <code>cursor/plugins</code> and <code>github/awesome-copilot</code>.
   <br />
   <a href="https://github.com/PalionTech/palm/blob/main/CHANGELOG.md">Changelog</a> ·{' '}
   <a href="https://github.com/PalionTech/palm/security/policy">Security</a> ·{' '}

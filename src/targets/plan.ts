@@ -19,7 +19,7 @@ import type {
 } from '../core/types.js';
 import { type MergedRecord, toStored } from '../domain/merged-record.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
-import { pathExists, removeEmptyParents } from '../lib/fs.js';
+import { isSameFile, pathExists, removeEmptyParents } from '../lib/fs.js';
 import {
   atomicWrite,
   ensureMode,
@@ -141,9 +141,16 @@ export class Ownership {
     return this.owned.has(abs) || (pointer !== undefined && this.owned.has(`${abs}#${pointer}`));
   }
 
-  /** True when a different existing file at `abs` may be overwritten. */
-  mayReplace(abs: string): boolean {
-    return this.input.force || this.isOwned(abs);
+  /**
+   * True when a different existing file at `abs` may be overwritten: forced, owned, or the
+   * same file as an owned path (a case variant of it on a case-insensitive filesystem).
+   */
+  async mayReplace(abs: string): Promise<boolean> {
+    if (this.input.force || this.isOwned(abs)) return true;
+    const lower = abs.toLowerCase();
+    for (const owned of this.owned)
+      if (owned.toLowerCase() === lower && (await isSameFile(owned, abs))) return true;
+    return false;
   }
 
   /** Conflict mode for a merged entry: overwrite when forced or owned (file or file#pointer). */
@@ -215,7 +222,7 @@ export class Writer {
       );
     }
     if (existing?.equals(w.data)) return { ...w, same: true };
-    if (existing && !this.owner.mayReplace(w.abs))
+    if (existing && !(await this.owner.mayReplace(w.abs)))
       throw new PalmError('E_CONFLICT', `refusing to overwrite ${shown}`, 'rerun with --force');
     return { ...w, same: false };
   }

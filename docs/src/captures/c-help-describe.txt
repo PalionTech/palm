@@ -1,0 +1,34 @@
+$ palm describe --help
+Usage: palm describe|info [options] [kind] [names...]
+
+Show one entity, origin or target.
+
+Arguments:
+  kind                          skill, agent, instruction, command, hook, mcp,
+                                plugin, origin, target (plurals and short names
+                                work)
+  names                         name[@origin][#ref]
+
+Options:
+  -o, --origin <name-or-alias>  only this origin: alias, owner/repo[/root], URL
+                                or local path (installed entities also: mine,
+                                registry, adhoc)
+  -h, --help                    display help for command
+
+Global Options:
+  -g, --global                  use the global scope (~), not this project
+  -t, --target <ids>            targets: claude,codex,copilot,cursor
+  --dry-run                     show what would change; write nothing
+  --force                       overwrite files palm does not own
+  -y, --yes                     accept defaults instead of prompting
+  --offline                     use cached origins only; no network
+  --verbose                     debug output and stack traces
+  --json                        JSON on stdout; everything else on stderr
+  --no-color                    no colours (also NO_COLOR=1)
+  -V, --version                 print the palm version
+
+Examples:
+  palm describe skill tdd                   origin, version, dependencies, files per harness
+  palm describe agent comment-sicko@pstack
+  palm describe origin mattpocock           url, ref, sha, layout, counts, cache path
+  palm describe target claude -g            where each kind goes at the global scope

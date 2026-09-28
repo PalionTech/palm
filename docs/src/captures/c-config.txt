@@ -1,0 +1,15 @@
+$ palm config set targets claude,codex
+~ targets = claude,codex
+$ palm config get
+targets         claude,codex
+mcpRegistryUrl  (unset)
+secrets.project (unset)
+secrets.global  (unset)
+$ cat ~/.palm/config.yaml
+origins:
+  - alias: mattpocock
+    type: local
+    path: ~/src/skills
+targets:
+  - claude
+  - codex

@@ -1,0 +1,17 @@
+$ palm get skills --available -o openai
+openai (4)
+kind   name           version  description
+─────  ─────────────  ───────  ──────────────────────────────────
+skill  beta-thing              Experimental.
+skill  gh-fix-ci               Fix failing GitHub Actions checks.
+skill  notion-spec             Turn Notion specs into tickets.
+skill  skill-creator           Create new skills.
+$ palm install origin ~/src/openai-skills --alias curated --layout 'skills=skills/.curated/*'
++ origin curated → ~/src/openai-skills (2 skills; detected: descriptor)
+  install with: palm install skill gh-fix-ci@curated
+$ palm get skills --available -o curated
+curated (2)
+kind   name         version  description
+─────  ───────────  ───────  ──────────────────────────────────
+skill  gh-fix-ci             Fix failing GitHub Actions checks.
+skill  notion-spec           Turn Notion specs into tickets.

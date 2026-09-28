@@ -1,0 +1,21 @@
+$ palm install skill zero-width --target claude
+i saved targets claude to palm.yaml
+project scope → claude
+status       kind   name        origin  targets  files
+───────────  ─────  ──────────  ──────  ───────  ─────
++ installed  skill  zero-width  demo    claude   1
+1 installed
+
+Warnings
+  ! skill zero-width: invisible character: skills/zero-width/SKILL.md: 1 hidden character, first U+200B ZERO WIDTH SPACE at line 8
+$ palm audit
+i 1 file scanned; 1 with hidden Unicode
+remove the hidden characters: palm audit --strip
+
+Warnings
+  ! ./.claude/skills/zero-width/SKILL.md (skill zero-width@demo): 1 warning; first: U+200B ZERO WIDTH SPACE at 8:8
+$ palm audit --strip
+~ ./.claude/skills/zero-width/SKILL.md (skill zero-width@demo): removed 1 hidden character
+i 1 file scanned; cleaned 1 file
+$ palm audit
+i 1 file scanned; no hidden Unicode

@@ -1,0 +1,19 @@
+$ palm install skill tdd --target claude,codex
+i saved targets claude, codex to palm.yaml
+project scope → claude, codex
+status       kind   name  origin      targets       files
+───────────  ─────  ────  ──────────  ────────────  ─────
++ installed  skill  tdd   mattpocock  claude,codex  6
+1 installed
+$ palm install
+project scope → claude, codex
+status       kind   name  origin      targets       files
+───────────  ─────  ────  ──────────  ────────────  ─────
+= unchanged  skill  tdd   mattpocock  claude,codex  6
+1 unchanged
+$ palm install --frozen
+project scope → claude, codex
+status       kind   name  origin      targets       files
+───────────  ─────  ────  ──────────  ────────────  ─────
+= unchanged  skill  tdd   mattpocock  claude,codex  6
+1 unchanged

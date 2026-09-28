@@ -7,6 +7,8 @@
 .claude/skills/tdd/references/mocking.md
 .codex/agents/comment-sicko.toml
 .cursor/agents/comment-sicko.md
+.gemini/agents/comment-sicko.md
 .github/agents/comment-sicko.agent.md
+.opencode/agents/comment-sicko.md
 palm.lock.yaml
 palm.yaml

@@ -17,31 +17,29 @@ const USAGE_HINT = [
   '  palm install mcp <name> --url <url> [--header Name=Value] [--transport sse]',
 ].join('\n');
 
+/** `KEY=VALUE` (and for headers also curl's `Name: value`) split into key and value. */
+function splitPair(raw: string, flag: '--env' | '--header'): [string, string] {
+  const eq = raw.indexOf('=');
+  const colon = raw.indexOf(':');
+  if (flag === '--header' && colon > 0 && (eq < 0 || colon < eq))
+    return [raw.slice(0, colon).trim(), raw.slice(colon + 1).trim()];
+  if (eq > 0) return [raw.slice(0, eq).trim(), raw.slice(eq + 1)];
+  const example = flag === '--env' ? `API_KEY=\${API_KEY}` : `'Authorization=Bearer \${TOKEN}'`;
+  throw new PalmError(
+    'E_USAGE',
+    `Invalid ${flag} "${raw}": expected KEY=VALUE`,
+    `Example: ${flag} ${example}`,
+  );
+}
+
 function parsePairs(
   items: string[] | undefined,
   flag: '--env' | '--header',
 ): Record<string, string> {
   const out: Record<string, string> = {};
+  const valid = flag === '--env' ? ENV_KEY : HEADER_NAME;
   for (const raw of items ?? []) {
-    let key: string;
-    let value: string;
-    const eq = raw.indexOf('=');
-    const colon = raw.indexOf(':');
-    if (flag === '--header' && colon > 0 && (eq < 0 || colon < eq)) {
-      // Also accept the curl-style `Name: value`.
-      key = raw.slice(0, colon).trim();
-      value = raw.slice(colon + 1).trim();
-    } else if (eq > 0) {
-      key = raw.slice(0, eq).trim();
-      value = raw.slice(eq + 1);
-    } else {
-      throw new PalmError(
-        'E_USAGE',
-        `Invalid ${flag} "${raw}": expected KEY=VALUE`,
-        `Example: ${flag} ${flag === '--env' ? 'API_KEY=${API_KEY}' : "'Authorization=Bearer ${TOKEN}'"}`,
-      );
-    }
-    const valid = flag === '--env' ? ENV_KEY : HEADER_NAME;
+    const [key, value] = splitPair(raw, flag);
     if (!valid.test(key)) {
       throw new PalmError(
         'E_USAGE',
@@ -66,88 +64,77 @@ function normalizeTransport(t: string | undefined): McpServerConfig['transport']
   throw new PalmError('E_USAGE', `Unknown MCP transport "${t}"`, 'Use one of: stdio, http, sse');
 }
 
-/**
- * Build a canonical config from CLI input. `command` is the argv after `--` (first element is the
- * executable). `${VAR}` placeholders in values are kept verbatim; `detectSecrets` finds them later.
- */
-export function parseAdhocMcp(
-  name: string,
-  opts: {
-    command?: string[];
-    url?: string;
-    headers?: string[];
-    env?: string[];
-    transport?: string;
-  },
-): McpServerConfig {
-  if (!isSafeName(name)) {
-    throw new PalmError(
-      'E_USAGE',
-      `Invalid MCP server name "${name}"`,
-      'Start with a letter or digit, then use letters, digits, ".", "_" or "-" without ".." (e.g. "github" or "my-docs").',
-    );
-  }
-  const command = opts.command ?? [];
-  const url = opts.url?.trim() ?? '';
+interface AdhocMcpInput {
+  /** The argv after `--` (first element is the executable). */
+  command?: string[];
+  url?: string;
+  headers?: string[];
+  env?: string[];
+  transport?: string;
+}
+
+function usageError(message: string, hint = USAGE_HINT): PalmError {
+  return new PalmError('E_USAGE', message, hint);
+}
+
+function assertName(name: string): void {
+  if (isSafeName(name)) return;
+  throw usageError(
+    `Invalid MCP server name "${name}"`,
+    'Start with a letter or digit, then use letters, digits, ".", "_" or "-" without ".." (e.g. "github" or "my-docs").',
+  );
+}
+
+/** `palm install mcp <name> -- <command> [args...] [--env K=V]`. */
+function commandServer(name: string, opts: AdhocMcpInput): McpServerConfig {
+  const [exe, ...args] = opts.command ?? [];
+  if (!exe?.trim()) throw usageError(`MCP server "${name}": empty command after --`);
   const transport = normalizeTransport(opts.transport);
-
-  if (command.length && url) {
-    throw new PalmError(
-      'E_USAGE',
-      `MCP server "${name}" cannot have both a command and --url`,
-      USAGE_HINT,
+  if (transport && transport !== 'stdio')
+    throw usageError(`--transport ${opts.transport} requires --url; command servers use stdio`);
+  if (opts.headers?.length)
+    throw usageError(
+      '--header only applies to --url servers',
+      'Pass credentials to command servers with --env KEY=VALUE.',
     );
-  }
-  if (!command.length && !url) {
-    throw new PalmError('E_USAGE', `MCP server "${name}" needs a command or --url`, USAGE_HINT);
-  }
+  const cfg: McpServerConfig = { name, transport: 'stdio', command: exe };
+  if (args.length) cfg.args = args;
+  const env = parsePairs(opts.env, '--env');
+  if (Object.keys(env).length) cfg.env = env;
+  cfg.source = { type: 'adhoc' };
+  return cfg;
+}
 
-  if (command.length) {
-    const [exe, ...args] = command;
-    if (!exe || !exe.trim())
-      throw new PalmError('E_USAGE', `MCP server "${name}": empty command after --`, USAGE_HINT);
-    if (transport && transport !== 'stdio') {
-      throw new PalmError(
-        'E_USAGE',
-        `--transport ${opts.transport} requires --url; command servers use stdio`,
-        USAGE_HINT,
-      );
-    }
-    if (opts.headers?.length) {
-      throw new PalmError(
-        'E_USAGE',
-        '--header only applies to --url servers',
-        'Pass credentials to command servers with --env KEY=VALUE.',
-      );
-    }
-    const cfg: McpServerConfig = { name, transport: 'stdio', command: exe };
-    if (args.length) cfg.args = args;
-    const env = parsePairs(opts.env, '--env');
-    if (Object.keys(env).length) cfg.env = env;
-    cfg.source = { type: 'adhoc' };
-    return cfg;
-  }
-
-  if (!/^https?:\/\/\S+$/i.test(url)) {
-    throw new PalmError('E_USAGE', `Invalid --url "${url}": expected an http(s) URL`, USAGE_HINT);
-  }
-  if (transport === 'stdio') {
-    throw new PalmError(
-      'E_USAGE',
-      '--transport stdio requires a command after --, not --url',
-      USAGE_HINT,
-    );
-  }
-  if (opts.env?.length) {
-    throw new PalmError(
-      'E_USAGE',
+/** `palm install mcp <name> --url <url> [--header K=V] [--transport sse]`. */
+function urlServer(name: string, url: string, opts: AdhocMcpInput): McpServerConfig {
+  if (!/^https?:\/\/\S+$/i.test(url))
+    throw usageError(`Invalid --url "${url}": expected an http(s) URL`);
+  const transport = normalizeTransport(opts.transport);
+  if (transport === 'stdio')
+    throw usageError('--transport stdio requires a command after --, not --url');
+  if (opts.env?.length)
+    throw usageError(
       '--env only applies to command servers',
       'Pass credentials to URL servers with --header Name=Value.',
     );
-  }
   const cfg: McpServerConfig = { name, transport: transport ?? 'http', url };
   const headers = parsePairs(opts.headers, '--header');
   if (Object.keys(headers).length) cfg.headers = headers;
   cfg.source = { type: 'adhoc' };
   return cfg;
+}
+
+/**
+ * Build a canonical config from CLI input. `${VAR}` placeholders in values are kept verbatim;
+ * `detectSecrets` finds them later.
+ */
+export function parseAdhocMcp(name: string, opts: AdhocMcpInput): McpServerConfig {
+  assertName(name);
+  const hasCommand = !!opts.command?.length;
+  const url = opts.url?.trim() ?? '';
+  if (hasCommand && url)
+    throw usageError(`MCP server "${name}" cannot have both a command and --url`);
+  if (hasCommand) return commandServer(name, opts);
+  if (url) return urlServer(name, url, opts);
+  throw usageError(`MCP server "${name}" needs a command or --url`);
 }

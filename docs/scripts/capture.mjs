@@ -72,8 +72,38 @@ function run(box, command, args) {
 }
 
 function palm(box, args) {
-  const expanded = args.map((a) => (a.startsWith('~/') ? join(box.home, a.slice(2)) : a));
+  // `~/x` and `file://~/x` expand as a shell would expand `~/x`.
+  const expanded = args.map((a) =>
+    a.replace(/^(file:\/\/)?~\//, (_, s) => `${s ?? ''}${box.home}/`),
+  );
   return run(box, process.execPath, [CLI, ...expanded]);
+}
+
+// Shell steps commit with a fixed identity and date, so git origins get the same shas every run.
+const GIT_FIXED = {
+  GIT_AUTHOR_NAME: 'palm docs',
+  GIT_AUTHOR_EMAIL: 'docs@example.com',
+  GIT_AUTHOR_DATE: '2026-09-28T12:00:00Z',
+  GIT_COMMITTER_NAME: 'palm docs',
+  GIT_COMMITTER_EMAIL: 'docs@example.com',
+  GIT_COMMITTER_DATE: '2026-09-28T12:00:00Z',
+};
+
+/** A bash step in ~/project; $FIXTURES points at test/fixtures. */
+function sh(box, script) {
+  const env = { ...box.env, ...GIT_FIXED, FIXTURES };
+  return run({ ...box, env }, 'bash', ['-c', script]);
+}
+
+/** One step: a palm argument list, { palm, exit } for an expected exit code, or { sh, exit }. */
+function runStep(box, step) {
+  const palmArgs = Array.isArray(step) ? step : step.palm;
+  const shown = palmArgs ? `palm ${palmArgs.map(quote).join(' ')}` : step.sh;
+  const result = palmArgs ? palm(box, palmArgs) : sh(box, step.sh);
+  const exit = step.exit ?? 0;
+  if (result.status !== exit)
+    throw new Error(`${shown} exited ${result.status}, expected ${exit}:\n${result.output}`);
+  return { shown, output: result.output };
 }
 
 function mustSucceed(what, { status, output }) {
@@ -123,11 +153,12 @@ function capture(spec) {
   try {
     mustSucceed('git init', run(box, 'git', ['init', '-q', box.project]));
     addOrigins(box, spec.origins);
+    for (const step of spec.setup ?? []) runStep(box, step);
     const before = snapshot(box.project);
     const session = [];
-    for (const args of spec.commands) {
-      const output = mustSucceed(`palm ${args.join(' ')}`, palm(box, args));
-      session.push(`$ palm ${args.map(quote).join(' ')}`, tidy(box, output).trimEnd());
+    for (const step of spec.commands) {
+      const { shown, output } = runStep(box, step);
+      session.push(`$ ${shown}`, tidy(box, output).trimEnd());
     }
     const files = { [`${spec.name}.txt`]: `${session.join('\n')}\n` };
     if (spec.files) {

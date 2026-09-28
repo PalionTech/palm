@@ -76,7 +76,7 @@ const otherGithub = {
 describe('registryApiBase', () => {
   it.each([
     [undefined, 'https://registry.modelcontextprotocol.io/v0.1'],
-    [DEFAULT_REGISTRY_URL + '/', 'https://registry.modelcontextprotocol.io/v0.1'],
+    [`${DEFAULT_REGISTRY_URL}/`, 'https://registry.modelcontextprotocol.io/v0.1'],
     ['https://registry.modelcontextprotocol.io/v0', 'https://registry.modelcontextprotocol.io/v0'],
     [
       'https://registry.modelcontextprotocol.io/v0.1/servers',
@@ -116,7 +116,7 @@ describe('searchRegistry', () => {
       'io.github.github/github-mcp-server',
     ]);
     expect(res[1]).toMatchObject({
-      description: github['description'],
+      description: github.description,
       version: '1.12.2',
       config: {
         name: 'github-mcp-server',

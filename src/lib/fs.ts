@@ -44,6 +44,19 @@ export async function pathExists(p: string): Promise<boolean> {
   }
 }
 
+/**
+ * True when `a` and `b` name one existing file (same device and inode): case variants of a name
+ * on a case-insensitive filesystem, or hard links. False when either is missing.
+ */
+export async function isSameFile(a: string, b: string): Promise<boolean> {
+  try {
+    const [x, y] = await Promise.all([stat(a), stat(b)]);
+    return x.dev === y.dev && x.ino === y.ino;
+  } catch {
+    return false;
+  }
+}
+
 /** Creates `dir` and its missing parents. */
 export async function ensureDir(dir: string): Promise<void> {
   await mkdir(dir, { recursive: true });

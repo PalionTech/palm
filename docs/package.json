@@ -16,6 +16,8 @@
     "preview": "astro preview",
     "capture": "node scripts/capture.mjs",
     "capture:check": "node scripts/capture.mjs --check",
+    "cli-reference": "node scripts/cli-reference.mjs",
+    "cli-reference:check": "node scripts/cli-reference.mjs --check",
     "astro": "astro"
   },
   "dependencies": {

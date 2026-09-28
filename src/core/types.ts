@@ -457,6 +457,11 @@ export interface InstallOptions {
   secretPolicy?: SecretPolicy;
   /** Don't record in manifest (used for `via` dependencies and sync). */
   noSave?: boolean;
+  /**
+   * Executables the user already allowed in the caller's own prompt (`palm update` lists them
+   * in its plan), as `executablesOf` lines: the install asks only about any others.
+   */
+  consented?: readonly string[];
 }
 
 export interface InstallOutcome {

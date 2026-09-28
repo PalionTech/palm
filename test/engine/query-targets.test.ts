@@ -120,11 +120,13 @@ describe('resolveTargets', () => {
       'claude',
       'codex',
     ]);
+    // A global pick is used for this run only: config.yaml `targets` would become the default
+    // for every project without its own.
     expect(await resolveTargets(w.ctx, { scope: 'global', save: true }, w.deps)).toEqual([
       'claude',
       'codex',
     ]);
-    expect((await loadConfig(w.ctx.paths)).targets).toEqual(['claude', 'codex']);
+    expect((await loadConfig(w.ctx.paths)).targets).toBeUndefined();
   });
 
   it('fails non-interactively when nothing is detected', async () => {

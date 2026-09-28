@@ -28,10 +28,16 @@ function sameList(a: readonly string[] | undefined, b: readonly string[]): boole
 }
 
 /**
- * Persist resolved targets so the next run (and the next developer) gets the same set:
- * `targets:` in palm.yaml (project) or config.yaml (global). Written when the store has none,
- * whatever decided them (config default, detection, a pick), and when an explicit flag or a
- * pick differs from what is stored. One info line says so. Never under --dry-run.
+ * Persist resolved targets so the next run (and the next developer) gets the same set.
+ *
+ * - Project scope: `targets:` in palm.yaml, written when it has none, whatever decided them
+ *   (config default, detection, a pick), and when an explicit flag or a pick differs from it.
+ *   This is what makes a project machine-independent.
+ * - Global scope: `targets` in config.yaml is the default for every project without its own, so
+ *   only an explicit `--target` writes it (or `palm config set targets`); what this machine
+ *   happens to detect, or a one-off pick, is never saved.
+ *
+ * One info line says so. Never under --dry-run.
  */
 async function persistTargets(
   ctx: PalmContext,
@@ -39,9 +45,9 @@ async function persistTargets(
   found: { targets: TargetId[]; source: TargetSource },
 ): Promise<void> {
   const { targets, source } = found;
-  const explicit = source === 'flag' || source === 'picked';
   if (ctx.flags.dryRun) return;
   if (scope === 'project') {
+    const explicit = source === 'flag' || source === 'picked';
     const file = ScopePaths.of(ctx, 'project').manifestFile;
     const m = await Manifest.load(file);
     if ((m.targets?.length && !explicit) || sameList(m.targets, targets)) return;
@@ -49,7 +55,7 @@ async function persistTargets(
     ctx.log.info(`saved targets ${targets.join(', ')} to palm.yaml`);
     return;
   }
-  if ((ctx.config.targets?.length && !explicit) || sameList(ctx.config.targets, targets)) return;
+  if (source !== 'flag' || sameList(ctx.config.targets, targets)) return;
   ctx.config.targets = targets;
   await saveConfig(ctx.paths, ctx.config);
   ctx.log.info(`saved targets ${targets.join(', ')} to config.yaml`);
@@ -126,9 +132,8 @@ async function findTargets(
 
 /**
  * Targets for an operation: --target flag > manifest `targets` (project) > config default >
- * detection > interactive multiselect. With `save`, the result is persisted so the set does
- * not depend on the machine: palm.yaml (project) or config.yaml (global) get `targets:` when
- * they have none, and an explicit flag or a pick replaces a different stored set.
+ * detection > interactive multiselect. With `save`, the result is persisted (persistTargets):
+ * always to palm.yaml at project scope, to config.yaml only for an explicit `--target -g`.
  */
 export async function resolveTargets(
   ctx: PalmContext,

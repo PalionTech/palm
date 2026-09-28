@@ -20,15 +20,6 @@ import { joinRel } from './util.js';
 const MAX_BYTES = 1024 * 1024;
 const BINARY_PROBE_BYTES = 8192;
 
-/**
- * Cheap pre-check, a superset of what `scanHiddenUnicode` reports (format characters, the
- * invisible fillers, tag characters, supplementary variation selectors): most files contain none
- * of these, and the native regex spares them the per-code-point scan. test/index/hidden-unicode
- * checks the superset property over the planes where such characters live.
- */
-export const MAY_HIDE_UNICODE =
-  /[\p{Cf}\u115f\u1160\u3164\uffa0\u{E0000}-\u{E007F}]|\u034f|[\u{E0100}-\u{E01EF}]/u;
-
 interface SourceFile {
   /** Origin-relative path (shown in messages). */
   rel: string;
@@ -89,7 +80,6 @@ function issueFor(file: string, text: string, findings: HiddenUnicodeFinding[]):
 async function fileIssue(file: SourceFile): Promise<EntityIssue | undefined> {
   const text = await readText(file.abs);
   if (text === undefined) return undefined;
-  if (!MAY_HIDE_UNICODE.test(text)) return undefined;
   const findings = scanHiddenUnicode(text);
   return findings.length > 0 ? issueFor(file.rel, text, findings) : undefined;
 }

@@ -1,0 +1,11 @@
+$ palm install target claude
+x palm install does not take targets
+  targets are chosen per command: palm install skill <name> --target claude,codex
+$ palm install skill tdd
+x "tdd" matches 2 entities
+  use name@origin: tdd@mattpocock, tdd@pstack
+$ palm install mcp fs -- npx -y @modelcontextprotocol/server-filesystem .
+i This install adds a command that run on your machine:
+i   mcp fs: npx -y @modelcontextprotocol/server-filesystem .
+x palm will not install a command that run on your machine without your consent
+  review them above (or with --dry-run), then rerun with --yes

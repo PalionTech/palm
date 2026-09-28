@@ -4,6 +4,8 @@ import {
   codePointName,
   describeCodePoint,
   hasHiddenUnicode,
+  hiddenUnicodeSeverity,
+  MAY_HIDE_UNICODE,
   scanHiddenUnicode,
   stripHiddenUnicode,
 } from '../../src/lib/unicode.js';
@@ -156,5 +158,23 @@ describe('describeCodePoint / codePointName / hasHiddenUnicode', () => {
     expect(hasHiddenUnicode('a​b', 'critical')).toBe(false);
     expect(hasHiddenUnicode(`a${ch(0x202e)}b`, 'critical')).toBe(true);
     expect(hasHiddenUnicode('﻿clean')).toBe(false);
+  });
+});
+
+describe('MAY_HIDE_UNICODE (the pre-check inside scanHiddenUnicode)', () => {
+  it('matches every code point the full per-character rule reports', () => {
+    const missed: string[] = [];
+    const planes: Array<[number, number]> = [
+      [0x0, 0x1ffff],
+      [0xe0000, 0xeffff],
+    ];
+    for (const [from, to] of planes) {
+      for (let cp = from; cp <= to; cp++) {
+        if (cp >= 0xd800 && cp <= 0xdfff) continue;
+        if (hiddenUnicodeSeverity(cp) && !MAY_HIDE_UNICODE.test(`a${ch(cp)}b`))
+          missed.push(cp.toString(16));
+      }
+    }
+    expect(missed).toEqual([]);
   });
 });

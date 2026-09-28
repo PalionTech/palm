@@ -172,26 +172,30 @@ async function pendingExecutables(dc: DeployContext, plan: PlanItem[]): Promise<
   return out;
 }
 
+/** `a command that runs` / `3 commands that run`. */
+function commandCount(n: number): string {
+  return n === 1 ? 'a command that runs' : `${n} commands that run`;
+}
+
 /**
  * Ask once before writing hooks or stdio MCP servers (PLAN §2.12). Interactive: list them and
  * confirm (default yes; no → E_CANCELLED). Non-interactive: needs --yes (E_NON_INTERACTIVE).
- * --dry-run lists them without asking. Text entities are never gated.
+ * --dry-run lists them without asking. Text entities are never gated; executables the caller
+ * already had allowed (`opts.consented`) are not asked about again.
  */
 async function askConsent(dc: DeployContext, plan: PlanItem[]): Promise<void> {
   const { ctx } = dc;
-  if (dc.opts.consented) return;
-  const lines = await pendingExecutables(dc, plan);
+  const allowed = new Set(dc.opts.consented ?? []);
+  const lines = (await pendingExecutables(dc, plan)).filter((l) => !allowed.has(l));
   if (!lines.length || (ctx.flags.yes && !ctx.flags.dryRun)) return;
-  const n = lines.length;
-  ctx.log.info(
-    `This install adds ${n === 1 ? 'a command' : `${n} commands`} that run on your machine:`,
-  );
+  const what = commandCount(lines.length);
+  ctx.log.info(`This install adds ${what} on your machine:`);
   for (const l of lines) ctx.log.info(`  ${l}`);
   if (ctx.flags.dryRun) return;
   if (!ctx.ui.isInteractive)
     throw new PalmError(
       'E_NON_INTERACTIVE',
-      `palm will not install ${n === 1 ? 'a command' : `${n} commands`} that run on your machine without your consent`,
+      `palm will not install ${what} on your machine without your consent`,
       'review them above (or with --dry-run), then rerun with --yes',
     );
   if (!(await ctx.ui.confirm('Install and allow these to run?', true)))

@@ -24,8 +24,10 @@ import {
   TRANSFORM_VERSION,
 } from '../core/types.js';
 import { Lock, type LockPaths } from '../domain/lock.js';
+import { parseMergedRecord } from '../domain/merged-record.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
 import { optionalSecretNames } from '../domain/secrets.js';
+import { isSameFile } from '../lib/fs.js';
 import { deepEqual } from '../lib/object.js';
 import type { EngineDeps } from './deps.js';
 import { itemHash, type PlanItem } from './plan.js';
@@ -40,8 +42,6 @@ export interface EngineInstallOptions extends InstallOptions {
   frozen?: boolean;
   /** Manifest sync: a request that cannot be resolved is a failure, not an error. */
   recordRequestErrors?: boolean;
-  /** Executable consent was already given by the caller. */
-  consented?: boolean;
 }
 
 export interface DeployContext {
@@ -498,36 +498,53 @@ async function buildLockEntry(
   return entry;
 }
 
+/** An item appended to a shared array (hook entries, OpenCode's `/instructions`), not a keyed slot. */
+function isAppendedItem(rec: MergedRecord): boolean {
+  try {
+    return parseMergedRecord(rec).type === 'json-item';
+  } catch {
+    return false; // a malformed record: compared by file and pointer; unmerge reports it
+  }
+}
+
 /** Same slot of a shared file: same file and pointer (an appended item also the same value). */
 function sameSlot(a: MergedRecord, b: MergedRecord): boolean {
   if (a.file !== b.file || a.pointer !== b.pointer) return false;
-  return !a.pointer.startsWith('/hooks/') || deepEqual(a.value, b.value);
+  return !isAppendedItem(a) || deepEqual(a.value, b.value);
 }
 
 /**
- * What of `prev` the new install `next` no longer writes. For a hook replaced by a hook of the
- * same name the view is not a hook entry: `Target.undeploy` removes a hook's whole asset
- * directory, which the new install just wrote (TODO(targets): undeploy only listed files).
+ * True when the lock path `file` is one of `next`'s files on disk under another spelling (a
+ * case variant on a case-insensitive filesystem): deleting it would delete the new file.
  */
-function staleView(prev: LockEntry, next: LockEntry): LockEntry {
+async function rewrittenAs(paths: LockPaths, file: string, next: LockEntry): Promise<boolean> {
+  const lower = file.toLowerCase();
+  for (const f of next.files)
+    if (f.path.toLowerCase() === lower && (await isSameFile(paths.abs(file), paths.abs(f.path))))
+      return true;
+  return false;
+}
+
+/** What of `prev` the new install `next` no longer writes (Target.undeploy removes only that). */
+async function staleView(paths: LockPaths, prev: LockEntry, next: LockEntry): Promise<LockEntry> {
   const keep = new Set(next.files.map((f) => f.path));
-  const files = prev.files.filter((f) => !keep.has(f.path));
+  const files: LockedFile[] = [];
+  for (const f of prev.files)
+    if (!keep.has(f.path) && !(await rewrittenAs(paths, f.path, next))) files.push(f);
   const merged = (prev.merged ?? []).filter(
     (m) => !(next.merged ?? []).some((n) => sameSlot(m, n)),
   );
-  const view: LockEntry = { ...prev, files, merged };
-  const sharedAssets = prev.kind === 'hook' && next.kind === 'hook';
-  return sharedAssets && prev.name.toLowerCase() === next.name.toLowerCase()
-    ? { ...view, kind: 'skill' }
-    : view;
+  return { ...prev, files, merged };
 }
 
 /** Undeploys what the replaced entries left that `next` does not write, then drops them. */
 async function replacePrevious(dc: DeployContext, previous: LockEntry[], next: LockEntry) {
   const { ctx, deps, lock, paths } = dc;
-  const views = previous
-    .map((p) => staleView(p, next))
-    .filter((v) => v.files.length || v.merged?.length);
+  const views: LockEntry[] = [];
+  for (const p of previous) {
+    const v = await staleView(paths, p, next);
+    if (v.files.length || v.merged?.length) views.push(v);
+  }
   if (views.length && !ctx.flags.dryRun) {
     const protect = lock.protectedFiles(paths, previous);
     for (const f of next.files) protect.add(paths.abs(f.path));

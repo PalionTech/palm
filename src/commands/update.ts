@@ -1,8 +1,10 @@
 /**
  * `palm update [kind] [names...]` (alias `up`): print the plan (`~ updated`, `+ added`,
- * `- removed`, `= unchanged`, `x failed`, files at risk), ask y/N (default No; `--yes` for
- * scripts, required without a terminal), then reinstall what changed. `--dry-run` prints the
- * plan only. `palm update origins [alias...]` refreshes origin indexes.
+ * `- removed`, `= unchanged`, `x failed`, files at risk, the hook and stdio MCP commands it
+ * writes), ask y/N once (default No; `--yes` for scripts, required without a terminal), then
+ * reinstall what changed. That one answer is also the executable consent for the commands
+ * listed. `--dry-run` prints the plan only. `palm update origins [alias...]` refreshes origin
+ * indexes.
  */
 import pc from 'picocolors';
 import { PalmError } from '../core/errors.js';
@@ -72,18 +74,36 @@ function printAtRisk(out: Output, items: UpdatePlanItem[], force: boolean): void
     for (const f of i.atRisk) out.out(`    ${f}  ${pc.dim(`(${i.kind} ${i.name})`)}`);
 }
 
-function printPlan(out: Output, plan: UpdatePlan, force: boolean): void {
+/** The hook commands and stdio MCP servers the one confirmation also allows (executable consent). */
+function printExecutables(out: Output, runs: string[]): void {
+  if (!runs.length) return;
+  const n = runs.length;
+  const what = n === 1 ? 'a command that runs' : `${n} commands that run`;
+  out.out();
+  out.out(`${symbol('warning')} this update writes ${what} on your machine:`);
+  for (const r of runs) out.out(`    ${r}`);
+}
+
+function printPlan(out: Output, plan: UpdatePlan, runs: string[], force: boolean): void {
   out.out(`${pc.bold('Update plan')} ${pc.dim(`(${plan.scope} scope)`)}`);
   out.table(plan.items.map(planRow));
   printAtRisk(out, plan.items, force);
+  printExecutables(out, runs);
 }
 
 function planJson(plan: UpdatePlan): UpdateResult {
   return { plan: plan.items, outcomes: [], failures: plan.failures, warnings: plan.warnings };
 }
 
-/** Ask before changing anything: y/N in a terminal, `--yes` without one. False = declined. */
-async function confirmed(ctx: PalmContext, changes: number, again: string): Promise<boolean> {
+/**
+ * Ask before changing anything: y/N in a terminal, `--yes` without one. False = declined. The
+ * answer also allows the commands the plan listed (the install does not ask about them again).
+ */
+async function confirmed(
+  ctx: PalmContext,
+  changes: { count: number; runs: number },
+  again: string,
+): Promise<boolean> {
   if (ctx.flags.yes) return true;
   if (!ctx.ui.isInteractive)
     throw new PalmError(
@@ -91,7 +111,11 @@ async function confirmed(ctx: PalmContext, changes: number, again: string): Prom
       'palm update changes installed files and needs a confirmation',
       `review the plan, then run: ${again} --yes   (or ${again} --dry-run to only print it)`,
     );
-  return ctx.ui.confirm(`Apply ${changes} change${changes === 1 ? '' : 's'}?`, false);
+  const apply = `Apply ${changes.count} change${changes.count === 1 ? '' : 's'}`;
+  const allow = changes.runs
+    ? ` and allow ${changes.runs === 1 ? 'that command' : 'those commands'} to run`
+    : '';
+  return ctx.ui.confirm(`${apply}${allow}?`, false);
 }
 
 /** The command line to repeat in hints: `palm update skill tdd -g`. */
@@ -151,11 +175,12 @@ export async function run(inv: Invocation, app: App): Promise<void> {
     return;
   }
   const plan = await makePlan(ctx, app, refs, scope);
-  if (!out.jsonMode) printPlan(out, plan, ctx.flags.force);
-  const { planChanges } = await import('../engine/update.js');
+  const { planChanges, planExecutables } = await import('../engine/update.js');
+  const runs = planExecutables(plan);
+  if (!out.jsonMode) printPlan(out, plan, runs, ctx.flags.force);
   const changes = planChanges(plan);
   if (changes === 0 || ctx.flags.dryRun) return endWithPlan(out, plan, changes);
-  if (!(await confirmed(ctx, changes, againCommand(inv, scope)))) {
+  if (!(await confirmed(ctx, { count: changes, runs: runs.length }, againCommand(inv, scope)))) {
     out.hint('Nothing changed.');
     return;
   }

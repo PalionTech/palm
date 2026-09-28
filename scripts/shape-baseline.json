@@ -1,6 +1,4 @@
 {
   "note": "Function-shape baseline (scripts/check-shape.mjs): violations per file of body > 60 lines, > 4 params, nesting > 4. May only go down; lower it with `node scripts/check-shape.mjs --update`.",
-  "files": {
-    "src/mcp/adhoc.ts": 1
-  }
+  "files": {}
 }
