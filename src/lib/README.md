@@ -33,6 +33,12 @@ suffix, e.g. `import { isRecord } from '../lib/object.js'`.
 - `stripTrailingCommas(text: string): string`: commas before `}`/`]` outside strings become spaces.
 - `stringifyJson(value: unknown): string`: 2-space indent plus trailing newline.
 
+## json-pointer.ts
+
+- `escapeSegment(s: string): string` (`~` → `~0`, `/` → `~1`) and `unescapeSegment(s: string): string` (RFC 6901).
+- `parsePointer(pointer: string): string[]`: `''` and `'/'` are the root (`[]`); throws `invalid JSON pointer: …` unless it starts with `/`.
+- `formatPointer(segments: readonly string[]): string` (`''` for none) and `joinPointer(pointer: string, key: string): string`.
+
 ## text.ts
 
 - `stripBom(text: string): string` and `normalizeText(text: string): string` (BOM stripped, CRLF and CR to LF).

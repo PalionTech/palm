@@ -169,6 +169,8 @@ describe('other create renderers', () => {
     expect(
       frontmatter(renderInstructionFile({ globs: [], alwaysApply: false, body: '- a' })).data,
     ).toEqual({ alwaysApply: false });
+    // Nothing to declare: a plain markdown file, no empty `{}` frontmatter.
+    expect(renderInstructionFile({ globs: [], alwaysApply: true, body: '- a' })).toBe('- a\n');
     expect(parseGlobList(' a/**, ,b ')).toEqual(['a/**', 'b']);
   });
 

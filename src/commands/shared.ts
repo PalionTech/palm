@@ -11,8 +11,13 @@ import {
   TARGET_IDS,
   type TargetId,
 } from '../core/types.js';
+import { isWithin } from '../lib/fs.js';
+import { stringifyJson } from '../lib/json.js';
 import { createLogger } from '../ui/output.js';
 import { createClackUI, createNonInteractiveUI, isInteractiveTerminal } from '../ui/prompts.js';
+
+/** For src/cli.ts, which may import only src/commands and src/ui (moves to the output writer in wave 3). */
+export { isPalmError } from '../core/errors.js';
 
 /** Options every command accepts (declared once on the root program). */
 export interface GlobalOptions {
@@ -157,16 +162,15 @@ export function scopeRootOf(ctx: PalmContext, scope: Scope): string {
 
 /** Show `p` relative to the project root (`./…`) or home (`~/…`) when it lives under one of them. */
 export function displayPath(ctx: PalmContext, p: string): string {
-  const under = (root: string) =>
-    p === root || p.startsWith(root.endsWith(sep) ? root : root + sep);
-  if (under(ctx.paths.projectRoot))
+  if (isWithin(p, ctx.paths.projectRoot))
     return `.${sep}${relative(ctx.paths.projectRoot, p)}`.replace(/[\\/]$/, '');
-  if (under(ctx.paths.home)) return `~${sep}${relative(ctx.paths.home, p)}`.replace(/[\\/]$/, '');
+  if (isWithin(p, ctx.paths.home))
+    return `~${sep}${relative(ctx.paths.home, p)}`.replace(/[\\/]$/, '');
   return p;
 }
 
 export function printJson(value: unknown): void {
-  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+  process.stdout.write(stringifyJson(value));
 }
 
 /** Collect a repeatable option into an array. */

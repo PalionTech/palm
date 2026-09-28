@@ -6,7 +6,10 @@
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { asString, compact, isRecord } from './util.js';
+import { messageOf } from '../core/errors.js';
+import { parseJson } from '../lib/json.js';
+import { isRecord, withoutUndefined } from '../lib/object.js';
+import { asString } from './util.js';
 
 export type PluginManifestFormat = 'claude' | 'cursor' | 'agent-plugins' | 'codex' | 'gemini';
 
@@ -84,7 +87,7 @@ export function parseComponentDecls(obj: Record<string, unknown>): {
   unsupported: string[];
 } {
   const rules = [...(pathList(obj.rules) ?? []), ...(pathList(obj.instructions) ?? [])];
-  const decls: ComponentDecls = compact({
+  const decls: ComponentDecls = withoutUndefined({
     skills: pathList(obj.skills),
     agents: pathList(obj.agents),
     commands: pathList(obj.commands ?? obj.prompts),
@@ -121,7 +124,7 @@ export function mergeDecls(
       inline: [...(x?.inline ?? []), ...(y?.inline ?? [])],
     };
   };
-  return compact({
+  return withoutUndefined({
     skills: list(a.skills, b.skills),
     agents: list(a.agents, b.agents),
     commands: list(a.commands, b.commands),
@@ -154,7 +157,7 @@ export function normalizeManifest(
       unsupported = [...new Set([...unsupported, ...inner.unsupported])];
     }
   }
-  return compact({
+  return withoutUndefined({
     format,
     file,
     name: asString(json.name),
@@ -177,9 +180,9 @@ async function readJson(
     return { ok: false, missing: true };
   }
   try {
-    return { ok: true, json: JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text) };
+    return { ok: true, json: parseJson(text) };
   } catch (e) {
-    return { ok: false, missing: false, error: (e as Error).message };
+    return { ok: false, missing: false, error: messageOf(e) };
   }
 }
 

@@ -19,7 +19,7 @@
  */
 import path from 'node:path';
 import type { HookSet, Scope, TargetId } from '../core/types.js';
-import { isPlainObject } from './deep-equal.js';
+import { isRecord } from '../lib/object.js';
 
 interface EventInfo {
   claude: string;
@@ -149,12 +149,12 @@ export function referencesPluginRoot(raw: unknown): boolean {
 
 /** Extract the `{ event: entries[] }` map from a hooks file (wrapped `{hooks:{...}}` or flat). */
 export function eventMap(raw: unknown): Record<string, unknown[]> {
-  if (isPlainObject(raw) && isPlainObject(raw.hooks)) {
+  if (isRecord(raw) && isRecord(raw.hooks)) {
     return Object.fromEntries(
       Object.entries(raw.hooks).filter(([, v]) => Array.isArray(v)),
     ) as Record<string, unknown[]>;
   }
-  if (isPlainObject(raw)) {
+  if (isRecord(raw)) {
     const entries = Object.entries(raw).filter(
       ([k, v]) => Array.isArray(v) && !['version', 'description', 'disableAllHooks'].includes(k),
     );
@@ -171,7 +171,7 @@ interface CanonHook {
 }
 
 function isGrouped(entries: unknown[]): boolean {
-  return entries.some((e) => isPlainObject(e) && Array.isArray(e.hooks));
+  return entries.some((e) => isRecord(e) && Array.isArray(e.hooks));
 }
 
 function num(v: unknown): number | undefined {
@@ -193,10 +193,10 @@ function toCanonical(hooks: HookSet, dropped: string[]): CanonHook[] {
     }
     if (isGrouped(entries)) {
       for (const group of entries) {
-        if (!isPlainObject(group) || !Array.isArray(group.hooks)) continue;
+        if (!isRecord(group) || !Array.isArray(group.hooks)) continue;
         const matcher = str(group.matcher);
         for (const h of group.hooks) {
-          if (!isPlainObject(h)) continue;
+          if (!isRecord(h)) continue;
           const type = str(h.type) ?? 'command';
           const command = str(h.command);
           if (type !== 'command' || !command) {
@@ -211,7 +211,7 @@ function toCanonical(hooks: HookSet, dropped: string[]): CanonHook[] {
       }
     } else {
       for (const h of entries) {
-        if (!isPlainObject(h)) continue;
+        if (!isRecord(h)) continue;
         const type = str(h.type) ?? 'command';
         const command = str(h.bash) ?? str(h.command);
         if (type !== 'command' || !command) {
@@ -244,7 +244,7 @@ function sourceFamily(hooks: HookSet): Family | undefined {
 function substituteEntry(entry: unknown, replacement: string, target: TargetId): unknown {
   if (typeof entry === 'string') return substitutePluginRoot(entry, replacement);
   if (Array.isArray(entry)) return entry.map((e) => substituteEntry(e, replacement, target));
-  if (isPlainObject(entry)) {
+  if (isRecord(entry)) {
     return Object.fromEntries(
       Object.entries(entry).map(([k, v]) => {
         if (k === 'command' && typeof v === 'string')
@@ -317,7 +317,7 @@ export function convertHooks(
         command,
         ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
       };
-      const group = list.find((g) => isPlainObject(g) && g.matcher === h.matcher) as
+      const group = list.find((g) => isRecord(g) && g.matcher === h.matcher) as
         | { hooks: unknown[] }
         | undefined;
       if (group) group.hooks.push(item);

@@ -8,6 +8,7 @@ import type { Target, TargetId } from '../../src/core/types.js';
 import { installEntities } from '../../src/engine/install.js';
 import { syncManifest } from '../../src/engine/sync.js';
 import { uninstallEntities } from '../../src/engine/uninstall.js';
+import { readJsonFile } from '../../src/lib/fs.js';
 import { removeDir } from '../support/sandbox.js';
 import { makeWorld, type World } from './world.js';
 
@@ -62,7 +63,8 @@ describe('engine with real targets', () => {
       mcp: [{ name: 'fs', command: 'npx', args: ['a'] }],
     });
     await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
-    const read = async () => JSON.parse(await readFile(join(w.sb.project, '.mcp.json'), 'utf8'));
+    type McpJson = { mcpServers: { fs: { args: string[] } } };
+    const read = () => readJsonFile<McpJson>(join(w.sb.project, '.mcp.json'));
     expect((await read()).mcpServers.fs.args).toEqual(['a']);
 
     await saveManifest(file, {

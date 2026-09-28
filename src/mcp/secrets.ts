@@ -1,44 +1,10 @@
 /**
- * Secret detection and resolution for MCP server configs (DESIGN.md §7).
- * Secret values are never logged.
+ * Secret detection and resolution for MCP server configs (DESIGN.md §7). The `${VAR}` grammar
+ * and the runtime-variable list live in `lib/placeholders`. Secret values are never logged.
  */
 import { PalmError } from '../core/errors.js';
 import type { McpServerConfig, PalmContext, SecretPolicy, SecretRef } from '../core/types.js';
-
-/** `${VAR}`, `${env:VAR}`, `${VAR:-default}`, `${env:VAR:-default}`. */
-const TOKEN = /\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g;
-
-/**
- * Variables a harness or the OS provides at run time. They are never user secrets: the
- * scanner does not report them, `resolveSecrets` never prompts for them, and the MCP
- * renderer leaves their tokens untouched. The single list for the whole code base.
- */
-export const RUNTIME_VARS: ReadonlySet<string> = new Set([
-  'CLAUDE_PLUGIN_ROOT',
-  'CLAUDE_PLUGIN_DATA',
-  'CLAUDE_PROJECT_DIR',
-  'CURSOR_PLUGIN_ROOT',
-  'PLUGIN_ROOT',
-  'workspaceFolder',
-  'workspaceFolderBasename',
-  'workspaceRoot',
-  'userHome',
-  'pathSeparator',
-  'HOME',
-  'USER',
-  'PWD',
-  'PATH',
-  'TMPDIR',
-]);
-
-export function isRuntimeVar(name: string): boolean {
-  return RUNTIME_VARS.has(name);
-}
-
-/** Env values that are obviously "fill me in" placeholders (`""`, `<your key>`, `your-token-here`). */
-export function isPlaceholderValue(value: string): boolean {
-  return value === '' || /^<.*>$/.test(value) || /^your[-_ ]/i.test(value);
-}
+import { findPlaceholders, isRuntimeVar, type Placeholder } from '../lib/placeholders.js';
 
 function addRef(list: SecretRef[], ref: SecretRef): void {
   const existing = list.find((s) => s.name === ref.name);
@@ -55,48 +21,44 @@ function addRef(list: SecretRef[], ref: SecretRef): void {
   }
 }
 
-function scan(
-  value: string,
-  make: (name: string, required: boolean, token: string) => SecretRef,
-  out: SecretRef[],
-): void {
-  for (const m of value.matchAll(TOKEN)) {
-    const name = m[1] as string;
-    if (isRuntimeVar(name)) continue;
-    addRef(out, make(name, m[2] === undefined, m[0]));
-  }
+/** Adds `make(p)` for every placeholder `p` in `value` that is not a runtime variable. */
+function scan(value: string, make: (p: Placeholder) => SecretRef, out: SecretRef[]): void {
+  for (const p of findPlaceholders(value)) if (!isRuntimeVar(p.name)) addRef(out, make(p));
+}
+
+/** An env secret, required unless its placeholder has a `:-default`. */
+function envSecret(p: Placeholder): SecretRef {
+  return { name: p.name, in: 'env', required: p.default === undefined };
 }
 
 /**
  * `${VAR}`-style placeholders in env values, header values, the URL and args → SecretRefs.
  * A placeholder with a `:-default` is optional. For a header whose value is more than the
  * placeholder (e.g. `Bearer ${TOKEN}`), `format` records the template (`Bearer {value}`).
- * Runtime variables (`RUNTIME_VARS`) are skipped.
+ * Runtime variables (`isRuntimeVar`) are skipped.
  */
 export function detectSecrets(cfg: McpServerConfig): SecretRef[] {
   const out: SecretRef[] = [];
   for (const value of Object.values(cfg.env ?? {})) {
-    if (typeof value !== 'string') continue;
-    scan(value, (name, required) => ({ name, in: 'env', required }), out);
+    if (typeof value === 'string') scan(value, envSecret, out);
   }
   for (const [header, value] of Object.entries(cfg.headers ?? {})) {
     if (typeof value !== 'string') continue;
-    const tokens = [...value.matchAll(TOKEN)];
+    const single = findPlaceholders(value).length === 1;
     scan(
       value,
-      (name, required, token) => {
-        const ref: SecretRef = { name, in: 'header', header, required };
-        if (tokens.length === 1 && value !== token) ref.format = value.replace(token, '{value}');
+      (p) => {
+        const required = p.default === undefined;
+        const ref: SecretRef = { name: p.name, in: 'header', header, required };
+        if (single && value !== p.raw) ref.format = value.replace(p.raw, '{value}');
         return ref;
       },
       out,
     );
   }
-  if (typeof cfg.url === 'string')
-    scan(cfg.url, (name, required) => ({ name, in: 'env', required }), out);
+  if (typeof cfg.url === 'string') scan(cfg.url, envSecret, out);
   for (const arg of cfg.args ?? []) {
-    if (typeof arg === 'string')
-      scan(arg, (name, required) => ({ name, in: 'env', required }), out);
+    if (typeof arg === 'string') scan(arg, envSecret, out);
   }
   return out;
 }

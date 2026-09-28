@@ -449,6 +449,31 @@ describe('parseMcpJson', () => {
     expect(parseMcpJson([1, 2])).toEqual([]);
   });
 
+  it('finds secrets in the URL and args and merges a name used in env and a header', () => {
+    const [remote, local] = parseMcpJson({
+      remote: {
+        type: 'http',
+        url: 'https://x/${REGION}/mcp?k=${URL_KEY:-}',
+        env: { T: '${TOK:-x}' },
+        headers: { Authorization: 'Bearer ${TOK}', 'X-Two': '${A1}:${PLUGIN_ROOT}' },
+      },
+      local: { command: 'x', args: ['--key=${ARG_KEY}', '${HOME}/x'] },
+    });
+    expect(remote?.secrets).toEqual([
+      {
+        name: 'TOK',
+        in: 'header',
+        header: 'Authorization',
+        required: true,
+        format: 'Bearer {value}',
+      },
+      { name: 'A1', in: 'header', header: 'X-Two', required: true },
+      { name: 'REGION', in: 'env', required: true },
+      { name: 'URL_KEY', in: 'env', required: false },
+    ]);
+    expect(local?.secrets).toEqual([{ name: 'ARG_KEY', in: 'env', required: true }]);
+  });
+
   it('flags empty and placeholder env values as secrets', () => {
     const [cfg] = parseMcpJson({
       x: { command: 'x', env: { API_KEY: '', OTHER: '<your key>', PLAIN: 'value' } },

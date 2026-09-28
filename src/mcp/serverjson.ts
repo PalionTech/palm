@@ -6,6 +6,8 @@
  */
 import { PalmError } from '../core/errors.js';
 import type { McpServerConfig, SecretRef } from '../core/types.js';
+import { isRecord } from '../lib/object.js';
+import { envRef } from '../lib/placeholders.js';
 
 // ---------------------------------------------------------------------------
 // Local types for the subset of server.json palm reads (not in core/types.ts).
@@ -115,10 +117,6 @@ const ENV_STYLE = /^[A-Z][A-Z0-9_]*$/;
 // ---------------------------------------------------------------------------
 // Legacy (pre-2025-09, snake_case) shape normalization
 // ---------------------------------------------------------------------------
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 
 const LEGACY_KEYS = [
   'version_detail',
@@ -244,10 +242,6 @@ interface Conv {
   secrets: SecretCollector;
 }
 
-function placeholder(varName: string): string {
-  return '${' + varName + '}';
-}
-
 /** Env var name for a template variable: env-style names are kept, others are namespaced. */
 function variableEnvName(c: Conv, ident: string): string {
   return ENV_STYLE.test(ident) ? ident : `${c.prefix}_${upperSnake(ident)}`;
@@ -297,7 +291,7 @@ function substitute(
       if (idents.length === 1 && !single) ref.format = template.replace(match, '{value}');
     }
     c.secrets.add(ref);
-    return placeholder(name);
+    return envRef(name);
   });
 }
 
@@ -318,7 +312,7 @@ function keyValue(
   if (where === 'header') ref.header = kv.name;
   if (kv.description) ref.description = kv.description;
   c.secrets.add(ref);
-  return placeholder(name);
+  return envRef(name);
 }
 
 interface RenderedArgs {
@@ -363,7 +357,7 @@ function renderArgs(
       const ref: SecretRef = { name, in: 'env', required: true };
       if (arg.description) ref.description = arg.description;
       c.secrets.add(ref);
-      value = placeholder(name);
+      value = envRef(name);
     }
 
     if (arg.type === 'named') {

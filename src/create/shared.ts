@@ -1,10 +1,9 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { execa, parseCommandString } from 'execa';
 import pc from 'picocolors';
-import { stringify } from 'yaml';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import type {
   InstallRequest,
   InstallResult,
@@ -15,6 +14,8 @@ import type {
   TargetId,
   UI,
 } from '../core/types.js';
+import { pathExists } from '../lib/fs.js';
+import { SLUG_RE } from '../lib/names.js';
 import { printInstallSummary } from '../ui/output.js';
 import { supportsMultiline } from '../ui/prompts.js';
 
@@ -27,8 +28,6 @@ export interface CreateOptions {
   /** --target flag, forwarded to resolveTargets. */
   targets?: TargetId[];
 }
-
-export const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export function validateSlug(value: string): string | undefined {
   if (!value.trim()) return 'a name is required';
@@ -50,13 +49,6 @@ export function stripHtmlComments(text: string): string {
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-}
-
-/** Render `---\n<yaml>\n---\n\n<body>\n`. Keys with undefined values are omitted. */
-export function renderFrontmatterFile(data: Record<string, unknown>, body: string): string {
-  const clean = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
-  const yaml = stringify(clean, { lineWidth: 0 }).trimEnd();
-  return `---\n${yaml}\n---\n\n${body.trim()}\n`;
 }
 
 export function titleCase(slug: string): string {
@@ -87,7 +79,7 @@ export async function openInEditor(ctx: PalmContext, file: string): Promise<bool
   } catch (e) {
     throw new PalmError(
       'E_IO',
-      `editor "${cmd}" failed: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`,
+      `editor "${cmd}" failed: ${messageOf(e).split('\n')[0]}`,
       'check $VISUAL / $EDITOR',
     );
   }
@@ -150,8 +142,7 @@ export async function writeNewFile(
     );
     return false;
   }
-  const existing = await stat(file).catch(() => undefined);
-  if (existing && !ctx.flags.force) {
+  if ((await pathExists(file)) && !ctx.flags.force) {
     const ok = ctx.ui.isInteractive
       ? await ctx.ui.confirm(`${file} exists. Overwrite it?`, false)
       : false;

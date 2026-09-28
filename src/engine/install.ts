@@ -1,9 +1,9 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import { hashPath, hashValue } from '../core/hash.js';
 import { findEntry, loadLock, removeEntry, saveLock, upsertEntry } from '../core/lockfile.js';
-import { addDep, deepEqual, loadManifest, normalizeDep, saveManifest } from '../core/manifest.js';
+import { addDep, loadManifest, normalizeDep, saveManifest } from '../core/manifest.js';
 import { lockPath, manifestPath, scopeRoot } from '../core/paths.js';
 import {
   type DeployInput,
@@ -24,6 +24,7 @@ import {
   TARGET_IDS,
   type TargetId,
 } from '../core/types.js';
+import { deepEqual } from '../lib/object.js';
 import { optionalSecretNames } from '../mcp/secrets.js';
 import { type EngineDeps, resolveEngineDeps } from './deps.js';
 import {
@@ -314,7 +315,7 @@ async function resolveRequest(
       cands = await registryCandidates(ctx, deps, dep.name, dep.ref);
     } catch (e) {
       if (kind === 'mcp') throw e;
-      ctx.log.debug(`registry lookup for ${dep.name} failed: ${(e as Error).message}`);
+      ctx.log.debug(`registry lookup for ${dep.name} failed: ${messageOf(e)}`);
     }
   }
   if (cands.length === 0)
@@ -432,7 +433,7 @@ async function resolveAgentDep(
 ): Promise<Candidate | undefined> {
   if (w.dep.origin) {
     const si = await session.byAlias(w.dep.origin, w.dep.ref).catch((err: unknown) => {
-      ctx.log.debug(`agent dependency ${w.dep.name}@${w.dep.origin}: ${(err as Error).message}`);
+      ctx.log.debug(`agent dependency ${w.dep.name}@${w.dep.origin}: ${messageOf(err)}`);
       return undefined;
     });
     const cands = si ? candidatesIn([si], w.kind, w.dep.name) : [];
@@ -643,7 +644,7 @@ async function deployItem(
       throw failures[0]!.error;
     }
     for (const f of failures) {
-      const msg = `${f.id}: ${(f.error as Error).message}`;
+      const msg = `${f.id}: ${messageOf(f.error)}`;
       notes.push(`failed: ${msg}`);
       warnings.push(`${entity.kind} ${entity.name} → ${msg}`);
     }

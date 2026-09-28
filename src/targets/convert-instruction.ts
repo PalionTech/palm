@@ -7,7 +7,8 @@
  * - codex   managed block content for AGENTS.md ("Applies to: ..." line + body).
  */
 import type { InstructionDefinition, TargetId } from '../core/types.js';
-import { normalizeBody, withFrontmatter, yamlScalar } from './frontmatter.js';
+import { normalizeBody, withFrontmatter } from '../lib/frontmatter.js';
+import { yamlScalar } from '../lib/yaml.js';
 
 export function renderInstruction(
   def: InstructionDefinition,

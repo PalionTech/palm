@@ -4,9 +4,11 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { execa } from 'execa';
-import { parse as parseYaml } from 'yaml';
-import { PalmError } from './errors.js';
-import { loadManifest, readYamlFile, saveManifest, writeYamlPreserving } from './manifest.js';
+import { isValidAlias } from '../lib/names.js';
+import { isRecord, withoutUndefined } from '../lib/object.js';
+import { parseYaml, writeYamlFile } from '../lib/yaml.js';
+import { messageOf, PalmError } from './errors.js';
+import { loadManifest, loadYaml, saveManifest } from './manifest.js';
 import { configPath, manifestPath } from './paths.js';
 import {
   type LayoutDescriptor,
@@ -23,10 +25,6 @@ import {
 // config.yaml
 // ---------------------------------------------------------------------------
 
-function isObject(v: unknown): v is Record<string, unknown> {
-  return !!v && typeof v === 'object' && !Array.isArray(v);
-}
-
 function validTargets(v: unknown): TargetId[] | undefined {
   if (!Array.isArray(v)) return undefined;
   const out = v.filter(
@@ -39,9 +37,6 @@ function validTargets(v: unknown): TargetId[] | undefined {
 // Alias rules (DESIGN.md §5): every stored origin carries an explicit, unique alias
 // ---------------------------------------------------------------------------
 
-/** Origin aliases: lowercase letters, digits, `.`, `_` and `-`, starting with a letter or digit. */
-export const ORIGIN_ALIAS_RE = /^[a-z0-9][a-z0-9._-]*$/;
-
 /** A problem with a stored origin's alias. Unlike other bad palm.yaml origin entries these are never skipped. */
 class OriginAliasError extends PalmError {}
 
@@ -51,9 +46,9 @@ function aliasFormatHint(alias: string): string {
   return `An alias is lowercase letters, digits, ".", "_" and "-", starting with a letter or digit${example}.`;
 }
 
-/** Throws `code` unless `alias` matches ORIGIN_ALIAS_RE. */
+/** Throws `code` unless `alias` is a valid alias (lib/names ALIAS_RE). */
 function assertAliasFormat(alias: string, code: 'E_USAGE' | 'E_PARSE', where?: string): void {
-  if (ORIGIN_ALIAS_RE.test(alias)) return;
+  if (isValidAlias(alias)) return;
   const msg = `${where ? `${where}: ` : ''}invalid origin alias "${alias}"`;
   if (code === 'E_PARSE') throw new OriginAliasError(code, msg, aliasFormatHint(alias));
   throw new PalmError(code, msg, aliasFormatHint(alias));
@@ -96,7 +91,7 @@ function normalizeStoredOrigin(raw: unknown, baseDir: string, where: string): Or
       `write it as a mapping and add \`alias: ${parsed.alias}\`, e.g. \`- ${flowMapping(parsed)}\` (palm derives that name with \`palm origin add\`)`,
     );
   }
-  if (!isObject(raw))
+  if (!isRecord(raw))
     throw new PalmError('E_PARSE', `${where}: invalid origin entry ${JSON.stringify(raw)}`);
   const type =
     raw.type === 'local' || (raw.type === undefined && typeof raw.path === 'string' && !raw.url)
@@ -117,7 +112,7 @@ function normalizeStoredOrigin(raw: unknown, baseDir: string, where: string): Or
   }
   if (typeof raw.ref === 'string' && raw.ref) spec.ref = raw.ref;
   if (typeof raw.root === 'string' && raw.root) spec.root = trimSlashes(raw.root);
-  if (isObject(raw.layout)) spec.layout = raw.layout as LayoutDescriptor;
+  if (isRecord(raw.layout)) spec.layout = raw.layout as LayoutDescriptor;
   if (typeof raw.description === 'string') spec.description = raw.description;
   if (!alias.trim()) {
     throw new OriginAliasError(
@@ -132,9 +127,9 @@ function normalizeStoredOrigin(raw: unknown, baseDir: string, where: string): Or
 
 export async function loadConfig(paths: PalmPaths): Promise<PalmConfig> {
   const file = configPath(paths);
-  const data = await readYamlFile(file);
+  const data = await loadYaml(file);
   if (data === undefined || data === null) return { origins: [] };
-  if (!isObject(data)) throw new PalmError('E_PARSE', `${file} must be a YAML mapping`);
+  if (!isRecord(data)) throw new PalmError('E_PARSE', `${file} must be a YAML mapping`);
   const cfg: PalmConfig = { ...(data as object), origins: [] } as PalmConfig;
   const targets = validTargets(data.targets);
   if (targets) cfg.targets = targets;
@@ -146,32 +141,17 @@ export async function loadConfig(paths: PalmPaths): Promise<PalmConfig> {
   return cfg;
 }
 
+/** A stored origin: its known fields in a fixed order, undefined ones left out. */
 function serializeOrigin(spec: OriginSpec): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const k of [
-    'alias',
-    'type',
-    'url',
-    'path',
-    'ref',
-    'root',
-    'layout',
-    'description',
-  ] as const) {
-    if (spec[k] !== undefined) out[k] = spec[k];
-  }
-  return out;
+  const { alias, type, url, path, ref, root, layout, description } = spec;
+  return withoutUndefined({ alias, type, url, path, ref, root, layout, description });
 }
 
 export async function saveConfig(paths: PalmPaths, cfg: PalmConfig): Promise<void> {
-  const out: Record<string, unknown> = {};
-  if (cfg.targets) out.targets = cfg.targets;
-  out.origins = cfg.origins.map(serializeOrigin);
-  for (const [k, v] of Object.entries(cfg)) {
-    if (!(k in out) && v !== undefined && k !== 'origins' && k !== 'targets') out[k] = v;
-  }
+  const { targets, origins, ...rest } = cfg;
+  const out = withoutUndefined({ targets, origins: origins.map(serializeOrigin), ...rest });
   // config.yaml is user-private (0600), like the harness configs palm writes secrets into.
-  await writeYamlPreserving(configPath(paths), out, { flowKeys: ['targets'], mode: 0o600 });
+  await writeYamlFile(configPath(paths), out, { flowKeys: ['targets'], mode: 0o600 });
 }
 
 // ---------------------------------------------------------------------------
@@ -453,7 +433,7 @@ function sanitizeAlias(s: string): string {
   return s
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^[-._]+|-+$/g, ''); // ORIGIN_ALIAS_RE: starts with a letter or digit
+    .replace(/^[-._]+|-+$/g, ''); // ALIAS_RE: starts with a letter or digit
 }
 
 /**
@@ -540,10 +520,10 @@ export function projectOrigins(ctx: PalmContext): OriginSpec[] {
   try {
     data = parseYaml(readFileSync(file, 'utf8'));
   } catch (e) {
-    ctx.log.warn(`Ignoring origins in ${file}: ${(e as Error).message}`);
+    ctx.log.warn(`Ignoring origins in ${file}: ${messageOf(e)}`);
     return [];
   }
-  if (!isObject(data) || !Array.isArray(data.origins)) return [];
+  if (!isRecord(data) || !Array.isArray(data.origins)) return [];
   const out: OriginSpec[] = [];
   for (const raw of data.origins) {
     try {
@@ -551,7 +531,7 @@ export function projectOrigins(ctx: PalmContext): OriginSpec[] {
     } catch (e) {
       // A refused URL or missing path skips the entry; a missing or invalid alias is a hard error.
       if (e instanceof OriginAliasError) throw e;
-      ctx.log.warn((e as Error).message);
+      ctx.log.warn(messageOf(e));
     }
   }
   assertUniqueAliases(out, file);

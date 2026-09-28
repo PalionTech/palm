@@ -1,6 +1,6 @@
 import { getIndex } from '../core/cache.js';
 import { allOrigins, findOrigin, originId } from '../core/config.js';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import { findEntry, loadLock } from '../core/lockfile.js';
 import { parseDepRef } from '../core/manifest.js';
 import { lockPath } from '../core/paths.js';
@@ -87,7 +87,7 @@ export class IndexSession {
     this.allP ??= Promise.all(
       allOrigins(this.ctx).map((o) =>
         this.get(o).catch((e: unknown) => {
-          this.ctx.log.warn(`Skipping origin "${o.alias}": ${(e as Error).message}`);
+          this.ctx.log.warn(`Skipping origin "${o.alias}": ${messageOf(e)}`);
           return undefined;
         }),
       ),
@@ -313,7 +313,7 @@ export async function getEntityInfo(
       warnings.push(...duplicateWarnings(first.source.index, kind, first.entity.name));
   } catch (e) {
     if (!lock) throw e;
-    ctx.log.debug(`index lookup for ${kind} ${name} failed: ${(e as Error).message}`);
+    ctx.log.debug(`index lookup for ${kind} ${name} failed: ${messageOf(e)}`);
   }
   const depRefs = entity ? entityDeps(entity) : (lock?.deps ?? []);
   return { ...(entity ? { entity } : {}), ...(lock ? { lock } : {}), deps: depRefs, warnings };

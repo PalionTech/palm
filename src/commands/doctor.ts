@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import type { Command } from 'commander';
 import { execa } from 'execa';
 import pc from 'picocolors';
+import { messageOf } from '../core/errors.js';
 import {
   type LockEntry,
   type OriginSpec,
@@ -11,6 +12,7 @@ import {
   type Scope,
   TARGET_IDS,
 } from '../core/types.js';
+import { pathExists } from '../lib/fs.js';
 import { ExitSignal, type GlobalOptions, makeContext, printJson } from './shared.js';
 
 export type CheckStatus = 'ok' | 'info' | 'warn' | 'fail';
@@ -51,17 +53,10 @@ async function dirSize(dir: string): Promise<number> {
   return total;
 }
 
-async function exists(p: string): Promise<boolean> {
-  return access(p).then(
-    () => true,
-    () => false,
-  );
-}
-
 /** Nearest existing ancestor of `p` (for writability checks before palm home exists). */
 async function nearestExisting(p: string): Promise<string> {
   let cur = p;
-  while (!(await exists(cur))) {
+  while (!(await pathExists(cur))) {
     const up = dirname(cur);
     if (up === cur) break;
     cur = up;
@@ -117,7 +112,9 @@ async function checkPalmHome(ctx: PalmContext): Promise<Check[]> {
     group: 'palm',
     name: 'cache',
     status: 'info',
-    detail: (await exists(cache)) ? `${formatBytes(await dirSize(cache))} in ${cache}` : 'empty',
+    detail: (await pathExists(cache))
+      ? `${formatBytes(await dirSize(cache))} in ${cache}`
+      : 'empty',
   });
   return checks;
 }
@@ -157,7 +154,7 @@ async function checkDrift(ctx: PalmContext): Promise<Check[]> {
     for (const e of lock.entries as LockEntry[]) {
       const missing: string[] = [];
       for (const f of e.files)
-        if (!(await exists(isAbsolute(f) ? f : join(root, f)))) missing.push(f);
+        if (!(await pathExists(isAbsolute(f) ? f : join(root, f)))) missing.push(f);
       if (missing.length)
         problems.push(
           `${e.kind} ${e.name}: ${missing.length}/${e.files.length} files missing (e.g. ${missing[0]})`,
@@ -188,7 +185,7 @@ async function checkDrift(ctx: PalmContext): Promise<Check[]> {
 
 async function checkOrigin(spec: OriginSpec): Promise<Check> {
   if (spec.type === 'local') {
-    const ok = spec.path ? await exists(spec.path) : false;
+    const ok = spec.path ? await pathExists(spec.path) : false;
     return {
       group: 'origins',
       name: spec.alias,
@@ -201,7 +198,7 @@ async function checkOrigin(spec: OriginSpec): Promise<Check> {
     await pingRemote(spec.url ?? '');
     return { group: 'origins', name: spec.alias, status: 'ok', detail: `reachable (${spec.url})` };
   } catch (e) {
-    const msg = e instanceof Error ? (e.message.split('\n')[0] ?? e.message) : String(e);
+    const msg = messageOf(e).split('\n')[0];
     return {
       group: 'origins',
       name: spec.alias,
@@ -220,7 +217,7 @@ async function safely(group: string, fn: () => Promise<Check[]>): Promise<Check[
         group,
         name: group,
         status: 'warn',
-        detail: `check failed: ${e instanceof Error ? e.message : String(e)}`,
+        detail: `check failed: ${messageOf(e)}`,
       },
     ];
   }

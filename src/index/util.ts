@@ -1,10 +1,7 @@
 /** Small coercion and path helpers shared by the scanner modules. */
 
 import { posix } from 'node:path';
-
-export function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
+import { isSlug, slugify } from '../lib/names.js';
 
 /** Scalars become strings; everything else is undefined. Strings are trimmed; empty strings become undefined. */
 export function asString(v: unknown): string | undefined {
@@ -67,12 +64,15 @@ function splitOutsideParens(s: string, sep: ',' | ' '): string[] {
   return out;
 }
 
-/** Remove keys whose value is undefined (keeps objects tidy for JSON snapshots). */
-export function compact<T extends object>(obj: T): T {
-  for (const k of Object.keys(obj) as Array<keyof T>) {
-    if (obj[k] === undefined) delete obj[k];
+/** Slug for `input`, or the first usable fallback, or 'unnamed'. */
+export function toSlug(input: string | undefined, ...fallbacks: Array<string | undefined>): string {
+  for (const candidate of [input, ...fallbacks]) {
+    if (candidate === undefined) continue;
+    if (isSlug(candidate)) return candidate;
+    const s = slugify(candidate);
+    if (s !== '') return s;
   }
-  return obj;
+  return 'unnamed';
 }
 
 /** Normalise a manifest-relative path: strip `./`, trailing `/`, collapse `.` segments. Returns '' for the root. */
@@ -109,8 +109,11 @@ export function dirDepth(rel: string): number {
   return rel.split('/').length - 1;
 }
 
-/** True when `rel` equals `dir` or lies underneath it ('' contains everything). */
-export function isWithin(rel: string, dir: string): boolean {
+/**
+ * True when `rel` equals `dir` or lies underneath it ('' contains everything). For origin-relative
+ * posix paths; absolute paths use `isWithin` from lib/fs (much slower in the scanner's loops).
+ */
+export function isWithinRel(rel: string, dir: string): boolean {
   if (dir === '') return true;
   return rel === dir || rel.startsWith(dir + '/');
 }

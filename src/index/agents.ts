@@ -7,11 +7,12 @@
 
 import { basename } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import type { AgentDefinition } from '../core/types.js';
-import { parseFrontmatterYaml, splitFrontmatter } from './frontmatter.js';
-import { isValidSlug, toSlug } from './slug.js';
-import { asList, asString, compact, isRecord } from './util.js';
+import { parseFrontmatterYaml, splitFrontmatter } from '../lib/frontmatter.js';
+import { isSlug, stemOf } from '../lib/names.js';
+import { isRecord, withoutUndefined } from '../lib/object.js';
+import { asList, asString, toSlug } from './util.js';
 
 export interface ParsedAgent {
   def: AgentDefinition;
@@ -22,14 +23,8 @@ export interface ParsedAgent {
   declaredName?: string;
 }
 
-/** File stem without `.agent.md` / `.md` / `.toml`. */
-export function agentStem(fileName: string): string {
-  const b = basename(fileName);
-  for (const ext of ['.agent.md', '.chatmode.md', '.md', '.toml']) {
-    if (b.toLowerCase().endsWith(ext)) return b.slice(0, -ext.length);
-  }
-  return b;
-}
+/** Agent file extensions; the file stem is the name without one of them. */
+const AGENT_EXTS = ['.agent.md', '.chatmode.md', '.md', '.toml'];
 
 export function parseAgentFile(absPath: string, text: string): AgentDefinition {
   return parseAgentFileDetailed(absPath, text).def;
@@ -82,7 +77,7 @@ export function parseAgentFileDetailed(absPath: string, text: string): ParsedAge
   const description = asString(data.description);
   if (description === undefined) issues.push('missing description');
 
-  const def: AgentDefinition = compact({
+  const def: AgentDefinition = withoutUndefined({
     name,
     displayName,
     description: description ?? '',
@@ -107,7 +102,7 @@ function parseCodexToml(absPath: string, text: string): ParsedAgent {
   } catch (e) {
     throw new PalmError(
       'E_PARSE',
-      `invalid TOML in agent ${basename(absPath)}: ${(e as Error).message.split('\n')[0]}`,
+      `invalid TOML in agent ${basename(absPath)}: ${messageOf(e).split('\n')[0]}`,
     );
   }
   const known = new Set([
@@ -134,7 +129,7 @@ function parseCodexToml(absPath: string, text: string): ParsedAgent {
   if (description === undefined) issues.push('missing description');
   const body = typeof data.developer_instructions === 'string' ? data.developer_instructions : '';
   if (body === '') issues.push('missing developer_instructions');
-  const def: AgentDefinition = compact({
+  const def: AgentDefinition = withoutUndefined({
     name,
     displayName,
     description: description ?? '',
@@ -162,10 +157,10 @@ function resolveName(
   absPath: string,
   declared: string | undefined,
 ): { name: string; displayName?: string; issues: string[] } {
-  const stem = agentStem(absPath);
+  const stem = stemOf(absPath, AGENT_EXTS);
   const stemIsIdentity = /\.(agent|chatmode)\.md$/i.test(absPath);
   const issues: string[] = [];
-  if (declared !== undefined && isValidSlug(declared) && !stemIsIdentity)
+  if (declared !== undefined && isSlug(declared) && !stemIsIdentity)
     return { name: declared, issues };
   const name = toSlug(stem, declared);
   if (declared === undefined || declared === name) return { name, issues };

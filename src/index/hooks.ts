@@ -9,7 +9,7 @@
  */
 
 import type { HookDialect, HookSet } from '../core/types.js';
-import { compact, isRecord } from './util.js';
+import { isRecord, withoutUndefined } from '../lib/object.js';
 
 const GEMINI_ONLY_EVENTS = new Set([
   'BeforeTool',
@@ -62,7 +62,7 @@ export function detectHookDialect(json: unknown): HookDialect {
 
 export function parseHooksJson(name: string, json: unknown, pluginRootRel?: string): HookSet {
   const raw = normalizeHooksJson(json);
-  return compact({ name, dialect: detectHookDialect(raw), raw, pluginRootRel });
+  return withoutUndefined({ name, dialect: detectHookDialect(raw), raw, pluginRootRel });
 }
 
 /** True when the hooks object declares at least one event with at least one handler. */

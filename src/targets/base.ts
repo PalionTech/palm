@@ -4,7 +4,7 @@
  */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import type {
   DeployInput,
   DeployResult,
@@ -15,28 +15,27 @@ import type {
   Target,
   TargetId,
 } from '../core/types.js';
+import { isWithin, pathExists, removeEmptyParents, toPosix } from '../lib/fs.js';
+import { stringifyJson } from '../lib/json.js';
+import { escapeSegment, joinPointer } from '../lib/json-pointer.js';
+import { isSafeName } from '../lib/names.js';
 import { renderAgent } from './convert-agent.js';
 import { renderCommand } from './convert-command.js';
 import { convertHooks, referencesPluginRoot } from './convert-hooks.js';
 import { renderInstruction } from './convert-instruction.js';
-import { redactSecrets } from './deep-equal.js';
 import { type Env, effectiveEnv, hooksAssetDir, palmHooksRoot } from './env.js';
 import {
   atomicWrite,
   ensureMode,
-  isWithin,
   listCopyFiles,
-  pathExists,
   readFileOrUndefined,
   removeDirIfExists,
-  removeEmptyParents,
   removeFileIfExists,
-  toPosix,
 } from './fs-utils.js';
 import { ensureJsonKey, mergeJsonFile, unmergeJsonFile } from './json-merge.js';
-import { escapeSegment, joinPointer } from './json-pointer.js';
 import { BLOCK_POINTER_PREFIX, removeManagedBlock, upsertManagedBlock } from './managed-block.js';
 import { renderMcp } from './mcp-config.js';
+import { redactSecrets } from './recorded.js';
 import { mergeTomlTable, unmergeTomlTable } from './toml-merge.js';
 
 export interface CleanupRoot {
@@ -99,12 +98,8 @@ const HOOK_ASSET_SKIP_FILE =
   /^(README|CHANGELOG|CHANGES|HISTORY|RELEASE[-_]NOTES|CONTRIBUTING|CODE_OF_CONDUCT|SECURITY)(\.[a-z]+)?$/i;
 
 /** Entity names become file and directory names: refuse anything that could leave its directory. */
-export function isSafeEntityName(name: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) && !name.includes('..');
-}
-
 function assertSafeEntityName(entity: Entity): void {
-  if (!isSafeEntityName(entity.name)) {
+  if (!isSafeName(entity.name)) {
     throw new PalmError(
       'E_USAGE',
       `refusing to deploy ${entity.kind} "${entity.name}": names may only contain letters, digits, ".", "_" and "-"`,
@@ -332,10 +327,7 @@ export class GenericTarget implements Target {
     // Links may point anywhere inside the origin (shared references), never outside it.
     const boundary = isWithin(absPath, originRoot) ? originRoot : absPath;
     const { files, skipped } = await listCopyFiles(absPath, { boundary }).catch((e: unknown) => {
-      throw new PalmError(
-        'E_IO',
-        `skill ${entity.name}: cannot read ${absPath}: ${(e as Error).message}`,
-      );
+      throw new PalmError('E_IO', `skill ${entity.name}: cannot read ${absPath}: ${messageOf(e)}`);
     });
     if (skipped.length)
       ctx.note(
@@ -452,10 +444,7 @@ export class GenericTarget implements Target {
     }
 
     if ('dir' in layout.hooks) {
-      ctx.plan(
-        path.join(layout.hooks.dir, `${entity.name}.json`),
-        JSON.stringify(converted.hooks, null, 2) + '\n',
-      );
+      ctx.plan(path.join(layout.hooks.dir, `${entity.name}.json`), stringifyJson(converted.hooks));
       await ctx.flush();
       return ctx.result();
     }
@@ -561,7 +550,7 @@ export class GenericTarget implements Target {
       else await unmergeJsonFile(abs, rec);
     }
 
-    if (entry.kind === 'hook' && !dryRun && isSafeEntityName(entry.name)) {
+    if (entry.kind === 'hook' && !dryRun && isSafeName(entry.name)) {
       const dir = hooksAssetDir(scope, scopeRoot, e, entry.name);
       await removeDirIfExists(dir);
       await removeEmptyParents(dir, palmRoot.stop);

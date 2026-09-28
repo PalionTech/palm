@@ -1,7 +1,8 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { readJsonFile, writeJsonFile } from '../lib/fs.js';
 import { allOrigins, originId } from './config.js';
-import { PalmError } from './errors.js';
+import { messageOf, PalmError } from './errors.js';
 import { fetchOrigin } from './git.js';
 import { hashValue } from './hash.js';
 import { cacheDir } from './paths.js';
@@ -53,7 +54,7 @@ export async function loadDefaultScan(): Promise<ScanOriginFn> {
   } catch (e) {
     throw new PalmError(
       'E_INTERNAL',
-      `Scanner module unavailable (src/index/scan.ts): ${(e as Error).message}`,
+      `Scanner module unavailable (src/index/scan.ts): ${messageOf(e)}`,
     );
   }
 }
@@ -82,7 +83,7 @@ export async function getIndex(
   const key = cacheKey(spec, checkout);
   if (spec.type === 'git' && !opts.refresh) {
     try {
-      const cached = JSON.parse(await readFile(file, 'utf8')) as StoredIndex;
+      const cached = await readJsonFile<StoredIndex>(file);
       if (cached.cacheKey === key && Array.isArray(cached.entities)) {
         const { cacheKey: _k, ...index } = cached;
         return withAlias({ ...index, root: checkout.root }, spec.alias);
@@ -109,11 +110,10 @@ export async function getIndex(
   if (checkout.sha) index.sha = checkout.sha;
   if (checkout.ref) index.ref = checkout.ref;
   try {
-    await mkdir(cacheDir(ctx.paths), { recursive: true });
     const stored: StoredIndex = { ...index, cacheKey: key };
-    await writeFile(file, `${JSON.stringify(stored, null, 2)}\n`, 'utf8');
+    await writeJsonFile(file, stored);
   } catch (e) {
-    ctx.log.debug(`could not write index cache ${file}: ${(e as Error).message}`);
+    ctx.log.debug(`could not write index cache ${file}: ${messageOf(e)}`);
   }
   return index;
 }
@@ -128,7 +128,7 @@ export async function getAllIndexes(
       try {
         return await getIndex(ctx, o, opts);
       } catch (e) {
-        ctx.log.warn(`Skipping origin "${o.alias}": ${(e as Error).message}`);
+        ctx.log.warn(`Skipping origin "${o.alias}": ${messageOf(e)}`);
         return undefined;
       }
     }),

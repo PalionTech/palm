@@ -12,11 +12,12 @@
  * edited is left alone).
  */
 import { parse, stringify } from 'smol-toml';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import type { MergedRecord } from '../core/types.js';
-import { containsAll, deepEqual, isPlainObject } from './deep-equal.js';
+import { formatPointer } from '../lib/json-pointer.js';
+import { deepEqual, isRecord } from '../lib/object.js';
 import { atomicWrite, readTextOrUndefined } from './fs-utils.js';
-import { formatPointer, parsePointer } from './json-pointer.js';
+import { containsAll, recordedPath } from './recorded.js';
 
 export interface TomlMergeOptions {
   dryRun: boolean;
@@ -34,7 +35,7 @@ function parseToml(text: string, file: string): Table {
   } catch (e) {
     throw new PalmError(
       'E_PARSE',
-      `cannot parse ${file}: ${(e as Error).message}`,
+      `cannot parse ${file}: ${messageOf(e)}`,
       'fix the TOML syntax or move the file aside',
     );
   }
@@ -43,7 +44,7 @@ function parseToml(text: string, file: string): Table {
 function getPath(doc: Table, p: readonly string[]): unknown {
   let node: unknown = doc;
   for (const seg of p) {
-    if (!isPlainObject(node)) return undefined;
+    if (!isRecord(node)) return undefined;
     node = node[seg];
   }
   return node;
@@ -54,7 +55,7 @@ function setPath(doc: Table, p: readonly string[], value: unknown, file: string)
   p.slice(0, -1).forEach((seg, i) => {
     const child = node[seg];
     if (child === undefined) node[seg] = {};
-    else if (!isPlainObject(child)) {
+    else if (!isRecord(child)) {
       throw new PalmError('E_PARSE', `${file}: ${p.slice(0, i + 1).join('.')} is not a table`);
     }
     node = node[seg] as Table;
@@ -64,14 +65,14 @@ function setPath(doc: Table, p: readonly string[], value: unknown, file: string)
 
 function deletePath(doc: Table, p: readonly string[]): void {
   const parent = getPath(doc, p.slice(0, -1));
-  if (isPlainObject(parent)) delete parent[p[p.length - 1]!];
+  if (isRecord(parent)) delete parent[p[p.length - 1]!];
 }
 
 /** Drop ancestors of `p` that became empty tables (`mcp_servers = {}` after removing the last server). */
 function pruneEmptyAncestors(doc: Table, p: readonly string[]): Table {
   for (let i = p.length - 1; i > 0; i--) {
     const node = getPath(doc, p.slice(0, i));
-    if (isPlainObject(node) && Object.keys(node).length === 0) deletePath(doc, p.slice(0, i));
+    if (isRecord(node) && Object.keys(node).length === 0) deletePath(doc, p.slice(0, i));
     else break;
   }
   return doc;
@@ -216,7 +217,7 @@ export async function unmergeTomlTable(file: string, record: MergedRecord): Prom
   const text = await readTextOrUndefined(file);
   if (text === undefined || text.trim() === '') return;
   const doc = parseToml(text, file);
-  const tablePath = parsePointer(record.pointer);
+  const tablePath = recordedPath(record.pointer);
   if (tablePath.length === 0) return;
   const current = getPath(doc, tablePath);
   if (current === undefined || !containsAll(current, record.value)) return;

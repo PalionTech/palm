@@ -1,11 +1,6 @@
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  ensureJsonKey,
-  mergeJsonFile,
-  parseJsonc,
-  unmergeJsonFile,
-} from '../../src/targets/json-merge.js';
+import { ensureJsonKey, mergeJsonFile, unmergeJsonFile } from '../../src/targets/json-merge.js';
 import { cleanupTmp, exists, read, readJson, tmpDir, write } from './helpers.js';
 
 afterEach(cleanupTmp);
@@ -204,11 +199,15 @@ describe('helpers', () => {
     expect(await readJson(file)).toEqual({ version: 2 });
   });
 
-  it('parseJsonc keeps comment-like text inside strings', () => {
-    expect(parseJsonc('{"a":"/* x */ // y", /* c */ "b":[1,2,],}', 'f')).toEqual({
-      a: '/* x */ // y',
-      b: [1, 2],
+  it('JSONC reading keeps comment-like text inside strings; invalid JSON is E_PARSE', async () => {
+    const file = path.join(await tmpDir(), 'settings.json');
+    await write(file, '{"a":"/* x */ // y", /* c */ "b":[1,2,],}');
+    expect(await ensureJsonKey(file, '', 'c', 1, { dryRun: false })).toBe(true);
+    expect(await readJson(file)).toEqual({ a: '/* x */ // y', b: [1, 2], c: 1 });
+    await write(file, '{"a":');
+    await expect(ensureJsonKey(file, '', 'c', 1, { dryRun: false })).rejects.toMatchObject({
+      code: 'E_PARSE',
+      message: expect.stringMatching(/^cannot parse .*settings\.json: /),
     });
-    expect(() => parseJsonc('{"a":', 'f')).toThrowError(/cannot parse f/);
   });
 });

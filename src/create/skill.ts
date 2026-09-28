@@ -1,12 +1,12 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { PalmContext } from '../core/types.js';
+import { stringifyFrontmatter } from '../lib/frontmatter.js';
 import {
   type CreateOptions,
   finishCreate,
   mineDir,
   openInEditor,
-  renderFrontmatterFile,
   titleCase,
   validateSlug,
   writeNewFile,
@@ -39,7 +39,7 @@ Describe the situations and requests this skill is for, and when not to use it.
 
 - Gotchas, constraints, and pointers to files in references/ or scripts/.
 `;
-  return renderFrontmatterFile({ name: a.name, description: a.description.trim() }, body);
+  return stringifyFrontmatter({ name: a.name, description: a.description.trim() }, body);
 }
 
 export async function createSkill(ctx: PalmContext, opts: CreateOptions): Promise<void> {

@@ -7,23 +7,19 @@
 
 import { basename } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import type { CommandDefinition } from '../core/types.js';
-import { parseFrontmatter } from './frontmatter.js';
-import { toSlug } from './slug.js';
-import { asString, compact } from './util.js';
+import { parseFrontmatter } from '../lib/frontmatter.js';
+import { stemOf } from '../lib/names.js';
+import { withoutUndefined } from '../lib/object.js';
+import { asString, toSlug } from './util.js';
 
-export function commandStem(fileName: string): string {
-  const b = basename(fileName);
-  for (const ext of ['.prompt.md', '.md', '.toml']) {
-    if (b.toLowerCase().endsWith(ext)) return b.slice(0, -ext.length);
-  }
-  return b;
-}
+/** Command file extensions; the file stem is the name without one of them. */
+const COMMAND_EXTS = ['.prompt.md', '.md', '.toml'];
 
 export function parseCommandFile(absPath: string, text: string): CommandDefinition {
   const lower = absPath.toLowerCase();
-  const name = toSlug(commandStem(absPath));
+  const name = toSlug(stemOf(absPath, COMMAND_EXTS));
 
   if (lower.endsWith('.toml')) {
     let data: Record<string, unknown>;
@@ -32,10 +28,10 @@ export function parseCommandFile(absPath: string, text: string): CommandDefiniti
     } catch (e) {
       throw new PalmError(
         'E_PARSE',
-        `invalid TOML in command ${basename(absPath)}: ${(e as Error).message.split('\n')[0]}`,
+        `invalid TOML in command ${basename(absPath)}: ${messageOf(e).split('\n')[0]}`,
       );
     }
-    return compact({
+    return withoutUndefined({
       name,
       description: asString(data.description),
       body: typeof data.prompt === 'string' ? data.prompt : '',
@@ -54,7 +50,7 @@ export function parseCommandFile(absPath: string, text: string): CommandDefiniti
   else if (('agent' in data || 'subtask' in data) && argumentHint === undefined)
     sourceFormat = 'opencode-md';
   else sourceFormat = 'claude-md';
-  return compact({
+  return withoutUndefined({
     name,
     description: asString(data.description),
     argumentHint,

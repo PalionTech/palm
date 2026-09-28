@@ -16,7 +16,8 @@
  */
 import { stringify as tomlStringify } from 'smol-toml';
 import type { AgentDefinition, TargetId } from '../core/types.js';
-import { withFrontmatter, yamlMapping } from './frontmatter.js';
+import { normalizeBody, stringifyFrontmatter } from '../lib/frontmatter.js';
+import { withoutUndefined } from '../lib/object.js';
 
 const CLAUDE_ALIAS = /^(opus|sonnet|haiku|inherit|opusplan|default|best)(\[[^\]]*\])?$/i;
 const CLAUDE_ID = /^(claude[-_.]|anthropic[/.])/i;
@@ -84,8 +85,7 @@ function pickExtra(
 ): { kept: Record<string, unknown>; dropped: string[] } {
   const kept: Record<string, unknown> = {};
   const dropped: string[] = [];
-  for (const [k, v] of Object.entries(extra ?? {})) {
-    if (v === undefined) continue;
+  for (const [k, v] of Object.entries(withoutUndefined(extra ?? {}))) {
     if (allowed.includes(k)) kept[k] = v;
     else dropped.push(k);
   }
@@ -107,7 +107,7 @@ export function renderAgent(
       const extra = Object.fromEntries(
         Object.entries(def.extra ?? {}).filter(([k]) => !CLAUDE_KNOWN.includes(k)),
       );
-      const fm = yamlMapping({
+      const fm = {
         name: def.name,
         description: def.description,
         model: def.model,
@@ -117,8 +117,8 @@ export function renderAgent(
         mcpServers,
         color: def.color,
         ...extra,
-      });
-      return { fileName: `${def.name}.md`, content: withFrontmatter(fm, def.body), dropped };
+      };
+      return { fileName: `${def.name}.md`, content: stringifyFrontmatter(fm, def.body), dropped };
     }
 
     case 'codex': {
@@ -140,8 +140,7 @@ export function renderAgent(
         ...(model ? { model } : {}),
         ...kept,
       }).replace(/\n+$/, '');
-      const body = def.body.replace(/^(?:[ \t]*\r?\n)+/, '').replace(/\s+$/, '');
-      const content = `${head}\ndeveloper_instructions = ${tomlMultilineString(body === '' ? '' : body + '\n')}\n`;
+      const content = `${head}\ndeveloper_instructions = ${tomlMultilineString(normalizeBody(def.body))}\n`;
       return { fileName: `${def.name}.toml`, content, dropped };
     }
 
@@ -163,14 +162,18 @@ export function renderAgent(
       const { kept, dropped: extraDropped } = pickExtra(def.extra, COPILOT_EXTRA);
       dropped.push(...extraDropped.map((k) => `extra: ${k}`));
       if (copilotTools?.length === 0) copilotTools = undefined;
-      const fm = yamlMapping({
+      const fm = {
         name: def.displayName ?? def.name,
         description: def.description,
         model,
         tools: copilotTools,
         ...kept,
-      });
-      return { fileName: `${def.name}.agent.md`, content: withFrontmatter(fm, def.body), dropped };
+      };
+      return {
+        fileName: `${def.name}.agent.md`,
+        content: stringifyFrontmatter(fm, def.body),
+        dropped,
+      };
     }
 
     case 'cursor': {
@@ -187,14 +190,14 @@ export function renderAgent(
       if (def.color) dropped.push('color');
       const { kept, dropped: extraDropped } = pickExtra(def.extra, CURSOR_EXTRA);
       dropped.push(...extraDropped.map((k) => `extra: ${k}`));
-      const fm = yamlMapping({
+      const fm = {
         name: def.name,
         description: def.description,
         model,
         ...(readonly ? { readonly: true } : {}),
         ...kept,
-      });
-      return { fileName: `${def.name}.md`, content: withFrontmatter(fm, def.body), dropped };
+      };
+      return { fileName: `${def.name}.md`, content: stringifyFrontmatter(fm, def.body), dropped };
     }
   }
 }

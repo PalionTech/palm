@@ -1,6 +1,8 @@
 import { join } from 'node:path';
 import pc from 'picocolors';
+import { messageOf } from '../core/errors.js';
 import type { Kind, LockEntry, OriginIndex, PalmContext, PickOption, UI } from '../core/types.js';
+import { stringifyFrontmatter } from '../lib/frontmatter.js';
 import { truncate } from '../ui/output.js';
 import { matchesQuery } from '../ui/prompts.js';
 import {
@@ -8,7 +10,6 @@ import {
   editBody,
   finishCreate,
   mineDir,
-  renderFrontmatterFile,
   required,
   validateSlug,
   writeNewFile,
@@ -49,7 +50,7 @@ export interface AgentAnswers {
  * installs as dependencies of the agent; targets never receive the key.
  */
 export function renderAgentFile(a: AgentAnswers): string {
-  return renderFrontmatterFile(
+  return stringifyFrontmatter(
     {
       name: a.name,
       description: a.description.trim(),
@@ -285,13 +286,13 @@ async function loadSources(
     const { listInstalled } = await import('../engine/query.js');
     installed = await listInstalled(ctx, scope);
   } catch (e) {
-    ctx.log.debug(`could not read the lockfile: ${e instanceof Error ? e.message : String(e)}`);
+    ctx.log.debug(`could not read the lockfile: ${messageOf(e)}`);
   }
   try {
     const { getAllIndexes } = await import('../core/cache.js');
     indexes = await getAllIndexes(ctx);
   } catch (e) {
-    ctx.log.warn(`could not load origin indexes: ${e instanceof Error ? e.message : String(e)}`);
+    ctx.log.warn(`could not load origin indexes: ${messageOf(e)}`);
   }
   spinner.stop('Loaded choices');
 
@@ -312,7 +313,7 @@ async function loadSources(
               ) || undefined,
           }));
         } catch (e) {
-          ctx.log.warn(`MCP registry search failed: ${e instanceof Error ? e.message : String(e)}`);
+          ctx.log.warn(`MCP registry search failed: ${messageOf(e)}`);
           return [];
         }
       };

@@ -2,25 +2,23 @@
   "note": "Lint ratchet baseline (scripts/lint-ratchet.mjs): counts may only go down. Lower them with `npm run lint:baseline` after fixing findings.",
   "diagnostics": {
     "complexity/noCommaOperator": 1,
-    "complexity/noExcessiveCognitiveComplexity": 80,
-    "complexity/noUselessContinue": 1,
+    "complexity/noExcessiveCognitiveComplexity": 77,
     "complexity/useLiteralKeys": 56,
-    "complexity/useOptionalChain": 4,
+    "complexity/useOptionalChain": 3,
     "correctness/noUnusedFunctionParameters": 1,
     "style/noNestedTernary": 16,
-    "style/noNonNullAssertion": 57,
+    "style/noNonNullAssertion": 49,
     "style/useConst": 1,
     "style/useImportType": 1,
-    "style/useTemplate": 40,
+    "style/useTemplate": 33,
     "suspicious/noAssignInExpressions": 1,
     "suspicious/noConsole": 54,
     "suspicious/noControlCharactersInRegex": 7,
     "suspicious/noImplicitAnyLet": 5,
-    "suspicious/noPrototypeBuiltins": 2,
     "suspicious/noTemplateCurlyInString": 2,
     "suspicious/useIterableCallbackReturn": 1
   },
   "suppressions": {
-    "style/noRestrictedImports": 4
+    "style/noRestrictedImports": 1
   }
 }

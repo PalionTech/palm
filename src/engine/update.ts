@@ -1,6 +1,6 @@
 import { getIndex } from '../core/cache.js';
 import { findOrigin } from '../core/config.js';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import { loadLock } from '../core/lockfile.js';
 import { isMcpManifestEntry, listDeps, loadManifest } from '../core/manifest.js';
 import { lockPath, manifestPath } from '../core/paths.js';
@@ -103,7 +103,7 @@ export async function updateEntities(
         try {
           await getIndex(ctx, ref ? { ...spec, ref } : spec, { refresh: true, scan: deps.scan });
         } catch (err) {
-          warnings.push(`could not refresh origin "${spec.alias}": ${(err as Error).message}`);
+          warnings.push(`could not refresh origin "${spec.alias}": ${messageOf(err)}`);
         }
       }
       const dep: DepRef = { name: e.name, origin: e.origin };

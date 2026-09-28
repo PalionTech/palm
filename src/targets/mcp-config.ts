@@ -25,8 +25,14 @@
 
 import { PalmError } from '../core/errors.js';
 import type { McpServerConfig, Scope, SecretPolicy, TargetId } from '../core/types.js';
-// biome-ignore lint/style/noRestrictedImports: known layer violation (targets -> mcp); PLAN.md wave 1 moves the ${VAR} token grammar to src/lib.
-import { isRuntimeVar, optionalSecretNames } from '../mcp/secrets.js';
+import { withoutUndefined } from '../lib/object.js';
+import {
+  envRef,
+  findPlaceholders,
+  isRuntimeVar,
+  parsePlaceholder,
+  replacePlaceholders,
+} from '../lib/placeholders.js';
 
 export interface RenderedMcp {
   /** Harness object / TOML table; undefined when the harness cannot express this server. */
@@ -36,20 +42,54 @@ export interface RenderedMcp {
   envRefs: string[];
 }
 
-/** Groups: 1 = variable name, 2 = default (after `:-`), undefined when absent. */
-const TOKEN = /\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g;
-const EXACT_TOKEN = /^\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}$/;
-const BEARER_TOKEN = /^Bearer\s+\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}$/i;
-
 export const OAUTH_NOTE = 'HTTP MCP servers authenticate via OAuth on first connect';
 
 function tokensOf(s: string): string[] {
-  return [...s.matchAll(TOKEN)].map((m) => m[1]!).filter((v) => !isRuntimeVar(v));
+  return findPlaceholders(s)
+    .map((p) => p.name)
+    .filter((v) => !isRuntimeVar(v));
+}
+
+/** The variable of a value that is exactly one `${VAR}` token. */
+function exactVar(s: string): string | undefined {
+  return parsePlaceholder(s.trim())?.name;
+}
+
+/** The variable of a `Bearer ${VAR}` value. */
+function bearerVar(s: string): string | undefined {
+  const m = /^Bearer\s+(.*)$/is.exec(s.trim());
+  return m ? exactVar(m[1] as string) : undefined;
 }
 
 /** `${env:X}` → `${X}` (for human-readable notes). */
 function plainRefs(s: string): string {
-  return s.replace(TOKEN, (m, v: string) => (isRuntimeVar(v) ? m : `\${${v}}`));
+  return replacePlaceholders(s, (p) => (isRuntimeVar(p.name) ? undefined : envRef(p.name)));
+}
+
+/**
+ * Names of the optional secrets of `cfg`: declared with `required: false`, or undeclared and
+ * written with a `:-default` wherever an env value, header value, the url or an arg uses them.
+ * The same rule as `optionalSecretNames` in src/mcp/secrets (src/targets may not import it).
+ */
+function optionalSecretNames(cfg: McpServerConfig): Set<string> {
+  const required = new Map<string, boolean>();
+  for (const s of cfg.secrets ?? []) required.set(s.name, required.get(s.name) || s.required);
+  const detected = new Map<string, boolean>();
+  const values = [
+    ...Object.values(cfg.env ?? {}),
+    ...Object.values(cfg.headers ?? {}),
+    cfg.url,
+    ...(cfg.args ?? []),
+  ];
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    for (const p of findPlaceholders(value)) {
+      if (isRuntimeVar(p.name) || required.has(p.name)) continue;
+      detected.set(p.name, detected.get(p.name) || p.default === undefined);
+    }
+  }
+  const optional = [...required, ...detected].filter(([, isRequired]) => !isRequired);
+  return new Set(optional.map(([name]) => name));
 }
 
 /** Marker for a value that must be left out (optional secret without a value under `literal`). */
@@ -102,7 +142,7 @@ function referenced(cfg: McpServerConfig, name: string): boolean {
     ...Object.values(cfg.env ?? {}),
     ...Object.values(cfg.headers ?? {}),
   ];
-  return fields.some((f) => [...f.matchAll(TOKEN)].some((m) => m[1] === name));
+  return fields.some((f) => findPlaceholders(f).some((p) => p.name === name));
 }
 
 /** env/header maps with placeholders added for declared secrets that no field references. */
@@ -114,16 +154,13 @@ function withSecretPlaceholders(cfg: McpServerConfig): {
   const headers = { ...(cfg.headers ?? {}) };
   for (const s of cfg.secrets ?? []) {
     if (referenced(cfg, s.name)) continue;
-    if (s.in === 'env' && env[s.name] === undefined) env[s.name] = `\${${s.name}}`;
+    const ref = envRef(s.name);
+    if (s.in === 'env' && env[s.name] === undefined) env[s.name] = ref;
     if (s.in === 'header' && s.header && headers[s.header] === undefined) {
-      headers[s.header] = s.format ? s.format.replace('{value}', `\${${s.name}}`) : `\${${s.name}}`;
+      headers[s.header] = s.format ? s.format.replace('{value}', ref) : ref;
     }
   }
   return { env, headers };
-}
-
-function prune(obj: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
 }
 
 function requireField(cfg: McpServerConfig, field: 'command' | 'url'): string {
@@ -146,8 +183,8 @@ function renderJsonEntry(
     target === 'claude' || (target === 'copilot' && scope === 'global') ? 'plain' : 'env-colon';
   const rewrite = (s: string, where: string, canDrop: boolean): string | typeof DROP => {
     let dropped = false;
-    const out = s.replace(TOKEN, (m, v: string, def: string | undefined) => {
-      if (isRuntimeVar(v)) return m;
+    const out = replacePlaceholders(s, ({ name: v, default: def }) => {
+      if (isRuntimeVar(v)) return undefined;
       if (st.hasValue(v)) return st.values[v]!;
       const fallback = st.literalFallback(v, def, where, canDrop);
       if (fallback === DROP) {
@@ -156,13 +193,13 @@ function renderJsonEntry(
       }
       if (fallback !== undefined) return fallback;
       st.missing(v);
-      if (style === 'env-colon') return `\${env:${v}}`;
+      if (style === 'env-colon') return envRef(v, 'env-colon');
       // Claude fails to load a config whose ${VAR} is unset without a default.
       const withDefault =
         def !== undefined ? def : target === 'claude' && st.optional.has(v) ? '' : undefined;
       return withDefault === undefined || target !== 'claude'
-        ? `\${${v}}`
-        : `\${${v}:-${withDefault}}`;
+        ? envRef(v)
+        : envRef(v, 'dollar-default', withDefault);
     });
     return dropped ? DROP : out;
   };
@@ -188,9 +225,9 @@ function renderJsonEntry(
       args: cfg.args?.length ? cfg.args.map((a) => scalar(a, 'args')) : undefined,
       env: mapValues(env, 'env'),
     };
-    if (target === 'cursor') return prune(base);
-    if (copilotCli) return prune({ type: 'local', ...base, tools: ['*'] });
-    return prune({ type: 'stdio', ...base });
+    if (target === 'cursor') return withoutUndefined(base);
+    if (copilotCli) return withoutUndefined({ type: 'local', ...base, tools: ['*'] });
+    return withoutUndefined({ type: 'stdio', ...base });
   }
 
   const base = {
@@ -198,9 +235,9 @@ function renderJsonEntry(
     headers: mapValues(headers, 'header'),
   };
   if (!base.headers) st.notes.add(OAUTH_NOTE);
-  if (target === 'cursor') return prune(base);
-  if (copilotCli) return prune({ type: cfg.transport, ...base, tools: ['*'] });
-  return prune({ type: cfg.transport, ...base });
+  if (target === 'cursor') return withoutUndefined(base);
+  if (copilotCli) return withoutUndefined({ type: cfg.transport, ...base, tools: ['*'] });
+  return withoutUndefined({ type: cfg.transport, ...base });
 }
 
 function renderCodexTable(
@@ -213,29 +250,29 @@ function renderCodexTable(
   }
   // Codex expands nothing in command/args/url: substitute known values (literal), else keep the token.
   const literalOnly = (s: string, field: string): string =>
-    s.replace(TOKEN, (m, v: string, def: string | undefined) => {
-      if (isRuntimeVar(v)) return m;
+    replacePlaceholders(s, ({ name: v, default: def, raw }) => {
+      if (isRuntimeVar(v)) return undefined;
       if (st.hasValue(v)) return st.values[v]!;
       const fallback = st.literalFallback(v, def, field, false);
       if (typeof fallback === 'string') return fallback;
       st.envRefs.add(v);
       st.notes.add(
-        `Codex does not expand environment variables in ${field}: ${plainRefs(m)} is passed literally (install with --secrets literal to substitute it)`,
+        `Codex does not expand environment variables in ${field}: ${plainRefs(raw)} is passed literally (install with --secrets literal to substitute it)`,
       );
-      return m;
+      return undefined;
     });
   /** All tokens resolvable without the environment (values or literal defaults)? Then the substituted text, else undefined. */
   const substituted = (raw: string, where: string): string | typeof DROP | undefined => {
     let dropped = false;
     let unresolved = false;
-    const out = raw.replace(TOKEN, (m, v: string, def: string | undefined) => {
-      if (isRuntimeVar(v)) return m;
+    const out = replacePlaceholders(raw, ({ name: v, default: def }) => {
+      if (isRuntimeVar(v)) return undefined;
       if (st.hasValue(v)) return st.values[v]!;
       const fallback = st.literalFallback(v, def, where, true);
       if (fallback === DROP) dropped = true;
       else if (fallback !== undefined) return fallback;
       else unresolved = true;
-      return m;
+      return undefined;
     });
     if (dropped) return DROP;
     return unresolved ? undefined : out;
@@ -262,11 +299,10 @@ function renderCodexTable(
           st.notes.add(`no value for ${t}; left as an environment reference`);
       envVars.push(k);
       st.envRefs.add(k);
-      const exact = EXACT_TOKEN.exec(raw.trim());
-      if (!exact || exact[1] !== k)
+      if (exactVar(raw) !== k)
         st.notes.add(`Codex forwards ${k} from your environment: export ${k}="${plainRefs(raw)}"`);
     }
-    return prune({
+    return withoutUndefined({
       command: literalOnly(requireField(cfg, 'command'), 'command'),
       args: cfg.args?.length ? cfg.args.map((a) => literalOnly(a, 'args')) : undefined,
       cwd: cfg.cwd,
@@ -293,14 +329,14 @@ function renderCodexTable(
     for (const t of toks)
       if (!st.hasValue(t) && st.policy === 'literal')
         st.notes.add(`no value for ${t}; left as an environment reference`);
-    const bearerMatch = BEARER_TOKEN.exec(raw.trim());
-    if (/^authorization$/i.test(h) && bearerMatch && bearer === undefined) {
-      bearer = bearerMatch[1]!;
+    const bearerName = bearerVar(raw);
+    if (/^authorization$/i.test(h) && bearerName && bearer === undefined) {
+      bearer = bearerName;
       st.envRefs.add(bearer);
       continue;
     }
-    const exact = EXACT_TOKEN.exec(raw.trim());
-    const v = exact ? exact[1]! : toks[0]!;
+    const exact = exactVar(raw);
+    const v = exact ?? toks[0]!;
     envHeaders[h] = v;
     st.envRefs.add(v);
     if (!exact) {
@@ -310,7 +346,7 @@ function renderCodexTable(
     }
   }
   if (Object.keys(headers).length === 0) st.notes.add(OAUTH_NOTE);
-  return prune({
+  return withoutUndefined({
     url: literalOnly(requireField(cfg, 'url'), 'url'),
     bearer_token_env_var: bearer,
     http_headers: Object.keys(httpHeaders).length ? httpHeaders : undefined,

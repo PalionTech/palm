@@ -1,5 +1,5 @@
 import { saveConfig } from '../core/config.js';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import { loadManifest, saveManifest } from '../core/manifest.js';
 import { manifestPath, scopeRoot } from '../core/paths.js';
 import { type PalmContext, type Scope, TARGET_IDS, type TargetId } from '../core/types.js';
@@ -70,7 +70,7 @@ export async function resolveTargets(
       try {
         return (await deps.getTarget(id).detect(opts.scope, root, ctx.env)) ? id : undefined;
       } catch (e) {
-        ctx.log.debug(`target ${id} detection failed: ${(e as Error).message}`);
+        ctx.log.debug(`target ${id} detection failed: ${messageOf(e)}`);
         return undefined;
       }
     }),

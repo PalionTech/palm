@@ -12,11 +12,13 @@
  *   names the key itself (`/mcpServers/<name>`).
  */
 
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import type { MergedRecord } from '../core/types.js';
-import { containsAll, deepEqual, isPlainObject } from './deep-equal.js';
+import { parseJson, stringifyJson } from '../lib/json.js';
+import { formatPointer, joinPointer, parsePointer } from '../lib/json-pointer.js';
+import { deepEqual, isRecord } from '../lib/object.js';
 import { atomicWrite, readTextOrUndefined, removeFileIfExists } from './fs-utils.js';
-import { formatPointer, joinPointer, parsePointer } from './json-pointer.js';
+import { containsAll, recordedPath } from './recorded.js';
 
 export interface JsonMergeOptions {
   dryRun: boolean;
@@ -26,113 +28,31 @@ export interface JsonMergeOptions {
   displayFile?: string;
 }
 
-/** Remove `//` and `/* *\/` comments outside of strings. */
-export function stripJsonComments(text: string): string {
-  let out = '';
-  let i = 0;
-  let inStr = false;
-  while (i < text.length) {
-    const c = text[i]!;
-    const n = text[i + 1];
-    if (inStr) {
-      out += c;
-      if (c === '\\') {
-        out += n ?? '';
-        i += 2;
-        continue;
-      }
-      if (c === '"') inStr = false;
-      i++;
-      continue;
-    }
-    if (c === '"') {
-      inStr = true;
-      out += c;
-      i++;
-      continue;
-    }
-    if (c === '/' && n === '/') {
-      while (i < text.length && text[i] !== '\n') i++;
-      continue;
-    }
-    if (c === '/' && n === '*') {
-      const end = text.indexOf('*/', i + 2);
-      i = end === -1 ? text.length : end + 2;
-      out += ' ';
-      continue;
-    }
-    out += c;
-    i++;
-  }
-  return out;
-}
-
-/** Remove commas directly before `}` or `]` (outside strings). Expects comment-free input. */
-export function stripTrailingCommas(text: string): string {
-  let out = '';
-  let inStr = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i]!;
-    if (inStr) {
-      out += c;
-      if (c === '\\') {
-        out += text[i + 1] ?? '';
-        i++;
-      } else if (c === '"') inStr = false;
-      continue;
-    }
-    if (c === '"') {
-      inStr = true;
-      out += c;
-      continue;
-    }
-    if (c === ',') {
-      let j = i + 1;
-      while (j < text.length && /\s/.test(text[j]!)) j++;
-      if (text[j] === '}' || text[j] === ']') continue;
-    }
-    out += c;
-  }
-  return out;
-}
-
-/** Parse JSON, falling back to JSONC (comments + trailing commas). */
-export function parseJsonc(text: string, file: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    try {
-      return JSON.parse(stripTrailingCommas(stripJsonComments(text)));
-    } catch (e) {
-      throw new PalmError(
-        'E_PARSE',
-        `cannot parse ${file}: ${(e as Error).message}`,
-        'fix the JSON syntax or move the file aside',
-      );
-    }
-  }
-}
-
-/** Read a JSON object file; `{}` when missing or empty. */
-export async function readJsonObject(file: string): Promise<Record<string, unknown>> {
+/** Read a JSON object file (JSONC tolerated); `{}` when missing or empty. */
+async function readJsonObject(file: string): Promise<Record<string, unknown>> {
   const text = await readTextOrUndefined(file);
   if (text === undefined || text.trim() === '') return {};
-  const doc = parseJsonc(text, file);
-  if (!isPlainObject(doc))
+  let doc: unknown;
+  try {
+    doc = parseJson(text, { tolerant: true });
+  } catch (e) {
+    throw new PalmError(
+      'E_PARSE',
+      `cannot parse ${file}: ${messageOf(e)}`,
+      'fix the JSON syntax or move the file aside',
+    );
+  }
+  if (!isRecord(doc))
     throw new PalmError('E_PARSE', `${file}: expected a JSON object at the top level`);
   return doc;
 }
 
-export function serializeJson(doc: unknown): string {
-  return JSON.stringify(doc, null, 2) + '\n';
-}
-
 /** Value at `pointer`, or undefined. */
-export function getAtPointer(doc: unknown, pointer: string): unknown {
+function getAtPointer(doc: unknown, pointer: string): unknown {
   let node: unknown = doc;
   for (const seg of parsePointer(pointer)) {
     if (Array.isArray(node)) node = node[Number(seg)];
-    else if (isPlainObject(node)) node = node[seg];
+    else if (isRecord(node)) node = node[seg];
     else return undefined;
   }
   return node;
@@ -159,7 +79,7 @@ function walkCreate(
     if (child === undefined || child === null) {
       child = wantArray ? [] : {};
       node[seg] = child;
-    } else if (wantArray ? !Array.isArray(child) : !isPlainObject(child)) {
+    } else if (wantArray ? !Array.isArray(child) : !isRecord(child)) {
       throw new PalmError(
         'E_PARSE',
         `${file}: expected ${wantArray ? 'an array' : 'an object'} at ${formatPointer(segs.slice(0, i + 1))}`,
@@ -211,7 +131,7 @@ export async function mergeJsonFile(
     }
     record = { file, pointer: joinPointer(pointer, key), value };
   }
-  if (changed && !opts.dryRun) await atomicWrite(file, serializeJson(doc));
+  if (changed && !opts.dryRun) await atomicWrite(file, stringifyJson(doc));
   return record;
 }
 
@@ -227,7 +147,7 @@ export async function ensureJsonKey(
   const obj = walkCreate(doc, parsePointer(pointer), false, file) as Record<string, unknown>;
   if (obj[key] !== undefined) return false;
   obj[key] = structuredClone(value);
-  if (!opts.dryRun) await atomicWrite(file, serializeJson(doc));
+  if (!opts.dryRun) await atomicWrite(file, stringifyJson(doc));
   return true;
 }
 
@@ -243,7 +163,7 @@ export async function unmergeJsonFile(file: string, record: MergedRecord): Promi
   const text = await readTextOrUndefined(file);
   if (text === undefined || text.trim() === '') return;
   const doc = await readJsonObject(file);
-  const segs = parsePointer(record.pointer);
+  const segs = recordedPath(record.pointer);
   if (segs.length === 0) return;
   const parent = getAtPointer(doc, formatPointer(segs.slice(0, -1)));
   const last = segs[segs.length - 1]!;
@@ -259,7 +179,7 @@ export async function unmergeJsonFile(file: string, record: MergedRecord): Promi
     }
   } else if (node !== undefined && containsAll(node, record.value)) {
     if (Array.isArray(parent)) parent.splice(Number(last), 1);
-    else if (isPlainObject(parent)) delete parent[last];
+    else if (isRecord(parent)) delete parent[last];
     changed = true;
     emptied = segs.slice(0, -1);
   }
@@ -269,7 +189,7 @@ export async function unmergeJsonFile(file: string, record: MergedRecord): Promi
     await removeFileIfExists(file);
     return;
   }
-  await atomicWrite(file, serializeJson(doc));
+  await atomicWrite(file, stringifyJson(doc));
 }
 
 /** Delete the container at `segs` and its ancestors while they are empty (never the root). */
@@ -278,10 +198,10 @@ function pruneEmptyContainers(doc: Record<string, unknown>, segs: string[]): voi
     const node = getAtPointer(doc, formatPointer(segs.slice(0, i)));
     const empty = Array.isArray(node)
       ? node.length === 0
-      : isPlainObject(node) && Object.keys(node).length === 0;
+      : isRecord(node) && Object.keys(node).length === 0;
     if (!empty) return;
     const parent = getAtPointer(doc, formatPointer(segs.slice(0, i - 1)));
-    if (isPlainObject(parent)) delete parent[segs[i - 1]!];
+    if (isRecord(parent)) delete parent[segs[i - 1]!];
     else return;
   }
 }

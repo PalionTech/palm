@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
-import { rm, rmdir } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import { loadLock, removeEntry, saveLock, upsertEntry } from '../core/lockfile.js';
 import {
   isMcpManifestEntry,
@@ -20,6 +20,7 @@ import {
   type PalmContext,
   type Scope,
 } from '../core/types.js';
+import { isWithin, removeEmptyParents } from '../lib/fs.js';
 import { type EngineDeps, resolveEngineDeps } from './deps.js';
 import { nameMatchesEntry } from './query.js';
 
@@ -31,38 +32,42 @@ export function absScopeFile(root: string, file: string): string {
   return isAbsolute(file) ? file : join(root, file);
 }
 
-/** Remove now-empty directories upward, never touching the harness container dirs (`.claude/skills`, `~/.palm/hooks`, …). */
-async function pruneEmptyDirs(ctx: PalmContext, root: string, start: string): Promise<void> {
-  const stops: Array<{ base: string; min: number }> = [
-    { base: root, min: 3 },
-    { base: ctx.paths.palmHome, min: 2 },
-  ];
-  let dir = start;
-  for (;;) {
-    const removable = stops.some(({ base, min }) => {
-      const rel = relative(base, dir);
-      return !!rel && !rel.startsWith('..') && !isAbsolute(rel) && rel.split(sep).length >= min;
-    });
-    if (!removable) return;
-    try {
-      await rmdir(dir);
-    } catch {
-      return; // not empty or already gone
-    }
-    dir = dirname(dir);
-  }
+/** The directory `depth` levels below `base` on the way to `file`, or undefined outside `base`. */
+function levelBelow(base: string, file: string, depth: number): string | undefined {
+  if (!isWithin(file, base)) return undefined;
+  return join(base, ...relative(base, file).split(sep).slice(0, depth));
+}
+
+/**
+ * Remove the now-empty directories above `file`, never touching the harness container dirs:
+ * pruning stops two levels below the scope root (`.claude/skills`) and one level below palm's
+ * home (`~/.palm/hooks`), whichever lets more go.
+ */
+async function pruneEmptyDirs(ctx: PalmContext, root: string, file: string): Promise<void> {
+  const stops = [levelBelow(root, file, 2), levelBelow(ctx.paths.palmHome, file, 1)];
+  const stop = stops
+    .filter((d): d is string => d !== undefined)
+    .sort((a, b) => a.length - b.length)[0];
+  if (stop) await removeEmptyParents(file, stop);
 }
 
 /**
  * Containers palm itself creates and may remove once empty: the shared `.agents/skills`
  * (and `.agents`), and the project `.palm/hooks` (and `.palm`) / global `<palmHome>/hooks`.
  * Harness config dirs (`.claude`, `.codex`, `.cursor`, `.github`, `.vscode`) are never removed.
+ * Each is `{ dir, top }`: `dir` and its parents up to and including `top`.
  */
-function palmContainers(ctx: PalmContext, scope: Scope, root: string): string[][] {
-  const chains = [[join(root, '.agents', 'skills'), join(root, '.agents')]];
-  if (scope === 'project') chains.push([join(root, '.palm', 'hooks'), join(root, '.palm')]);
-  else chains.push([join(ctx.paths.palmHome, 'hooks')]);
-  return chains;
+function palmContainers(
+  ctx: PalmContext,
+  scope: Scope,
+  root: string,
+): Array<{ dir: string; top: string }> {
+  const agents = join(root, '.agents');
+  const hooks =
+    scope === 'project'
+      ? { dir: join(root, '.palm', 'hooks'), top: join(root, '.palm') }
+      : { dir: join(ctx.paths.palmHome, 'hooks'), top: join(ctx.paths.palmHome, 'hooks') };
+  return [{ dir: join(agents, 'skills'), top: agents }, hooks];
 }
 
 async function pruneContainers(
@@ -71,16 +76,10 @@ async function pruneContainers(
   root: string,
   touched: string[],
 ): Promise<void> {
-  for (const chain of palmContainers(ctx, scope, root)) {
-    const top = chain[chain.length - 1]!;
-    if (!touched.some((f) => f === top || f.startsWith(top + sep))) continue;
-    for (const dir of chain) {
-      try {
-        await rmdir(dir);
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') break; // not empty: keep the parent too
-      }
-    }
+  for (const { dir, top } of palmContainers(ctx, scope, root)) {
+    // removeEmptyParents starts at the parent of its first argument, i.e. at `dir`.
+    if (touched.some((f) => isWithin(f, top)))
+      await removeEmptyParents(join(dir, '_'), dirname(top));
   }
 }
 
@@ -118,7 +117,7 @@ export async function undeployEntries(
       try {
         await deps.getTarget(id).undeploy(entry, scope, root, ctx.flags.dryRun, ctx.env);
       } catch (e) {
-        warnings.push(`${entry.kind} ${entry.name} → ${id}: ${(e as Error).message}`);
+        warnings.push(`${entry.kind} ${entry.name} → ${id}: ${messageOf(e)}`);
       }
     }
     if (ctx.flags.dryRun) continue;
@@ -131,11 +130,11 @@ export async function undeployEntries(
         try {
           await rm(abs, { recursive: true, force: true });
         } catch (e) {
-          warnings.push(`could not remove ${abs}: ${(e as Error).message}`);
+          warnings.push(`could not remove ${abs}: ${messageOf(e)}`);
           continue;
         }
       }
-      await pruneEmptyDirs(ctx, root, dirname(abs));
+      await pruneEmptyDirs(ctx, root, abs);
     }
   }
   if (!ctx.flags.dryRun) await pruneContainers(ctx, scope, root, touched);

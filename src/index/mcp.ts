@@ -5,10 +5,15 @@
  *  - flat `{ name: {...} }` (claude-plugins-official)
  */
 
-import type { McpServerConfig } from '../core/types.js';
-// biome-ignore lint/style/noRestrictedImports: known layer violation (index -> mcp); PLAN.md wave 1 moves the ${VAR} token grammar to src/lib.
-import { detectSecrets, isPlaceholderValue } from '../mcp/secrets.js';
-import { asString, compact, isRecord } from './util.js';
+import type { McpServerConfig, SecretRef } from '../core/types.js';
+import { isRecord, withoutUndefined } from '../lib/object.js';
+import {
+  findPlaceholders,
+  isFillInValue,
+  isRuntimeVar,
+  type Placeholder,
+} from '../lib/placeholders.js';
+import { asString } from './util.js';
 
 const SERVER_HINT_KEYS = ['command', 'url', 'type', 'httpUrl', 'serverUrl', 'transport'];
 
@@ -68,7 +73,7 @@ function toServerConfig(name: string, def: unknown): McpServerConfig | undefined
   const args = Array.isArray(def.args) ? def.args.map((a) => String(a)) : undefined;
   const env = normalizePlaceholders(stringMap(def.env));
   const headers = stringMap(def.headers);
-  const cfg: McpServerConfig = compact({
+  const cfg: McpServerConfig = withoutUndefined({
     name,
     transport,
     command: transport === 'stdio' ? command : undefined,
@@ -89,6 +94,60 @@ function normalizePlaceholders(
 ): Record<string, string> | undefined {
   if (!env) return env;
   return Object.fromEntries(
-    Object.entries(env).map(([k, v]) => [k, isPlaceholderValue(v) ? `\${${k}}` : v]),
+    Object.entries(env).map(([k, v]) => [k, isFillInValue(v) ? `\${${k}}` : v]),
   );
+}
+
+/** Adds `ref` to `out` or merges it into the entry of that name (required and header use win). */
+function addSecret(out: SecretRef[], ref: SecretRef): void {
+  const existing = out.find((s) => s.name === ref.name);
+  if (!existing) {
+    out.push(ref);
+    return;
+  }
+  existing.required ||= ref.required;
+  if (existing.in === 'env' && ref.in === 'header') {
+    existing.in = 'header';
+    if (ref.header) existing.header = ref.header;
+    if (ref.format) existing.format = ref.format;
+  }
+}
+
+/** Adds a secret for each non-runtime placeholder in `value`; `make` also gets the token count. */
+function scanValue(
+  value: string,
+  out: SecretRef[],
+  make: (p: Placeholder, tokens: number) => SecretRef,
+): void {
+  const found = findPlaceholders(value);
+  for (const p of found) if (!isRuntimeVar(p.name)) addSecret(out, make(p, found.length));
+}
+
+function envSecret(p: Placeholder): SecretRef {
+  return { name: p.name, in: 'env', required: p.default === undefined };
+}
+
+/**
+ * Placeholders in env values, header values, the URL and args → SecretRefs. A placeholder with a
+ * `:-default` is optional. A header value that is more than its one placeholder (`Bearer ${TOKEN}`)
+ * records its template in `format` (`Bearer {value}`).
+ */
+function detectSecrets(cfg: McpServerConfig): SecretRef[] {
+  const out: SecretRef[] = [];
+  for (const value of Object.values(cfg.env ?? {})) scanValue(value, out, envSecret);
+  for (const [header, value] of Object.entries(cfg.headers ?? {})) {
+    scanValue(value, out, (p, tokens) => {
+      const ref: SecretRef = {
+        name: p.name,
+        in: 'header',
+        header,
+        required: p.default === undefined,
+      };
+      if (tokens === 1 && value !== p.raw) ref.format = value.replace(p.raw, '{value}');
+      return ref;
+    });
+  }
+  if (cfg.url !== undefined) scanValue(cfg.url, out, envSecret);
+  for (const arg of cfg.args ?? []) scanValue(arg, out, envSecret);
+  return out;
 }

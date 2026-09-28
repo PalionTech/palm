@@ -6,11 +6,13 @@
 
 import { readFile, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import type { OriginSpec, ParseMarketplaceFn } from '../core/types.js';
+import { parseJson } from '../lib/json.js';
+import { slugify } from '../lib/names.js';
+import { isRecord, withoutUndefined } from '../lib/object.js';
 import { type ComponentDecls, parseComponentDecls } from './plugin-manifest.js';
-import { slugify, toSlug } from './slug.js';
-import { asBool, asString, compact, isRecord, joinRel, normRel } from './util.js';
+import { asBool, asString, joinRel, normRel, toSlug } from './util.js';
 
 /** Marketplace file locations relative to the repo root, in precedence order. */
 export const MARKETPLACE_FILES = [
@@ -92,7 +94,7 @@ export function normalizeSource(src: unknown): MarketplaceSource {
     case 'github': {
       const repo = asString(src.repo);
       if (!repo) return { type: 'unknown', raw: src };
-      return compact({
+      return withoutUndefined({
         type: 'github' as const,
         repo,
         path: path ? normRel(path) : undefined,
@@ -103,7 +105,13 @@ export function normalizeSource(src: unknown): MarketplaceSource {
     case 'git-subdir': {
       const url = asString(src.url);
       if (!url) return { type: 'unknown', raw: src };
-      return compact({ type: 'git-subdir' as const, url, path: normRel(path ?? ''), ref, sha });
+      return withoutUndefined({
+        type: 'git-subdir' as const,
+        url,
+        path: normRel(path ?? ''),
+        ref,
+        sha,
+      });
     }
     case 'url':
     case 'git': {
@@ -112,7 +120,7 @@ export function normalizeSource(src: unknown): MarketplaceSource {
       // Codex writes `{source:"url", url:"./"}` for the marketplace repo itself.
       if (!REMOTE_STRING.test(url) && !/^[a-z]+:\/\//i.test(url))
         return { type: 'local', path: normRel(url) };
-      return compact({ type: kind, url, ref, sha });
+      return withoutUndefined({ type: kind, url, ref, sha });
     }
     case 'local':
     case 'relative':
@@ -120,7 +128,11 @@ export function normalizeSource(src: unknown): MarketplaceSource {
       return { type: 'local', path: normRel(path ?? asString(src.url) ?? '') };
     case 'npm': {
       const pkg = asString(src.package) ?? asString(src.name) ?? '';
-      return compact({ type: 'npm' as const, package: pkg, version: asString(src.version) });
+      return withoutUndefined({
+        type: 'npm' as const,
+        package: pkg,
+        version: asString(src.version),
+      });
     }
     default:
       return { type: 'unknown', raw: src };
@@ -170,7 +182,7 @@ async function readMarketplaceText(file: string): Promise<string> {
     try {
       res = await fetch(file);
     } catch (e) {
-      throw new PalmError('E_NETWORK', `could not fetch ${file}: ${(e as Error).message}`);
+      throw new PalmError('E_NETWORK', `could not fetch ${file}: ${messageOf(e)}`);
     }
     if (!res.ok) throw new PalmError('E_NETWORK', `could not fetch ${file}: HTTP ${res.status}`);
     return res.text();
@@ -178,7 +190,7 @@ async function readMarketplaceText(file: string): Promise<string> {
   try {
     return await readFile(file, 'utf8');
   } catch (e) {
-    throw new PalmError('E_IO', `cannot read marketplace file ${file}: ${(e as Error).message}`);
+    throw new PalmError('E_IO', `cannot read marketplace file ${file}: ${messageOf(e)}`);
   }
 }
 
@@ -186,9 +198,9 @@ async function readMarketplaceText(file: string): Promise<string> {
 export function parseMarketplaceJson(text: string, file: string): Marketplace {
   let json: unknown;
   try {
-    json = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+    json = parseJson(text);
   } catch (e) {
-    throw new PalmError('E_PARSE', `invalid JSON in marketplace ${file}: ${(e as Error).message}`);
+    throw new PalmError('E_PARSE', `invalid JSON in marketplace ${file}: ${messageOf(e)}`);
   }
   if (!isRecord(json) || !Array.isArray(json.plugins)) {
     throw new PalmError('E_PARSE', `${file} is not a plugin marketplace (no "plugins" array)`);
@@ -214,7 +226,7 @@ export function parseMarketplaceJson(text: string, file: string): Marketplace {
     }
     const { decls, unsupported } = parseComponentDecls(p);
     entries.push(
-      compact({
+      withoutUndefined({
         name,
         source,
         description: asString(p.description),
@@ -227,7 +239,7 @@ export function parseMarketplaceJson(text: string, file: string): Marketplace {
     );
   });
   const rootDir = /^https?:\/\//.test(file) ? undefined : marketplaceRootFor(resolve(file));
-  return compact({ name: asString(json.name), file, rootDir, entries, warnings });
+  return withoutUndefined({ name: asString(json.name), file, rootDir, entries, warnings });
 }
 
 export async function readMarketplace(file: string): Promise<Marketplace> {
@@ -249,7 +261,7 @@ function baseFromUrl(file: string): { url?: string; ref?: string; root?: string 
   if (!m) return {};
   const [, owner, repo, ref, filePath] = m;
   const root = marketplaceRootFor('/' + (filePath ?? '')).slice(1);
-  return compact({
+  return withoutUndefined({
     url: `https://github.com/${owner}/${repo}.git`,
     ref,
     root: root === '' ? undefined : root,
@@ -321,7 +333,7 @@ export const parseMarketplace: ParseMarketplaceFn = async (file, base) => {
         break;
     }
     if (!spec) continue;
-    const full = compact({ alias: '', ...spec, description: e.description }) as OriginSpec;
+    const full = withoutUndefined({ alias: '', ...spec, description: e.description }) as OriginSpec;
     const key = JSON.stringify([full.type, full.url, full.path, full.ref, full.root]);
     specs.push({ spec: full, entry: e.name, key });
   }
@@ -354,7 +366,7 @@ export const parseMarketplace: ParseMarketplaceFn = async (file, base) => {
     } else {
       alias = uniqueAlias(slugify(first.entry) || 'plugin');
     }
-    origins.push(compact({ ...first.spec, alias }));
+    origins.push(withoutUndefined({ ...first.spec, alias }));
   }
   return { origins, warnings };
 };

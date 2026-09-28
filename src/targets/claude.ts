@@ -1,8 +1,8 @@
 import path from 'node:path';
 import type { Scope } from '../core/types.js';
+import { pathExists } from '../lib/fs.js';
 import type { TargetLayout, TargetSpec } from './base.js';
 import { type Env, envDir } from './env.js';
-import { pathExists } from './fs-utils.js';
 
 /** `~/.claude` honouring CLAUDE_CONFIG_DIR (global), `<project>/.claude` (project). */
 export function claudeDir(scope: Scope, scopeRoot: string, env: Env): string {

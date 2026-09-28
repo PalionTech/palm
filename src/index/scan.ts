@@ -10,7 +10,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import fg from 'fast-glob';
 import YAML from 'yaml';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import type {
   Entity,
   EntityRef,
@@ -20,6 +20,8 @@ import type {
   ScanOriginFn,
   ScanResult,
 } from '../core/types.js';
+import { parseJson } from '../lib/json.js';
+import { isRecord, withoutUndefined } from '../lib/object.js';
 import { parseAgentFileDetailed } from './agents.js';
 import { parseCommandFile } from './commands.js';
 import { type Detection, detectLayout, type ScanRule } from './detect.js';
@@ -49,21 +51,19 @@ import {
   type PluginManifestFormat,
 } from './plugin-manifest.js';
 import { type ParsedSkill, parseSkillMdDetailed } from './skills.js';
-import { toSlug } from './slug.js';
 import {
   asString,
   baseOf,
-  compact,
   dirDepth,
   dirOf,
   displayRel,
   escapesRoot,
   hasGlobChars,
   isDocFile,
-  isRecord,
-  isWithin,
+  isWithinRel,
   joinRel,
   normRel,
+  toSlug,
   versionFromTag,
 } from './util.js';
 
@@ -138,7 +138,7 @@ class Scanner {
       throw new PalmError(
         'E_IO',
         `cannot scan origin "${this.alias}": ${this.rootAbs} is not a readable directory`,
-        (e as Error).message,
+        messageOf(e),
       );
     }
     const detection = await detectLayout(this.rootAbs, this.layout, this.warnings);
@@ -225,9 +225,9 @@ class Scanner {
     const text = await this.read(rel);
     if (text === undefined) return { error: 'cannot read file' };
     try {
-      return { json: JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text) };
+      return { json: parseJson(text) };
     } catch (e) {
-      return { error: `invalid JSON (${(e as Error).message})` };
+      return { error: `invalid JSON (${messageOf(e)})` };
     }
   }
 
@@ -308,7 +308,7 @@ class Scanner {
   /** Skill directories directly inside `dirRel`. */
   private childSkillDirs(dirRel: string): string[] {
     return [...this.skillDirSet]
-      .filter((d) => d !== dirRel && dirOf(d) === dirRel && isWithin(d, dirRel))
+      .filter((d) => d !== dirRel && dirOf(d) === dirRel && isWithinRel(d, dirRel))
       .sort();
   }
 
@@ -318,9 +318,11 @@ class Scanner {
     if (direct.length > 0) return direct;
     const base = dirDepth(dirRel === '' ? 'x' : `${dirRel}/x`);
     const below = [...this.skillDirSet]
-      .filter((d) => d !== dirRel && isWithin(d, dirRel) && dirDepth(`${d}/x`) - base <= maxDepth)
+      .filter(
+        (d) => d !== dirRel && isWithinRel(d, dirRel) && dirDepth(`${d}/x`) - base <= maxDepth,
+      )
       .sort(byDepthThenPath);
-    return below.filter((d) => !below.some((o) => o !== d && isWithin(d, o)));
+    return below.filter((d) => !below.some((o) => o !== d && isWithinRel(d, o)));
   }
 
   // -------------------------------------------------------------------------
@@ -392,7 +394,7 @@ class Scanner {
     try {
       parsed = parseSkillMdDetailed(dirName, text, { nameFrom: this.layout?.nameFrom });
     } catch (e) {
-      this.warnings.push(`skipped ${file}: ${(e as Error).message}`);
+      this.warnings.push(`skipped ${file}: ${messageOf(e)}`);
       return null;
     }
     if (parsed.def.name === 'template-skill' || (dirRel !== '' && baseOf(dirRel) === 'template')) {
@@ -420,9 +422,9 @@ class Scanner {
     const parentDir = this.parentSkillDir(dirRel);
     const parent =
       parentDir !== undefined ? (await this.parseSkill(parentDir))?.def.name : undefined;
-    const skill = compact({ ...parsed.def, parent });
+    const skill = withoutUndefined({ ...parsed.def, parent });
     return this.add(
-      compact({
+      withoutUndefined({
         kind: 'skill' as const,
         name: skill.name,
         description: skill.description || undefined,
@@ -450,7 +452,7 @@ class Scanner {
     try {
       parsed = parseAgentFileDetailed(join(this.rootAbs, rel), text);
     } catch (e) {
-      this.warnings.push(`skipped ${rel}: ${(e as Error).message}`);
+      this.warnings.push(`skipped ${rel}: ${messageOf(e)}`);
       return undefined;
     }
     const lower = rel.toLowerCase();
@@ -480,7 +482,7 @@ class Scanner {
       asString(isRecord(def.extra?.metadata) ? def.extra.metadata.version : undefined) ??
       asString(def.extra?.version);
     return this.add(
-      compact({
+      withoutUndefined({
         kind: 'agent' as const,
         name: def.name,
         description: def.description || undefined,
@@ -504,7 +506,7 @@ class Scanner {
     try {
       def = parseCommandFile(join(this.rootAbs, rel), text);
     } catch (e) {
-      this.warnings.push(`skipped ${rel}: ${(e as Error).message}`);
+      this.warnings.push(`skipped ${rel}: ${messageOf(e)}`);
       return undefined;
     }
     if (def.body.trim() === '') {
@@ -512,7 +514,7 @@ class Scanner {
       return undefined;
     }
     return this.add(
-      compact({
+      withoutUndefined({
         kind: 'command' as const,
         name: def.name,
         description: def.description,
@@ -538,7 +540,7 @@ class Scanner {
       return undefined;
     }
     return this.add(
-      compact({
+      withoutUndefined({
         kind: 'instruction' as const,
         name: def.name,
         description: def.description,
@@ -557,11 +559,11 @@ class Scanner {
       const version = ctx?.version ?? this.tagVersion;
       const mcp = {
         ...cfg,
-        source: compact({ type: 'origin' as const, ref: this.alias, version }),
+        source: withoutUndefined({ type: 'origin' as const, ref: this.alias, version }),
       };
       out.push(
         this.add(
-          compact({
+          withoutUndefined({
             kind: 'mcp' as const,
             name: cfg.name,
             version,
@@ -633,7 +635,7 @@ class Scanner {
     );
     if (set.dialect === 'unknown') this.warnings.push(`${rel}: unrecognised hooks dialect`);
     return this.add(
-      compact({
+      withoutUndefined({
         kind: 'hook' as const,
         name: set.name,
         version: ctx?.version ?? this.tagVersion,
@@ -732,7 +734,7 @@ class Scanner {
     // Some catalogs list skill names rather than paths.
     if (!normRel(v).includes('/')) {
       for (const d of [...this.skillDirSet]
-        .filter((x) => isWithin(x, rootRel))
+        .filter((x) => isWithinRel(x, rootRel))
         .sort(byDepthThenPath)) {
         if ((await this.parseSkill(d))?.def.name === normRel(v)) return [d];
       }
@@ -845,7 +847,7 @@ class Scanner {
     const set = parseHooksJson(name, raw, displayRel(rootRel));
     if (set.dialect === 'unknown') this.warnings.push(`${first.path}: unrecognised hooks dialect`);
     return this.add(
-      compact({
+      withoutUndefined({
         kind: 'hook' as const,
         name,
         version: ctx.version ?? this.tagVersion,
@@ -936,7 +938,7 @@ class Scanner {
         `duplicate plugin "${name}" at ${displayRel(rootRel)}: its components are indexed standalone`,
       );
     }
-    const ctx: PluginContext = compact({
+    const ctx: PluginContext = withoutUndefined({
       name: duplicate ? undefined : name,
       version,
       rootRel,
@@ -980,14 +982,14 @@ class Scanner {
     }
     if (duplicate) return;
     this.add(
-      compact({
+      withoutUndefined({
         kind: 'plugin' as const,
         name,
         description: manifest?.description ?? entry?.description,
         version: version ?? this.tagVersion,
         path: displayRel(rootRel),
         origin: this.alias,
-        def: compact({
+        def: withoutUndefined({
           kind: 'plugin' as const,
           members,
           manifestPath: manifest ? manifestRel : input.marketplaceRel,
@@ -1005,7 +1007,7 @@ class Scanner {
     try {
       mp = await readMarketplace(fileAbs);
     } catch (e) {
-      this.warnings.push(`ignored marketplace: ${(e as Error).message}`);
+      this.warnings.push(`ignored marketplace: ${messageOf(e)}`);
       return false;
     }
     this.warnings.push(...mp.warnings);
@@ -1178,12 +1180,17 @@ class Scanner {
       const parsed: unknown = text === undefined ? {} : YAML.parse(text);
       if (isRecord(parsed)) data = parsed;
     } catch (e) {
-      this.warnings.push(`${apmFile}: invalid YAML (${(e as Error).message.split('\n')[0]})`);
+      this.warnings.push(`${apmFile}: invalid YAML (${messageOf(e).split('\n')[0]})`);
     }
     const rawName = asString(data.name);
     const name = toSlug(rawName, basename(this.rootAbs), this.alias);
     const version = asString(data.version);
-    const ctx: PluginContext = compact({ name, version, rootRel: '', format: 'apm' as const });
+    const ctx: PluginContext = withoutUndefined({
+      name,
+      version,
+      rootRel: '',
+      format: 'apm' as const,
+    });
     const members: EntityRef[] = [];
     const push = (e: Entity | undefined) => {
       if (e && !members.some((m) => m.kind === e.kind && m.name === e.name))
@@ -1191,7 +1198,7 @@ class Scanner {
     };
 
     const skillDirs = [...this.skillDirSet]
-      .filter((d) => isWithin(d, '.apm/skills') && d !== '.apm/skills')
+      .filter((d) => isWithinRel(d, '.apm/skills') && d !== '.apm/skills')
       .sort(byDepthThenPath);
     for (const d of skillDirs) {
       const topLevel = this.parentSkillDir(d) === undefined;
@@ -1227,7 +1234,7 @@ class Scanner {
       return false;
     }
     this.add(
-      compact({
+      withoutUndefined({
         kind: 'plugin' as const,
         name,
         description: asString(data.description),
@@ -1308,7 +1315,7 @@ class Scanner {
       if (e.kind === 'plugin' || e.plugin) continue;
       if (e.def.kind === 'skill' && e.def.skill.parent) continue;
       const rel = e.path === '.' ? '' : e.path;
-      const root = roots.find((r) => isWithin(rel, r));
+      const root = roots.find((r) => isWithinRel(rel, r));
       if (root === undefined) continue;
       const kinds = found.get(root) ?? new Map<Kind, string[]>();
       kinds.set(e.kind, [...(kinds.get(e.kind) ?? []), e.name]);

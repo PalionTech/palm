@@ -1,7 +1,7 @@
 import path from 'node:path';
+import { pathExists } from '../lib/fs.js';
 import type { TargetLayout, TargetSpec } from './base.js';
 import { type Env, envDir } from './env.js';
-import { pathExists } from './fs-utils.js';
 
 /** Copilot CLI home: `$COPILOT_HOME` or `~/.copilot`. */
 export function copilotHome(scopeRoot: string, env: Env): string {

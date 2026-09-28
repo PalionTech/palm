@@ -5,8 +5,9 @@
  */
 
 import { realpath, stat } from 'node:fs/promises';
-import { join, sep } from 'node:path';
+import { join } from 'node:path';
 import fg from 'fast-glob';
+import { isWithin } from '../lib/fs.js';
 import { isIgnoredRel, rebaseIgnore } from './ignore.js';
 import { baseOf, dirOf } from './util.js';
 
@@ -37,10 +38,6 @@ export function isRelevantFile(rel: string): boolean {
   const base = baseOf(rel).toLowerCase();
   if (base === 'apm.yml' || base === 'apm.yaml') return true;
   return RELEVANT_EXT.some((e) => base.endsWith(e));
-}
-
-function inside(realRoot: string, p: string): boolean {
-  return p === realRoot || p.startsWith(realRoot + sep);
 }
 
 export async function buildFileIndex(rootAbs: string, opts: FileIndexOptions): Promise<FileIndex> {
@@ -94,7 +91,7 @@ export async function buildFileIndex(rootAbs: string, opts: FileIndexOptions): P
       } catch {
         continue; // broken link
       }
-      if (!inside(realRoot, target)) {
+      if (!isWithin(target, realRoot)) {
         index.warnings.push(`skipped symlink ${rel}: points outside the origin`);
         continue;
       }
@@ -113,7 +110,7 @@ export async function buildFileIndex(rootAbs: string, opts: FileIndexOptions): P
       if (opts.ignoreDirNames && isIgnoredRel(rel)) continue;
       const linkRealParent = join(realDir, dirOf(linkPath));
       // A link to one of its own ancestors (or already on the walk chain) would loop.
-      if (inside(target, linkRealParent) || chain.has(target)) continue;
+      if (isWithin(linkRealParent, target) || chain.has(target)) continue;
       const remaining = deep - linkPath.split('/').length;
       if (remaining < 1) continue;
       await walk(join(absDir, linkPath), rel, target, remaining, new Set([...chain, target]));

@@ -5,8 +5,8 @@
  */
 import { PalmError } from '../core/errors.js';
 import type { McpServerConfig } from '../core/types.js';
+import { isSafeName } from '../lib/names.js';
 
-const NAME = /^[A-Za-z0-9._-]+$/;
 const ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** RFC 9110 token characters. */
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
@@ -80,11 +80,11 @@ export function parseAdhocMcp(
     transport?: string;
   },
 ): McpServerConfig {
-  if (!name || !NAME.test(name)) {
+  if (!isSafeName(name)) {
     throw new PalmError(
       'E_USAGE',
       `Invalid MCP server name "${name}"`,
-      'Use letters, digits, ".", "_" or "-" (e.g. "github" or "my-docs").',
+      'Start with a letter or digit, then use letters, digits, ".", "_" or "-" without ".." (e.g. "github" or "my-docs").',
     );
   }
   const command = opts.command ?? [];

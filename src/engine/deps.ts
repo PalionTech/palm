@@ -1,4 +1,4 @@
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import type {
   EngineDeps,
   ResolveRegistryFn,
@@ -18,10 +18,7 @@ const DISPLAY_NAMES: Record<TargetId, string> = {
 };
 
 function unavailable(what: string, file: string, e: unknown): PalmError {
-  return new PalmError(
-    'E_INTERNAL',
-    `${what} module unavailable (${file}): ${(e as Error).message}`,
-  );
+  return new PalmError('E_INTERNAL', `${what} module unavailable (${file}): ${messageOf(e)}`);
 }
 
 async function importScan() {

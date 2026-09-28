@@ -14,6 +14,7 @@
  */
 import { PalmError } from '../core/errors.js';
 import type { RegistryCandidate, ResolveRegistryFn, SearchRegistryFn } from '../core/types.js';
+import { isRecord } from '../lib/object.js';
 import {
   normalizeServerJson,
   registryConfigName,
@@ -64,10 +65,6 @@ interface RegistryEntry {
   server: ServerJson;
   isLatest?: boolean;
   status?: string;
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 /**

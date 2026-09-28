@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import pc from 'picocolors';
+import { messageOf } from '../core/errors.js';
 import type { Entity, RegistryCandidate } from '../core/types.js';
 import { printTable, truncate } from '../ui/output.js';
 import { type GlobalOptions, makeContext, printJson, requireKind, withSpinner } from './shared.js';
@@ -52,7 +53,7 @@ export function registerSearch(program: Command): void {
             limit: 10,
           });
         } catch (e) {
-          ctx.log.warn(`MCP registry search failed: ${e instanceof Error ? e.message : String(e)}`);
+          ctx.log.warn(`MCP registry search failed: ${messageOf(e)}`);
         }
       }
 

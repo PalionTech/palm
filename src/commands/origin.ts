@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import pc from 'picocolors';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
 import { pluralize } from '../core/kinds.js';
 import {
   type Entity,
@@ -14,6 +14,7 @@ import {
   type OriginSpec,
   type PalmContext,
 } from '../core/types.js';
+import { readJsonFile } from '../lib/fs.js';
 import { printTable } from '../ui/output.js';
 import { collect, type GlobalOptions, makeContext, printJson, withSpinner } from './shared.js';
 
@@ -100,8 +101,7 @@ async function readCachedIndex(
 ): Promise<OriginIndex | undefined> {
   try {
     const { indexFilePath } = await import('../core/cache.js');
-    const text = await readFile(indexFilePath(ctx, spec), 'utf8');
-    const parsed = JSON.parse(text) as Partial<OriginIndex>;
+    const parsed = await readJsonFile<Partial<OriginIndex>>(indexFilePath(ctx, spec));
     return Array.isArray(parsed.entities) ? (parsed as OriginIndex) : undefined;
   } catch {
     return undefined;
@@ -167,10 +167,7 @@ async function importMarketplace(
         throw new PalmError('E_NETWORK', 'cannot download a marketplace file with --offline');
       const m = marketplaceUrlBase(input);
       const res = await fetch(m.rawUrl).catch((e: unknown) => {
-        throw new PalmError(
-          'E_NETWORK',
-          `could not download ${m.rawUrl}: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        throw new PalmError('E_NETWORK', `could not download ${m.rawUrl}: ${messageOf(e)}`);
       });
       if (!res.ok)
         throw new PalmError('E_NETWORK', `could not download ${m.rawUrl}: HTTP ${res.status}`);
@@ -236,7 +233,7 @@ async function importMarketplace(
       try {
         added.push(await addOrigin(ctx, spec, { scope: g.project ? 'project' : 'global' }));
       } catch (e) {
-        ctx.log.warn(`skipped ${spec.alias}: ${e instanceof Error ? e.message : String(e)}`);
+        ctx.log.warn(`skipped ${spec.alias}: ${messageOf(e)}`);
       }
     }
 
@@ -247,10 +244,7 @@ async function importMarketplace(
         try {
           indexed.set(spec.alias, kindCounts((await indexOne(ctx, g, spec)).entities));
         } catch (e) {
-          indexed.set(
-            spec.alias,
-            pc.yellow(`not indexed: ${e instanceof Error ? e.message : String(e)}`),
-          );
+          indexed.set(spec.alias, pc.yellow(`not indexed: ${messageOf(e)}`));
         }
       }
     }
@@ -349,7 +343,7 @@ export function registerOrigin(program: Command): void {
       try {
         index = await indexOne(ctx, o, spec);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = messageOf(e);
         throw new PalmError(
           'E_ORIGIN',
           `origin "${spec.alias}" was added but could not be indexed: ${msg}`,
@@ -488,7 +482,7 @@ export function registerOrigin(program: Command): void {
             for (const w of index.warnings) ctx.log.debug(`${spec.alias}: ${w}`);
           }
         } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
+          const msg = messageOf(e);
           results.push({ alias: spec.alias, error: msg });
           if (!o.json) ctx.log.warn(`${spec.alias}: ${msg}`);
         }

@@ -1,6 +1,6 @@
 import path from 'node:path';
+import { pathExists } from '../lib/fs.js';
 import type { TargetLayout, TargetSpec } from './base.js';
-import { pathExists } from './fs-utils.js';
 
 export const cursorSpec: TargetSpec = {
   id: 'cursor',

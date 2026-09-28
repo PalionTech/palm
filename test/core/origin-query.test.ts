@@ -8,11 +8,11 @@ import {
   deriveAlias,
   loadConfig,
   matchOrigin,
-  ORIGIN_ALIAS_RE,
   parseOriginInput,
   resolveOriginQuery,
 } from '../../src/core/config.js';
 import type { OriginSpec, PalmContext } from '../../src/core/types.js';
+import { ALIAS_RE } from '../../src/lib/names.js';
 import { makeContext } from '../support/fakes.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 
@@ -307,7 +307,7 @@ describe('origin aliases are mandatory', () => {
   });
 
   it.each(['a', '0x', 'my.origin_2-b', 'superpowers'])('accepts the alias %j', async (alias) => {
-    expect(ORIGIN_ALIAS_RE.test(alias)).toBe(true);
+    expect(ALIAS_RE.test(alias)).toBe(true);
     await writeConfig(
       `origins:\n  - alias: ${alias}\n    url: https://github.com/obra/superpowers.git\n`,
     );
@@ -322,9 +322,7 @@ describe('origin aliases are mandatory', () => {
       'x/-dash',
       'git@host.example:a/B.C.git',
     ]) {
-      expect(deriveAlias(parseOriginInput(input, { cwd: '/' }), []), input).toMatch(
-        ORIGIN_ALIAS_RE,
-      );
+      expect(deriveAlias(parseOriginInput(input, { cwd: '/' }), []), input).toMatch(ALIAS_RE);
     }
   });
 

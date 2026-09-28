@@ -2,9 +2,10 @@
 
 import { PalmError } from '../core/errors.js';
 import type { SkillDefinition } from '../core/types.js';
-import { parseFrontmatterYaml, splitFrontmatter } from './frontmatter.js';
-import { isValidSlug, slugify, toSlug } from './slug.js';
-import { asList, asString, compact, isRecord } from './util.js';
+import { parseFrontmatterYaml, splitFrontmatter } from '../lib/frontmatter.js';
+import { isSlug, slugify } from '../lib/names.js';
+import { isRecord, withoutUndefined } from '../lib/object.js';
+import { asList, asString, toSlug } from './util.js';
 
 const SPEC_KEYS = new Set([
   'name',
@@ -53,7 +54,7 @@ export function parseSkillMdDetailed(
   const data = parseFrontmatterYaml(split.raw);
   const issues: SkillIssue[] = [];
   const fmName = asString(data.name);
-  const dirSlug = isValidSlug(dirName) ? dirName : slugify(dirName);
+  const dirSlug = isSlug(dirName) ? dirName : slugify(dirName);
 
   let name: string;
   if (opts.nameFrom === 'dirname') {
@@ -64,7 +65,7 @@ export function parseSkillMdDetailed(
       code: 'name-missing',
       message: `missing frontmatter name; using directory name "${name}"`,
     });
-  } else if (isValidSlug(fmName)) {
+  } else if (isSlug(fmName)) {
     name = fmName;
     if (fmName !== dirName) {
       issues.push({
@@ -101,7 +102,7 @@ export function parseSkillMdDetailed(
   const extra: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) if (!SPEC_KEYS.has(k)) extra[k] = v;
 
-  const def: SkillDefinition = compact({
+  const def: SkillDefinition = withoutUndefined({
     name,
     description: description ?? '',
     version,

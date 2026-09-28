@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
+import { isEnoent, readJsonFile, writeJsonFile } from '../lib/fs.js';
 import { originId, validateOriginUrl } from './config.js';
-import { PalmError } from './errors.js';
+import { messageOf, PalmError } from './errors.js';
 import { cacheDir } from './paths.js';
 import type { OriginCheckout, OriginSpec, PalmContext } from './types.js';
 
@@ -54,9 +55,9 @@ async function git(args: string[], cwd?: string, url?: string, timeout?: number)
     });
     return r.stdout;
   } catch (e) {
-    const err = e as { code?: string; stderr?: unknown; shortMessage?: string; message: string };
-    if (err.code === 'ENOENT')
+    if (isEnoent(e))
       throw new PalmError('E_GIT', 'git is not installed or not on PATH', 'Install git and retry.');
+    const err = e as { stderr?: unknown; shortMessage?: string; message: string };
     const stderr = typeof err.stderr === 'string' ? err.stderr : '';
     const detail =
       stderr
@@ -76,7 +77,7 @@ async function git(args: string[], cwd?: string, url?: string, timeout?: number)
 
 function toPalmError(e: unknown, what: string, url: string): PalmError {
   if (e instanceof PalmError) return e;
-  const detail = e instanceof GitFailure ? e.detail : (e as Error).message;
+  const detail = e instanceof GitFailure ? e.detail : messageOf(e);
   if (NETWORK_PATTERNS.some((p) => p.test(detail))) {
     return new PalmError(
       'E_NETWORK',
@@ -211,14 +212,6 @@ interface CheckoutMeta {
 const FULL_SHA = /^[0-9a-f]{40}$/i;
 const SHORT_SHA = /^[0-9a-f]{7,39}$/i;
 
-async function readMeta(file: string): Promise<CheckoutMeta | undefined> {
-  try {
-    return JSON.parse(await readFile(file, 'utf8')) as CheckoutMeta;
-  } catch {
-    return undefined;
-  }
-}
-
 async function fetchSha(url: string, dir: string, sha: string): Promise<void> {
   try {
     await git(['fetch', '--depth', '1', 'origin', '--', sha], dir, url);
@@ -343,7 +336,10 @@ export async function fetchOrigin(
   const slot = spec.ref ? `ref-${spec.ref.replace(/[^A-Za-z0-9._-]/g, '-')}` : '';
   const repoDir = join(dir, slot ? slot : 'repo');
   const metaFile = join(dir, slot ? `checkout-${slot}.json` : 'checkout.json');
-  const meta = existsSync(join(repoDir, '.git')) ? await readMeta(metaFile) : undefined;
+  // An unreadable or corrupt checkout.json means "no usable checkout": clone again.
+  const meta = existsSync(join(repoDir, '.git'))
+    ? await readJsonFile<CheckoutMeta>(metaFile).catch(() => undefined)
+    : undefined;
   const have = !!meta && meta.url === url;
   const requested = spec.ref ?? null;
 
@@ -375,9 +371,7 @@ export async function fetchOrigin(
         try {
           await updateCheckout(url, repoDir, wanted);
         } catch (e) {
-          ctx.log.debug(
-            `update of cached ${spec.alias} failed (${(e as Error).message}); re-cloning`,
-          );
+          ctx.log.debug(`update of cached ${spec.alias} failed (${messageOf(e)}); re-cloning`);
           await freshClone(url, repoDir, wanted);
         }
       } else {
@@ -386,7 +380,7 @@ export async function fetchOrigin(
       const sha = (await git(['rev-parse', 'HEAD'], repoDir, url)).trim();
       const next: CheckoutMeta = { url, requested, sha, fetchedAt: new Date().toISOString() };
       if (wanted) next.ref = wanted;
-      await writeFile(metaFile, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+      await writeJsonFile(metaFile, next);
       result = checkoutResult(spec, id, repoDir, next);
     } catch (e) {
       throw toPalmError(e, `Cannot fetch origin "${spec.alias}" from`, url);

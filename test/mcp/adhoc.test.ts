@@ -139,6 +139,31 @@ describe('parseAdhocMcp: errors', () => {
       message: /Invalid MCP server name/,
     },
     { title: 'empty name', name: '', opts: { command: ['a'] }, message: /Invalid MCP server name/ },
+    // `palm install mcp ../x -- cmd`: the name becomes a file or directory name in some targets.
+    {
+      title: 'path traversal name',
+      name: '../x',
+      opts: { command: ['cmd'] },
+      message: /Invalid MCP server name/,
+    },
+    {
+      title: 'name ".."',
+      name: '..',
+      opts: { command: ['a'] },
+      message: /Invalid MCP server name/,
+    },
+    {
+      title: 'name containing ".."',
+      name: 'a..b',
+      opts: { command: ['a'] },
+      message: /Invalid MCP server name/,
+    },
+    {
+      title: 'name starting with "."',
+      name: '.hidden',
+      opts: { url: 'https://x' },
+      message: /Invalid MCP server name/,
+    },
     {
       title: 'env without =',
       name: 'x',

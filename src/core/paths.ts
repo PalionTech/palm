@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { isWithin } from '../lib/fs.js';
+import { isSafeName } from '../lib/names.js';
 import { PalmError } from './errors.js';
 import type { PalmPaths, Scope } from './types.js';
 
@@ -45,11 +47,6 @@ export function lockPath(paths: PalmPaths, scope: Scope): string {
   return scope === 'project' ? join(paths.projectRoot, LOCK_FILE) : join(paths.palmHome, LOCK_FILE);
 }
 
-/** Names that are safe as a single path segment (entity names become file/dir names). */
-export function isSafeName(name: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) && !name.includes('..');
-}
-
 export function hooksAssetDir(paths: PalmPaths, scope: Scope, entityName: string): string {
   if (!isSafeName(entityName))
     throw new PalmError('E_USAGE', `invalid entity name "${entityName}"`);
@@ -88,10 +85,7 @@ export function safeScopePath(
 ): string | undefined {
   const root = scope === 'project' ? paths.projectRoot : paths.home;
   const abs = resolve(root, file);
-  const inside = scopeBoundaries(paths, scope, env).some((b) => {
-    const rel = relative(b, abs);
-    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
-  });
+  const inside = scopeBoundaries(paths, scope, env).some((b) => isWithin(abs, b, { strict: true }));
   return inside ? abs : undefined;
 }
 

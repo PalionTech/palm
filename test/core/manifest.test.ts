@@ -124,4 +124,14 @@ describe('manifest files', () => {
     await writeFile(file, 'skills: wayfinder\n');
     await expect(loadManifest(file)).rejects.toMatchObject({ code: 'E_PARSE' });
   });
+
+  it('reports invalid YAML as E_PARSE naming the file, and read failures as E_IO', async () => {
+    const file = join(dir, 'palm.yaml');
+    await writeFile(file, 'skills: [a\n');
+    await expect(loadManifest(file)).rejects.toMatchObject({
+      code: 'E_PARSE',
+      message: expect.stringContaining(file),
+    });
+    await expect(loadManifest(dir)).rejects.toMatchObject({ code: 'E_IO' });
+  });
 });

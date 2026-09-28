@@ -1,11 +1,11 @@
 import { join } from 'node:path';
 import type { PalmContext } from '../core/types.js';
+import { stringifyFrontmatter } from '../lib/frontmatter.js';
 import {
   type CreateOptions,
   editBody,
   finishCreate,
   mineDir,
-  renderFrontmatterFile,
   required,
   validateSlug,
   writeNewFile,
@@ -16,7 +16,7 @@ export function renderCommandFile(a: {
   argumentHint?: string;
   body: string;
 }): string {
-  return renderFrontmatterFile(
+  return stringifyFrontmatter(
     { description: a.description.trim(), 'argument-hint': a.argumentHint?.trim() || undefined },
     a.body,
   );

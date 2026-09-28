@@ -1,21 +1,10 @@
-import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { PalmError } from '../core/errors.js';
+import { messageOf, PalmError } from '../core/errors.js';
+import { isEnoent, isWithin, writeFileAtomic } from '../lib/fs.js';
 
-function errCode(e: unknown): string | undefined {
-  return typeof e === 'object' && e !== null && 'code' in e
-    ? String((e as { code: unknown }).code)
-    : undefined;
-}
-
-export async function pathExists(p: string): Promise<boolean> {
-  try {
-    await fs.access(p);
-    return true;
-  } catch {
-    return false;
-  }
+function ioError(action: string, p: string, e: unknown): PalmError {
+  return new PalmError('E_IO', `cannot ${action} ${p}: ${messageOf(e)}`);
 }
 
 /** Read a file; `undefined` when it does not exist. Other errors become E_IO. */
@@ -23,8 +12,8 @@ export async function readFileOrUndefined(p: string): Promise<Buffer | undefined
   try {
     return await fs.readFile(p);
   } catch (e) {
-    if (errCode(e) === 'ENOENT') return undefined;
-    throw new PalmError('E_IO', `cannot read ${p}: ${(e as Error).message}`);
+    if (isEnoent(e)) return undefined;
+    throw ioError('read', p, e);
   }
 }
 
@@ -33,42 +22,27 @@ export async function readTextOrUndefined(p: string): Promise<string | undefined
   return buf?.toString('utf8');
 }
 
-async function fileMode(p: string): Promise<number | undefined> {
-  try {
-    return (await fs.stat(p)).mode & 0o777;
-  } catch {
-    return undefined;
-  }
-}
-
 /**
- * Write via temp file + rename in the same directory. Keeps the existing file's
- * permission bits unless `mode` is given (important for ~/.claude.json, 0600).
+ * `writeFileAtomic` with failures as E_IO. Keeps the existing file's permission bits unless
+ * `mode` is given (important for ~/.claude.json, 0600).
  */
 export async function atomicWrite(
   file: string,
   data: string | Buffer,
   mode?: number,
 ): Promise<void> {
-  const dir = path.dirname(file);
   try {
-    await fs.mkdir(dir, { recursive: true });
-    const finalMode = mode ?? (await fileMode(file));
-    const tmp = path.join(
-      dir,
-      `.${path.basename(file)}.palm-${randomBytes(6).toString('hex')}.tmp`,
-    );
-    await fs.writeFile(tmp, data);
-    if (finalMode !== undefined) await fs.chmod(tmp, finalMode);
-    await fs.rename(tmp, file);
+    await writeFileAtomic(file, data, { mode });
   } catch (e) {
-    if (e instanceof PalmError) throw e;
-    throw new PalmError('E_IO', `cannot write ${file}: ${(e as Error).message}`);
+    throw ioError('write', file, e);
   }
 }
 
 export async function ensureMode(file: string, mode: number): Promise<void> {
-  const current = await fileMode(file);
+  const current = await fs.stat(file).then(
+    (st) => st.mode & 0o777,
+    () => undefined,
+  );
   if (current !== undefined && current !== mode) await fs.chmod(file, mode);
 }
 
@@ -77,39 +51,12 @@ export async function removeFileIfExists(p: string): Promise<void> {
   try {
     await fs.rm(p, { force: true });
   } catch (e) {
-    if (errCode(e) !== 'ENOENT')
-      throw new PalmError('E_IO', `cannot remove ${p}: ${(e as Error).message}`);
+    if (!isEnoent(e)) throw ioError('remove', p, e);
   }
 }
 
 export async function removeDirIfExists(p: string): Promise<void> {
   await fs.rm(p, { recursive: true, force: true });
-}
-
-/** True when `child` is `parent` or lies below it. */
-export function isWithin(child: string, parent: string): boolean {
-  const rel = path.relative(parent, child);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-}
-
-/**
- * Remove empty directories from dirname(file) upwards, stopping before `stopDir`
- * (which is never removed). Non-empty or missing directories end the walk.
- */
-export async function removeEmptyParents(file: string, stopDir: string): Promise<void> {
-  let dir = path.dirname(file);
-  while (dir !== stopDir && isWithin(dir, stopDir)) {
-    try {
-      await fs.rmdir(dir);
-    } catch (e) {
-      if (errCode(e) !== 'ENOENT') return;
-    }
-    dir = path.dirname(dir);
-  }
-}
-
-export function toPosix(p: string): string {
-  return p.split(path.sep).join('/');
 }
 
 export interface SourceFile {
@@ -125,6 +72,7 @@ export interface CopyListing {
   skipped: string[];
 }
 
+// Wave 2: one skip list with src/index (targets may not import src/index today).
 const ALWAYS_SKIP = new Set(['.git', 'node_modules', '.DS_Store']);
 
 /**
@@ -179,13 +127,4 @@ export async function listCopyFiles(
   }
   await walk(root, '');
   return { files, skipped };
-}
-
-/** `listCopyFiles(...).files` (kept for callers that do not report skipped links). */
-export async function listCopyableFiles(
-  root: string,
-  skipTop: readonly string[] = [],
-  boundary?: string,
-): Promise<SourceFile[]> {
-  return (await listCopyFiles(root, { skipTop, ...(boundary ? { boundary } : {}) })).files;
 }
