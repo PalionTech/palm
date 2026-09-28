@@ -1,0 +1,30 @@
+---
+// A use-case card for a guide. It links to the guide once the page is published; until then
+// (the page is a draft) it renders as a plain card, so the build never links to a missing page.
+import { Card, LinkCard } from '@astrojs/starlight/components';
+import { getEntry } from 'astro:content';
+
+interface Props {
+  /** Guide slug, e.g. "guides/new-project". */
+  slug: string;
+  title: string;
+  description: string;
+}
+
+const { slug, title, description } = Astro.props;
+const entry = await getEntry('docs', slug);
+if (!entry) throw new Error(`GuideCard: no page "${slug}"`);
+const published = !(import.meta.env.PROD && entry.data.draft);
+const href = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/${slug}/`;
+---
+
+{
+  published ? (
+    <LinkCard title={title} description={description} href={href} />
+  ) : (
+    <Card title={title}>
+      <p>{description}</p>
+      <p class="palm-planned">Guide in progress.</p>
+    </Card>
+  )
+}

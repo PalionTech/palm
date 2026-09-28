@@ -54,6 +54,8 @@
     "check:shape": "node scripts/check-shape.mjs",
     "knip": "knip --no-exit-code",
     "bench": "node scripts/bench-scan.mjs",
+    "docs:dev": "npm --prefix docs run dev",
+    "docs:build": "npm --prefix docs run build",
     "verify": "npm run lint && npm run typecheck && npm run check:shape && npm run test && npm run build",
     "changeset": "changeset",
     "release": "changeset publish",

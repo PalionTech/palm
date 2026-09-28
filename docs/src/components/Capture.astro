@@ -1,0 +1,28 @@
+---
+// Renders a terminal session recorded by scripts/capture.mjs (src/captures/<name>.txt).
+// The docs never contain invented output: rerun `npm --prefix docs run capture` instead of editing.
+import { Code } from '@astrojs/starlight/components';
+
+interface Props {
+  /** Capture name, e.g. "palm-help" for src/captures/palm-help.txt. */
+  name: string;
+  /** Frame title shown above the session. */
+  title?: string;
+}
+
+const sessions = import.meta.glob<string>('../captures/*.txt', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+});
+
+const { name, title } = Astro.props;
+const session = sessions[`../captures/${name}.txt`];
+if (session === undefined) {
+  throw new Error(`capture "${name}" not found: add it to scripts/capture-specs.mjs and run npm run capture`);
+}
+---
+
+<div class="palm-capture">
+  <Code code={session.trimEnd()} lang="shellsession" frame="terminal" title={title} />
+</div>

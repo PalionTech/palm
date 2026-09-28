@@ -1,0 +1,63 @@
+---
+// A Starlight FileTree of the files a capture created (src/captures/<name>.files.txt).
+// Directories deeper than `depth` are shown collapsed with a "…" entry.
+import { FileTree } from '@astrojs/starlight/components';
+
+interface Props {
+  /** Capture name, e.g. "landing" for src/captures/landing.files.txt. */
+  name: string;
+  /** Deepest path level listed in full; deeper entries collapse into "…". */
+  depth?: number;
+}
+
+type Dir = Map<string, Dir>;
+
+const lists = import.meta.glob<string>('../captures/*.files.txt', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+});
+
+const { name, depth = Number.POSITIVE_INFINITY } = Astro.props;
+const list = lists[`../captures/${name}.files.txt`];
+if (list === undefined) {
+  throw new Error(`file list "${name}" not found: run npm run capture`);
+}
+
+const root: Dir = new Map();
+for (const path of list.split('\n').filter((line) => line.trim() !== '')) {
+  let node = root;
+  const parts = path.split('/');
+  for (const [i, part] of parts.entries()) {
+    if (i >= depth) {
+      node.set('…', new Map());
+      break;
+    }
+    const next = node.get(part) ?? new Map();
+    node.set(part, next);
+    node = next;
+  }
+}
+
+const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const isDir = (d: Dir) => d.size > 0;
+
+/** Directories first (with a trailing slash), then files, each group sorted by name. */
+function render(dir: Dir): string {
+  const entries = [...dir.entries()].sort(
+    ([a, x], [b, y]) => Number(isDir(y)) - Number(isDir(x)) || a.localeCompare(b),
+  );
+  return entries
+    .map(([entry, children]) =>
+      isDir(children)
+        ? `<li>${escape(entry)}/<ul>${render(children)}</ul></li>`
+        : `<li>${escape(entry)}</li>`,
+    )
+    .join('');
+}
+
+const html = `<ul>${render(root)}</ul>`;
+---
+
+<FileTree><Fragment set:html={html} /></FileTree>

@@ -13,7 +13,10 @@
       "!test/mcp/fixtures",
       "!**/package-lock.json",
       "!brand",
-      "!docs"
+      "!docs/src",
+      "!docs/public",
+      "!docs/.astro",
+      "!docs/*.*"
     ]
   },
   "formatter": {

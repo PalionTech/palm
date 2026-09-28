@@ -1,0 +1,58 @@
+name: docs
+
+# Builds the Starlight site in docs/ and deploys it to GitHub Pages
+# (https://paliontech.github.io/palm/). Pull requests only build: the build fails on broken
+# internal links (starlight-links-validator) and on STYLE.md violations (scripts/check-copy.mjs).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'brand/**'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'brand/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history, so each page's "Last updated" date comes from git.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build the site (sync brand assets, check copy and links)
+        uses: withastro/action@3eafd002e65cc31b4f0eae0bb05450d521562247 # v6.1.3
+        with:
+          path: ./docs
+          node-version: 24
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

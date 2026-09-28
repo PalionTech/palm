@@ -1,0 +1,32 @@
+$ palm --help
+Usage: palm [options] [command]
+
+Package manager for agent resources: skills, agents, instructions, commands,
+hooks, MCP servers and plugins.
+
+Options:
+  -g, --global                           use the global scope (~) instead of the current project
+  -t, --target <ids>                     comma-separated targets: claude,codex,copilot,cursor
+  --dry-run                              show what would change without writing anything
+  --force                                overwrite files palm does not own
+  -y, --yes                              accept defaults instead of prompting
+  --offline                              use cached origins only; no network
+  --verbose                              debug output and stack traces
+  --json                                 machine-readable output on stdout
+  -V, --version                          print the palm version
+  -h, --help                             display help for command
+
+Commands:
+  install|i [options] [kind] [specs...]  install skills, agents, MCP servers, plugins… (no args: everything in palm.yaml)
+  uninstall|remove [kind] [names...]     remove entities and the dependencies nothing else needs
+  list|ls [options] [kind]               list what is installed (--available: what your origins offer)
+  search [options] <query>               search your origins by name and description (MCP: also the registry)
+  info [options] <kind> <name>           show one entity: origin, version, dependencies, installed files
+  update|up [kind] [names...]            refetch origins and reinstall entities whose content changed
+  origin                                 add, list, update or remove origins (the repos palm installs from)
+  create|new [options] <kind> [name]     write a new agent, skill, instruction or command, then install it
+  init                                   create palm.yaml for this project
+  targets                                show which harnesses palm installs into, and why
+  config                                 read or change global settings
+  doctor                                 check git, node, harness dirs, lockfile drift and origin reachability
+  help [command]                         display help for command

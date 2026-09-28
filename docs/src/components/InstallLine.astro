@@ -1,0 +1,17 @@
+---
+// The one install command, with Expressive Code's copy button.
+import { Code } from '@astrojs/starlight/components';
+
+const INSTALL = 'npm install -g @paliontech/palm';
+---
+
+<div class="palm-install not-content">
+  <Code code={INSTALL} lang="sh" frame="terminal" />
+</div>
+
+<style>
+  .palm-install {
+    width: min(100%, 26rem);
+    text-align: start;
+  }
+</style>

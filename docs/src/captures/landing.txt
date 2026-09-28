@@ -1,0 +1,12 @@
+$ palm install agent comment-sicko --target claude,codex,copilot,cursor
+project scope → claude, codex, copilot, cursor
+status     kind   name           origin  targets                      files
+─────────  ─────  ─────────────  ──────  ───────────────────────────  ─────
+installed  agent  comment-sicko  pstack  claude,codex,copilot,cursor  4
+1 installed
+$ palm install skill tdd@mattpocock
+project scope → claude, codex, copilot, cursor
+status     kind   name  origin      targets                      files
+─────────  ─────  ────  ──────────  ───────────────────────────  ─────
+installed  skill  tdd   mattpocock  claude,codex,copilot,cursor  6
+1 installed

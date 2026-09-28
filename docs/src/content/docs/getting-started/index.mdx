@@ -1,0 +1,60 @@
+---
+title: What is palm
+description: palm is a package manager for the files that configure AI coding agents. It writes each item where Claude Code, Codex, GitHub Copilot and Cursor read it.
+sidebar:
+  label: What is palm
+---
+
+import Capture from '../../../components/Capture.astro';
+import CaptureTree from '../../../components/CaptureTree.astro';
+
+palm is a package manager for the files that configure AI coding agents.
+You name a skill, a subagent or an MCP server.
+palm writes it where each of your tools reads it.
+
+```sh
+npm install -g @paliontech/palm
+palm origin add mattpocock/skills
+palm install skill tdd
+```
+
+## The four-formats problem
+
+Coding agents read the same kinds of files: skills, subagents, instructions, commands, hooks and MCP servers.
+Each harness expects them in its own place and format.
+A subagent is a Markdown file in `.claude/agents` for Claude Code.
+Codex wants a TOML file in `.codex/agents`, and Copilot wants `.agent.md` in `.github/agents`.
+An MCP server goes into `.mcp.json`, `.codex/config.toml`, `.vscode/mcp.json` or `.cursor/mcp.json`.
+Each of those files spells secrets differently.
+Copying by hand means four edits per change, and nothing records what you copied.
+palm reads a repository as it is published and writes each item in each harness's format.
+It records every file in `palm.lock.yaml`.
+A teammate repeats the setup with one command, and an uninstall removes exactly what palm wrote.
+
+## One install and its files
+
+This session installs one agent and one skill for all four harnesses.
+The origins `pstack` and `mattpocock` were added before it.
+
+<Capture name="landing" title="~/project" />
+
+These are the files the two commands created:
+
+<CaptureTree name="landing" depth={3} />
+
+- `palm.yaml` is the **manifest**: what you asked for. Commit it.
+- `palm.lock.yaml` is the **lockfile**: every file palm wrote, the source commit and a content hash. Commit it too.
+- The agent exists once per harness format. The skill exists twice, because Claude Code does not read `.agents/skills`.
+
+## Commands
+
+<Capture name="palm-help" />
+
+## Map of the docs
+
+| Section | Answers | Start with |
+| --- | --- | --- |
+| Concepts | How palm models what it installs | [Entities and kinds](/palm/concepts/entities/), [Origins](/palm/concepts/origins/), [Targets](/palm/concepts/targets/), [Scopes](/palm/concepts/scopes/) |
+| Guides | How to finish one task, start to end | In progress |
+| Reference | Exact paths, rules and terms | [Targets matrix](/palm/reference/targets-matrix/), [Scan rules](/palm/reference/scan-rules/), [Layout descriptor](/palm/reference/layout/), [Glossary](/palm/reference/glossary/) |
+| Explanation | Why palm works the way it does | [Why origins](/palm/explanation/why-origins/), [Why native files](/palm/explanation/why-native-files/), [Security model](/palm/explanation/security/) |

@@ -4,3 +4,10 @@ dist/
 .DS_Store
 .palm/
 coverage/
+
+# docs site (docs/): dependencies, build output, Astro cache, brand copies made by scripts/sync-brand.mjs
+docs/node_modules/
+docs/dist/
+docs/.astro/
+docs/public/brand/
+docs/src/assets/brand/

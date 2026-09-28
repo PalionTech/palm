@@ -1,0 +1,102 @@
+/*
+ * palm brand theme for Starlight.
+ * Frond #12876A, mint #3DD6A3, ink #10231E. Greys carry the frond hue (165) at low saturation.
+ * Dark mode is Starlight's :root default; light mode is [data-theme='light'].
+ */
+
+:root {
+  --palm-frond: #12876a;
+  --palm-mint: #3dd6a3;
+  --palm-ink: #10231e;
+
+  --sl-font-mono: 'JetBrains Mono Variable';
+
+  /* Dark mode */
+  --sl-color-accent-low: #0e3a2f;
+  --sl-color-accent: var(--palm-frond);
+  --sl-color-accent-high: var(--palm-mint);
+
+  --sl-color-white: hsl(0, 0%, 100%);
+  --sl-color-gray-1: hsl(160, 20%, 94%);
+  --sl-color-gray-2: hsl(162, 9%, 78%);
+  --sl-color-gray-3: hsl(163, 6%, 58%);
+  --sl-color-gray-4: hsl(164, 8%, 37%);
+  --sl-color-gray-5: hsl(164, 15%, 22%);
+  --sl-color-gray-6: var(--palm-ink);
+  --sl-color-black: hsl(165, 30%, 6%);
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-low: #d3f5e8;
+  --sl-color-accent: #0f7a5f;
+  --sl-color-accent-high: #0b4f3e;
+
+  --sl-color-white: var(--palm-ink);
+  --sl-color-gray-1: hsl(164, 20%, 16%);
+  --sl-color-gray-2: hsl(164, 12%, 24%);
+  --sl-color-gray-3: hsl(164, 8%, 36%);
+  --sl-color-gray-4: hsl(164, 6%, 55%);
+  --sl-color-gray-5: hsl(164, 8%, 78%);
+  --sl-color-gray-6: hsl(160, 20%, 94%);
+  --sl-color-gray-7: hsl(160, 22%, 97%);
+  --sl-color-black: hsl(0, 0%, 100%);
+}
+
+/* Header wordmark: keep it at the height of the navigation text. */
+.site-title img {
+  height: 1.75rem;
+  width: auto;
+}
+
+/* Splash page: give the landing sections more width than a docs column. */
+[data-has-hero] .sl-container {
+  --sl-content-width: 72rem;
+}
+
+/*
+ * Terminal captures: palm prints tables with box-drawing characters, which the JetBrains Mono web
+ * subsets lack. One system monospace font for the whole session keeps the columns aligned.
+ */
+.palm-capture {
+  --ec-codeFontFml: var(--sl-font-system-mono);
+}
+
+/* Landing: real terminal beside the file tree it produced. */
+.palm-show {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+@media (min-width: 60rem) {
+  .palm-show {
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
+  }
+}
+.palm-show > * {
+  margin-top: 0 !important;
+}
+
+.palm-caption,
+.palm-planned {
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-3);
+}
+
+/* Landing: tables stay readable at every width. */
+.sl-markdown-content .palm-wide table {
+  display: table;
+  width: 100%;
+  font-size: var(--sl-text-sm);
+}
+.palm-wide {
+  overflow-x: auto;
+}
+
+/* Landing: the trust line is one quiet paragraph, centred. */
+.palm-trust {
+  text-align: center;
+  color: var(--sl-color-gray-2);
+  border-top: 1px solid var(--sl-color-hairline);
+  padding-top: 1.5rem;
+}
