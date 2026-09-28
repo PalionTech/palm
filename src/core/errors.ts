@@ -10,6 +10,7 @@ export type PalmErrorCode =
   | 'E_TARGET'
   | 'E_IO'
   | 'E_NON_INTERACTIVE'
+  | 'E_CANCELLED'
   | 'E_INTERNAL';
 
 export class PalmError extends Error {
@@ -26,4 +27,9 @@ export class PalmError extends Error {
 
 export function isPalmError(e: unknown): e is PalmError {
   return e instanceof PalmError;
+}
+
+/** The message of an Error, or the thrown value itself as a string. */
+export function messageOf(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }

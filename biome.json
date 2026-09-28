@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!test/fixtures", "!test/mcp/fixtures", "!**/package-lock.json"]
+    "includes": ["**", "!test/fixtures", "!test/mcp/fixtures", "!**/package-lock.json", "!brand", "!docs"]
   },
   "formatter": {
     "enabled": true,
