@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="t">
+  <title id="t">palm: concept C, p monogram with a leaf bowl</title>
+  <!-- Concept C (runner-up): a lowercase "p" whose bowl is a leaf, with the
+       midrib running from the stem to the leaf tip. Reads well at 16px and
+       ties to the lowercase wordmark; weaker story (no "many targets") and
+       close to generic eco/"green" monograms. Even-odd fill keeps it one
+       colour with a true counter. -->
+  <style>
+    svg { color: #12876A; }
+    @media (prefers-color-scheme: dark) { svg { color: #5CD6B0; } }
+  </style>
+  <g fill="currentColor">
+    <!-- stem with descender -->
+    <rect x="10" y="18" width="9" height="42" rx="4.5"/>
+    <!-- leaf-shaped bowl with a leaf-shaped counter -->
+    <path fill-rule="evenodd" d="
+      M14 22 C24 10 44 5 57 6 C58 22 50 44 26 47 C20 47.5 16 46 14 44 Z
+      M22 28 C29 21 41 16 49 14 C48 25 42 38 27 40 C25 40 23 39 22 38 Z"/>
+    <!-- midrib: stem to leaf tip -->
+    <path d="M17 44 L53 10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

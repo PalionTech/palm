@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>palm social card</title>
+<!-- Source for social-card.png (1280x640). Re-render: python3 brand/tools/build.py png -->
+<style>
+  :root { --ink: #10231E; --mint: #3DD6A3; --paper: #FFFFFF; --grey-300: #B3C1BD; --grey-900: #1B2E29; --grey-700: #3A4B46; }
+  html, body { margin: 0; }
+  body {
+    width: 1280px; height: 640px; box-sizing: border-box; padding: 84px 96px;
+    background: var(--ink); color: var(--paper); overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  .lockup { height: 112px; width: auto; align-self: flex-start; }
+  h1 {
+    margin: auto 0 0; font-size: 66px; line-height: 1.1; font-weight: 700;
+    letter-spacing: -0.025em; white-space: nowrap;
+  }
+  .descriptor { margin: 14px 0 0; font-size: 34px; line-height: 1.2; color: var(--grey-300); font-weight: 500; }
+  .install {
+    margin-top: 56px; align-self: flex-start; display: flex; gap: 18px; align-items: baseline;
+    padding: 18px 28px; border-radius: 14px; background: var(--grey-900); border: 1px solid var(--grey-700);
+    font: 500 30px/1.2 "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .install .prompt { color: var(--mint); }
+</style>
+</head>
+<body>
+  <img class="lockup" src="wordmark-dark.svg" alt="palm">
+  <h1>One setup for every coding agent.</h1>
+  <p class="descriptor">package manager for agent resources</p>
+  <code class="install"><span class="prompt">$</span><span>npm i -g @paliontech/palm</span></code>
+</body>
+</html>
