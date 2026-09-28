@@ -12,9 +12,16 @@ import { fileTargetLabel } from './describe.js';
 import { type Invocation, usage } from './grammar.js';
 import { type GlobalOptions, makeContext } from './shared.js';
 
+const MATCH_TEXT: Record<FileOwner['match'], (o: FileOwner) => string> = {
+  file: () => '',
+  inside: () => ' (in)',
+  merged: () => ' (merged into)',
+  contains: (o) => ` (${o.files} file${o.files === 1 ? '' : 's'} under it)`,
+};
+
 function ownerRow(o: FileOwner): string[] {
   const file = o.pointer ? `${o.file} ${o.pointer}` : o.file;
-  const how = o.match === 'file' ? '' : ` (${o.match === 'inside' ? 'in' : 'merged into'})`;
+  const how = MATCH_TEXT[o.match](o);
   return [
     o.scope,
     o.entry.kind,

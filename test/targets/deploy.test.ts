@@ -252,187 +252,258 @@ function mcpPointer(target: TargetId, scope: Scope): string {
   return target === 'codex' ? '/mcp_servers/gh' : `/${mcpKey(target, scope)}/gh`;
 }
 
+/** One target at one scope, with the helpers every per-kind check uses. */
+interface Case {
+  id: TargetId;
+  scope: Scope;
+  root: string;
+  env: NodeJS.ProcessEnv;
+  target: ReturnType<typeof createTarget>;
+  P: Expect;
+  E: ReturnType<typeof entities>;
+  /** How the result reports a path: scope-relative (project) or absolute (global). */
+  shown: (rel: string) => string;
+  abs: (rel: string) => string;
+  deploy: (e: { entity: Entity; absPath: string }) => Promise<DeployResult>;
+}
+
+async function makeCase(id: TargetId, scope: Scope): Promise<Case> {
+  const origin = await makeOrigin();
+  const root = await tmpDir();
+  const env = fakeEnv(root);
+  const target = createTarget(id, env);
+  return {
+    id,
+    scope,
+    root,
+    env,
+    target,
+    P: PATHS[id][scope],
+    E: entities(origin),
+    shown: (rel) => (scope === 'project' ? rel : path.join(root, rel)),
+    abs: (rel) => path.join(root, rel),
+    deploy: (e) =>
+      target.deploy(mkInput({ ...e, originRoot: origin.root, scope, scopeRoot: root })),
+  };
+}
+
+async function checkSkill(c: Case): Promise<DeployResult> {
+  const { P, abs } = c;
+  const skill = await c.deploy(c.E.skill);
+  expect(skill.files).toEqual(
+    ['SKILL.md', 'references/notes.md', 'scripts/run.sh'].map((f) => c.shown(`${P.skill}/${f}`)),
+  );
+  expect(await read(abs(`${P.skill}/SKILL.md`))).toBe(SKILL_MD);
+  expect(await read(abs(`${P.skill}/scripts/run.sh`))).toBe(RUN_SH);
+  expect((await fs.stat(abs(`${P.skill}/scripts/run.sh`))).mode & 0o777).toBe(0o755);
+  for (const junk of ['node_modules', '.git', 'bundle.zip'])
+    expect(await exists(abs(`${P.skill}/${junk}`))).toBe(false);
+  return skill;
+}
+
+async function checkAgent(c: Case): Promise<DeployResult> {
+  const agent = await c.deploy(c.E.agent);
+  expect(agent.files).toEqual([c.shown(c.P.agent)]);
+  expect(await read(c.abs(c.P.agent))).toBe(renderAgent(AGENT_DEF, c.id).content);
+  if (c.id !== 'claude') expect(agent.notes.join('\n')).toMatch(/dropped/);
+  return agent;
+}
+
+async function checkInstruction(c: Case): Promise<DeployResult> {
+  const { P, id, shown, abs } = c;
+  const instr = await c.deploy(c.E.instruction);
+  if (P.instruction === null) {
+    expect(instr).toMatchObject({ files: [], skipped: true });
+    expect(instr.notes[0]).toMatch(/Cursor Settings/);
+  } else if (BLOCK_INSTRUCTIONS.includes(id)) {
+    const block = (renderInstruction(INSTR_DEF, id) as { managedBlock: string }).managedBlock;
+    expect(instr.files).toEqual([]);
+    expect(instr.merged).toEqual([
+      { file: shown(P.instruction), pointer: 'block:instruction:demo', value: block },
+    ]);
+    expect(await read(abs(P.instruction))).toBe(
+      `<!-- palm:begin instruction:demo -->\n${block}<!-- palm:end instruction:demo -->\n`,
+    );
+  } else {
+    expect(instr.files).toEqual([shown(P.instruction)]);
+    expect(await read(abs(P.instruction))).toBe(
+      (renderInstruction(INSTR_DEF, id) as { content: string }).content,
+    );
+    await checkInstructionList(c, instr, shown(P.instruction));
+  }
+  return instr;
+}
+
+/** OpenCode lists instruction files in a config array (project: relative, global: absolute). */
+async function checkInstructionList(c: Case, instr: DeployResult, listed: string): Promise<void> {
+  const list = c.P.instructionList;
+  if (!list) {
+    expect(instr.merged).toEqual([]);
+    return;
+  }
+  expect(instr.merged).toEqual([{ file: c.shown(list), pointer: '/instructions', value: listed }]);
+  expect(await readJson(c.abs(list))).toEqual({ instructions: [listed] });
+}
+
+async function checkCommand(c: Case): Promise<DeployResult> {
+  const cmd = await c.deploy(c.E.command);
+  if (c.P.command === null) {
+    expect(cmd).toMatchObject({ files: [], skipped: true });
+    expect(cmd.notes).toHaveLength(1);
+  } else {
+    expect(cmd.files).toEqual([c.shown(c.P.command)]);
+    expect(await read(c.abs(c.P.command))).toBe(renderCommand(CMD_DEF, c.id).content);
+  }
+  return cmd;
+}
+
+const ASSET_REL = '.palm/hooks/fmt';
+
+async function checkHook(c: Case): Promise<DeployResult> {
+  const { id, abs, shown } = c;
+  const hook = await c.deploy(c.E.hook);
+  const hookFile = c.P.hookFile;
+  if (hookFile === null) {
+    expect(hook).toEqual({
+      files: [],
+      merged: [],
+      notes: ['hooks fmt: OpenCode hooks are JS plugins; not installed'],
+      skipped: true,
+    });
+    expect(await exists(abs(ASSET_REL))).toBe(false);
+    return hook;
+  }
+  const def = c.E.hook.entity.def;
+  const converted = convertHooks(
+    def.kind === 'hook' ? def.hooks : (undefined as never),
+    id,
+    abs(ASSET_REL),
+    ScopePaths.at(c.scope, c.root, c.env),
+  ).hooks as { hooks: Record<string, unknown[]> };
+  await checkHookAssets(c, hook);
+  if (id === 'copilot') {
+    expect(hook.files).toContain(shown(hookFile));
+    expect(await read(abs(hookFile))).toBe(`${JSON.stringify(converted, null, 2)}\n`);
+    expect(hook.merged).toEqual([]);
+  } else {
+    expect(hook.merged?.map((m) => [m.file, m.pointer])).toEqual(
+      Object.keys(converted.hooks).map((ev) => [shown(hookFile), `/hooks/${ev}`]),
+    );
+    const onDisk = (await readJson(abs(hookFile))) as Record<string, unknown>;
+    expect(onDisk.hooks).toEqual(converted.hooks);
+    if (id === 'cursor') expect(onDisk.version).toBe(1);
+  }
+  checkPortableCommand(c, JSON.stringify(converted));
+  return hook;
+}
+
+async function checkHookAssets(c: Case, hook: DeployResult): Promise<void> {
+  for (const f of ASSET_FILES) expect(hook.files).toContain(c.shown(`${ASSET_REL}/${f}`));
+  // Hook scripts may read plugin files (superpowers' session-start reads skills/*/SKILL.md): those are
+  // copied; docs, tests and top-level READMEs are not.
+  expect(hook.files).toContain(c.shown(`${ASSET_REL}/skills/s/SKILL.md`));
+  for (const skipped of ['docs', 'tests', 'README.md'])
+    expect(await exists(c.abs(`${ASSET_REL}/${skipped}`))).toBe(false);
+  expect((await fs.stat(c.abs(`${ASSET_REL}/hooks/format.sh`))).mode & 0o777).toBe(0o755);
+}
+
+/**
+ * Project configs are committed: the command names the project root through the harness, never
+ * as an absolute path; global configs use the absolute asset dir.
+ */
+function checkPortableCommand(c: Case, cmdText: string): void {
+  if (c.scope === 'project') {
+    expect(cmdText).toContain(`${PROJECT_DIR[c.id]}/.palm/hooks/fmt/hooks/format.sh`);
+    expect(cmdText).not.toContain(c.root);
+  } else expect(cmdText).toContain(`${c.abs(ASSET_REL)}/hooks/format.sh`);
+}
+
+async function checkMcp(c: Case): Promise<DeployResult> {
+  const { id, scope, P } = c;
+  const mcp = await c.deploy(c.E.mcp);
+  expect(mcp.files).toEqual([]);
+  expect(mcp.merged).toHaveLength(1);
+  expect(mcp.merged![0]!.file).toBe(c.shown(P.mcpFile));
+  expect(mcp.merged![0]!.pointer).toBe(mcpPointer(id, scope));
+  expect(mcp.notes.join('\n')).toContain('GH_TOKEN');
+  if (id === 'codex') {
+    expect(parseToml(await read(c.abs(P.mcpFile)))).toEqual({
+      mcp_servers: { gh: { command: 'npx', args: ['-y', 'gh-mcp'], env_vars: ['GH_TOKEN'] } },
+    });
+  } else {
+    const doc = await readJson(c.abs(P.mcpFile));
+    expect((doc as Record<string, Record<string, unknown>>)[mcpKey(id, scope)]!.gh).toEqual(
+      mcp.merged![0]!.value,
+    );
+  }
+  return mcp;
+}
+
+type Deployed = Array<{ entity: Entity; result: DeployResult }>;
+
+/** Every file a result wrote or merged into, as the result names it. */
+function allFilesOf(results: Deployed): string[] {
+  return [
+    ...new Set(
+      results.flatMap((r) => [...r.result.files, ...(r.result.merged ?? []).map((m) => m.file)]),
+    ),
+  ];
+}
+
+/** A second deploy of everything gives the same results and rewrites nothing. */
+async function checkIdempotent(c: Case, results: Deployed): Promise<void> {
+  const old = new Date('2020-01-01T00:00:00Z');
+  const onDisk = (f: string) => (c.scope === 'project' ? c.abs(f) : f);
+  const files = allFilesOf(results);
+  for (const f of files) await fs.utimes(onDisk(f), old, old);
+  for (const [kind, e] of Object.entries(c.E)) {
+    const first = results.find((r) => r.entity.kind === kind)!.result;
+    expect(await c.deploy(e)).toEqual(first);
+  }
+  for (const f of files) expect((await fs.stat(onDisk(f))).mtime.getTime()).toBe(old.getTime());
+}
+
+async function checkUndeploy(c: Case, results: Deployed): Promise<void> {
+  const { id, scope, root, P, abs } = c;
+  for (const { entity, result } of results)
+    await c.target.undeploy(mkLock(entity, [id], result.files, result.merged), scope, root, false);
+  const mergedInto = (f: string) => results.some((r) => r.result.merged?.some((m) => m.file === f));
+  for (const f of allFilesOf(results).filter((f) => !mergedInto(f)))
+    expect(await exists(scope === 'project' ? abs(f) : f)).toBe(false);
+  expect(await exists(abs(P.skill))).toBe(false);
+  expect(await exists(abs(ASSET_REL))).toBe(false);
+  if (BLOCK_INSTRUCTIONS.includes(id)) expect(await exists(abs(P.instruction!))).toBe(false);
+  if (P.instructionList) expect(await exists(abs(P.instructionList))).toBe(false);
+  if (P.hookFile !== null && id !== 'copilot') {
+    // Emptied event lists and the `hooks` object are pruned; a file palm alone wrote is deleted
+    // (cursor keeps the `version` key palm ensured, so its file stays).
+    expect(await exists(abs(P.hookFile))).toBe(id === 'cursor');
+    if (id === 'cursor') expect(await readJson(abs(P.hookFile))).toEqual({ version: 1 });
+  }
+  if (id === 'codex') expect(parseToml(await read(abs(P.mcpFile)))).toEqual({});
+  else expect(await exists(abs(P.mcpFile))).toBe(false);
+  // the harness config dir itself survives
+  expect(await exists(c.target.configDir(scope, root, c.env))).toBe(true);
+}
+
 describe.each(
   TARGET_IDS.flatMap((t) => (['project', 'global'] as const).map((s) => [t, s] as const)),
 )('%s @ %s', (id, scope) => {
   it('deploys every kind to the documented location, idempotently, and undeploys cleanly', async () => {
-    const origin = await makeOrigin();
-    const root = await tmpDir();
-    const env = fakeEnv(root);
-    const target = createTarget(id, env);
-    const P = PATHS[id][scope];
-    const shown = (rel: string): string => (scope === 'project' ? rel : path.join(root, rel));
-    const abs = (rel: string): string => path.join(root, rel);
-    const E = entities(origin);
-    const deploy = (e: { entity: Entity; absPath: string }): Promise<DeployResult> =>
-      target.deploy(mkInput({ ...e, originRoot: origin.root, scope, scopeRoot: root }));
-    const results: Array<{ entity: Entity; result: DeployResult }> = [];
-
-    // skill
-    const skill = await deploy(E.skill);
-    expect(skill.files).toEqual(
-      ['SKILL.md', 'references/notes.md', 'scripts/run.sh'].map((f) => shown(`${P.skill}/${f}`)),
-    );
-    expect(await read(abs(`${P.skill}/SKILL.md`))).toBe(SKILL_MD);
-    expect(await read(abs(`${P.skill}/scripts/run.sh`))).toBe(RUN_SH);
-    expect((await fs.stat(abs(`${P.skill}/scripts/run.sh`))).mode & 0o777).toBe(0o755);
-    for (const junk of ['node_modules', '.git', 'bundle.zip'])
-      expect(await exists(abs(`${P.skill}/${junk}`))).toBe(false);
-    results.push({ entity: E.skill.entity, result: skill });
-
-    // agent
-    const agent = await deploy(E.agent);
-    expect(agent.files).toEqual([shown(P.agent)]);
-    expect(await read(abs(P.agent))).toBe(renderAgent(AGENT_DEF, id).content);
-    if (id !== 'claude') expect(agent.notes.join('\n')).toMatch(/dropped/);
-    results.push({ entity: E.agent.entity, result: agent });
-
-    // instruction
-    const instr = await deploy(E.instruction);
-    if (P.instruction === null) {
-      expect(instr).toMatchObject({ files: [], skipped: true });
-      expect(instr.notes[0]).toMatch(/Cursor Settings/);
-    } else if (BLOCK_INSTRUCTIONS.includes(id)) {
-      const block = (renderInstruction(INSTR_DEF, id) as { managedBlock: string }).managedBlock;
-      expect(instr.files).toEqual([]);
-      expect(instr.merged).toEqual([
-        { file: shown(P.instruction), pointer: 'block:instruction:demo', value: block },
-      ]);
-      expect(await read(abs(P.instruction))).toBe(
-        `<!-- palm:begin instruction:demo -->\n${block}<!-- palm:end instruction:demo -->\n`,
-      );
-    } else {
-      expect(instr.files).toEqual([shown(P.instruction)]);
-      expect(await read(abs(P.instruction))).toBe(
-        (renderInstruction(INSTR_DEF, id) as { content: string }).content,
-      );
-      if (P.instructionList) {
-        // project: the relative path OpenCode globs upward for; global: an absolute path
-        const listed = shown(P.instruction);
-        expect(instr.merged).toEqual([
-          { file: shown(P.instructionList), pointer: '/instructions', value: listed },
-        ]);
-        expect(await readJson(abs(P.instructionList))).toEqual({ instructions: [listed] });
-      } else expect(instr.merged).toEqual([]);
-    }
-    results.push({ entity: E.instruction.entity, result: instr });
-
-    // command
-    const cmd = await deploy(E.command);
-    if (P.command === null) {
-      expect(cmd).toMatchObject({ files: [], skipped: true });
-      expect(cmd.notes).toHaveLength(1);
-    } else {
-      expect(cmd.files).toEqual([shown(P.command)]);
-      expect(await read(abs(P.command))).toBe(renderCommand(CMD_DEF, id).content);
-    }
-    results.push({ entity: E.command.entity, result: cmd });
-
-    // hook
-    const assetRel = '.palm/hooks/fmt';
-    const hook = await deploy(E.hook);
-    results.push({ entity: E.hook.entity, result: hook });
-    const hookFile = P.hookFile;
-    if (hookFile === null) {
-      expect(hook).toEqual({
-        files: [],
-        merged: [],
-        notes: ['hooks fmt: OpenCode hooks are JS plugins; not installed'],
-        skipped: true,
-      });
-      expect(await exists(abs(assetRel))).toBe(false);
-    } else {
-      const converted = convertHooks(
-        E.hook.entity.def.kind === 'hook' ? E.hook.entity.def.hooks : (undefined as never),
-        id,
-        abs(assetRel),
-        ScopePaths.at(scope, root, env),
-      ).hooks as { hooks: Record<string, unknown[]> };
-      for (const f of ASSET_FILES) expect(hook.files).toContain(shown(`${assetRel}/${f}`));
-      // Hook scripts may read plugin files (superpowers' session-start reads skills/*/SKILL.md): those are
-      // copied; docs, tests and top-level READMEs are not.
-      expect(hook.files).toContain(shown(`${assetRel}/skills/s/SKILL.md`));
-      for (const skipped of ['docs', 'tests', 'README.md'])
-        expect(await exists(abs(`${assetRel}/${skipped}`))).toBe(false);
-      expect((await fs.stat(abs(`${assetRel}/hooks/format.sh`))).mode & 0o777).toBe(0o755);
-      if (id === 'copilot') {
-        expect(hook.files).toContain(shown(hookFile));
-        expect(await read(abs(hookFile))).toBe(`${JSON.stringify(converted, null, 2)}\n`);
-        expect(hook.merged).toEqual([]);
-      } else {
-        expect(hook.merged?.map((m) => [m.file, m.pointer])).toEqual(
-          Object.keys(converted.hooks).map((ev) => [shown(hookFile), `/hooks/${ev}`]),
-        );
-        const onDisk = (await readJson(abs(hookFile))) as Record<string, unknown>;
-        expect(onDisk.hooks).toEqual(converted.hooks);
-        if (id === 'cursor') expect(onDisk.version).toBe(1);
-      }
-      const cmdText = JSON.stringify(converted);
-      // Project configs are committed: the command names the project root through the harness,
-      // never as an absolute path; global configs use the absolute asset dir.
-      if (scope === 'project') {
-        expect(cmdText).toContain(`${PROJECT_DIR[id]}/.palm/hooks/fmt/hooks/format.sh`);
-        expect(cmdText).not.toContain(root);
-      } else expect(cmdText).toContain(`${abs(assetRel)}/hooks/format.sh`);
-    }
-
-    // mcp
-    const mcp = await deploy(E.mcp);
-    expect(mcp.files).toEqual([]);
-    expect(mcp.merged).toHaveLength(1);
-    expect(mcp.merged![0]!.file).toBe(shown(P.mcpFile));
-    expect(mcp.merged![0]!.pointer).toBe(mcpPointer(id, scope));
-    expect(mcp.notes.join('\n')).toContain('GH_TOKEN');
-    if (id === 'codex') {
-      expect(parseToml(await read(abs(P.mcpFile)))).toEqual({
-        mcp_servers: { gh: { command: 'npx', args: ['-y', 'gh-mcp'], env_vars: ['GH_TOKEN'] } },
-      });
-    } else {
-      const doc = await readJson(abs(P.mcpFile));
-      expect((doc as Record<string, Record<string, unknown>>)[mcpKey(id, scope)]!.gh).toEqual(
-        mcp.merged![0]!.value,
-      );
-    }
-    results.push({ entity: E.mcp.entity, result: mcp });
-
-    // idempotent re-deploy: same result, nothing rewritten
-    const old = new Date('2020-01-01T00:00:00Z');
-    const allFiles = results.flatMap((r) => [
-      ...r.result.files,
-      ...(r.result.merged ?? []).map((m) => m.file),
-    ]);
-    for (const f of new Set(allFiles)) await fs.utimes(scope === 'project' ? abs(f) : f, old, old);
-    for (const [kind, e] of Object.entries(E)) {
-      const again = await deploy(e);
-      const first = results.find((r) => r.entity.kind === kind)!.result;
-      expect(again).toEqual(first);
-    }
-    for (const f of new Set(allFiles))
-      expect((await fs.stat(scope === 'project' ? abs(f) : f)).mtime.getTime()).toBe(old.getTime());
-
-    // undeploy
-    for (const { entity, result } of results) {
-      await target.undeploy(mkLock(entity, [id], result.files, result.merged), scope, root, false);
-    }
-    for (const f of allFiles.filter(
-      (f) => !results.some((r) => r.result.merged?.some((m) => m.file === f)),
-    )) {
-      expect(await exists(scope === 'project' ? abs(f) : f)).toBe(false);
-    }
-    expect(await exists(abs(P.skill))).toBe(false);
-    expect(await exists(abs(assetRel))).toBe(false);
-    if (BLOCK_INSTRUCTIONS.includes(id)) expect(await exists(abs(P.instruction!))).toBe(false);
-    if (P.instructionList) expect(await exists(abs(P.instructionList))).toBe(false);
-    if (P.hookFile !== null && id !== 'copilot') {
-      // Emptied event lists and the `hooks` object are pruned; a file palm alone wrote is deleted
-      // (cursor keeps the `version` key palm ensured, so its file stays).
-      expect(await exists(abs(P.hookFile))).toBe(id === 'cursor');
-      if (id === 'cursor') expect(await readJson(abs(P.hookFile))).toEqual({ version: 1 });
-    }
-    if (id === 'codex') expect(parseToml(await read(abs(P.mcpFile)))).toEqual({});
-    else expect(await exists(abs(P.mcpFile))).toBe(false);
-    // the harness config dir itself survives
-    expect(await exists(target.configDir(scope, root, env))).toBe(true);
+    const c = await makeCase(id, scope);
+    const steps = [
+      ['skill', checkSkill],
+      ['agent', checkAgent],
+      ['instruction', checkInstruction],
+      ['command', checkCommand],
+      ['hook', checkHook],
+      ['mcp', checkMcp],
+    ] as const;
+    const results: Deployed = [];
+    for (const [kind, check] of steps)
+      results.push({ entity: c.E[kind].entity, result: await check(c) });
+    await checkIdempotent(c, results);
+    await checkUndeploy(c, results);
   });
 });
 

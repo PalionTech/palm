@@ -21,7 +21,7 @@ export interface Detection {
 const KIND_KEYS = ['skills', 'agents', 'commands', 'instructions', 'hooks', 'mcp'] as const;
 
 /** A descriptor only replaces detection when it names at least one kind glob. */
-export function hasLayoutGlobs(layout: LayoutDescriptor | undefined): boolean {
+function hasLayoutGlobs(layout: LayoutDescriptor | undefined): boolean {
   if (!layout) return false;
   return KIND_KEYS.some((k) => {
     const v = layout[k];

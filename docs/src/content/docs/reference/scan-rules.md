@@ -7,12 +7,13 @@ palm scans every origin when you add or update it, and stores the result as an i
 The first rule that matches decides how palm reads the repository.
 
 ```sh
-palm origin add mattpocock/skills
-palm list --available -o mattpocock
+palm install origin mattpocock/skills
+palm get --available -o mattpocock
 ```
 
-`palm origin add` prints the counts it found and the rule it used, such as `(marketplace)`.
-`palm list --available` lists every entity in the index.
+`palm install origin` prints the counts it found and the rule it used, such as `detected: marketplace`.
+`palm get --available` lists every entity in the index.
+`palm describe origin <alias>` shows the rule, the counts and the index warnings later.
 
 ## Detection order
 

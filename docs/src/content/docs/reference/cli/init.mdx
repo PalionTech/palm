@@ -1,0 +1,62 @@
+---
+title: palm init
+description: Choose this project's targets, write them to palm.yaml and ignore .palm/.
+---
+
+import Capture from '../../../../components/Capture.astro';
+
+`palm init` writes the project's targets to `palm.yaml`, so every developer installs into the same harnesses.
+
+```sh
+palm init [options]
+```
+
+| Command | Meaning |
+| --- | --- |
+| `palm init` | Pick the targets from a list, with the detected harnesses preselected. |
+| `palm init --target claude,codex` | Set the targets without a prompt. |
+| `palm init --yes` | Take the detected harnesses without a prompt. |
+| `palm init --dry-run` | Show what palm would write. |
+
+<Capture name="c-init" />
+
+## Options
+
+{/* cli-reference:options init */}
+
+No options of its own. The [global options](/palm/reference/cli/#global-options) apply.
+
+{/* /cli-reference */}
+
+## Behavior
+
+### What it writes
+
+- `targets:` in `palm.yaml` at the project root. It replaces an existing `targets:` and keeps every other key.
+- `.palm/` as a new line in an existing `.gitignore`, unless the file already ignores `.palm`. palm does not create a `.gitignore`.
+
+### What it asks
+
+Which harnesses the project uses, when you give no `--target` and no `--yes`.
+palm preselects every harness it detects in the project or in your home directory.
+
+### What it refuses
+
+- `-g`: a usage error. Set global targets with `palm config set targets claude,codex`.
+- No terminal, no `--target` and no detected harness: `E_NON_INTERACTIVE`.
+- An empty pick: a usage error.
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | `palm.yaml` has its targets. |
+| `1` | No terminal and nothing detected. |
+| `2` | `-g`, an unknown target, or an empty pick. |
+| `130` | You pressed Esc at the list. |
+
+## Related
+
+- [palm.yaml](/palm/reference/palm-yaml/)
+- [Targets](/palm/concepts/targets/)
+- [`palm install`](/palm/reference/cli/install/)

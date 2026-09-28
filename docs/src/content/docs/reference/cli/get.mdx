@@ -1,0 +1,85 @@
+---
+title: palm get
+description: List installed entities, what your origins offer, your origins and your targets.
+---
+
+import Capture from '../../../../components/Capture.astro';
+
+`palm get` lists what is installed in the scope, or with `--available`, what your origins offer.
+
+```sh
+palm get [kind] [names...] [options]
+palm get origins [aliases...]
+palm get targets
+palm get all
+```
+
+Aliases: `palm list`, `palm ls`.
+Kinds: `skill`, `agent`, `instruction`, `command`, `hook`, `mcp`, `plugin`, `origin`, `target` and `all`, as singular, plural or [short name](/palm/reference/cli/#kinds).
+Without a kind, palm lists every installed entity.
+
+| Command | Meaning |
+| --- | --- |
+| `palm get` | Every entity installed in this project. |
+| `palm get skills -g` | Skills installed in your home directory. |
+| `palm get skills --available` | Every skill your origins offer, grouped by origin. |
+| `palm get sk --available -o mattpocock` | What one origin offers. |
+| `palm get origins` | Registered origins with their location, ref, scope and counts. |
+| `palm get targets` | Each harness, whether it is active, and where the active set comes from. |
+| `palm get all --json` | Installed entities, origins and targets as one JSON document. |
+
+<Capture name="c-get" />
+
+## Options
+
+{/* cli-reference:options get */}
+
+| Argument | Meaning |
+| --- | --- |
+| `kind` | skill, agent, instruction, command, hook, mcp, plugin, origin, target, all (plurals and short names work); omit it for every installed entity |
+| `names` | `name[@origin][#ref]` |
+
+| Option | Meaning |
+| --- | --- |
+| `--available` | list what your origins offer instead of what is installed |
+| `-o, --origin <name-or-alias>` | only this origin: alias, owner/repo[/root], URL or local path (installed entities also: mine, registry, adhoc) |
+
+The [global options](/palm/reference/cli/#global-options) also apply.
+
+{/* /cli-reference */}
+
+## Views
+
+| View | Columns |
+| --- | --- |
+| Installed | kind, name, origin, version, targets, via |
+| `--available` | one table per origin: kind, name, version, description |
+| `get origins` | alias, type, location, ref, scope, entities; `--verbose` adds the detection rule, commit and index warnings |
+| `get targets` | target, harness, status, detected in project and global scope, config folder |
+| `get all` | the installed, origins and targets views in turn |
+
+`-o` takes an alias, `owner/repo`, `owner/repo/<folder>`, a URL or a local path.
+For installed entities it also takes `mine`, `registry` and `adhoc`: the `create` origin, the MCP registry and ad hoc MCP servers.
+
+With `--json`, installed entities come as lockfile entries in `items`, and `--available` as one item per origin.
+`get all` gives `{ "installed", "origins", "targets" }`.
+
+## Behavior
+
+`palm get` never prompts.
+It writes nothing in the scope.
+To read an index that is not cached yet, it fetches the origin into `~/.palm/cache/`, unless `--offline`.
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | The list printed, also when it is empty. |
+| `1` | `-o` matches no origin or several, or an origin cannot be fetched. |
+| `2` | A usage error. |
+
+## Related
+
+- [`palm describe`](/palm/reference/cli/describe/)
+- [`palm search`](/palm/reference/cli/search/)
+- [Targets](/palm/concepts/targets/)

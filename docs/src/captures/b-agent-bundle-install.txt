@@ -1,0 +1,11 @@
+$ palm install agent sdk-reviewer@mine
+project scope → claude, copilot
+status       kind   name                             origin    targets         files
+───────────  ─────  ───────────────────────────────  ────────  ──────────────  ─────────────
++ installed  agent  sdk-reviewer                     mine      claude,copilot  2
++ installed  skill  sdk-helper (agent:sdk-reviewer)  official  claude,copilot  2
++ installed  mcp    context7 (agent:sdk-reviewer)    official  claude,copilot  0 (+2 merged)
+3 installed
+
+i sdk-reviewer: copilot: .github/agents/sdk-reviewer.agent.md: dropped model (sonnet), mcpServers, skills (not supported by GitHub Copilot)
+i context7: optional secret CONTEXT7_API_KEY (unset): export it to use it (left empty otherwise)

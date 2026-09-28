@@ -1,0 +1,12 @@
+$ palm install origin ~/src/superpowers
++ origin superpowers → ~/src/superpowers (3 skills, 1 hook, 1 plugin; detected: marketplace)
+  install with: palm install skill brainstorming@superpowers
+$ palm get --available -o superpowers
+superpowers (5)
+kind    name                     version  description
+──────  ───────────────────────  ───────  ──────────────────────────────────────────────────────────────────────
+hook    superpowers              6.4.2
+plugin  superpowers              6.4.2    Core skills library for Claude Code
+skill   brainstorming            6.4.2    Use before any creative work: explore intent, requirements and design.
+skill   test-driven-development  6.4.2    Use when implementing any feature or bugfix, before writing implement…
+skill   writing-skills           6.4.2    Use when creating or editing skills.

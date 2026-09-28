@@ -64,7 +64,7 @@ function editorCommand(ctx: PalmContext): string | undefined {
   return e || undefined;
 }
 
-export function canUseEditor(ctx: PalmContext): boolean {
+function canUseEditor(ctx: PalmContext): boolean {
   return ctx.ui.isInteractive && editorCommand(ctx) !== undefined;
 }
 
@@ -111,11 +111,7 @@ export async function editBody(
   return promptLongText(ctx.ui, opts.message, opts.placeholder);
 }
 
-export async function promptLongText(
-  ui: UI,
-  message: string,
-  placeholder?: string,
-): Promise<string> {
+async function promptLongText(ui: UI, message: string, placeholder?: string): Promise<string> {
   if (supportsMultiline(ui)) return (await ui.multiline(message, { placeholder })).trim();
   return (await ui.text(message, { placeholder, validate: required('text') })).trim();
 }
@@ -158,47 +154,37 @@ export async function writeNewFile(
   return true;
 }
 
-/** Rescan mine, then (optionally) install the new entity through the normal install path. */
-export async function finishCreate(
-  ctx: PalmContext,
-  opts: CreateOptions & {
-    kind: Kind;
-    entityName: string;
-    mine: OriginSpec;
-    extra?: InstallRequest[];
-  },
-): Promise<void> {
-  if (ctx.flags.dryRun) return;
-  const { invalidateIndex } = await import('../core/cache.js');
-  await invalidateIndex(ctx, opts.mine);
+type FinishOptions = CreateOptions & {
+  kind: Kind;
+  entityName: string;
+  mine: OriginSpec;
+  extra?: InstallRequest[];
+};
 
-  let install = opts.install;
-  if (install === undefined)
-    install =
-      ctx.ui.isInteractive && !ctx.flags.yes
-        ? await ctx.ui.confirm(`Install ${opts.kind} ${opts.entityName} now?`, true)
-        : true;
-  const extraHint = (opts.extra ?? [])
-    .map(
-      (r) =>
-        ` ${typeof r.spec === 'string' ? r.spec : `${r.spec.name}${r.spec.origin ? `@${r.spec.origin}` : ''}`}`,
-    )
+/** ` name@origin` for each extra request (the hint when the user installs later). */
+function extraHint(extra: readonly InstallRequest[] | undefined): string {
+  return (extra ?? [])
+    .map((r) => {
+      if (typeof r.spec === 'string') return ` ${r.spec}`;
+      return ` ${r.spec.name}${r.spec.origin ? `@${r.spec.origin}` : ''}`;
+    })
     .join('');
-  if (!install) {
-    ctx.log.info(
-      `${pc.dim('install later with:')} palm install ${opts.kind} ${opts.entityName}@${opts.mine.alias}${opts.scope === 'global' ? ' -g' : ''}`,
-    );
-    if (extraHint) ctx.log.info(`${pc.dim('and:')} palm install instructions${extraHint}`);
-    return;
-  }
+}
 
-  const { resolveTargets } = await import('../engine/resolve-targets.js');
+async function wantsInstall(ctx: PalmContext, opts: FinishOptions): Promise<boolean> {
+  if (opts.install !== undefined) return opts.install;
+  if (!ctx.ui.isInteractive || ctx.flags.yes) return true;
+  return ctx.ui.confirm(`Install ${opts.kind} ${opts.entityName} now?`, true);
+}
+
+/** Install the new entity (and its extra requests); the targets are saved once it placed something. */
+async function installCreated(ctx: PalmContext, opts: FinishOptions): Promise<void> {
+  const { findTargets, persistTargets, placedSomething } = await import(
+    '../engine/resolve-targets.js'
+  );
   const { installEntities } = await import('../engine/install.js');
-  const targets: TargetId[] = await resolveTargets(ctx, {
-    scope: opts.scope,
-    flag: opts.targets,
-    save: true,
-  });
+  const found = await findTargets(ctx, { scope: opts.scope, flag: opts.targets });
+  const { targets } = found;
   const requests: InstallRequest[] = [
     { kind: opts.kind, spec: { name: opts.entityName, origin: opts.mine.alias } },
     ...(opts.extra ?? []),
@@ -207,6 +193,7 @@ export async function finishCreate(
     scope: opts.scope,
     targets,
   });
+  if (placedSomething(result)) await persistTargets(ctx, opts.scope, found);
   printInstallSummary(outputOf(ctx.log), result, { scope: opts.scope, targets });
   if (failureCount(result))
     throw new PalmError(
@@ -214,4 +201,18 @@ export async function finishCreate(
       `${opts.kind} ${opts.entityName} was written but did not install everywhere`,
       `retry: palm install ${opts.kind} ${opts.entityName}@${opts.mine.alias}${opts.scope === 'global' ? ' -g' : ''}`,
     );
+}
+
+/** Rescan mine, then (optionally) install the new entity through the normal install path. */
+export async function finishCreate(ctx: PalmContext, opts: FinishOptions): Promise<void> {
+  if (ctx.flags.dryRun) return;
+  const { invalidateIndex } = await import('../core/cache.js');
+  await invalidateIndex(ctx, opts.mine);
+  if (await wantsInstall(ctx, opts)) return installCreated(ctx, opts);
+  const g = opts.scope === 'global' ? ' -g' : '';
+  ctx.log.info(
+    `${pc.dim('install later with:')} palm install ${opts.kind} ${opts.entityName}@${opts.mine.alias}${g}`,
+  );
+  const extra = extraHint(opts.extra);
+  if (extra) ctx.log.info(`${pc.dim('and:')} palm install instructions${extra}`);
 }

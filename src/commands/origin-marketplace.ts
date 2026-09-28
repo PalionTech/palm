@@ -116,12 +116,13 @@ async function addEntries(
   chosen: OriginSpec[],
   project: boolean,
 ): Promise<ImportResult> {
-  const { addOrigin, allOrigins, originId } = await import('../core/config.js');
+  const { addOrigin } = await import('../core/config.js');
+  const { Origin } = await import('../domain/origin.js');
   const same = (a: OriginSpec, b: OriginSpec): boolean =>
-    originId(a) === originId(b) && (a.ref ?? '') === (b.ref ?? '');
+    new Origin(a).id === new Origin(b).id && (a.ref ?? '') === (b.ref ?? '');
   const result: ImportResult = { added: [], existing: [], skipped: [] };
   for (const spec of chosen) {
-    const known = allOrigins(ctx).find((o) => same(o, spec));
+    const known = ctx.origins.specs().find((o) => same(o, spec));
     if (known) {
       result.existing.push({ spec, as: known.alias });
       continue;

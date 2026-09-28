@@ -2,9 +2,8 @@ import { existsSync } from 'node:fs';
 import { chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadLock } from '../../src/core/lockfile.js';
-import { loadManifest } from '../../src/core/manifest.js';
 import { Lock } from '../../src/domain/lock.js';
+import { Manifest } from '../../src/domain/manifest.js';
 import { installEntities } from '../../src/engine/install.js';
 import { uninstallEntities } from '../../src/engine/uninstall.js';
 import { removeDir } from '../support/sandbox.js';
@@ -42,9 +41,9 @@ describe('uninstallEntities', () => {
       expect(existsSync(join(w.sb.project, f))).toBe(false);
     }
     expect(existsSync(join(w.sb.project, '.claude/skill/wayfinder.txt'))).toBe(true);
-    const lock = await loadLock(join(w.sb.project, 'palm.lock.yaml'));
+    const lock = await Lock.load(join(w.sb.project, 'palm.lock.yaml'));
     expect(lock.entries.map((e) => e.name)).toEqual(['wayfinder']);
-    const m = await loadManifest(join(w.sb.project, 'palm.yaml'));
+    const m = (await Manifest.load(join(w.sb.project, 'palm.yaml'))).toJSON();
     expect(m.agents).toBeUndefined(); // emptied sections are dropped
     expect(m.skills).toEqual(['wayfinder@a']);
   });
@@ -59,7 +58,7 @@ describe('uninstallEntities', () => {
       w.deps,
     );
     expect(r.removed.map((e) => e.name).sort()).toEqual(['brainstorm', 'superpowers']);
-    expect((await loadLock(join(w.sb.project, 'palm.lock.yaml'))).entries).toEqual([]);
+    expect((await Lock.load(join(w.sb.project, 'palm.lock.yaml'))).entries).toEqual([]);
   });
 
   it('asks for a kind when the name is installed as several kinds', async () => {
@@ -100,7 +99,7 @@ describe('uninstallEntities', () => {
     const r = await uninstallEntities(w.ctx, [{ name: 'tdd' }], { scope: 'project' }, w.deps);
     expect(r.removed).toHaveLength(1);
     expect(existsSync(join(w.sb.project, '.claude/skill/tdd.txt'))).toBe(true);
-    expect((await loadLock(join(w.sb.project, 'palm.lock.yaml'))).entries).toHaveLength(1);
+    expect((await Lock.load(join(w.sb.project, 'palm.lock.yaml'))).entries).toHaveLength(1);
   });
 
   it('keeps files the user changed (reported as skipped); --force removes them', async () => {
@@ -122,7 +121,7 @@ describe('uninstallEntities', () => {
     expect(undeployed.flatMap((c) => c.entry.files.map((f) => f.path))).not.toContain(
       '.claude/skill/wayfinder.txt',
     );
-    expect((await loadLock(join(w.sb.project, 'palm.lock.yaml'))).entries).toEqual([]);
+    expect((await Lock.load(join(w.sb.project, 'palm.lock.yaml'))).entries).toEqual([]);
 
     await installEntities(w.ctx, [{ kind: 'skill', spec: 'tdd' }], opts, w.deps);
     const tdd = join(w.sb.project, '.claude/skill/tdd.txt');
@@ -183,7 +182,9 @@ describe('uninstallEntities', () => {
         });
         expect(left?.files.map((f) => f.path)).toEqual(['.claude/skill/wayfinder.txt']);
         expect(existsSync(join(w.sb.project, '.codex/skill/wayfinder.txt'))).toBe(false);
-        expect((await loadManifest(join(w.sb.project, 'palm.yaml'))).skills).toBeUndefined();
+        expect(
+          (await Manifest.load(join(w.sb.project, 'palm.yaml'))).toJSON().skills,
+        ).toBeUndefined();
       } finally {
         await chmod(dir, 0o755);
       }

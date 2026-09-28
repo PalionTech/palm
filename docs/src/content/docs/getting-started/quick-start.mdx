@@ -7,7 +7,8 @@ import { Steps } from '@astrojs/starlight/components';
 import Capture from '../../../components/Capture.astro';
 import CaptureTree from '../../../components/CaptureTree.astro';
 
-In five minutes you add a repository of skills, install one skill for Claude Code and Codex, and remove it again.
+In five minutes you add a repository of skills and install one skill for Claude Code and Codex.
+Then you remove it again.
 Every step is one command.
 
 ```sh
@@ -19,7 +20,7 @@ palm install skill grill-me
 ## Before you start
 
 - palm is installed. See [Installation](/palm/getting-started/install/).
-- You are in a project directory, ideally a git repository.
+- You are in a git repository or another project directory.
 
 palm treats the nearest directory with a `palm.yaml` or a `.git` as the project root.
 It refuses to use your home directory as a project, so run these steps inside one.
@@ -92,3 +93,4 @@ These are the only files the session left behind.
 - Install for more harnesses. The [targets](/palm/concepts/targets/) page explains how palm picks them.
 - Share the setup. Commit `palm.yaml` and `palm.lock.yaml`, as [manifest and lockfile](/palm/concepts/manifest-and-lockfile/) explains.
 - Add an agent with its skills. See [dependencies](/palm/concepts/dependencies/).
+- Look up every command in the [CLI reference](/palm/reference/cli/).

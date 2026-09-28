@@ -142,14 +142,14 @@ async function missingFiles(sp: ScopePaths, e: LockEntry): Promise<string | unde
 
 /** Lock entries whose files are gone, and manifest entries that are not installed, in one scope. */
 async function scopeDrift(ctx: PalmContext, scope: Scope): Promise<Check> {
-  const { loadLock } = await import('../core/lockfile.js');
-  const { loadManifest } = await import('../core/manifest.js');
+  const { Lock } = await import('../domain/lock.js');
+  const { Manifest } = await import('../domain/manifest.js');
   const { manifestDeps, satisfies } = await import('../engine/sync.js');
   const sp = ScopePaths.of(ctx, scope);
-  const lock = await loadLock(sp.lockFile);
-  const manifest = await loadManifest(sp.manifestFile);
+  const lock = await Lock.load(sp.lockFile);
+  const manifest = await Manifest.load(sp.manifestFile);
   const problems: string[] = [];
-  for (const e of lock.entries as LockEntry[]) {
+  for (const e of lock.entries) {
     const problem = await missingFiles(sp, e);
     if (problem) problems.push(problem);
   }
@@ -184,9 +184,9 @@ async function checkDrift(ctx: PalmContext): Promise<Check[]> {
  * clone has the hook entries but not their scripts. One check per scope with hook assets.
  */
 async function hookAssets(ctx: PalmContext, scope: Scope): Promise<Check | undefined> {
-  const { loadLock } = await import('../core/lockfile.js');
+  const { Lock } = await import('../domain/lock.js');
   const sp = ScopePaths.of(ctx, scope);
-  const dirs = (await loadLock(sp.lockFile)).entries
+  const dirs = (await Lock.load(sp.lockFile)).entries
     .map((e) => hookAssetDir(sp, e))
     .filter((d): d is string => d !== undefined);
   if (dirs.length === 0) return undefined;
@@ -205,6 +205,28 @@ async function hookAssets(ctx: PalmContext, scope: Scope): Promise<Check | undef
       ? 'run `palm install -g` to restore hook assets'
       : 'run `palm install` to restore hook assets after a fresh clone';
   return { group: 'hooks', name, status: 'warn', detail: `missing ${missing.join(', ')}; ${fix}` };
+}
+
+/**
+ * Files palm wrote that the user changed since (their hash differs from the lock's): palm keeps
+ * them on uninstall and refuses to overwrite them without --force. One line per scope with any.
+ */
+async function editedFiles(ctx: PalmContext, scope: Scope): Promise<Check | undefined> {
+  const { Lock } = await import('../domain/lock.js');
+  const { hashPath } = await import('../core/hash.js');
+  const sp = ScopePaths.of(ctx, scope);
+  let n = 0;
+  for (const e of (await Lock.load(sp.lockFile)).entries)
+    n += (await Lock.modifiedFiles(e, sp, (abs) => hashPath(abs))).length;
+  if (n === 0) return undefined;
+  const audit = `palm audit${scope === 'global' ? ' -g' : ''}`;
+  const detail = `${plural(n, 'palm-owned file')} modified since install (see \`${audit}\`)`;
+  return { group: 'files', name: `${scope} scope`, status: 'warn', detail };
+}
+
+async function checkEditedFiles(ctx: PalmContext): Promise<Check[]> {
+  const checks = await Promise.all(SCOPES.map((scope) => editedFiles(ctx, scope)));
+  return checks.filter((c): c is Check => c !== undefined);
 }
 
 async function checkHookAssets(ctx: PalmContext): Promise<Check[]> {
@@ -256,8 +278,7 @@ async function originChecks(ctx: PalmContext): Promise<Check[]> {
   if (ctx.flags.offline)
     return [{ group: 'origins', name: 'origins', status: 'info', detail: 'skipped (--offline)' }];
   return safely('origins', async () => {
-    const { allOrigins } = await import('../core/config.js');
-    const specs = allOrigins(ctx);
+    const specs = ctx.origins.specs();
     if (specs.length === 0)
       return [{ group: 'origins', name: 'origins', status: 'info', detail: 'none registered' }];
     return Promise.all(specs.map((s) => checkOrigin(s)));
@@ -281,8 +302,8 @@ function plural(n: number, word: string): string {
 }
 
 /**
- * `palm doctor`: git, node, palm home, harness detection, lock drift, hook assets, origin
- * reachability.
+ * `palm doctor`: git, node, palm home, harness detection, lock drift, hook assets, files the user
+ * edited since palm wrote them, origin reachability.
  */
 export async function run(inv: Invocation, app: App): Promise<void> {
   const ctx = await makeContext(app, inv.opts as GlobalOptions, { interactive: false });
@@ -291,6 +312,7 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   checks.push(...(await safely('targets', () => checkTargets(ctx))));
   checks.push(...(await safely('lock', () => checkDrift(ctx))));
   checks.push(...(await safely('hooks', () => checkHookAssets(ctx))));
+  checks.push(...(await safely('files', () => checkEditedFiles(ctx))));
   checks.push(...(await originChecks(ctx)));
   const failed = checks.filter((c) => c.status === 'fail').length;
   const warned = checks.filter((c) => c.status === 'warn').length;

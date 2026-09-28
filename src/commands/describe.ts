@@ -97,9 +97,8 @@ function kindDetails(e: Entity): Array<[string, string | undefined]> {
 /** `-o` names an origin; one removed after installing still matches its lock entries by alias. */
 async function originFilter(ctx: PalmContext, query: string | undefined, fallback?: string) {
   if (!query) return fallback;
-  const { resolveOriginQuery } = await import('../core/config.js');
   try {
-    return resolveOriginQuery(ctx, query).alias;
+    return ctx.origins.resolveQuery(query).spec.alias;
   } catch (e) {
     if (!(e instanceof PalmError && e.code === 'E_NOT_FOUND')) throw e;
     return query;
@@ -108,8 +107,7 @@ async function originFilter(ctx: PalmContext, query: string | undefined, fallbac
 
 async function originSpecOf(ctx: PalmContext, alias: string): Promise<OriginSpec | undefined> {
   try {
-    const { findOrigin } = await import('../core/config.js');
-    return findOrigin(ctx, alias);
+    return ctx.origins.byAlias(alias)?.spec;
   } catch {
     return undefined;
   }

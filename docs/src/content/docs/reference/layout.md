@@ -7,7 +7,7 @@ A **layout descriptor** tells palm where an origin keeps its entities.
 When it names at least one kind, palm skips auto-detection and reads only the globs you give it.
 
 ```sh
-palm origin add openai/skills --alias openai-curated --layout 'skills=skills/.curated/*'
+palm install origin openai/skills --alias openai-curated --layout 'skills=skills/.curated/*'
 ```
 
 palm stores the descriptor with the origin in `~/.palm/config.yaml`:
@@ -51,11 +51,12 @@ A descriptor with only `exclude`, `include` or `nameFrom` keeps auto-detection a
 
 ## On the command line
 
-`--layout` takes `key=value` and repeats:
+`--layout` takes `key=value` and repeats.
+A value may hold several globs, separated by commas.
 
 ```sh
-palm origin add acme/agents --layout 'agents=catalog/people/*.md' --layout 'skills=catalog/skills/*' --layout 'exclude=catalog/tests'
-palm origin add acme/skills --layout 'nameFrom=dirname'
+palm install origin acme/agents --layout 'agents=catalog/people/*.md' --layout 'skills=catalog/skills/*' --layout 'exclude=catalog/tests'
+palm install origin acme/skills --layout 'nameFrom=dirname'
 ```
 
 A descriptor also works for a project origin in `palm.yaml`, under the same `layout` key.

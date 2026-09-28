@@ -1,0 +1,74 @@
+---
+title: palm search
+description: Search the names and descriptions in your origins and the MCP registry.
+---
+
+import Capture from '../../../../components/Capture.astro';
+
+`palm search` searches every origin index, and the MCP registry for MCP servers.
+
+```sh
+palm search [kind] <query...> [options]
+```
+
+Kinds: `skill`, `agent`, `instruction`, `command`, `hook`, `mcp` and `plugin`, as singular, plural or [short name](/palm/reference/cli/#kinds).
+The first word counts as a kind only when a query follows it.
+
+| Command | Meaning |
+| --- | --- |
+| `palm search tdd` | Every kind in every origin, and the MCP registry. |
+| `palm search skill review` | Skills only, so no registry search. |
+| `palm search mcp github` | MCP servers in your origins and in the MCP registry. |
+| `palm search refactor -o mattpocock` | One origin only. |
+| `palm search tdd --refresh` | Refetch every origin before searching. |
+| `palm search github --offline` | Cached indexes only, without the registry. |
+
+<Capture name="c-search" />
+
+## Options
+
+{/* cli-reference:options search */}
+
+| Argument | Meaning |
+| --- | --- |
+| `kind` | skill, agent, instruction, command, hook, mcp, plugin (plurals and short names work) |
+| `names` | words to look for |
+
+| Option | Meaning |
+| --- | --- |
+| `--kind <kind>` | restrict to one kind (same as the kind word) |
+| `-o, --origin <name-or-alias>` | only this origin: alias, owner/repo[/root], URL or local path (installed entities also: mine, registry, adhoc) |
+| `--refresh` | refetch origins before searching |
+
+The [global options](/palm/reference/cli/#global-options) also apply.
+
+{/* /cli-reference */}
+
+## Results
+
+palm ranks index matches by how closely the name and description match, and shows the first 40.
+The MCP registry adds up to 10 servers when you give no kind and no origin, or the `mcp` kind.
+palm skips the registry with `-o` or `--offline`, and turns a registry failure into a warning.
+The last line names the command that installs the first match.
+
+With `--json`, the document is `{ "index": [...], "registry": [...] }`.
+Each index item is the entity with its `score`.
+
+## Behavior
+
+`palm search` never prompts and writes nothing in the scope.
+It fetches an origin that is not cached yet, or every origin with `--refresh`, into `~/.palm/cache/`.
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | The search ran, also with no matches. |
+| `1` | `-o` matches no origin or several, or an origin cannot be fetched. |
+| `2` | No query, or a kind search does not take, such as `origin`. |
+
+## Related
+
+- [`palm get`](/palm/reference/cli/get/)
+- [`palm install`](/palm/reference/cli/install/)
+- [Origins](/palm/concepts/origins/)

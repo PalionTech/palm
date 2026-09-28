@@ -99,7 +99,7 @@ export function parseMergedRecord(stored: StoredMergedRecord): MergedRecord {
 }
 
 /** The stored pointer of the markdown block `id`. */
-export function blockPointer(id: string): string {
+function blockPointer(id: string): string {
   return `${BLOCK_POINTER_PREFIX}${id}`;
 }
 

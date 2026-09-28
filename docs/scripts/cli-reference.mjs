@@ -20,6 +20,7 @@
 //   page under src/content/docs/reference (`{/* … */}` markers in .mdx pages). Blocks:
 //       verbs, utilities, kinds, global-options      the CLI overview
 //       options <command> [<sub>]                    arguments and options of one command
+//       arguments <command> [<sub>]                  only the arguments of one command
 //       subcommands <command>                        the subcommands of config and cache
 import { spawnSync } from 'node:child_process';
 import {
@@ -126,7 +127,8 @@ function parseHelp(text) {
 
 /** `-o, --origin <name-or-alias>` → flags, short, long, argument. */
 function parseOption({ term, description }) {
-  const m = /^(?:(-\w), )?(--[\w-]+)(?: ([<[].*[>\]]))?$/.exec(term) ?? /^(-\w)()(?: (.*))?$/.exec(term);
+  const m =
+    /^(?:(-\w), )?(--[\w-]+)(?: ([<[].*[>\]]))?$/.exec(term) ?? /^(-\w)()(?: (.*))?$/.exec(term);
   if (!m) throw new Error(`cannot parse option "${term}"`);
   return {
     flags: term,
@@ -181,7 +183,10 @@ function parseCompletion(script) {
   const re = /^ {4}([\w|-]+)\)\n\s+opts="([^"]*)"\n\s+words="([^"]*)"/gm;
   for (const m of script.matchAll(re)) {
     const [name] = m[1].split('|');
-    out[name] = { options: m[2].split(/\s+/).filter(Boolean), words: m[3].split(/\s+/).filter(Boolean) };
+    out[name] = {
+      options: m[2].split(/\s+/).filter(Boolean),
+      words: m[3].split(/\s+/).filter(Boolean),
+    };
   }
   return out;
 }
@@ -272,11 +277,11 @@ function collect() {
 // Rendering tables
 // ---------------------------------------------------------------------------
 
-/** Help text as Markdown table text: capital first letter, table and HTML characters escaped. */
+/** Help text as Markdown table text, verbatim: one word as code, else table and HTML characters escaped. */
 function cell(text) {
+  if (/^\S+$/.test(text) && !text.includes('`')) return code(text.replace(/\|/g, '\\|'));
   const t = text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\*/g, '\\*');
-  const escaped = t.replace(/_/g, '\\_').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return escaped.charAt(0).toUpperCase() + escaped.slice(1);
+  return t.replace(/_/g, '\\_').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function code(text) {
@@ -289,7 +294,9 @@ function table(header, rows) {
 }
 
 function optionRows(options) {
-  return options.filter((o) => o.flags !== HELP_FLAG).map((o) => [code(o.flags), cell(o.description)]);
+  return options
+    .filter((o) => o.flags !== HELP_FLAG)
+    .map((o) => [code(o.flags), cell(o.description)]);
 }
 
 function commandPath(data, words) {
@@ -299,26 +306,26 @@ function commandPath(data, words) {
   return cmd.subcommands.find((s) => s.name === words[1]);
 }
 
+function renderArguments(cmd) {
+  return table(
+    ['Argument', 'Meaning'],
+    cmd.arguments.map((a) => [code(a.name), a.description ? cell(a.description) : '']),
+  );
+}
+
 function renderOptions(data, words) {
   const cmd = commandPath(data, words);
   if (!cmd) throw new Error(`no command "${words.join(' ')}"`);
   const parts = [];
-  if (cmd.arguments.length)
-    parts.push(
-      table(
-        ['Argument', 'Meaning'],
-        cmd.arguments.map((a) => [code(a.name), cell(a.description || 'see the synopsis')]),
-      ),
-    );
+  if (cmd.arguments.length) parts.push(renderArguments(cmd));
   const [main, ...groups] = cmd.optionGroups;
   const own = optionRows(main?.options ?? []);
   if (own.length) parts.push(table(['Option', 'Meaning'], own));
-  for (const g of groups) parts.push(`### ${g.title}`, table(['Option', 'Meaning'], optionRows(g.options)));
+  for (const g of groups)
+    parts.push(`### ${g.title}`, table(['Option', 'Meaning'], optionRows(g.options)));
   const hasOwn = own.length > 0 || groups.length > 0;
   parts.push(
-    hasOwn
-      ? `The ${GLOBAL_LINK} also apply.`
-      : `No options of its own. The ${GLOBAL_LINK} apply.`,
+    hasOwn ? `The ${GLOBAL_LINK} also apply.` : `No options of its own. The ${GLOBAL_LINK} apply.`,
   );
   return parts.join('\n\n');
 }
@@ -387,6 +394,11 @@ function renderBlock(data, id) {
       return renderGlobalOptions(data);
     case 'options':
       return renderOptions(data, words);
+    case 'arguments': {
+      const cmd = commandPath(data, words);
+      if (!cmd?.arguments.length) throw new Error(`"${words.join(' ')}" has no arguments`);
+      return renderArguments(cmd);
+    }
     case 'subcommands':
       return renderSubcommands(data, words[0]);
     default:
@@ -462,7 +474,7 @@ function shellWords(line) {
       continue;
     }
     if (!cur && !has && (ch === '#' || ch === ';' || ch === '>' || ch === '&')) break;
-    if (!cur && !has && ch === '|' && /\s/.test(line[i + 1] ?? ' ')) break;
+    if (!cur && !has && ch === '|' && /[\s|]/.test(line[i + 1] ?? ' ')) break;
     cur += ch;
   }
   if (has || cur) words.push(cur);
@@ -604,7 +616,8 @@ function coverage(data, idsByFile) {
 function main() {
   const argv = process.argv.slice(2);
   const check = argv.includes('--check');
-  if (!existsSync(CLI)) throw new Error(`${CLI} not found: run npm run build at the repository root`);
+  if (!existsSync(CLI))
+    throw new Error(`${CLI} not found: run npm run build at the repository root`);
   const { data, captures } = collect();
   const files = { ...captures, [JSON_FILE]: `${JSON.stringify(data, null, 2)}\n` };
   const stale = [];
@@ -628,7 +641,8 @@ function main() {
   for (const file of pages(REFERENCE)) problems.push(...lintPage(data, file));
   if (argv.includes('--lint-all')) {
     const others = [...pages(CONTENT)].filter((f) => !f.startsWith(REFERENCE));
-    for (const file of others) for (const p of lintPage(data, file)) process.stdout.write(`note: ${p}\n`);
+    for (const file of others)
+      for (const p of lintPage(data, file)) process.stdout.write(`note: ${p}\n`);
   }
   const verb = check ? 'checked' : 'wrote';
   process.stdout.write(

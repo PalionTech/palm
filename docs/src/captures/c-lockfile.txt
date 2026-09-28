@@ -21,7 +21,7 @@ entries:
     sha: d6df38b0577a1578a8a201b3f11b6697040b4535
     path: skills/engineering/grill-me
     contentHash: sha256:eca4fd174421e0d58478fbf8e427172a523d8d3ef8bec9116dd8d47bd4d49ddd
-    transform: 1
+    transform: 2
     targets:
       - claude
       - codex

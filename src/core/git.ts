@@ -90,21 +90,45 @@ function assertSafeSpec(spec: { alias?: string; url?: string; ref?: string; root
     throw bad('root', spec.root);
 }
 
-/** Branch and tag names of a remote (`git ls-remote --tags --heads --refs`). */
-export async function listRemoteRefs(url: string): Promise<{ tags: string[]; heads: string[] }> {
+interface RemoteRefList {
+  tags: string[];
+  heads: string[];
+  /** Branch → the commit it points at (what ls-remote prints next to it). */
+  headShas: Record<string, string>;
+  /** Tag → the commit it names (annotated tags peeled). */
+  tagShas: Record<string, string>;
+}
+
+/** One `git ls-remote` line into `refs` (`<sha>\t<ref>`; `^{}` lines peel annotated tags). */
+function addRemoteRef(refs: RemoteRefList, line: string): void {
+  const [sha = '', ref = ''] = line.split('\t');
+  if (ref.startsWith('refs/heads/')) {
+    const head = ref.slice('refs/heads/'.length);
+    refs.heads.push(head);
+    refs.headShas[head] = sha;
+    return;
+  }
+  if (!ref.startsWith('refs/tags/')) return;
+  const name = ref.slice('refs/tags/'.length);
+  if (name.endsWith('^{}')) {
+    refs.tagShas[name.slice(0, -3)] = sha; // the commit behind an annotated tag
+    return;
+  }
+  refs.tags.push(name);
+  refs.tagShas[name] ??= sha;
+}
+
+/** Branch and tag names of a remote with their commits (`git ls-remote --tags --heads`). */
+export async function listRemoteRefs(url: string): Promise<RemoteRefList> {
   assertSafeSpec({ url });
   let out: string;
   try {
-    out = await git(['ls-remote', '--tags', '--heads', '--refs', '--', url], remote(url));
+    out = await git(['ls-remote', '--tags', '--heads', '--', url], remote(url));
   } catch (e) {
     throw toPalmError(e, 'Cannot list tags of', url);
   }
-  const refs = { tags: [] as string[], heads: [] as string[] };
-  for (const line of out.split('\n')) {
-    const ref = line.split('\t')[1] ?? '';
-    if (ref.startsWith('refs/tags/')) refs.tags.push(ref.slice('refs/tags/'.length));
-    else if (ref.startsWith('refs/heads/')) refs.heads.push(ref.slice('refs/heads/'.length));
-  }
+  const refs: RemoteRefList = { tags: [], heads: [], headShas: {}, tagShas: {} };
+  for (const line of out.split('\n')) addRemoteRef(refs, line);
   return refs;
 }
 

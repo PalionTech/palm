@@ -146,7 +146,7 @@ function hasPrefix(p: readonly string[], prefix: readonly string[]): boolean {
 }
 
 /** Cut the `[prefix]` and `[prefix.*]` sections (header through the line before the next foreign header). */
-export function removeTableText(text: string, tablePath: readonly string[]): string {
+function removeTableText(text: string, tablePath: readonly string[]): string {
   const lines = text.split('\n');
   const out: string[] = [];
   let removing = false;
@@ -166,7 +166,7 @@ export function removeTableText(text: string, tablePath: readonly string[]): str
 }
 
 /** Append `[tablePath]` (stringified by smol-toml) after one blank line. */
-export function appendTableText(text: string, tablePath: readonly string[], value: Table): string {
+function appendTableText(text: string, tablePath: readonly string[], value: Table): string {
   const fragment = stringify(nest(tablePath, value));
   if (text.trim() === '') return fragment;
   return `${text.replace(/\n*$/, '\n')}\n${fragment}`;

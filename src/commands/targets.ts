@@ -21,7 +21,7 @@ import { usage } from './grammar.js';
 import { displayPath, parseTargetList, scopeRootOf } from './shared.js';
 
 /** Where the active targets of a scope come from (the order resolveTargets applies). */
-export type TargetSource = 'flag' | 'palm.yaml' | 'config.yaml' | 'detected';
+type TargetSource = 'flag' | 'palm.yaml' | 'config.yaml' | 'detected';
 
 const SOURCE_TEXT: Record<TargetSource, string> = {
   flag: 'targets from --target',
@@ -37,10 +37,10 @@ async function targetSource(
 ): Promise<TargetSource> {
   if (flag?.length) return 'flag';
   if (scope === 'project') {
-    const { loadManifest } = await import('../core/manifest.js');
+    const { Manifest } = await import('../domain/manifest.js');
     const file = ScopePaths.of(ctx, 'project').manifestFile;
-    const m = await loadManifest(file).catch(() => ({}));
-    if ((m as { targets?: unknown[] }).targets?.length) return 'palm.yaml';
+    const m = await Manifest.load(file).catch(() => undefined);
+    if (m?.targets?.length) return 'palm.yaml';
   }
   return ctx.config.targets?.length ? 'config.yaml' : 'detected';
 }
@@ -70,7 +70,7 @@ async function targetRow(
 async function activeTargets(ctx: PalmContext, scope: Scope, flag?: TargetId[]) {
   const { resolveTargets } = await import('../engine/resolve-targets.js');
   try {
-    return { active: await resolveTargets(ctx, { scope, flag, save: false }) };
+    return { active: await resolveTargets(ctx, { scope, flag }) };
   } catch (e) {
     if (!isPalmError(e)) throw e;
     return { active: [] as TargetId[], unresolved: e.message };

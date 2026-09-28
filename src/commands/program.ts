@@ -38,7 +38,7 @@ export interface ProgramOptions {
 }
 
 /** Collect a repeatable option into an array. */
-export function collect(value: string, previous: string[] | undefined): string[] {
+function collect(value: string, previous: string[] | undefined): string[] {
   return [...(previous ?? []), value];
 }
 
@@ -74,7 +74,7 @@ function formatHelp(this: Help, cmd: Command, helper: Help): string {
  * `exitOverride` and the output configuration are set before subcommands are added so they
  * inherit them: commander throws `CommanderError` instead of exiting (main.ts maps it to 2).
  */
-export function createRootProgram(opts: Omit<ProgramOptions, 'dispatch'> = {}): Command {
+function createRootProgram(opts: Omit<ProgramOptions, 'dispatch'> = {}): Command {
   const program = new Command('palm')
     .exitOverride()
     .usage('<verb> [kind] [names...] [options]')
@@ -82,7 +82,10 @@ export function createRootProgram(opts: Omit<ProgramOptions, 'dispatch'> = {}): 
       'Package manager for agent resources: skills, agents, instructions, commands, hooks, MCP servers and plugins.',
     )
     .option('-g, --global', 'use the global scope (~), not this project')
-    .option('-t, --target <ids>', 'targets: claude,codex,copilot,cursor')
+    .option(
+      '-t, --target <ids>',
+      'comma-separated: claude, codex, copilot, cursor, gemini, opencode',
+    )
     .option('--dry-run', 'show what would change; write nothing')
     .option('--force', 'overwrite files palm does not own')
     .option('-y, --yes', 'accept defaults instead of prompting')
@@ -171,7 +174,10 @@ function originOptions(cmd: Command): Command {
 function installOptions(cmd: Command): void {
   cmd
     .option('--from <origin>', 'take the entities from this origin spec without registering it')
-    .option('--save-origin', 'register the --from origin')
+    .option(
+      '--save-origin',
+      'register the --from origin in the global config (with --project: in palm.yaml)',
+    )
     .option('--secrets <policy>', 'MCP secrets: env-ref (project default) or literal (-g default)')
     .option('--prune', 'no names only: remove installed entries no longer in palm.yaml')
     .option(

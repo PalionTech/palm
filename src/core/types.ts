@@ -314,7 +314,7 @@ export interface MergedRecord {
  * the version their files were rendered with, and the next install re-renders any entry with
  * an older one instead of reporting it unchanged. Entries migrated from lockfile v1 carry 0.
  */
-export const TRANSFORM_VERSION = 1;
+export const TRANSFORM_VERSION = 2;
 
 /** One file palm wrote for an entry, with the hash of what it wrote. */
 export interface LockedFile {

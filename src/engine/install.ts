@@ -3,9 +3,9 @@
  * once before writing anything executable, then deploy item by item (deploy.ts), persisting the
  * lock and manifest after every item so an interruption or crash leaves them consistent.
  */
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { isPalmError, PalmError } from '../core/errors.js';
+import { isHomeAsProject } from '../core/paths.js';
 import type {
   Entity,
   InstallFailure,
@@ -13,6 +13,7 @@ import type {
   InstallRequest,
   InstallResult,
   LockEntry,
+  Logger,
   PalmContext,
   Scope,
 } from '../core/types.js';
@@ -69,19 +70,17 @@ export function dedupeOutcomes(outcomes: InstallOutcome[]): InstallOutcome[] {
 // ---------------------------------------------------------------------------
 
 /**
- * `cwd == $HOME` without a project marker is not a project: palm would write `.claude/` and
- * palm.yaml into the home directory. E_USAGE unless the home holds palm.yaml or `.git`.
+ * `cwd == $HOME` without palm.yaml is not a project: palm would write `.claude/` and palm.yaml
+ * into the home directory, where project files are the harnesses' global ones. E_USAGE. The rule
+ * is core/paths `isHomeAsProject` (a dotfiles `.git` in home is no marker), the one `find` and
+ * `audit` apply too.
  */
-export function assertProjectRoot(ctx: PalmContext, scope: Scope): void {
-  if (scope !== 'project') return;
-  const { projectRoot, home } = ctx.paths;
-  if (resolve(projectRoot) !== resolve(home)) return;
-  const sp = ScopePaths.of(ctx, 'project');
-  if (existsSync(sp.manifestFile) || existsSync(resolve(home, '.git'))) return;
+function assertProjectRoot(ctx: PalmContext, scope: Scope): void {
+  if (scope !== 'project' || !isHomeAsProject(ctx.paths, ctx.env)) return;
   throw new PalmError(
     'E_USAGE',
     'run inside a project or use -g: the home directory is not a project',
-    'cd into a project (a directory with palm.yaml or .git), or install for yourself with -g',
+    'cd into a project, or install for yourself with -g (a palm.yaml in your home directory makes it a project)',
   );
 }
 
@@ -325,7 +324,16 @@ export async function preflightInstall(
   const deps = await resolveEngineDeps(depsIn);
   // installEntities reads the same origins and repeats their warnings; show them here only on failure.
   const warned: string[] = [];
-  const quiet: PalmContext = { ...ctx, log: { ...ctx.log, warn: (msg) => void warned.push(msg) } };
+  const { log } = ctx;
+  // Bound methods, not a spread: the CLI's logger is the output writer, whose methods live on
+  // its prototype (a spread would drop them).
+  const quietLog: Logger = {
+    info: (msg) => log.info(msg),
+    debug: (msg) => log.debug(msg),
+    success: (msg) => log.success(msg),
+    warn: (msg) => void warned.push(msg),
+  };
+  const quiet: PalmContext = { ...ctx, log: quietLog };
   const session = new IndexSession(quiet, deps.scan);
   try {
     for (const req of requests.map(planned)) {

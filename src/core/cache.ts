@@ -2,7 +2,7 @@ import { rm } from 'node:fs/promises';
 import { Origin } from '../domain/origin.js';
 import { readJsonFile, writeJsonFile } from '../lib/fs.js';
 import { isRecord } from '../lib/object.js';
-import { messageOf, PalmError } from './errors.js';
+import { messageOf } from './errors.js';
 import { fetchOrigin } from './git.js';
 import { hashValue } from './hash.js';
 import { cacheDir } from './paths.js';
@@ -76,20 +76,6 @@ function cacheKey(spec: OriginSpec, checkout: OriginCheckout): string {
   });
 }
 
-/** Default scanner, loaded lazily so a missing module gives a clear error. */
-export async function loadDefaultScan(): Promise<ScanFn> {
-  try {
-    // biome-ignore lint/style/noRestrictedImports: known layer violation (core -> index); PLAN.md wave 2/3 inverts it by injecting the scanner.
-    const mod = await import('../index/scan.js');
-    return mod.scanOrigin;
-  } catch (e) {
-    throw new PalmError(
-      'E_INTERNAL',
-      `Scanner module unavailable (src/index/scan.ts): ${messageOf(e)}`,
-    );
-  }
-}
-
 function withAlias(index: OriginIndex, alias: string): OriginIndex {
   if (index.origin === alias && index.entities.every((e) => e.origin === alias)) return index;
   return {
@@ -102,12 +88,13 @@ function withAlias(index: OriginIndex, alias: string): OriginIndex {
 /**
  * Fetch an origin (unless cached) and return its scanned index. Git origins
  * reuse `<originId>.index.json` while the checked-out sha is unchanged; local
- * origins are rescanned every time.
+ * origins are rescanned every time. `scan` is the scanner (src/index/scan.ts `scanOrigin`,
+ * or a fake): core never imports the index layer.
  */
 export async function getIndex(
   ctx: PalmContext,
   spec: OriginSpec,
-  opts: { refresh?: boolean; scan?: ScanFn } = {},
+  opts: { refresh?: boolean; scan: ScanFn },
 ): Promise<OriginIndex> {
   const checkout = await fetchOrigin(ctx, spec, { refresh: opts.refresh });
   const file = indexFilePath(ctx, spec);
@@ -116,10 +103,9 @@ export async function getIndex(
     const cached = await readStoredIndex(file, key);
     if (cached) return withAlias({ ...cached, root: checkout.root }, spec.alias);
   }
-  const scan = opts.scan ?? (await loadDefaultScan());
   // The scanner derives versions from a semver tag: give it the ref actually checked out (the
   // latest tag, or the tag a range such as `^1.2` resolved to).
-  const result = await scan(
+  const result = await opts.scan(
     checkout.root,
     checkout.ref && checkout.ref !== spec.ref ? { ...spec, ref: checkout.ref } : spec,
   );
@@ -149,7 +135,7 @@ export async function getIndex(
  */
 export async function getAllIndexes(
   ctx: PalmContext,
-  opts: { refresh?: boolean; scan?: ScanFn } = {},
+  opts: { refresh?: boolean; scan: ScanFn },
 ): Promise<OriginIndex[]> {
   const results = await Promise.all(
     ctx.origins.all().map(async (o) => {

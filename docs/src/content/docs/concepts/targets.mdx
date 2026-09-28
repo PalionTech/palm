@@ -9,11 +9,6 @@ A **harness** is the program that runs a coding agent, such as Claude Code or Co
 A **target** is palm's identifier for a harness, such as `claude` or `codex`.
 Flags and config values use targets. Prose about the tools uses harnesses.
 
-```sh
-palm install skill tdd --target claude,codex
-palm get targets
-```
-
 <Capture name="a-targets" title="~/project" />
 
 The install wrote the skill for Claude Code and Codex, and saved `targets: [claude, codex]` to `palm.yaml`.

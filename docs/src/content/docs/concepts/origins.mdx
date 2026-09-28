@@ -15,7 +15,8 @@ palm install skill tdd
 ```
 
 `palm install origin` clones the repository, scans it and stores an index.
-It saves the origin only when the clone and the scan succeed, so a typo in a repository name saves nothing.
+It saves the origin only when the clone and the scan succeed.
+A typo in a repository name saves nothing.
 `palm install skill tdd` then searches the indexes of all your origins.
 
 ## What you can add
@@ -55,7 +56,8 @@ palm install origin mattpocock/skills --ref '^1.2'
 
 A ref is a tag, a branch, a commit or a semver range such as `^1.2`, `~1.2` or `>=1.2 <2`.
 palm resolves a range to the highest matching tag on the remote.
-A branch or tag named exactly like the range wins, so a `v1` tag that moves is read as that tag.
+A branch or tag named exactly like the range wins.
+A moving `v1` tag is therefore read as that tag.
 The lockfile records the tag and the commit palm installed.
 
 ## Aliases

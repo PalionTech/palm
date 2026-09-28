@@ -1,0 +1,16 @@
+$ palm install origin ~/src/standards
++ origin standards → ~/src/standards (1 skill, 1 agent, 1 instruction, 1 command, 1 hook, 1 plugin; detected: apm)
+  install with: palm install skill lint-fix@standards
+$ palm install plugin my-apm-pkg --yes
+project scope → claude, copilot
+status       kind         name                                origin     targets         files
+───────────  ───────────  ──────────────────────────────────  ─────────  ──────────────  ─────────────
++ installed  plugin       my-apm-pkg                          standards  claude,copilot  0
++ installed  skill        lint-fix (plugin:my-apm-pkg)        standards  claude,copilot  2
++ installed  agent        reviewer (plugin:my-apm-pkg)        standards  claude,copilot  2
++ installed  instruction  typescript (plugin:my-apm-pkg)      standards  claude,copilot  2
++ installed  command      release (plugin:my-apm-pkg)         standards  claude,copilot  2
++ installed  hook         format-on-save (plugin:my-apm-pkg)  standards  claude,copilot  1 (+1 merged)
+6 installed
+
+i format-on-save: hooks run shell commands on your machine; review ~/src/standards/.apm/hooks/format-on-save.json

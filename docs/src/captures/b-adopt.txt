@@ -1,0 +1,35 @@
+$ find .claude .cursor -type f
+.claude/agents/comment-sicko.md
+.claude/skills/tdd/SKILL.md
+.cursor/agents/comment-sicko.md
+$ palm install agent comment-sicko
+project scope → claude, cursor
+status    kind   name           origin  targets  files
+────────  ─────  ─────────────  ──────  ───────  ─────
+x failed  agent  comment-sicko  pstack           0
+1 failed
+
+i comment-sicko: failed: claude: refusing to overwrite .claude/agents/comment-sicko.md
+i comment-sicko: failed: cursor: refusing to overwrite .cursor/agents/comment-sicko.md
+x agent comment-sicko@pstack → claude: refusing to overwrite .claude/agents/comment-sicko.md
+  rerun with --force
+x agent comment-sicko@pstack → cursor: refusing to overwrite .cursor/agents/comment-sicko.md
+  rerun with --force
+x 2 failed; see above (the lockfile records what succeeded)
+$ palm install agent comment-sicko --force
+i saved targets claude, cursor to palm.yaml
+project scope → claude, cursor
+status       kind   name           origin  targets        files
+───────────  ─────  ─────────────  ──────  ─────────────  ─────
++ installed  agent  comment-sicko  pstack  claude,cursor  2
+1 installed
+$ palm install skill tdd@mattpocock
+project scope → claude, cursor
+status       kind   name  origin      targets        files
+───────────  ─────  ────  ──────────  ─────────────  ─────
++ installed  skill  tdd   mattpocock  claude,cursor  6
+1 installed
+$ palm find .claude/agents/comment-sicko.md
+scope    kind   name           origin  target  file
+───────  ─────  ─────────────  ──────  ──────  ───────────────────────────────
+project  agent  comment-sicko  pstack  claude  .claude/agents/comment-sicko.md

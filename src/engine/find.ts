@@ -1,8 +1,9 @@
 /**
  * `palm find <path>`: which lock entry wrote a file. The path may be absolute, `~/…`,
  * relative to the working directory or relative to the scope root; it matches a file an entry
- * lists, a path inside a directory an entry lists (a skill's `SKILL.md`), or a config file an
- * entry merged a fragment into (`.mcp.json`, `settings.json`).
+ * lists, a path inside a directory an entry lists (a skill's `SKILL.md`), a config file an
+ * entry merged a fragment into (`.mcp.json`, `settings.json`), or a directory holding files an
+ * entry lists (`.claude/skills/tdd`, with how many).
  */
 import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
@@ -12,16 +13,21 @@ import { filePaths, Lock } from '../domain/lock.js';
 import { expandHomeDir, ScopePaths } from '../domain/scope-paths.js';
 import { isWithin } from '../lib/fs.js';
 
-type FileMatch = 'file' | 'inside' | 'merged';
+type FileMatch = 'file' | 'inside' | 'merged' | 'contains';
 
 export interface FileOwner {
   scope: Scope;
-  /** The lock path that matched: the file, the directory holding it, or the merged config file. */
+  /**
+   * The lock path that matched: the file, the directory holding it, the merged config file, or
+   * (match `contains`) the queried directory in lock form.
+   */
   file: string;
   /** How the path matched `file`. */
   match: FileMatch;
   /** JSON pointer / block id of the merged fragment (match `merged`). */
   pointer?: string;
+  /** How many of the entry's files lie under the directory (match `contains`). */
+  files?: number;
   entry: LockEntry;
 }
 
@@ -55,7 +61,21 @@ function ownership(
     if (wanted.some((w) => isWithin(w, abs, { strict: true }))) return { file, match: 'inside' };
   }
   const merged = (entry.merged ?? []).find((m) => wanted.includes(paths.abs(m.file)));
-  return merged ? { file: merged.file, match: 'merged', pointer: merged.pointer } : undefined;
+  if (merged) return { file: merged.file, match: 'merged', pointer: merged.pointer };
+  return containing(paths, entry, wanted);
+}
+
+/** A queried directory holding files of `entry`, and how many. */
+function containing(
+  paths: ScopePaths,
+  entry: LockEntry,
+  wanted: readonly string[],
+): Omit<FileOwner, 'scope' | 'entry'> | undefined {
+  for (const dir of wanted) {
+    const n = filePaths(entry).filter((f) => isWithin(paths.abs(f), dir, { strict: true })).length;
+    if (n) return { file: paths.lockForm(dir) || '.', match: 'contains', files: n };
+  }
+  return undefined;
 }
 
 /** Entries of one scope's lock that own `query`. */

@@ -1,59 +1,23 @@
-/** facade: prefer src/domain + core/config-file */
-//
-// The origin registry as the rest of palm has used it since 0.0: the same names as before the
-// split, now implemented over `Origin`/`OriginSet` (src/domain), core/config-file (config.yaml,
-// stored origin entries) and core/origin-input (parsing user input). New code should use
-// `ctx.origins` and those modules directly; addOrigin/removeOrigin/ensureMineOrigin stay here.
+/**
+ * Registering and unregistering origins: config.yaml (the user's origins) or the project's
+ * palm.yaml `origins:`, kept in step with `ctx.origins`, and the local `mine` origin that
+ * `palm create` writes to. Reading origins is `ctx.origins` (domain/origin-set); parsing user
+ * input is core/origin-input; the files themselves are core/config-file.
+ */
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
+import { Manifest } from '../domain/manifest.js';
 import { assertAliasFormat, Origin } from '../domain/origin.js';
 import type { OriginSet } from '../domain/origin-set.js';
+import { isWithin, toPosix } from '../lib/fs.js';
 import { removeStoredOrigin, saveConfig, upsertStoredOrigin } from './config-file.js';
 import { refreshOrigins } from './context.js';
 import { PalmError } from './errors.js';
 import { runGit } from './git-exec.js';
-import { loadManifest, saveManifest } from './manifest.js';
 import { deriveAlias } from './origin-input.js';
-import { manifestPath } from './paths.js';
+import { projectManifest } from './paths.js';
 import type { OriginSpec, PalmContext, PalmPaths, Scope } from './types.js';
-
-export { loadConfig, saveConfig } from './config-file.js';
-export {
-  deriveAlias,
-  type ParseOriginOptions,
-  parseOriginInput,
-  validateOriginUrl,
-} from './origin-input.js';
-
-/** Cache directory name of an origin (Origin.id). */
-export function originId(spec: OriginSpec): string {
-  return new Origin(spec).id;
-}
-
-/** Origins declared in the project manifest (ctx.origins' project layer). */
-export function projectOrigins(ctx: PalmContext): OriginSpec[] {
-  return ctx.origins.projectSpecs();
-}
-
-/** Every effective origin (config + project manifest; the project wins an alias clash). */
-export function allOrigins(ctx: PalmContext): OriginSpec[] {
-  return ctx.origins.specs();
-}
-
-export function findOrigin(ctx: PalmContext, alias: string): OriginSpec | undefined {
-  return ctx.origins.byAlias(alias)?.spec;
-}
-
-/** Origin.matches. */
-export function matchOrigin(spec: OriginSpec, query: string): boolean {
-  return new Origin(spec).matches(query);
-}
-
-/** OriginSet.resolveQuery: throws E_NOT_FOUND (listing the aliases) or E_AMBIGUOUS. */
-export function resolveOriginQuery(ctx: PalmContext, query: string): OriginSpec {
-  return ctx.origins.resolveQuery(query).spec;
-}
 
 /** `spec` renamed to a free derived alias when its derived alias is taken by another origin. */
 function withFreeAlias(origins: OriginSet, spec: OriginSpec): OriginSpec {
@@ -67,18 +31,39 @@ async function editProjectOrigins(
   paths: PalmPaths,
   edit: (entries: Array<string | OriginSpec>, file: string) => Array<string | OriginSpec>,
 ): Promise<boolean> {
-  const file = manifestPath(paths, 'project');
-  const m = await loadManifest(file);
+  const file = projectManifest(paths);
+  const m = await Manifest.load(file);
   const before = m.origins ?? [];
   const after = edit(before, file);
   if (after.length === before.length && after.every((o, i) => o === before[i])) return false;
-  await saveManifest(file, { ...m, origins: after });
+  await Manifest.of({ ...m.toJSON(), origins: after }).save(file);
   return true;
 }
 
 /**
+ * A project's local origins must live inside it: every install refuses others (engine scope
+ * guard), so `palm install origin <path> --project` refuses them before anything is saved.
+ */
+export function assertProjectOrigin(spec: OriginSpec, projectRoot: string): void {
+  if (spec.type !== 'local' || isWithin(resolve(projectRoot, spec.path ?? ''), projectRoot)) return;
+  throw new PalmError(
+    'E_ORIGIN',
+    `origin "${spec.alias}" points outside the project: ${spec.path ?? ''}`,
+    `a project's local origins must live inside it; use it just for yourself (without --project): palm install origin ${spec.path ?? '<path>'} --alias ${spec.alias}`,
+  );
+}
+
+/** palm.yaml keeps a local origin's path relative to the project, so a clone finds it too. */
+function projectStored(spec: OriginSpec, projectRoot: string): OriginSpec {
+  if (spec.type !== 'local' || !spec.path) return spec;
+  const rel = toPosix(relative(projectRoot, resolve(projectRoot, spec.path)));
+  return { ...spec, path: rel || '.' };
+}
+
+/**
  * Registers `spec` in config.yaml (global) or the project's palm.yaml (project). A derived alias
- * that another origin uses is replaced by a free one; an explicit one is E_CONFLICT.
+ * that another origin uses is replaced by a free one; an explicit one is E_CONFLICT. A local
+ * project origin must live inside the project and is stored with a project-relative path.
  */
 export async function addOrigin(
   ctx: PalmContext,
@@ -86,8 +71,9 @@ export async function addOrigin(
   opts: { scope?: Scope } = {},
 ): Promise<OriginSpec> {
   assertAliasFormat(spec.alias, 'E_USAGE');
-  const next = withFreeAlias(ctx.origins, { ...spec });
   const layer = (opts.scope ?? 'global') === 'global' ? 'user' : 'project';
+  if (layer === 'project') assertProjectOrigin(spec, ctx.paths.projectRoot);
+  const next = withFreeAlias(ctx.origins, { ...spec });
   const origins = ctx.origins.add(next, layer);
   if (layer === 'user') {
     const config = { ...ctx.config, origins: origins.userSpecs() };
@@ -96,7 +82,7 @@ export async function addOrigin(
   } else {
     const { projectRoot } = ctx.paths;
     await editProjectOrigins(ctx.paths, (entries, file) =>
-      upsertStoredOrigin(entries, next, projectRoot, file),
+      upsertStoredOrigin(entries, projectStored(next, projectRoot), projectRoot, file),
     );
     refreshOrigins(ctx, { project: origins.projectSpecs() });
   }
@@ -111,7 +97,7 @@ export async function removeOrigin(ctx: PalmContext, alias: string): Promise<voi
   const config = fromConfig ? { ...ctx.config, origins: kept } : undefined;
   if (config) await saveConfig(ctx.paths, config);
   const fromProject =
-    existsSync(manifestPath(ctx.paths, 'project')) &&
+    existsSync(projectManifest(ctx.paths)) &&
     (await editProjectOrigins(ctx.paths, (entries, file) =>
       removeStoredOrigin(entries, alias, ctx.paths.projectRoot, file),
     ));

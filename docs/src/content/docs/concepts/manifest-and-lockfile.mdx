@@ -1,0 +1,149 @@
+---
+title: Manifest and lockfile
+description: palm.yaml lists what you asked for. palm.lock.yaml records what palm installed, so every clone gets the same files.
+---
+
+import Capture from '../../../components/Capture.astro';
+
+The **manifest**, `palm.yaml`, lists what you asked for.
+The **lockfile**, `palm.lock.yaml`, records what palm installed.
+That is the commit, every file with its hash, and every entry merged into a shared config file.
+Commit both, and a teammate gets the same setup with one command.
+
+<Capture name="a-lockfile" title="~/project" />
+
+The first command installed a skill and wrote both files.
+A bare `palm install` then compared them with the disk and found nothing to do.
+`--frozen` ran the same check in the strict form that CI uses.
+
+## The manifest
+
+palm writes `palm.yaml` as you install and uninstall.
+You can also edit it by hand and run `palm install`.
+
+```yaml title="palm.yaml"
+targets: [claude, codex]
+skills:
+  - tdd@mattpocock
+  - grill-me@mattpocock#^1.2
+agents:
+  - agent-sdk-verifier-py@official
+mcp:
+  - io.github.upstash/context7
+  - name: docs
+    transport: http
+    url: https://example.com/mcp
+    headers:
+      Authorization: Bearer ${DOCS_TOKEN}
+```
+
+- `targets:` is the set of harnesses for this project. See [targets](/palm/concepts/targets/).
+- Each kind has its own list, in the form `<name>[@<origin>][#<ref>]`.
+- An MCP server is a registry name or a definition with its transport.
+- `origins:` can add [project origins](/palm/concepts/origins/#project-origins).
+
+The manifest lists only what you asked for directly.
+Skills an agent pulled in appear in the lockfile, not here.
+
+## The lockfile
+
+This is the lockfile after `palm install skill tdd` from the real `mattpocock/skills` repository, without its header comment.
+
+```yaml title="palm.lock.yaml"
+version: 2
+entries:
+  - kind: skill
+    name: tdd
+    origin: mattpocock
+    url: https://github.com/mattpocock/skills.git
+    ref: v1.2.3
+    sha: 6acc160e4e0cd062dbbbd7a1b26ae92855edf07e
+    path: skills/engineering/tdd
+    contentHash: sha256:020e48193f19c303f462ac6c6bf16548f10e3b1f706df562f8fb8f6b3efb43a6
+    transform: 1
+    targets:
+      - claude
+      - codex
+    files:
+      - path: .agents/skills/tdd/SKILL.md
+        hash: sha256:5e6b9c16b547113e90afbb946489d1c1384be5c2128f0159bd0bee57251ecf08
+      - path: .agents/skills/tdd/agents/openai.yaml
+        hash: sha256:ea6f01cf1b8c06a4b0f5b649d74b1b8ce8685e72af1b38d70d877693e092af0b
+      - path: .agents/skills/tdd/mocking.md
+        hash: sha256:3ceb807fdf4a47d6a93d4d9a891e5ba6d362a6247bd08adc451feebfc17361ef
+      - path: .agents/skills/tdd/tests.md
+        hash: sha256:859f9e592c188fda4fc7277dd180e4ce9c7a2e13f6efe1f6f29eccc9d28c106a
+      - path: .claude/skills/tdd/SKILL.md
+        hash: sha256:5e6b9c16b547113e90afbb946489d1c1384be5c2128f0159bd0bee57251ecf08
+      - path: .claude/skills/tdd/agents/openai.yaml
+        hash: sha256:ea6f01cf1b8c06a4b0f5b649d74b1b8ce8685e72af1b38d70d877693e092af0b
+      - path: .claude/skills/tdd/mocking.md
+        hash: sha256:3ceb807fdf4a47d6a93d4d9a891e5ba6d362a6247bd08adc451feebfc17361ef
+      - path: .claude/skills/tdd/tests.md
+        hash: sha256:859f9e592c188fda4fc7277dd180e4ce9c7a2e13f6efe1f6f29eccc9d28c106a
+```
+
+| Field | Meaning |
+| --- | --- |
+| `url`, `ref`, `sha` | Where the entity came from, the tag or branch, and the exact commit. |
+| `contentHash` | A hash of the entity's source files. |
+| `transform` | The version of palm's rendering. A newer palm re-renders entries with an older value. |
+| `targets` | The harnesses this entry was written for. |
+| `files` | Every file palm wrote, with the hash of its content as written. |
+| `merged` | For hooks and MCP servers, the file, the JSON pointer and the exact value palm inserted. |
+| `via`, `deps` | Which plugin or agent pulled an entry in, and what a plugin or agent declared. |
+
+The lockfile has no timestamps, and palm sorts its entries and keys.
+Two people who install the same thing get the same bytes, so the file does not cause merge conflicts.
+
+## What a bare install does
+
+`palm install` without names brings the project in line with `palm.yaml` and the lockfile.
+
+- An entry whose files are all on disk, at the right targets, is left alone. palm makes no network call for it.
+- A locked entry with missing files is installed again from the locked commit. A newer tag never changes it.
+- A manifest entry the lockfile lacks is resolved fresh, like `palm install <kind> <name>`.
+- A lockfile entry that `palm.yaml` no longer lists is reported. `--prune` removes it.
+- A target removed from `targets:` loses its files and merged entries.
+
+This is what a teammate runs after a clone, and what you run after a pull.
+Hook scripts live in the ignored `.palm/` folder, so this is also how a fresh clone gets them back.
+
+## Frozen installs for CI
+
+`palm install --frozen` installs exactly what the lockfile records.
+It checks these conditions, and fails with `E_CONFLICT` without writing when one does not hold.
+
+- Every manifest entry has a lockfile entry with the same name and origin.
+- A pinned entry's locked ref satisfies the pin.
+- No lockfile entry is left over or orphaned.
+- Every entry has the resolved targets and the current `transform`.
+- No file palm wrote was changed since.
+
+Missing files are then restored from the locked commits, and each must match its recorded hash.
+`--frozen` never writes `palm.yaml`, `palm.lock.yaml` or your config.
+The error lists every difference and suggests running `palm install` without `--frozen`, then committing the result.
+
+## Files you changed
+
+Before palm overwrites or deletes a file it wrote, it compares the file's hash with the lockfile.
+When you changed the file, palm refuses with `E_CONFLICT` and names the file.
+`--force` overwrites it anyway.
+`palm uninstall` leaves a changed file on disk and lists it. `--force` deletes it too.
+
+A file palm did not write is protected the same way.
+When a destination exists and no lockfile entry lists it, palm stops unless you pass `--force`.
+
+## Moving to newer versions
+
+A bare install never moves an entry to a newer commit.
+`palm outdated` shows the locked ref, the ref `palm.yaml` wants now and the latest release.
+`palm update` prints a plan and asks before it applies it. In a script, it needs `--yes`.
+
+## Related
+
+- [palm.yaml reference](/palm/reference/palm-yaml/)
+- [palm.lock.yaml reference](/palm/reference/palm-lock-yaml/)
+- [Targets](/palm/concepts/targets/)
+- [Dependencies](/palm/concepts/dependencies/)
+- [Security model](/palm/explanation/security/)

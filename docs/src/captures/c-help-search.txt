@@ -18,7 +18,8 @@ Options:
 
 Global Options:
   -g, --global                  use the global scope (~), not this project
-  -t, --target <ids>            targets: claude,codex,copilot,cursor
+  -t, --target <ids>            comma-separated: claude, codex, copilot, cursor,
+                                gemini, opencode
   --dry-run                     show what would change; write nothing
   --force                       overwrite files palm does not own
   -y, --yes                     accept defaults instead of prompting

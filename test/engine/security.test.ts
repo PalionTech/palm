@@ -2,8 +2,8 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { saveLock } from '../../src/core/lockfile.js';
 import type { LockEntry } from '../../src/core/types.js';
+import { Lock } from '../../src/domain/lock.js';
 import { uninstallEntities } from '../../src/engine/uninstall.js';
 import { removeDir } from '../support/sandbox.js';
 import { makeWorld, type World } from './world.js';
@@ -39,10 +39,10 @@ describe('lockfile paths can never make palm delete outside the scope', () => {
     const dir = await victim();
     await mkdir(join(w.sb.project, '.claude/skill'), { recursive: true });
     await writeFile(join(w.sb.project, '.claude/skill/x.txt'), 'x');
-    await saveLock(join(w.sb.project, 'palm.lock.yaml'), {
+    await Lock.from({
       version: 2,
       entries: [entry({ files: locked('../victim/data', '.claude/skill/x.txt', '..') })],
-    });
+    }).save(join(w.sb.project, 'palm.lock.yaml'));
 
     const r = await uninstallEntities(
       w.ctx,
@@ -60,10 +60,10 @@ describe('lockfile paths can never make palm delete outside the scope', () => {
   it('global: an absolute path outside home / palm home is ignored', async () => {
     w = await makeWorld();
     const dir = await victim();
-    await saveLock(join(w.sb.palmHome, 'palm.lock.yaml'), {
+    await Lock.from({
       version: 2,
       entries: [entry({ files: locked(join(dir, 'data'), join(w.sb.home, '..', 'victim')) })],
-    });
+    }).save(join(w.sb.palmHome, 'palm.lock.yaml'));
     await uninstallEntities(w.ctx, [{ kind: 'skill', name: 'x' }], { scope: 'global' }, w.deps);
     expect(await readFile(join(dir, 'data'), 'utf8')).toBe('keep me');
   });
@@ -72,12 +72,12 @@ describe('lockfile paths can never make palm delete outside the scope', () => {
     w = await makeWorld();
     w.deps.getTarget = (await import('../../src/targets/index.js')).getTarget;
     const dir = await victim();
-    await saveLock(join(w.sb.project, 'palm.lock.yaml'), {
+    await Lock.from({
       version: 2,
       entries: [
         entry({ kind: 'hook', name: '../../../victim', targets: ['claude', 'codex'], files: [] }),
       ],
-    });
+    }).save(join(w.sb.project, 'palm.lock.yaml'));
     await uninstallEntities(
       w.ctx,
       [{ kind: 'hook', name: '../../../victim' }],

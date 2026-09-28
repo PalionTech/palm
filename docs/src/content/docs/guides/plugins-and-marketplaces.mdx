@@ -1,0 +1,104 @@
+---
+title: Install from plugin marketplaces
+description: Plugins listed in a marketplace.json install into every harness you use, and you see their hooks before they run.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Capture from '../../../components/Capture.astro';
+import CaptureTree from '../../../components/CaptureTree.astro';
+
+Claude Code, Cursor and Codex plugins ship through marketplaces: a `marketplace.json` that lists plugin folders or repositories.
+Each harness's own plugin installer serves only that harness.
+palm reads the same marketplace and installs a plugin's skills, agents (subagents), hooks and MCP servers for all your harnesses.
+
+When you finish, one plugin is installed for Claude Code and Codex, hook scripts included:
+
+<CaptureTree name="b-plugin-consent" depth={3} />
+
+`.palm/hooks/superpowers/` holds the plugin files its hook runs.
+Keep `.palm/` out of git: `palm init` adds it to an existing `.gitignore`.
+The sessions on this page ran against palm's test fixtures, which mirror `obra/superpowers` and `anthropics/claude-plugins-official`.
+
+## Before you start
+
+- A project with its targets set, for example `palm init --target claude,codex`.
+- The path or URL of a `marketplace.json`, or the repository that holds one.
+
+## Steps
+
+<Steps>
+
+1. Add the marketplace.
+
+   ```sh
+   palm install origin ./catalog/.claude-plugin/marketplace.json
+   ```
+
+   <Capture name="b-marketplace" title="~/project" />
+
+   Each plugin the file lists becomes its own origin, named after the plugin.
+   palm fetches and scans each one before it saves anything.
+   The file can also be an `https://` URL.
+
+2. Or add the repository that holds the marketplace.
+
+   ```sh
+   palm install origin anthropics/claude-plugins-official --alias official
+   ```
+
+   This gives one origin, and each plugin in it becomes an entity of that origin.
+   The two forms differ for plugins hosted elsewhere:
+
+   | You add | Plugins in the same repository | Plugins in other repositories |
+   | --- | --- | --- |
+   | the `marketplace.json` file | one origin each | one origin each, fetched |
+   | the repository | entities of one origin | listed with the command to add them |
+
+   <Capture name="b-plugin-remote" title="~/project" />
+
+   Copy the command from a `remote plugin` warning to add that plugin as an origin.
+   palm cannot fetch npm sources and skips them with a warning.
+
+3. Install a plugin.
+
+   ```sh
+   palm install plugin superpowers
+   ```
+
+   A plugin with a hook or a stdio MCP server runs commands on your machine.
+   In a terminal, palm lists each one and asks once, with yes as the default.
+   Without a terminal it stops and names `--yes`:
+
+   <Capture name="b-plugin-consent" title="~/project" />
+
+   `--dry-run` prints the same list and writes nothing.
+
+</Steps>
+
+:::caution
+A hook runs its command on every matching event, such as each session start.
+Read the plugin's `hooks.json` and the scripts it calls before you answer yes.
+:::
+
+palm copies the plugin's files to `.palm/hooks/<plugin>/`, because hook scripts often read files next to them.
+Committed configs refer to that folder through the project directory, never through an absolute path.
+After a fresh clone, `palm install` restores the folder.
+
+Gemini CLI and OpenCode get a plugin's members as loose files, because their own plugin formats need their own installers.
+OpenCode receives no hooks at all.
+
+## Check the result
+
+```sh
+palm get
+palm uninstall plugin superpowers
+```
+
+`palm get` lists each member with `plugin:superpowers` in the `via` column.
+`palm uninstall plugin superpowers` removes every member, the merged hook entries and `.palm/hooks/superpowers/`.
+
+## Next steps
+
+- [Build an agent that brings its tools](/palm/guides/agent-bundles/) makes your own bundle without a plugin manifest.
+- [Make a repository palm reads well](/palm/guides/palm-friendly-repos/) shows how palm reads `plugin.json` and `marketplace.json`.
+- [Security model](/palm/explanation/security/) explains consent and the hidden-Unicode check.

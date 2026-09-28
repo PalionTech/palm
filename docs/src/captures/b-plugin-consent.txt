@@ -1,0 +1,19 @@
+$ palm install plugin superpowers
+i This install adds a command that runs on your machine:
+i   hook superpowers (claude): SessionStart → "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start
+x palm will not install a command that runs on your machine without your consent
+  review them above (or with --dry-run), then rerun with --yes
+$ palm install plugin superpowers --yes
+project scope → claude, codex
+status       kind    name                                          origin       targets       files
+───────────  ──────  ────────────────────────────────────────────  ───────────  ────────────  ──────────────
++ installed  plugin  superpowers                                   superpowers  claude,codex  0
++ installed  skill   brainstorming (plugin:superpowers)            superpowers  claude,codex  2
++ installed  skill   test-driven-development (plugin:superpowers)  superpowers  claude,codex  6
++ installed  skill   writing-skills (plugin:superpowers)           superpowers  claude,codex  4
++ installed  hook    superpowers (plugin:superpowers)              superpowers  claude,codex  16 (+2 merged)
+5 installed
+
+i superpowers: claude: hook scripts copied to .palm/hooks/superpowers
+i superpowers: codex: hook scripts copied to .palm/hooks/superpowers
+i superpowers: hooks run shell commands on your machine; review ~/src/superpowers/hooks/hooks.json

@@ -127,16 +127,16 @@ async function loadIndexes(
   q: EntityQuery,
 ): Promise<{ indexes: OriginIndex[]; only?: OriginSpec }> {
   const cache = await import('../core/cache.js');
+  const { scanOrigin: scan } = await import('../index/scan.js');
   if (!q.origin) {
     const indexes = await withSpinner(ctx, { message: 'Reading origin indexes' }, () =>
-      cache.getAllIndexes(ctx),
+      cache.getAllIndexes(ctx, { scan }),
     );
     return { indexes };
   }
-  const { resolveOriginQuery } = await import('../core/config.js');
-  const only = resolveOriginQuery(ctx, q.origin);
+  const only = ctx.origins.resolveQuery(q.origin).spec;
   const index = await withSpinner(ctx, { message: `Reading the ${only.alias} index` }, () =>
-    cache.getIndex(ctx, only),
+    cache.getIndex(ctx, only, { scan }),
   );
   return { indexes: [index], only };
 }
@@ -184,8 +184,7 @@ async function installedEntries(ctx: PalmContext, q: EntityQuery): Promise<LockE
   const installed = await listInstalled(ctx, q.scope, q.kind);
   let origin: string | undefined;
   if (q.origin) {
-    const { resolveOriginQuery } = await import('../core/config.js');
-    origin = installedOriginAlias(q.origin, installed, (s) => resolveOriginQuery(ctx, s));
+    origin = installedOriginAlias(q.origin, installed, (s) => ctx.origins.resolveQuery(s).spec);
   }
   return filterInstalled(installed, { kind: q.kind, origin, names: q.names });
 }
@@ -228,7 +227,7 @@ async function getAll(ctx: PalmContext, out: Output, o: GetOptions): Promise<voi
   const origins = await originRows(ctx, []);
   const targets = await targetsView(ctx, { scope, target: o.target, names: [] });
   if (out.jsonMode) {
-    out.json({ installed, origins: originsJson(ctx, origins), targets });
+    out.json({ installed, origins: originsJson(ctx, origins, out.verbose), targets });
     return;
   }
   out.out(pc.bold('Installed'));

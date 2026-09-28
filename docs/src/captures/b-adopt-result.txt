@@ -1,0 +1,9 @@
+$ palm find .cursor/agents/comment-sicko.md
+scope    kind   name           origin  target  file
+───────  ─────  ─────────────  ──────  ──────  ───────────────────────────────
+project  agent  comment-sicko  pstack  cursor  .cursor/agents/comment-sicko.md
+$ palm get
+kind   name           origin      version  targets        via
+─────  ─────────────  ──────────  ───────  ─────────────  ───
+agent  comment-sicko  pstack               claude,cursor
+skill  tdd            mattpocock           claude,cursor

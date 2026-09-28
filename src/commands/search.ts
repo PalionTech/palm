@@ -82,8 +82,7 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const ctx = await makeContext(app, o);
   let origin: string | undefined;
   if (o.origin) {
-    const { resolveOriginQuery } = await import('../core/config.js');
-    origin = resolveOriginQuery(ctx, o.origin).alias;
+    origin = ctx.origins.resolveQuery(o.origin).spec.alias;
   }
   const { searchIndex } = await import('../engine/query.js');
   const hits: Hit[] = await withSpinner(

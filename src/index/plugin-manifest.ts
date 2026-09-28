@@ -13,7 +13,7 @@ import { asString } from './util.js';
 
 export type PluginManifestFormat = 'claude' | 'cursor' | 'agent-plugins' | 'codex' | 'gemini';
 
-export const PLUGIN_MANIFEST_FILES: ReadonlyArray<{ rel: string; format: PluginManifestFormat }> = [
+const PLUGIN_MANIFEST_FILES: ReadonlyArray<{ rel: string; format: PluginManifestFormat }> = [
   { rel: '.claude-plugin/plugin.json', format: 'claude' },
   { rel: '.cursor-plugin/plugin.json', format: 'cursor' },
   { rel: 'plugin.json', format: 'agent-plugins' },
@@ -134,7 +134,7 @@ export function mergeDecls(
   });
 }
 
-export function isAgentPluginsManifest(json: unknown): boolean {
+function isAgentPluginsManifest(json: unknown): boolean {
   if (!isRecord(json)) return false;
   const schema = asString(json.$schema);
   if (schema && /agent-plugins/i.test(schema)) return true;
@@ -142,7 +142,7 @@ export function isAgentPluginsManifest(json: unknown): boolean {
 }
 
 /** Build a normalized manifest from parsed JSON. */
-export function normalizeManifest(
+function normalizeManifest(
   json: Record<string, unknown>,
   format: PluginManifestFormat,
   file: string,

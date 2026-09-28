@@ -1,6 +1,5 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { formatDepRef, parseDepRef } from '../../src/core/manifest.js';
 import type { DepRef as DepRefData } from '../../src/core/types.js';
 import { DepRef } from '../../src/domain/dep-ref.js';
 
@@ -83,17 +82,6 @@ describe('DepRef grammar (property)', () => {
         const moved = DepRef.from(dep).withOrigin(o);
         expect(moved.toJSON()).toEqual({ ...dep, origin: o });
         expect(DepRef.parse(moved.toString()).toJSON()).toEqual(moved.toJSON());
-      }),
-      { numRuns: 200 },
-    );
-  });
-
-  it('agrees with the core/manifest facade', () => {
-    fc.assert(
-      fc.property(depRef, (dep) => {
-        const s = formatDepRef(dep);
-        expect(s).toBe(DepRef.from(dep).toString());
-        expect(parseDepRef(s)).toStrictEqual(dep);
       }),
       { numRuns: 200 },
     );

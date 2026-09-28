@@ -1,8 +1,8 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadConfig } from '../../src/core/config.js';
-import { loadManifest } from '../../src/core/manifest.js';
+import { loadConfig } from '../../src/core/config-file.js';
+import { Manifest } from '../../src/domain/manifest.js';
 import { installEntities } from '../../src/engine/install.js';
 import {
   findCandidates,
@@ -13,7 +13,7 @@ import {
 import { resolveTargets } from '../../src/engine/resolve-targets.js';
 import { fakeUI } from '../support/fakes.js';
 import { removeDir } from '../support/sandbox.js';
-import { makeWorld, type World } from './world.js';
+import { makeWorld, resolveAndSave, type World } from './world.js';
 
 describe('query', () => {
   let w: World;
@@ -104,10 +104,7 @@ describe('resolveTargets', () => {
   it('asks interactively when nothing is detected and saves the answer', async () => {
     const ui = fakeUI({ chooseMany: (o) => o.slice(0, 2).map((x) => x.value) });
     w = await makeWorld({ ui });
-    expect(await resolveTargets(w.ctx, { scope: 'project', save: true }, w.deps)).toEqual([
-      'claude',
-      'codex',
-    ]);
+    expect(await resolveAndSave(w.ctx, { scope: 'project' }, w.deps)).toEqual(['claude', 'codex']);
     expect(ui.pickManys[0]!.options.map((o) => o.label)).toEqual([
       'Fake claude',
       'Fake codex',
@@ -116,16 +113,13 @@ describe('resolveTargets', () => {
       'Fake gemini',
       'Fake opencode',
     ]);
-    expect((await loadManifest(join(w.sb.project, 'palm.yaml'))).targets).toEqual([
+    expect((await Manifest.load(join(w.sb.project, 'palm.yaml'))).toJSON().targets).toEqual([
       'claude',
       'codex',
     ]);
     // A global pick is used for this run only: config.yaml `targets` would become the default
     // for every project without its own.
-    expect(await resolveTargets(w.ctx, { scope: 'global', save: true }, w.deps)).toEqual([
-      'claude',
-      'codex',
-    ]);
+    expect(await resolveAndSave(w.ctx, { scope: 'global' }, w.deps)).toEqual(['claude', 'codex']);
     expect((await loadConfig(w.ctx.paths)).targets).toBeUndefined();
   });
 

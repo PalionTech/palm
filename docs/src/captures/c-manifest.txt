@@ -1,0 +1,20 @@
+$ cat palm.yaml
+targets: [claude, codex]
+skills:
+  - tdd@mattpocock
+  - grill-me@mattpocock#^1.2
+agents:
+  - comment-sicko@pstack
+mcp:
+  - name: docs
+    transport: http
+    url: https://example.com/mcp
+    headers:
+      Authorization: Bearer ${DOCS_TOKEN}
+  - name: fs
+    transport: stdio
+    command: npx
+    args:
+      - -y
+      - "@modelcontextprotocol/server-filesystem"
+      - .

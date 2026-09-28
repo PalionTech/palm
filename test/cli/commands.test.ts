@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { mkdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { getConfigValue, setConfigValue } from '../../src/commands/config.js';
 import { fileTargetLabel } from '../../src/commands/describe.js';
@@ -7,6 +10,9 @@ import { kindCounts, parseLayoutOptions } from '../../src/commands/origin.js';
 import { marketplaceRootDir, marketplaceUrlBase } from '../../src/commands/origin-marketplace.js';
 import { installHint } from '../../src/commands/search.js';
 import type { PalmConfig } from '../../src/core/types.js';
+import { fakeUI } from '../support/fakes.js';
+import { removeDir, sandbox } from '../support/sandbox.js';
+import { runInProcess } from './helpers.js';
 
 describe('config get/set', () => {
   const cfg: PalmConfig = { origins: [], targets: ['claude'] };
@@ -47,6 +53,27 @@ describe('init .gitignore', () => {
     expect(withPalmIgnored('')).toBe('.palm/\n');
     expect(withPalmIgnored('a\n/.palm\n')).toBeUndefined();
     expect(withPalmIgnored('.palm/\n')).toBeUndefined();
+  });
+
+  it('creates .gitignore in a git repository that has none, and says so', async () => {
+    const sb = await sandbox(); // the project is a git work tree (.git)
+    try {
+      const init = (cwd: string) =>
+        runInProcess(['init', '--target', 'claude'], { cwd, env: sb.env, ui: fakeUI() });
+      const r = await init(sb.project);
+      expect(r.code).toBe(0);
+      expect(await readFile(join(sb.project, '.gitignore'), 'utf8')).toBe('.palm/\n');
+      expect(r.stdout).toContain('+ ./.gitignore (new): .palm/');
+
+      // outside a git repository nothing is created
+      const plain = join(sb.root, 'plain');
+      await mkdir(plain);
+      expect((await init(plain)).code).toBe(0);
+      expect(existsSync(join(plain, 'palm.yaml'))).toBe(true);
+      expect(existsSync(join(plain, '.gitignore'))).toBe(false);
+    } finally {
+      await removeDir(sb.root);
+    }
   });
 });
 

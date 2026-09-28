@@ -37,6 +37,8 @@ describe('exit codes', () => {
     expect(exitCodeFor(new PalmError('E_CANCELLED', 'cancelled'))).toBe(EXIT.cancelled);
     expect(exitCodeFor(new ExitSignal(1))).toBe(1);
     expect(exitCodeFor(new TypeError('boom'))).toBe(EXIT.internal);
+    // palm's own E_INTERNAL is still an internal error, not an ordinary failure
+    expect(exitCodeFor(new PalmError('E_INTERNAL', 'lockfile record broken'))).toBe(70);
     expect(EXIT).toEqual({ ok: 0, failure: 1, usage: 2, internal: 70, cancelled: 130 });
   });
 
@@ -80,6 +82,16 @@ describe('exit codes', () => {
     const loud = await runInProcess(['get', '--verbose'], { dispatch: boom });
     expect(loud.code).toBe(70);
     expect(loud.stderr).toMatch(/TypeError: boom\n\s+at /);
+  });
+
+  it('E_INTERNAL thrown by palm → 70, with its message and hint', async () => {
+    const r = await runInProcess(['get'], {
+      dispatch: async () => {
+        throw new PalmError('E_INTERNAL', 'Scanner module unavailable', 'reinstall palm');
+      },
+    });
+    expect(r.code).toBe(70);
+    expect(r.stderr).toContain('x Scanner module unavailable');
   });
 
   it('a command that printed its own output ends with its ExitSignal code', async () => {

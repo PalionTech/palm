@@ -73,22 +73,28 @@ describe('palm outdated', () => {
     const short = (tag: string) => `${tag} (${shas[tag]!.slice(0, 7)})`;
     expect(rows.ranged).toMatchObject({
       current: short('v1.0.0'),
-      wanted: 'v1.1.0', // ^1.0 → newest matching release; v2.0.0-beta.1 does not qualify
-      latest: 'v1.1.0',
+      wanted: short('v1.1.0'), // ^1.0 → newest matching release; v2.0.0-beta.1 does not qualify
+      latest: short('v1.1.0'),
       status: 'outdated',
     });
-    expect(rows.exact).toMatchObject({ wanted: 'v1.0.0', latest: 'v1.1.0', status: 'pinned' });
+    expect(rows.exact).toMatchObject({
+      wanted: short('v1.0.0'),
+      latest: short('v1.1.0'),
+      status: 'pinned',
+    });
     expect(rows.fresh).toMatchObject({
       current: short('v1.1.0'),
-      wanted: 'v1.1.0',
+      wanted: short('v1.1.0'),
       status: 'current',
     });
-    expect(rows.branch).toMatchObject({ wanted: 'main (head)', status: 'unknown' });
+    // ls-remote reports the branch's head commit: the locked one is compared with it (same
+    // commit, but palm.yaml pins the branch while a release exists: pinned)
+    expect(rows.branch).toMatchObject({ wanted: short('main'), status: 'pinned' });
     expect(rows.mine).toMatchObject({ status: 'untracked', wanted: '-' });
     expect(rows.fs).toMatchObject({ kind: 'mcp', status: 'untracked' });
     expect(rows.ghost).toMatchObject({ status: 'unknown', wanted: '?' });
     expect(r.warnings.some((w) => w.includes('origin "gone" is not registered'))).toBe(true);
-    expect(r.warnings.some((w) => w.includes('branch-tracking'))).toBe(true);
+    expect(r.warnings.some((w) => w.includes('branch-tracking'))).toBe(false);
 
     const skills = await outdatedEntries(ctx, { scope: 'project', kind: 'mcp' });
     expect(skills.items.map((i) => i.name)).toEqual(['fs']);
@@ -108,6 +114,30 @@ describe('palm outdated', () => {
     };
     const again = await outdatedEntries(ctx, { scope: 'project', remote: same });
     expect(again.items.find((i) => i.name === 'branch')?.status).toBe('current');
+    // a reader that knows no commits: the branch cannot be compared
+    const names = { ...remote, refs: async () => ({ tags: [], heads: ['main'] }) };
+    const unknown = await outdatedEntries(ctx, { scope: 'project', remote: names });
+    expect(unknown.items.find((i) => i.name === 'branch')).toMatchObject({
+      wanted: 'main (head)',
+      status: 'unknown',
+    });
+    expect(unknown.warnings.some((w) => w.includes('branch-tracking'))).toBe(true);
+  });
+
+  it('a newer tag on the locked commit is no update (the commit is compared, not the name)', async () => {
+    const tagged = {
+      refs: async () => ({
+        tags: ['v1.0.0', 'v1.0.1'],
+        heads: [],
+        tagShas: { 'v1.0.0': shas['v1.0.0']!, 'v1.0.1': shas['v1.0.0']! },
+      }),
+      latest: async () => 'v1.0.1',
+    };
+    const r = await outdatedEntries(ctx, { scope: 'project', remote: tagged });
+    const rows = Object.fromEntries(r.items.map((i) => [i.name, i]));
+    expect(rows.ranged).toMatchObject({ wanted: `v1.0.1 (${shas['v1.0.0']!.slice(0, 7)})` });
+    expect(rows.ranged?.status).toBe('current'); // ^1.0 → v1.0.1, the commit already locked
+    expect(rows.exact?.status).toBe('current'); // pinned v1.0.0 = the latest release's commit
   });
 
   it('an unreachable remote or --offline: unknown rows and a warning, never an error', async () => {
@@ -132,8 +162,10 @@ describe('palm outdated', () => {
     const text = await runInProcess(['outdated'], at);
     expect(text.code).toBe(0);
     expect(text.stdout).toMatch(/kind\s+name\s+origin\s+current\s+wanted\s+latest/);
-    expect(text.stdout).toMatch(/skill\s+ranged\s+r\s+v1\.0\.0 \(\w{7}\)\s+v1\.1\.0\s+v1\.1\.0/);
-    expect(text.stdout).toContain('behind what palm.yaml wants: palm update');
+    expect(text.stdout).toMatch(
+      /skill\s+ranged\s+r\s+v1\.0\.0 \(\w{7}\)\s+v1\.1\.0 \(\w{7}\)\s+v1\.1\.0 \(\w{7}\)/,
+    );
+    expect(text.stdout).toContain('at an older commit than palm.yaml wants');
     const json = await runInProcess(['outdated', 'skills', '--json'], at);
     expect(json.code).toBe(0);
     const doc = JSON.parse(json.stdout);

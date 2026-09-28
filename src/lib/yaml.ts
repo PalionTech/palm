@@ -86,16 +86,39 @@ function updateSeq(doc: Document, node: YAMLSeq, value: unknown[]): YAMLSeq {
   return node;
 }
 
-/** Drops removed keys, patches kept ones and appends new ones. */
+/**
+ * Drops removed keys and patches kept ones; a new key goes where `value` orders it among the
+ * existing ones (before the first later key the node has, else at the end).
+ */
 function updateMap(doc: Document, node: YAMLMap, value: Record<string, unknown>): YAMLMap {
   const keys = Object.keys(value).filter((k) => value[k] !== undefined);
+  const indexOf = (k: string) => node.items.findIndex((p) => keyString(p.key) === k);
   node.items = node.items.filter((p) => keys.includes(keyString(p.key)));
-  for (const k of keys) {
-    const pair = node.items.find((p) => keyString(p.key) === k);
-    if (pair) pair.value = updateNode(doc, pair.value, value[k]);
-    else node.items.push(doc.createPair(k, value[k]));
-  }
+  keys.forEach((k, i) => {
+    const pair = node.items[indexOf(k)];
+    if (pair) {
+      pair.value = updateNode(doc, pair.value, value[k]);
+      return;
+    }
+    const before = keys
+      .slice(i + 1)
+      .map(indexOf)
+      .find((j) => j >= 0);
+    const created = doc.createPair(k, value[k]);
+    if (before === undefined) node.items.push(created);
+    else node.items.splice(before, 0, created);
+  });
   return node;
+}
+
+/** Top-level `flowKeys` sequences the patch created are written in flow style (`[a, b]`). */
+function flowNewKeys(doc: Document, existing: ReadonlySet<string>, flowKeys: readonly string[]) {
+  const root = doc.contents;
+  if (!isMap(root)) return;
+  for (const p of root.items) {
+    const key = keyString(p.key);
+    if (!existing.has(key) && flowKeys.includes(key) && isSeq(p.value)) p.value.flow = true;
+  }
 }
 
 /** `node` updated in place to represent `value`, keeping unchanged nodes and their comments. */
@@ -107,11 +130,14 @@ function updateNode(doc: Document, node: unknown, value: unknown): unknown {
 }
 
 /** `base` patched to hold `value`; undefined when `base` is blank or not valid YAML. */
-function patchYaml(base: string, value: unknown): string | undefined {
+function patchYaml(base: string, value: unknown, flowKeys: readonly string[]): string | undefined {
   if (base.trim() === '') return undefined;
   const doc = parseDocument(base);
   if (doc.errors.length > 0) return undefined;
+  const root = doc.contents;
+  const existing = new Set(isMap(root) ? root.items.map((p) => keyString(p.key)) : []);
   doc.contents = updateNode(doc, doc.contents, value) as typeof doc.contents;
+  flowNewKeys(doc, existing, flowKeys);
   return doc.toString(TO_STRING);
 }
 
@@ -143,6 +169,7 @@ export async function writeYamlFile(
   opts: WriteYamlOptions = {},
 ): Promise<void> {
   const base = opts.preserveFrom ?? (await readTextIfExists(file)) ?? '';
-  const text = (base !== false && patchYaml(base, value)) || freshYaml(value, opts);
+  const text =
+    (base !== false && patchYaml(base, value, opts.flowKeys ?? [])) || freshYaml(value, opts);
   await writeFileAtomic(file, text, opts.mode === undefined ? {} : { mode: opts.mode });
 }

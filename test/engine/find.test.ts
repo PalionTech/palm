@@ -97,7 +97,34 @@ describe('palm find', () => {
     expect(ownersIn(w.ctx, 'project', lock, './.mcp.json')).toMatchObject([
       { match: 'merged', file: '.mcp.json', pointer: '/mcpServers/docs', entry: { name: 'docs' } },
     ]);
-    expect(ownersIn(w.ctx, 'project', lock, '.claude/skills')).toEqual([]);
+    expect(ownersIn(w.ctx, 'project', lock, '.claude/agents')).toEqual([]);
+  });
+
+  it('a directory holding files an entry lists: the entry and how many files', async () => {
+    w = await makeWorld();
+    const lock = new Lock([
+      entry({
+        name: 'tdd',
+        files: [
+          { path: '.claude/skills/tdd/SKILL.md', hash: '' },
+          { path: '.claude/skills/tdd/scripts/run.sh', hash: '' },
+          { path: '.agents/skills/tdd/SKILL.md', hash: '' },
+        ],
+      }),
+      entry({ name: 'grill', files: [{ path: '.claude/skills/grill/SKILL.md', hash: '' }] }),
+    ]);
+    expect(ownersIn(w.ctx, 'project', lock, '.claude/skills/tdd')).toMatchObject([
+      { match: 'contains', file: '.claude/skills/tdd', files: 2, entry: { name: 'tdd' } },
+    ]);
+    expect(
+      ownersIn(w.ctx, 'project', lock, '.claude/skills/').map((o) => [o.entry.name, o.files]),
+    ).toEqual([
+      ['tdd', 2],
+      ['grill', 1],
+    ]);
+    expect(ownersIn(w.ctx, 'project', lock, '.claude/skills/tdd/SKILL.md')).toMatchObject([
+      { match: 'file' },
+    ]);
   });
 
   it('no lockfile in the searched scopes: E_USAGE', async () => {

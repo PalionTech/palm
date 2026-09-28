@@ -1,14 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  addOrigin,
-  allOrigins,
-  ensureMineOrigin,
-  findOrigin,
-  projectOrigins,
-  removeOrigin,
-} from '../../src/core/config.js';
+import { addOrigin, ensureMineOrigin, removeOrigin } from '../../src/core/config.js';
 import { refreshOrigins } from '../../src/core/context.js';
 import type { OriginSpec, PalmContext } from '../../src/core/types.js';
 import { OriginSet } from '../../src/domain/origin-set.js';
@@ -47,7 +40,7 @@ describe('ctx.origins', () => {
     const first = ctx.origins;
     expect(first.aliases()).toEqual(['fork']);
     await writeProject('origins: []\n');
-    for (let i = 0; i < 5; i++) allOrigins(ctx);
+    for (let i = 0; i < 5; i++) ctx.origins.specs();
     expect(ctx.origins).toBe(first);
     expect(log.messages.filter((m) => m.level === 'warn')).toHaveLength(1);
   });
@@ -59,8 +52,8 @@ describe('ctx.origins', () => {
     ctx.config.origins.push(sp);
     expect(ctx.origins).not.toBe(before);
     expect(ctx.origins.aliases()).toEqual(['sp', 'fork']);
-    expect(findOrigin(ctx, 'SP')).toBe(sp);
-    expect(projectOrigins(ctx)).toEqual([fork]);
+    expect(ctx.origins.byAlias('SP')?.spec).toBe(sp);
+    expect(ctx.origins.projectSpecs()).toEqual([fork]);
   });
 
   it('refreshes after addOrigin, removeOrigin and ensureMineOrigin without mutating ctx.config', async () => {
@@ -79,7 +72,7 @@ describe('ctx.origins', () => {
 
     // a same-id replacement in the project layer overrides the user origin
     await addOrigin(ctx, { ...sp, ref: 'v2' }, { scope: 'project' });
-    expect(findOrigin(ctx, 'sp')?.ref).toBe('v2');
+    expect(ctx.origins.byAlias('sp')?.spec?.ref).toBe('v2');
 
     const config1 = ctx.config;
     await removeOrigin(ctx, 'sp');

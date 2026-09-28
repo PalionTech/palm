@@ -1,5 +1,4 @@
 import { getIndex } from '../core/cache.js';
-import { allOrigins, findOrigin, originId } from '../core/config.js';
 import { messageOf, PalmError } from '../core/errors.js';
 import type {
   Entity,
@@ -13,6 +12,7 @@ import type {
 } from '../core/types.js';
 import { DepRef } from '../domain/dep-ref.js';
 import { Lock } from '../domain/lock.js';
+import { Origin } from '../domain/origin.js';
 import { ScopePaths } from '../domain/scope-paths.js';
 import { type EngineDeps, resolveEngineDeps } from './deps.js';
 
@@ -53,7 +53,7 @@ export class IndexSession {
   ) {}
 
   get(spec: OriginSpec): Promise<SourcedIndex> {
-    const key = `${spec.alias}\0${originId(spec)}\0${spec.ref ?? ''}`;
+    const key = `${spec.alias}\0${new Origin(spec).id}\0${spec.ref ?? ''}`;
     let p = this.one.get(key);
     if (!p) {
       p = getIndex(this.ctx, spec, { refresh: this.refresh, scan: this.scan }).then((index) => ({
@@ -67,9 +67,9 @@ export class IndexSession {
 
   /** A registered origin by alias; throws E_ORIGIN when unknown. */
   byAlias(alias: string, ref?: string): Promise<SourcedIndex> {
-    const spec = findOrigin(this.ctx, alias);
+    const spec = this.ctx.origins.byAlias(alias)?.spec;
     if (!spec) {
-      const known = allOrigins(this.ctx).map((o) => o.alias);
+      const known = this.ctx.origins.specs().map((o) => o.alias);
       throw new PalmError(
         'E_ORIGIN',
         `Unknown origin "${alias}"`,
@@ -83,7 +83,7 @@ export class IndexSession {
 
   all(): Promise<SourcedIndex[]> {
     this.allP ??= Promise.all(
-      allOrigins(this.ctx).map((o) =>
+      this.ctx.origins.specs().map((o) =>
         this.get(o).catch((e: unknown) => {
           this.ctx.log.warn(`Skipping origin "${o.alias}": ${messageOf(e)}`);
           return undefined;

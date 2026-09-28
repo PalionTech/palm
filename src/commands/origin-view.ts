@@ -19,7 +19,8 @@ function scopeOfOrigin(ctx: PalmContext, spec: OriginSpec): 'global' | 'project'
   return ctx.config.origins.some((s) => s.alias === spec.alias) ? 'global' : 'project';
 }
 
-function indexSummary(index: OriginIndex | undefined) {
+/** The index as JSON; the scan time (which changes on every rescan) only with --verbose. */
+function indexSummary(index: OriginIndex | undefined, verbose: boolean) {
   if (!index) return null;
   return {
     counts: countMap(index.entities),
@@ -27,13 +28,12 @@ function indexSummary(index: OriginIndex | undefined) {
     ref: index.ref,
     detected: index.detected,
     warnings: index.warnings,
-    scannedAt: index.scannedAt,
+    ...(verbose ? { scannedAt: index.scannedAt } : {}),
   };
 }
 
 async function registered(ctx: PalmContext, names: string[]): Promise<OriginSpec[]> {
-  const { allOrigins, resolveOriginQuery } = await import('../core/config.js');
-  return names.length ? names.map((q) => resolveOriginQuery(ctx, q)) : allOrigins(ctx);
+  return names.length ? names.map((q) => ctx.origins.resolveQuery(q).spec) : ctx.origins.specs();
 }
 
 function printOriginTable(ctx: PalmContext, out: Output, rows: OriginRow[]): void {
@@ -72,11 +72,11 @@ export async function originRows(ctx: PalmContext, names: string[]): Promise<Ori
   );
 }
 
-export function originsJson(ctx: PalmContext, rows: OriginRow[]): unknown[] {
+export function originsJson(ctx: PalmContext, rows: OriginRow[], verbose = false): unknown[] {
   return rows.map(({ spec, index }) => ({
     ...spec,
     scope: scopeOfOrigin(ctx, spec),
-    indexed: indexSummary(index),
+    indexed: indexSummary(index, verbose),
   }));
 }
 
@@ -92,7 +92,7 @@ export function printOrigins(ctx: PalmContext, out: Output, rows: OriginRow[]): 
 /** `palm get origins [alias...]`: registered origins and what their cached index holds. */
 export async function getOrigins(ctx: PalmContext, out: Output, names: string[]): Promise<void> {
   const rows = await originRows(ctx, names);
-  if (out.jsonMode) out.json(originsJson(ctx, rows));
+  if (out.jsonMode) out.json(originsJson(ctx, rows, out.verbose));
   else printOrigins(ctx, out, rows);
 }
 
@@ -136,7 +136,7 @@ function printOrigin(ctx: PalmContext, out: Output, spec: OriginSpec, index?: Or
   row(out, 'layout', layoutText(spec));
   row(out, 'detected', index?.detected ?? pc.dim('not indexed'));
   row(out, 'entities', index ? kindCounts(index.entities) : undefined);
-  row(out, 'scanned', index?.scannedAt);
+  if (out.verbose) row(out, 'scanned', index?.scannedAt);
   for (const w of index?.warnings ?? []) out.out(`  ${pc.yellow('!')} ${w}`);
   const dir = checkoutDir(ctx, spec, index);
   row(out, 'checkout', dir ? displayPath(ctx, dir) : undefined);
@@ -150,14 +150,14 @@ export async function describeOrigin(ctx: PalmContext, out: Output, names: strin
       'name one origin to describe',
       'palm get origins   then   palm describe origin <alias>',
     );
-  const { resolveOriginQuery } = await import('../core/config.js');
   const { indexFilePath } = await import('../core/cache.js');
-  const spec = resolveOriginQuery(ctx, query);
+  const spec = ctx.origins.resolveQuery(query).spec;
   const index = await loadIndex(ctx, spec);
   const indexFile = indexFilePath(ctx, spec);
   if (out.jsonMode) {
     const cache = { index: indexFile, checkout: checkoutDir(ctx, spec, index) ?? null };
-    out.json({ origin: spec, scope: scopeOfOrigin(ctx, spec), index: indexSummary(index), cache });
+    const summary = indexSummary(index, out.verbose);
+    out.json({ origin: spec, scope: scopeOfOrigin(ctx, spec), index: summary, cache });
     return;
   }
   printOrigin(ctx, out, spec, index);

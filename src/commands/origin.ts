@@ -19,7 +19,7 @@ import type { App } from './app.js';
 import { ExitSignal, type Invocation, usage } from './grammar.js';
 import { type GlobalOptions, makeContext, shortSha, withSpinner } from './shared.js';
 
-export interface OriginCliOptions extends GlobalOptions {
+interface OriginCliOptions extends GlobalOptions {
   alias?: string;
   ref?: string;
   root?: string;
@@ -96,6 +96,7 @@ export function describeLocation(spec: OriginSpec): string {
 /** Fetch and scan an origin (registered or not) into the cache, under a spinner. */
 export async function indexOrigin(ctx: PalmContext, spec: OriginSpec): Promise<OriginIndex> {
   const { getIndex } = await import('../core/cache.js');
+  const { scanOrigin: scan } = await import('../index/scan.js');
   return withSpinner(
     ctx,
     {
@@ -103,7 +104,7 @@ export async function indexOrigin(ctx: PalmContext, spec: OriginSpec): Promise<O
       json: false,
       done: (ix) => `${spec.alias}: ${kindCounts(ix.entities)}`,
     },
-    () => getIndex(ctx, spec, { refresh: true }),
+    () => getIndex(ctx, spec, { refresh: true, scan }),
   );
 }
 
@@ -117,7 +118,7 @@ const SPEC_HINT =
   'palm install origin owner/repo   (or owner/repo/sub/dir, a git URL, an existing directory)';
 
 async function parseSpec(ctx: PalmContext, input: string, o: OriginCliOptions) {
-  const { parseOriginInput } = await import('../core/config.js');
+  const { parseOriginInput } = await import('../core/origin-input.js');
   const layout = parseLayoutOptions(o.layout);
   try {
     return parseOriginInput(input, {
@@ -169,9 +170,10 @@ function reportAdded(out: Output, spec: OriginSpec, index: OriginIndex, dryRun: 
 
 async function installOne(ctx: PalmContext, out: Output, input: string, o: OriginCliOptions) {
   const spec = await parseSpec(ctx, input, o);
+  const { addOrigin, assertProjectOrigin } = await import('../core/config.js');
+  if (o.project) assertProjectOrigin(spec, ctx.paths.projectRoot);
   const index = await indexBeforeSaving(ctx, spec, input);
   if (ctx.flags.dryRun) return reportAdded(out, spec, index, true);
-  const { addOrigin } = await import('../core/config.js');
   const saved = await addOrigin(ctx, spec, { scope: o.project ? 'project' : 'global' });
   reportAdded(out, saved, index, false);
 }
@@ -242,10 +244,9 @@ async function updateOne(ctx: PalmContext, out: Output, spec: OriginSpec): Promi
 /** `palm update origins [alias...]`: refetch and rescan (all when none is named). */
 export async function updateOrigins(inv: Invocation, app: App): Promise<void> {
   const ctx = await makeContext(app, inv.opts as GlobalOptions);
-  const { allOrigins, resolveOriginQuery } = await import('../core/config.js');
   const specs = inv.names.length
-    ? inv.names.map((q) => resolveOriginQuery(ctx, q))
-    : allOrigins(ctx);
+    ? inv.names.map((q) => ctx.origins.resolveQuery(q).spec)
+    : ctx.origins.specs();
   if (specs.length === 0) {
     app.out.hint('No origins to update. Add one with: palm install origin owner/repo');
     if (app.out.jsonMode) app.out.json([]);

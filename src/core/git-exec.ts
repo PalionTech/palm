@@ -99,7 +99,7 @@ export function cleanGitEnv(source: NodeJS.ProcessEnv = process.env): Record<str
 }
 
 /** Local repositories (bare repo paths, file:// URLs) are the only ones allowed to use git's file transport. */
-export function isLocalRepoUrl(url: string | undefined): boolean {
+function isLocalRepoUrl(url: string | undefined): boolean {
   return !!url && (url.startsWith('/') || /^file:\/\//i.test(url));
 }
 

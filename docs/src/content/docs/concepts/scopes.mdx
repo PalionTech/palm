@@ -10,15 +10,10 @@ import Capture from '../../../components/Capture.astro';
 The **scope** decides where palm writes: `project` (the default) or `global`.
 Project scope writes under the project root. Global scope, chosen with `-g`, writes under your home directory.
 
-```sh
-palm install skill tdd        # .claude/skills/tdd/ in this project
-palm install skill tdd -g     # ~/.claude/skills/tdd/ for every project
-```
-
 <Capture name="a-scopes" title="~/project" />
 
-The first install wrote the skill into the project and saved the target to `palm.yaml`.
-The second wrote it under `~/.claude` and saved the target to `~/.palm/config.yaml`.
+The first install wrote the skill to `.claude/skills/tdd/` in the project and saved the target to `palm.yaml`.
+The second wrote `~/.claude/skills/tdd/` and saved the target to `~/.palm/config.yaml`.
 Each scope has its own manifest, lockfile and saved targets.
 
 ## When to use each
@@ -78,6 +73,7 @@ Claude Code keeps global MCP servers in `~/.claude.json`, and Copilot keeps them
 
 ## Related
 
+- [config.yaml reference](/palm/reference/config-yaml/)
 - [Targets](/palm/concepts/targets/)
 - [Manifest and lockfile](/palm/concepts/manifest-and-lockfile/)
 - [Security model](/palm/explanation/security/)

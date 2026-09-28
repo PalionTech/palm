@@ -150,6 +150,21 @@ describe('renderAgent', () => {
     expect(w.content).toBe('---\nname: w\ndescription: d\nmodel: inherit\n---\n\nb\n');
   });
 
+  it('every harness gets bare dependency names (tdd@mattpocock#v1 → tdd)', () => {
+    const pinned = {
+      ...AGENT,
+      skills: ['tdd@mattpocock', 'wayfinder@mattpocock#v1.2.0', 'tdd'],
+      mcpServers: ['github@pstack'],
+    };
+    expect(renderAgent(pinned, 'claude').content).toContain(
+      'skills:\n  - tdd\n  - wayfinder\nmcpServers:\n  - github\n',
+    );
+    expect(renderAgent(pinned, 'copilot').content).toContain('github/*');
+    expect(renderAgent(pinned, 'gemini').content).toContain('mcp_github_*');
+    for (const t of ['claude', 'codex', 'copilot', 'cursor', 'gemini', 'opencode'] as const)
+      expect(renderAgent(pinned, t).content).not.toMatch(/@mattpocock|@pstack|#v1/);
+  });
+
   it('minimal agent renders without optional keys everywhere', () => {
     const def: AgentDefinition = { name: 'm', description: 'Minimal', body: 'Body' };
     expect(renderAgent(def, 'claude').content).toBe(

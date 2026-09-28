@@ -1,0 +1,125 @@
+---
+title: Publish your own skills
+description: Your skills live in a tagged git repository, and teammates install them by name.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Capture from '../../../components/Capture.astro';
+
+You wrote a skill that turns merged pull requests into release notes, and your team wants it too.
+`palm create` writes it into `~/.palm/mine`, a git repository palm already reads as an origin.
+Push that repository and tag it, and each teammate installs the skill with two commands.
+
+When you finish, a teammate installs your skill from its tag:
+
+<Capture name="b-publish-teammate" title="teammate: ~/project" />
+
+The recorded session reads the tag from a local copy of the repository, so its spec is a `file://` URL.
+With GitHub, the spec is `<you>/mine`.
+
+## Before you start
+
+- A terminal: `palm create` is an interactive wizard.
+- An empty repository on GitHub, or on any git host, called `mine`.
+
+## Steps
+
+<Steps>
+
+1. Create the skill.
+
+   ```sh
+   palm create skill release-notes
+   ```
+
+   The wizard asks three questions, then offers to install the skill in the current project:
+
+   | Prompt | What to enter |
+   | --- | --- |
+   | Skill name | a slug: lowercase letters, digits and single hyphens |
+   | Description | what the skill does and when to load it, 1024 characters or fewer |
+   | Add optional directories? | any of `scripts/`, `references/` and `assets/` |
+   | Install skill release-notes now? | yes, to try it here first |
+
+   With `$VISUAL` or `$EDITOR` set, palm opens the new file in your editor.
+
+2. Write the skill. The wizard starts from this file:
+
+   ```md title="~/.palm/mine/skills/release-notes/SKILL.md"
+   ---
+   name: release-notes
+   description: Use when the user asks for release notes. Reads merged pull requests and writes a changelog entry.
+   ---
+
+   # Release Notes
+
+   ## When to use
+
+   Describe the situations and requests this skill is for, and when not to use it.
+
+   ## Steps
+
+   1. First step.
+   2. Second step.
+
+   ## Notes
+
+   - Gotchas, constraints, and pointers to files in references/ or scripts/.
+   ```
+
+   Replace the three sections with your instructions.
+   `palm create agent`, `palm create instruction` and `palm create command` write into the same repository.
+
+3. Commit and push `~/.palm/mine`.
+
+   ```sh
+   cd ~/.palm/mine
+   git add -A
+   git commit -m "Add the release-notes skill"
+   git remote add origin git@github.com:<you>/mine.git
+   git push -u origin HEAD
+   ```
+
+   palm ran `git init` in this folder when it created it.
+   Everything in it becomes public when the GitHub repository is public.
+
+4. Tag a release.
+
+   ```sh
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+
+   An origin without a ref resolves to its latest semver tag.
+   Commits after `v1.0.0` reach teammates only when you push the next tag.
+
+5. Send teammates the two commands.
+
+   ```sh
+   palm install origin <you>/mine --alias <you>
+   palm install skill release-notes@<you>
+   ```
+
+   The alias defaults to the repository name, `mine`.
+   Teammates who use `palm create` already have an origin called `mine`, so choose `--alias` yourself.
+
+</Steps>
+
+To publish a change, commit it, tag `v1.1.0` and push the tag.
+Teammates then run `palm update skill release-notes`.
+
+## Check the result
+
+On a teammate's machine, list the installed skills:
+
+```sh
+palm get skills
+```
+
+The `version` column shows your tag and its commit, as in the last command of the session above.
+
+## Next steps
+
+- [Make a repository palm reads well](/palm/guides/palm-friendly-repos/) covers names, versions and plugins.
+- [Share a team baseline](/palm/guides/team-baseline/) puts your origin in every project's `palm.yaml`.
+- [Build an agent that brings its tools](/palm/guides/agent-bundles/) uses `palm create agent`.

@@ -1,6 +1,7 @@
 /** `palm init`: choose this project's targets, write them to palm.yaml and ignore .palm/. */
+import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { PalmError } from '../core/errors.js';
 import { type PalmContext, TARGET_IDS, type TargetId } from '../core/types.js';
 import { ScopePaths } from '../domain/scope-paths.js';
@@ -55,6 +56,28 @@ async function chooseTargets(ctx: PalmContext, flag: TargetId[] | undefined): Pr
   );
 }
 
+/** True when `dir` or an ancestor holds `.git` (a work tree, or a submodule's `.git` file). */
+function insideGitRepo(dir: string): boolean {
+  for (let d = resolve(dir); ; d = dirname(d)) {
+    if (existsSync(join(d, '.git'))) return true;
+    if (dirname(d) === d) return false;
+  }
+}
+
+/**
+ * What `palm init` does to `.gitignore`: add `.palm/` (copied hook scripts) to an existing file,
+ * or create the file inside a git repository; undefined when there is nothing to do.
+ */
+async function gitignorePlan(
+  root: string,
+): Promise<{ file: string; text: string; created: boolean } | undefined> {
+  const file = join(root, '.gitignore');
+  const current = await readFile(file, 'utf8').catch(() => undefined);
+  if (current === undefined && !insideGitRepo(root)) return undefined;
+  const text = withPalmIgnored(current ?? '');
+  return text === undefined ? undefined : { file, text, created: current === undefined };
+}
+
 export async function run(inv: Invocation, app: App): Promise<void> {
   const g = inv.opts as GlobalOptions;
   if (g.global)
@@ -66,24 +89,24 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const ctx = await makeContext(app, g);
   const out = app.out;
   const targets = await chooseTargets(ctx, flag);
-  const { loadManifest, saveManifest } = await import('../core/manifest.js');
+  const { Manifest } = await import('../domain/manifest.js');
   const file = ScopePaths.of(ctx, 'project').manifestFile;
-  const manifest = await loadManifest(file);
-  const ignoreFile = join(ctx.paths.projectRoot, '.gitignore');
-  const ignore = await readFile(ignoreFile, 'utf8').catch(() => undefined);
-  const nextIgnore = ignore === undefined ? undefined : withPalmIgnored(ignore);
+  const manifest = await Manifest.load(file);
+  const ignore = await gitignorePlan(ctx.paths.projectRoot);
   if (out.jsonMode)
-    out.json({ file, targets, gitignore: nextIgnore !== undefined, dryRun: ctx.flags.dryRun });
+    out.json({ file, targets, gitignore: ignore !== undefined, dryRun: ctx.flags.dryRun });
   if (ctx.flags.dryRun) {
     out.hint(`dry run: would write targets [${targets.join(', ')}] to ${file}`);
-    if (nextIgnore !== undefined) out.hint(`dry run: would add .palm/ to ${ignoreFile}`);
+    if (ignore)
+      out.hint(`dry run: would ${ignore.created ? 'create' : 'add .palm/ to'} ${ignore.file}`);
     return;
   }
-  await saveManifest(file, { ...manifest, targets });
+  await manifest.setTargets(targets).save(file);
   out.added(`${displayPath(ctx, file)}: targets ${targets.join(', ')}`);
-  if (nextIgnore !== undefined) {
-    await writeFile(ignoreFile, nextIgnore);
-    out.added(`.palm/ in ${displayPath(ctx, ignoreFile)}`);
+  if (ignore) {
+    await writeFile(ignore.file, ignore.text);
+    const where = displayPath(ctx, ignore.file);
+    out.added(ignore.created ? `${where} (new): .palm/` : `.palm/ in ${where}`);
   }
   out.hint('\nnext: palm search <query>   or   palm install skill <name>@<origin>');
 }

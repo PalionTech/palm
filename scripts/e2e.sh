@@ -296,7 +296,7 @@ s09_mcp() {
   js "$P1/.mcp.json" 'd.mcpServers.fs.command === "npx" && d.mcpServers.fs.args.join(" ") === "-y @modelcontextprotocol/server-filesystem ."'
   js_toml "$P1/.codex/config.toml" 'd.mcp_servers.fs.command === "npx"'
   run "$P1" install mcp docs -y --url https://example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
-  has "export DOCS_TOKEN"
+  has "requires secret DOCS_TOKEN: export it before starting the harness"
   js "$P1/.mcp.json" 'd.mcpServers.docs.headers.Authorization === "Bearer ${DOCS_TOKEN}"'
   js_toml "$P1/.codex/config.toml" 'd.mcp_servers.docs.bearer_token_env_var === "DOCS_TOKEN"'
 }
@@ -331,7 +331,7 @@ s11_sync() {
   has "restored missing files"
   file "$P1/.claude/skills/unslop/SKILL.md"
   contains "$P1/palm.yaml" "targets: [claude, codex]"
-  js_yaml "$P1/palm.lock.yaml" 'd.version === 2 && d.entries.every(e => e.transform === 1 && !("installedAt" in e) && e.files.every(f => f.hash.startsWith("sha256:")))'
+  js_yaml "$P1/palm.lock.yaml" 'd.version === 2 && d.entries.every(e => e.transform > 0 && !("installedAt" in e) && e.files.every(f => f.hash.startsWith("sha256:")))'
   # --frozen: nothing to do; a hand edit is a difference; a deleted file is restored from the lock
   run "$P1" install --frozen
   has "unchanged"

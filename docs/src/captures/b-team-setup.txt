@@ -1,0 +1,32 @@
+$ palm init --target claude,codex
++ ./palm.yaml: targets claude, codex
++ ./.gitignore (new): .palm/
+
+next: palm search <query>   or   palm install skill <name>@<origin>
+$ palm install origin file://~/src/team-kit --alias team --project
++ origin team → file://~/src/team-kit (2 skills, 1 agent, 2 instructions, 1 hook, 1 plugin; detected: plugin-manifest)
+  install with: palm install skill ci-watch@team
+$ palm install skill ci-watch@team
+project scope → claude, codex
+status       kind   name      origin  targets       files
+───────────  ─────  ────────  ──────  ────────────  ─────
++ installed  skill  ci-watch  team    claude,codex  2
+1 installed
+$ palm install agent ci-watcher@team
+project scope → claude, codex
+status       kind   name        origin  targets       files
+───────────  ─────  ──────────  ──────  ────────────  ─────
++ installed  agent  ci-watcher  team    claude,codex  2
+1 installed
+
+i ci-watcher: codex: .codex/agents/ci-watcher.toml: dropped extra: readonly (not supported by Codex)
+$ cat palm.yaml
+targets: [claude, codex]
+origins:
+  - alias: team
+    type: git
+    url: file://~/src/team-kit
+skills:
+  - ci-watch@team
+agents:
+  - ci-watcher@team

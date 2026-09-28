@@ -1,0 +1,65 @@
+---
+title: palm why
+description: Show why an entity is installed and what still needs it.
+---
+
+import Capture from '../../../../components/Capture.astro';
+
+`palm why` shows what installed an entity: `palm.yaml`, or the plugin or agent that pulled it in.
+
+```sh
+palm why <kind> <name[@origin]> [options]
+```
+
+Kinds: `skill`, `agent`, `instruction`, `command`, `hook`, `mcp` and `plugin`, as singular, plural or [short name](/palm/reference/cli/#kinds).
+
+| Command | Meaning |
+| --- | --- |
+| `palm why skill brainstorming` | The plugin or agent that pulled the skill in. |
+| `palm why skill tdd@mattpocock` | One origin's copy, when two origins installed the name. |
+| `palm why mcp docs -g` | An MCP server in the global scope. |
+| `palm why agent reviewer --json` | The same report as JSON. |
+
+<Capture name="c-why" />
+
+## Options
+
+{/* cli-reference:options why */}
+
+| Argument | Meaning |
+| --- | --- |
+| `kind` | skill, agent, instruction, command, hook, mcp, plugin (plurals and short names work) |
+| `name` | `name[@origin]` |
+
+No options of its own. The [global options](/palm/reference/cli/#global-options) apply.
+
+{/* /cli-reference */}
+
+## Fields
+
+| Field | Meaning |
+| --- | --- |
+| `installed by` | `palm.yaml` and its section, or the plugin or agent that pulled the entity in. |
+| `chain` | Each link from the entity up to the entry `palm.yaml` lists. |
+| `needed by` | Every installed plugin or agent that declares the entity. These keep it installed when you uninstall its parent. |
+
+An entity that nothing lists gets a hint with the `palm uninstall` command that removes it.
+With `--json`, `palm why` returns one report per match as `items`.
+
+## Behavior
+
+`palm why` reads the scope's lockfile and `palm.yaml`.
+It never prompts, writes nothing and uses no network.
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | The entity is installed. |
+| `1` | The entity is not installed in the scope. |
+| `2` | No kind, a word that is not a kind, or no name. |
+
+## Related
+
+- [`palm uninstall`](/palm/reference/cli/uninstall/)
+- [palm.lock.yaml](/palm/reference/palm-lock-yaml/)

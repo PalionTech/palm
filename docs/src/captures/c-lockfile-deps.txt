@@ -1,0 +1,65 @@
+$ cat palm.lock.yaml
+# palm lockfile — generated, do not edit by hand.
+version: 2
+entries:
+  - kind: skill
+    name: sdk-helper
+    origin: official
+    path: plugins/agent-sdk-dev/skills/sdk-helper
+    contentHash: sha256:6b5a95bdc085896db3b2b79daabfe016a5099b0d790ae41bcf5b2fc23660c74d
+    transform: 2
+    targets:
+      - claude
+    files:
+      - path: .claude/skills/sdk-helper/SKILL.md
+        hash: sha256:d4c0eb4ec1f21f847d29ffa248fa8402c59565d88960ad33f983e8a54029dbc1
+    via: agent:agent-sdk-verifier-py
+  - kind: agent
+    name: agent-sdk-verifier-py
+    origin: official
+    path: plugins/agent-sdk-dev/agents/agent-sdk-verifier-py.md
+    contentHash: sha256:739d033a4962fa04c1a0ffd77580bcf2a8887f48090f3c89649c5b34b87d5dc7
+    transform: 2
+    targets:
+      - claude
+    files:
+      - path: .claude/agents/agent-sdk-verifier-py.md
+        hash: sha256:312468d3eb4fcd2f7451e39a14061e3a0ca06b1ea0ea284a18c86284a66d4eb6
+    deps:
+      - kind: skill
+        name: sdk-helper
+      - kind: mcp
+        name: context7
+  - kind: mcp
+    name: context7
+    origin: official
+    path: external_plugins/context7/.mcp.json
+    contentHash: sha256:51531876e2bf90de4812c9d4524e18775ab9250a5022c29b07088d9f807f37c0
+    transform: 2
+    targets:
+      - claude
+    files: []
+    merged:
+      - file: .mcp.json
+        pointer: /mcpServers/context7
+        value:
+          type: http
+          url: https://mcp.context7.com/mcp
+          headers:
+            Authorization: ${CONTEXT7_API_KEY:-}
+    via: agent:agent-sdk-verifier-py
+  - kind: mcp
+    name: docs
+    origin: adhoc
+    path: docs
+    contentHash: sha256:13aa8960830a9ec599a742efd2294cc0b51d5096503109e91e452f26b14040d1
+    transform: 2
+    targets:
+      - claude
+    files: []
+    merged:
+      - file: .mcp.json
+        pointer: /mcpServers/docs
+        value:
+          type: http
+          url: https://example.com/mcp

@@ -53,11 +53,11 @@ Without a terminal an ambiguous name stops with `E_AMBIGUOUS`, listing the `name
 | Utility | What it does |
 |---|---|
 | `palm init` | Write `palm.yaml` with the targets for this project. |
-| `palm doctor` | Check git, Node, harness directories, lockfile drift and origin reachability. |
+| `palm doctor` | Check git, Node, harness directories, lockfile drift, files you edited and origin reachability. |
 | `palm config get\|set <key> [value]` | Global settings: `targets`, `secrets.project`, `secrets.global`, `mcpRegistryUrl`. |
 | `palm outdated [kind]` | Current, wanted and latest ref per installed entry. |
 | `palm why <kind> <name>` | Who pulled an entity in, and what still needs it. |
-| `palm find <path>` | Which entity wrote a file. |
+| `palm find <path>` | Which entity wrote a file, or the files under a directory. |
 | `palm audit [kind] [names...]` | Scan installed files for hidden Unicode and edits; `--strip` removes the characters. |
 | `palm completion bash\|zsh\|fish` | Print a shell completion script. |
 | `palm cache info\|clean` | Size of the origin cache, or remove it. |
@@ -122,7 +122,7 @@ entries:
     ref: v1.2.3
     sha: 6acc160…
     contentHash: sha256:…
-    transform: 1                 # rendering version; a newer palm re-renders older entries
+    transform: 2                 # rendering version; a newer palm re-renders older entries
     targets: [claude, codex]
     files:
       - { path: .claude/skills/tdd/SKILL.md, hash: "sha256:…" }
@@ -136,7 +136,8 @@ unless you pass `--force`. A bare `palm install` deploys the locked commit, not 
 
 palm picks targets in this order: `--target claude,codex`, `targets:` in `palm.yaml`, `targets`
 in `~/.palm/config.yaml`, the harness directories it finds, then a picker. At project scope the
-first install saves the result to `palm.yaml`, so the next developer gets the same harnesses. At
+first successful install saves the result to `palm.yaml`, so the next developer gets the same
+harnesses. At
 global scope palm saves `targets` to `config.yaml` only when you pass `--target` or run
 `palm config set targets claude,codex`; detected targets are never saved there. `palm get targets`
 shows the result and where it came from.
@@ -179,8 +180,8 @@ palm stores it with the origin in `~/.palm/config.yaml` as
 Before palm writes a hook or a stdio MCP server, it lists every command it would allow to run
 and asks once. Without a terminal it needs `--yes`; `--dry-run` lists them without asking. Text
 entities (skills, agents, instructions, commands) are never gated. palm refuses entities that
-contain hidden Unicode such as bidi overrides or tag characters; inspect them with `palm audit`,
-remove them with `palm audit --strip`, or install anyway with `--force`.
+contain hidden Unicode such as bidi overrides or tag characters: review the origin's files, and
+install with `--force` to accept them; `palm audit` then shows them (`--strip` removes them).
 
 ## Exit codes
 
@@ -208,12 +209,11 @@ remove them with `palm audit --strip`, or install anyway with `--force`.
 ## What palm does not do
 
 - Windows: untested; macOS and Linux are supported.
-- Telemetry: none, and no update check. Network calls go only to your origins and the MCP registry.
+- Telemetry: none, and no update check. palm only talks to your origins (git), the MCP registry,
+  and a `marketplace.json` URL you pass to `palm install origin`.
 - A central registry: origins are git repositories you pick; the MCP registry is for MCP servers.
 
 ## Links
 
-[Documentation](https://paliontech.github.io/palm) ·
-[CONCEPTS.md](CONCEPTS.md) (resources per harness) · [DESIGN.md](DESIGN.md) (architecture) ·
-[CONTRIBUTING.md](CONTRIBUTING.md) (development; run `npm run verify` before every commit) ·
-[SECURITY.md](SECURITY.md) (reporting a vulnerability)
+[Documentation](https://paliontech.github.io/palm) · [CONCEPTS.md](CONCEPTS.md) · [DESIGN.md](DESIGN.md) ·
+[CONTRIBUTING.md](CONTRIBUTING.md) (run `npm run verify` before every commit) · [SECURITY.md](SECURITY.md)

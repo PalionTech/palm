@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { homeOf, MANIFEST_FILE, palmHomeOf, ScopePaths } from '../domain/scope-paths.js';
-import type { PalmPaths, Scope } from './types.js';
+import { homeOf, MANIFEST_FILE, palmHomeOf } from '../domain/scope-paths.js';
+import type { PalmPaths } from './types.js';
 
 const CONFIG_FILE = 'config.yaml';
 
@@ -40,22 +40,9 @@ export function isHomeAsProject(paths: PalmPaths, env: NodeJS.ProcessEnv): boole
   return resolve(paths.projectRoot) === home && !existsSync(join(home, MANIFEST_FILE));
 }
 
-// Facades over ScopePaths, kept while the remaining callers move to `ScopePaths.of(ctx, scope)`.
-
-export function scopeRoot(paths: PalmPaths, scope: Scope): string {
-  return ScopePaths.from(paths, scope, {}).root;
-}
-
-export function manifestPath(paths: PalmPaths, scope: Scope): string {
-  return ScopePaths.from(paths, scope, {}).manifestFile;
-}
-
-export function lockPath(paths: PalmPaths, scope: Scope): string {
-  return ScopePaths.from(paths, scope, {}).lockFile;
-}
-
-export function hooksAssetDir(paths: PalmPaths, scope: Scope, entityName: string): string {
-  return ScopePaths.from(paths, scope, {}).hooksAssetDir(entityName);
+/** The project's palm.yaml (`ScopePaths` has every scope-dependent path). */
+export function projectManifest(paths: PalmPaths): string {
+  return join(paths.projectRoot, MANIFEST_FILE);
 }
 
 export function configPath(paths: PalmPaths): string {

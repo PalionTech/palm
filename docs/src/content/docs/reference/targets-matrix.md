@@ -11,6 +11,8 @@ palm install agent reviewer --target claude,codex,copilot,cursor,gemini,opencode
 palm install agent reviewer -g
 ```
 
+`palm describe target <target>` prints these paths for your machine, with every override applied.
+
 The `gemini` (Gemini CLI) and `opencode` (OpenCode) rows follow each harness's documentation and source, checked on 2026-09-28.
 Neither harness has been tested against a running CLI yet.
 
@@ -142,11 +144,13 @@ An uninstall removes exactly those values.
 It prunes containers palm emptied, such as `"hooks": {}`, and deletes a JSON file left as `{}`.
 It removes directories palm emptied, but never the harness directories themselves, such as `.claude`, `.github` or `.opencode`.
 
-For Codex and Gemini CLI instructions, palm writes one managed block per instruction in `AGENTS.md` or `GEMINI.md` and removes only its own blocks.
+For Codex and Gemini CLI instructions, palm writes one managed block per instruction in `AGENTS.md` or `GEMINI.md`.
+It removes only its own blocks.
 For OpenCode, it removes only its own entries from the `instructions` array.
 
 ## Related
 
 - [Targets](/palm/concepts/targets/)
+- [`palm describe`](/palm/reference/cli/describe/)
 - [Project and global scope](/palm/concepts/scopes/)
 - [Why native files per harness](/palm/explanation/why-native-files/)

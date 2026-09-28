@@ -1,0 +1,16 @@
+$ palm install agent agent-sdk-verifier-py --target claude,codex,copilot,cursor,gemini,opencode
+i saved targets claude, codex, copilot, cursor, gemini, opencode to palm.yaml
+project scope → claude, codex, copilot, cursor, gemini, opencode
+status       kind   name                                      origin    targets                                      files
+───────────  ─────  ────────────────────────────────────────  ────────  ───────────────────────────────────────────  ─────────────
++ installed  agent  agent-sdk-verifier-py                     official  claude,codex,copilot,cursor,gemini,opencode  6
++ installed  skill  sdk-helper (agent:agent-sdk-verifier-py)  official  claude,codex,copilot,cursor,gemini,opencode  2
++ installed  mcp    context7 (agent:agent-sdk-verifier-py)    official  claude,codex,copilot,cursor,gemini,opencode  0 (+6 merged)
+3 installed
+
+i agent-sdk-verifier-py: codex: .codex/agents/agent-sdk-verifier-py.toml: dropped model (sonnet), tools, skills, mcpServers, color (not supported by Codex)
+i agent-sdk-verifier-py: copilot: .github/agents/agent-sdk-verifier-py.agent.md: dropped model (sonnet), mcpServers, skills, color (not supported by GitHub Copilot)
+i agent-sdk-verifier-py: cursor: .cursor/agents/agent-sdk-verifier-py.md: dropped model (sonnet), tools (mapped to readonly: true), skills, mcpServers, color (not supported by Cursor)
+i agent-sdk-verifier-py: gemini: .gemini/agents/agent-sdk-verifier-py.md: dropped model (sonnet), tools: Bash(python -m pytest:*) restriction (all of run_shell_command), skills, color (not supported by Gemini CLI)
+i agent-sdk-verifier-py: opencode: .opencode/agents/agent-sdk-verifier-py.md: dropped model (sonnet), color (green), tools: Bash(python -m pytest:*) restriction (all of bash), skills (not supported by OpenCode)
+i context7: optional secret CONTEXT7_API_KEY (unset): export it to use it (left empty otherwise)

@@ -2,9 +2,9 @@ import { existsSync } from 'node:fs';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadLock } from '../../src/core/lockfile.js';
-import { saveManifest } from '../../src/core/manifest.js';
 import type { Entity, Target, TargetId } from '../../src/core/types.js';
+import { Lock } from '../../src/domain/lock.js';
+import { Manifest } from '../../src/domain/manifest.js';
 import { installEntities } from '../../src/engine/install.js';
 import { syncManifest } from '../../src/engine/sync.js';
 import { uninstallEntities } from '../../src/engine/uninstall.js';
@@ -58,23 +58,23 @@ describe('engine with real targets', () => {
   it('merges an MCP server, replaces it on change without duplicates, and unmerges it', async () => {
     w = await world();
     const file = join(w.sb.project, 'palm.yaml');
-    await saveManifest(file, {
+    await Manifest.of({
       targets: ['claude'],
       mcp: [{ name: 'fs', command: 'npx', args: ['a'] }],
-    });
+    }).save(file);
     await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
     type McpJson = { mcpServers: { fs: { args: string[] } } };
     const read = () => readJsonFile<McpJson>(join(w.sb.project, '.mcp.json'));
     expect((await read()).mcpServers.fs.args).toEqual(['a']);
 
-    await saveManifest(file, {
+    await Manifest.of({
       targets: ['claude'],
       mcp: [{ name: 'fs', command: 'npx', args: ['b'] }],
-    });
+    }).save(file);
     const r = await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
     expect(r.outcomes[0]!.status).toBe('updated');
     expect((await read()).mcpServers.fs.args).toEqual(['b']);
-    const lock = await loadLock(join(w.sb.project, 'palm.lock.yaml'));
+    const lock = await Lock.load(join(w.sb.project, 'palm.lock.yaml'));
     expect(lock.entries[0]!.merged).toHaveLength(1);
 
     await uninstallEntities(w.ctx, [{ kind: 'mcp', name: 'fs' }], { scope: 'project' }, w.deps);

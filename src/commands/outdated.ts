@@ -20,7 +20,10 @@ function printItems(out: Output, items: OutdatedItem[], flag: string): void {
   out.table(items.map(itemRow), ['kind', 'name', 'origin', 'current', 'wanted', 'latest']);
   const behind = items.filter((i) => i.status === 'outdated').length;
   const pinned = items.filter((i) => i.status === 'pinned').length;
-  if (behind) out.hint(`\n${behind} behind what palm.yaml wants: palm update${flag}`);
+  if (behind)
+    out.hint(
+      `\n${behind} at an older commit than palm.yaml wants: palm update${flag} (it reinstalls those whose content changed)`,
+    );
   if (pinned)
     out.hint(
       `${pinned} pinned below the latest release: change the #ref in palm.yaml, then palm update${flag}`,

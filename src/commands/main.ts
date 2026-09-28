@@ -32,6 +32,7 @@ export function exitCodeFor(e: unknown): number {
   if (e instanceof ExitSignal) return e.exitCode;
   if (isPalmError(e)) {
     if (e.code === 'E_CANCELLED') return EXIT.cancelled;
+    if (e.code === 'E_INTERNAL') return EXIT.internal; // a palm bug, even when palm named it
     return e.code === 'E_USAGE' ? EXIT.usage : EXIT.failure;
   }
   return EXIT.internal;

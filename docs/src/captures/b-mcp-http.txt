@@ -1,0 +1,16 @@
+$ palm install mcp docs --url https://docs.example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
+project scope → claude, codex, copilot, cursor, gemini, opencode
+status       kind  name  origin  targets                                      files
+───────────  ────  ────  ──────  ───────────────────────────────────────────  ─────────────
++ installed  mcp   docs  adhoc   claude,codex,copilot,cursor,gemini,opencode  0 (+6 merged)
+1 installed
+
+i docs: requires secret DOCS_TOKEN: export it before starting the harness
+$ grep -n DOCS_TOKEN .mcp.json .codex/config.toml .vscode/mcp.json .cursor/mcp.json .gemini/settings.json opencode.json palm.yaml
+.mcp.json:7:        "Authorization": "Bearer ${DOCS_TOKEN}"
+.codex/config.toml:3:bearer_token_env_var = "DOCS_TOKEN"
+.vscode/mcp.json:7:        "Authorization": "Bearer ${env:DOCS_TOKEN}"
+.cursor/mcp.json:6:        "Authorization": "Bearer ${env:DOCS_TOKEN}"
+.gemini/settings.json:7:        "Authorization": "Bearer ${DOCS_TOKEN}"
+opencode.json:7:        "Authorization": "Bearer {env:DOCS_TOKEN}"
+palm.yaml:7:      Authorization: Bearer ${DOCS_TOKEN}

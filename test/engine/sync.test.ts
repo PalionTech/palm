@@ -2,16 +2,15 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadConfig } from '../../src/core/config.js';
-import { loadLock, saveLock } from '../../src/core/lockfile.js';
-import { loadManifest, saveManifest } from '../../src/core/manifest.js';
-import type { McpServerConfig } from '../../src/core/types.js';
+import { loadConfig } from '../../src/core/config-file.js';
+import { type McpServerConfig, TRANSFORM_VERSION } from '../../src/core/types.js';
+import { Lock } from '../../src/domain/lock.js';
+import { Manifest } from '../../src/domain/manifest.js';
 import { installEntities } from '../../src/engine/install.js';
-import { resolveTargets } from '../../src/engine/resolve-targets.js';
 import { syncManifest } from '../../src/engine/sync.js';
 import { readJsonFile } from '../../src/lib/fs.js';
 import { removeDir } from '../support/sandbox.js';
-import { makeWorld, type World } from './world.js';
+import { makeWorld, resolveAndSave, type World } from './world.js';
 
 async function realTargets(w: World): Promise<void> {
   w.deps.getTarget = (await import('../../src/targets/index.js')).getTarget;
@@ -30,13 +29,13 @@ describe('syncManifest', () => {
       w.deps,
     );
     const file = join(w.sb.project, 'palm.lock.yaml');
-    const lock = await loadLock(file);
+    const lock = await Lock.load(file);
     lock.entries[0]!.ref = 'v1.3.0';
-    await saveLock(file, lock);
-    await saveManifest(join(w.sb.project, 'palm.yaml'), {
+    await lock.save(file);
+    await Manifest.of({
       targets: ['claude'],
       skills: ['tdd@a#^1.2'],
-    });
+    }).save(join(w.sb.project, 'palm.yaml'));
     const deploys = w.calls.deploy.length;
     const r = await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
     expect(r.outcomes.map((o) => o.status)).toEqual(['unchanged']);
@@ -66,22 +65,24 @@ describe('lockfile v1 upgrade', () => {
         '    name: tdd',
         '    origin: a',
         '    path: skills/tdd',
-        `    contentHash: ${(await loadLock(file)).entries[0]!.contentHash}`,
+        `    contentHash: ${(await Lock.load(file)).entries[0]!.contentHash}`,
         '    installedAt: 2026-01-01T00:00:00.000Z',
         '    targets: [claude]',
         '    files: [.claude/skill/tdd.txt]',
         '',
       ].join('\n'),
     );
-    await saveManifest(join(w.sb.project, 'palm.yaml'), { targets: ['claude'], skills: ['tdd@a'] });
+    await Manifest.of({ targets: ['claude'], skills: ['tdd@a'] }).save(
+      join(w.sb.project, 'palm.yaml'),
+    );
     const r = await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
     expect(r.outcomes[0]).toMatchObject({ status: 'updated' });
     expect(r.outcomes[0]!.notes).toContain('re-rendered for this palm version');
     const text = await readFile(file, 'utf8');
     expect(text).toMatch(/^version: 2$/m);
     expect(text).not.toContain('installedAt');
-    expect((await loadLock(file)).entries[0]).toMatchObject({
-      transform: 1,
+    expect((await Lock.load(file)).entries[0]).toMatchObject({
+      transform: TRANSFORM_VERSION,
       files: [{ path: '.claude/skill/tdd.txt', hash: expect.stringMatching(/^sha256:/) }],
     });
   });
@@ -93,9 +94,9 @@ describe('machine-independent targets', () => {
 
   it('persists detected targets to palm.yaml (project), never to config.yaml (global)', async () => {
     w = await makeWorld({ detect: ['claude', 'cursor'] });
-    const project = await resolveTargets(w.ctx, { scope: 'project', save: true }, w.deps);
+    const project = await resolveAndSave(w.ctx, { scope: 'project' }, w.deps);
     expect(project).toEqual(['claude', 'cursor']);
-    expect((await loadManifest(join(w.sb.project, 'palm.yaml'))).targets).toEqual([
+    expect((await Manifest.load(join(w.sb.project, 'palm.yaml'))).toJSON().targets).toEqual([
       'claude',
       'cursor',
     ]);
@@ -107,7 +108,7 @@ describe('machine-independent targets', () => {
     // the second developer detects something else, but gets the recorded set
     const other = await makeWorld({ detect: ['codex'] });
     other.ctx.paths.projectRoot = w.sb.project;
-    expect(await resolveTargets(other.ctx, { scope: 'project', save: true }, other.deps)).toEqual([
+    expect(await resolveAndSave(other.ctx, { scope: 'project' }, other.deps)).toEqual([
       'claude',
       'cursor',
     ]);
@@ -115,10 +116,10 @@ describe('machine-independent targets', () => {
 
     // config.yaml `targets` would become every project's default: -g saves only --target.
     const logged = w.log.messages.length;
-    await resolveTargets(w.ctx, { scope: 'global', save: true }, w.deps);
+    await resolveAndSave(w.ctx, { scope: 'global' }, w.deps);
     expect((await loadConfig(w.ctx.paths)).targets).toBeUndefined();
     expect(w.log.messages.slice(logged).filter((m) => m.level === 'info')).toEqual([]);
-    await resolveTargets(w.ctx, { scope: 'global', flag: ['codex'], save: true }, w.deps);
+    await resolveAndSave(w.ctx, { scope: 'global', flag: ['codex'] }, w.deps);
     expect((await loadConfig(w.ctx.paths)).targets).toEqual(['codex']);
   });
 
@@ -127,21 +128,21 @@ describe('machine-independent targets', () => {
     await realTargets(w);
     w.ctx.flags.yes = true;
     const manifest = join(w.sb.project, 'palm.yaml');
-    await saveManifest(manifest, {
+    await Manifest.of({
       targets: ['claude', 'codex'],
       skills: ['wayfinder@a'],
       mcp: [{ name: 'fs', command: 'npx', args: ['server-fs'] }],
-    });
+    }).save(manifest);
     await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
     const at = (p: string) => join(w.sb.project, p);
     expect(existsSync(at('.agents/skills/wayfinder/SKILL.md'))).toBe(true);
     expect(await readFile(at('.codex/config.toml'), 'utf8')).toContain('[mcp_servers.fs]');
 
-    await saveManifest(manifest, {
+    await Manifest.of({
       targets: ['claude'],
       skills: ['wayfinder@a'],
       mcp: [{ name: 'fs', command: 'npx', args: ['server-fs'] }],
-    });
+    }).save(manifest);
     const r = await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
     expect(r.failures).toEqual([]);
     expect(r.outcomes.map((o) => [o.entry.name, o.status, o.entry.targets])).toEqual([
@@ -156,7 +157,7 @@ describe('machine-independent targets', () => {
     expect(existsSync(at('.claude/skills/wayfinder/SKILL.md'))).toBe(true);
     const mcp = await readJsonFile<{ mcpServers: Record<string, unknown> }>(at('.mcp.json'));
     expect(Object.keys(mcp.mcpServers)).toEqual(['fs']);
-    const lock = await loadLock(at('palm.lock.yaml'));
+    const lock = await Lock.load(at('palm.lock.yaml'));
     for (const e of lock.entries) {
       expect(e.targets).toEqual(['claude']);
       expect(e.files.every((f) => !f.path.startsWith('.agents/'))).toBe(true);
@@ -196,7 +197,7 @@ describe('machine-independent targets', () => {
     const toml = await readFile(at('.codex/config.toml'), 'utf8');
     expect(toml).toContain('command = "npx"');
     expect(toml).not.toMatch(/url|X-Team|http_headers/);
-    const lock = await loadLock(at('palm.lock.yaml'));
+    const lock = await Lock.load(at('palm.lock.yaml'));
     expect(lock.entries[0]!.merged).toHaveLength(2);
   });
 });

@@ -13,7 +13,7 @@ import { envRef } from '../lib/placeholders.js';
 // Local types for the subset of server.json palm reads (not in core/types.ts).
 // ---------------------------------------------------------------------------
 
-export interface ServerJsonInput {
+interface ServerJsonInput {
   description?: string;
   default?: string;
   format?: string;
@@ -25,11 +25,11 @@ export interface ServerJsonInput {
   variables?: Record<string, ServerJsonInput>;
 }
 
-export interface ServerJsonKeyValueInput extends ServerJsonInput {
+interface ServerJsonKeyValueInput extends ServerJsonInput {
   name: string;
 }
 
-export interface ServerJsonArgument extends ServerJsonInput {
+interface ServerJsonArgument extends ServerJsonInput {
   type: 'positional' | 'named';
   /** Named arguments: the flag including its leading dashes (`--port`, `-e`). */
   name?: string;
@@ -38,14 +38,14 @@ export interface ServerJsonArgument extends ServerJsonInput {
   isRepeated?: boolean;
 }
 
-export interface ServerJsonTransport {
+interface ServerJsonTransport {
   type: string;
   url?: string;
   headers?: ServerJsonKeyValueInput[];
   variables?: Record<string, ServerJsonInput>;
 }
 
-export interface ServerJsonPackage {
+interface ServerJsonPackage {
   registryType: string;
   identifier: string;
   version?: string;

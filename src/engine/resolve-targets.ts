@@ -1,6 +1,12 @@
-import { saveConfig } from '../core/config.js';
+import { saveConfig } from '../core/config-file.js';
 import { messageOf, PalmError } from '../core/errors.js';
-import { type PalmContext, type Scope, TARGET_IDS, type TargetId } from '../core/types.js';
+import {
+  type InstallResult,
+  type PalmContext,
+  type Scope,
+  TARGET_IDS,
+  type TargetId,
+} from '../core/types.js';
 import { Manifest } from '../domain/manifest.js';
 import { ScopePaths } from '../domain/scope-paths.js';
 import { type EngineDeps, resolveEngineDeps } from './deps.js';
@@ -39,10 +45,10 @@ function sameList(a: readonly string[] | undefined, b: readonly string[]): boole
  *
  * One info line says so. Never under --dry-run.
  */
-async function persistTargets(
+export async function persistTargets(
   ctx: PalmContext,
   scope: Scope,
-  found: { targets: TargetId[]; source: TargetSource },
+  found: FoundTargets,
 ): Promise<void> {
   const { targets, source } = found;
   if (ctx.flags.dryRun) return;
@@ -108,12 +114,23 @@ async function pickTargets(ctx: PalmContext, scope: Scope, deps: EngineDeps): Pr
   return validate(picked, 'selection');
 }
 
-/** Targets and where they came from: flag > palm.yaml > config.yaml > detection > pick. */
-async function findTargets(
+/** Resolved targets and where they came from (`persistTargets` decides from the source). */
+export interface FoundTargets {
+  targets: TargetId[];
+  source: TargetSource;
+}
+
+/**
+ * Targets for an operation and where they came from: --target flag > manifest `targets`
+ * (project) > config default > detection > interactive multiselect. Nothing is saved: an
+ * install calls `persistTargets` once it placed something, so a failed or ambiguous run leaves
+ * palm.yaml and config.yaml alone.
+ */
+export async function findTargets(
   ctx: PalmContext,
-  opts: { scope: Scope; flag?: TargetId[] },
+  opts: { scope: Scope; flag?: TargetId[] | undefined },
   depsIn?: Partial<EngineDeps>,
-): Promise<{ targets: TargetId[]; source: TargetSource }> {
+): Promise<FoundTargets> {
   if (opts.flag?.length) return { targets: validate(opts.flag, '--target'), source: 'flag' };
   if (opts.scope === 'project') {
     const m = await Manifest.load(ScopePaths.of(ctx, 'project').manifestFile);
@@ -130,17 +147,20 @@ async function findTargets(
   return { targets: await pickTargets(ctx, opts.scope, deps), source: 'picked' };
 }
 
-/**
- * Targets for an operation: --target flag > manifest `targets` (project) > config default >
- * detection > interactive multiselect. With `save`, the result is persisted (persistTargets):
- * always to palm.yaml at project scope, to config.yaml only for an explicit `--target -g`.
- */
+/** `findTargets` without the source, for reads (`palm get targets`, a manifest sync's default). */
 export async function resolveTargets(
   ctx: PalmContext,
-  opts: { scope: Scope; flag?: TargetId[]; save?: boolean },
+  opts: { scope: Scope; flag?: TargetId[] | undefined },
   depsIn?: Partial<EngineDeps>,
 ): Promise<TargetId[]> {
-  const found = await findTargets(ctx, opts, depsIn);
-  if (opts.save) await persistTargets(ctx, opts.scope, found);
-  return found.targets;
+  return (await findTargets(ctx, opts, depsIn)).targets;
+}
+
+/**
+ * True when an install placed something, so the targets it used may be saved: an outcome that
+ * did not fail, or a run with nothing to do and no failure (an empty palm.yaml).
+ */
+export function placedSomething(result: InstallResult): boolean {
+  if (result.outcomes.some((o) => o.status !== 'failed')) return true;
+  return result.outcomes.length === 0 && !result.failures?.length;
 }

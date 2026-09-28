@@ -1,0 +1,117 @@
+---
+title: Security model
+description: What palm trusts, what it refuses, what it asks before it writes, and what it never does.
+sidebar:
+  label: Security model
+---
+
+import Capture from '../../../components/Capture.astro';
+
+palm installs files from repositories you choose.
+Most of them are text, but hooks and stdio MCP servers run programs on your machine.
+palm shows you those programs before it writes them, and refuses content that can hide instructions.
+
+```sh
+palm install plugin superpowers --dry-run
+```
+
+`--dry-run` resolves the plugin, lists every command it would add and prints the install plan.
+It writes no harness file, lockfile or manifest.
+
+## What you trust
+
+An origin is code you chose, in the same way a dependency in `package.json` is.
+Adding one is a decision to trust its author.
+palm installs only from origins you added, or from a spec you name with `--from`.
+It does not review, rank or sandbox what an origin contains.
+
+| Kind | What it can do |
+| --- | --- |
+| skill, agent, instruction, command | Shape what the model does. The harness decides which tools the model may use. |
+| hook | Runs a shell command on a harness event, with your permissions. |
+| mcp | Starts a local program (stdio) or connects to a URL (HTTP), and exposes that server's tools. |
+
+A project's `palm.yaml` can declare origins too, and a clone brings them with it.
+palm refuses a project origin that reuses one of your aliases for another source.
+It also refuses a local project origin outside the project, and ignores project origins under `-g`.
+
+## What palm asks first
+
+Hooks and stdio MCP servers run code, so palm lists each command before it writes it.
+
+<Capture name="a-consent" title="~/project" />
+
+In a terminal, palm asks once for the whole install.
+Without a terminal, it stops before writing anything and asks you to rerun with `--yes`.
+This session reviewed the list with `--dry-run` first, then passed `--yes`.
+
+- The list covers hooks and stdio servers that a plugin or an agent pulls in.
+- Text entities, such as skills and agents, are never gated.
+- An entry that is already installed and unchanged is not asked about again.
+
+palm copies hook scripts to `.palm/hooks/<name>/` and prints the file to review.
+
+## What palm refuses
+
+| Refused | Rule |
+| --- | --- |
+| Names that escape | An entity name is one path segment of letters, digits, `.`, `_` and `-`, never `..`. palm checks it before it writes a file. |
+| Symlinks that escape | palm follows a symlink only when its real target stays inside the origin. A skill cannot carry `~/.ssh/id_rsa` into `.claude/skills`. |
+| Unsafe git transports | palm refuses `ext::`, `fd::` and every other `<x>::` transport, a leading `-` and control characters in origin URLs. `http://` and `git://` get a warning. |
+| Deletes outside the scope | palm never deletes a lockfile path outside the project root, or outside your home with `-g`. |
+| Hidden Unicode | palm refuses an entity with bidirectional overrides, tag characters or rare variation selectors. These can hide instructions from a reviewer. |
+| Files it does not own | When a destination exists and no lockfile entry lists it, palm stops. |
+| Files you changed | palm compares each file's hash with the lockfile before it overwrites or deletes the file. |
+
+A refused entity counts as a failure, so the install exits with 1.
+The message names the file, the line and the first hidden code point.
+`--force` overrides the last three rules for one command.
+Every git call runs with `protocol.ext.allow=never` and `protocol.fd.allow=never`.
+palm puts `--` before URLs and refs, so an origin cannot pass itself off as a git option.
+git runs with a clean environment and never prompts for credentials.
+Network steps time out after 120 seconds.
+
+## Check installed files
+
+`palm audit` scans every file palm installed for hidden Unicode and for changes since install.
+Zero-width characters only warn, because ordinary text uses them too.
+
+<Capture name="a-audit" title="~/project" />
+
+The skill held one zero-width space, so the install warned and went ahead.
+`palm audit --strip` removed the character and recorded the file's new hash.
+`palm audit` exits with 1 while a critical finding remains, so CI can run it.
+
+## What palm never does
+
+- It never writes a secret value into a project file, unless you ask for it. That takes `--secrets literal`, or `secrets.project` set to `literal`.
+- It never stores a secret value in the lockfile. The lockfile holds the `${VAR}` placeholder.
+- It never sends telemetry and never checks for updates.
+- It never runs what it installs. The programs palm starts are `git`, and your editor in `palm create`.
+
+Global secrets go into user config files that palm creates with mode `0600`.
+[MCP servers and secrets](/palm/concepts/mcp-and-secrets/) shows the syntax per harness.
+
+## Network access
+
+palm contacts only these hosts.
+
+- The git hosts of your origins, to clone, fetch and read tags.
+- The official MCP registry, for `palm search` and `palm install mcp <registry name>`.
+- URLs you pass, such as a `marketplace.json` URL.
+
+`--offline` limits palm to its cache.
+
+## Report a vulnerability
+
+Report a security problem in palm privately, through a [GitHub security advisory](https://github.com/PalionTech/palm/security/advisories/new).
+Do not open a public issue for it.
+The [security policy](https://github.com/PalionTech/palm/security/policy) lists what is in scope and how fast we respond.
+The content of an origin you chose is out of scope, so report a malicious skill to its repository's host.
+
+## Related
+
+- [palm audit](/palm/reference/cli/audit/)
+- [Why origins, not a registry](/palm/explanation/why-origins/)
+- [Origins](/palm/concepts/origins/)
+- [Manifest and lockfile](/palm/concepts/manifest-and-lockfile/)

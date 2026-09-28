@@ -27,7 +27,7 @@ export interface ParsedSkill {
   body: string;
 }
 
-export interface SkillIssue {
+interface SkillIssue {
   code: 'name-mismatch' | 'name-missing' | 'name-invalid' | 'description-missing';
   message: string;
 }

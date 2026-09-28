@@ -1,0 +1,60 @@
+---
+title: palm find
+description: Show which installed entity wrote a file, or merged a fragment into it.
+---
+
+import Capture from '../../../../components/Capture.astro';
+
+`palm find` looks a path up in the lockfiles and names the entity that wrote it.
+
+```sh
+palm find <path> [options]
+```
+
+| Command | Meaning |
+| --- | --- |
+| `palm find .claude/skills/tdd/SKILL.md` | The entity that wrote one file. |
+| `palm find .claude/skills/tdd` | The entity that wrote a folder. |
+| `palm find .mcp.json` | Every entity with a fragment in a shared config file. |
+| `palm find ~/.codex/AGENTS.md -g --json` | Search the global lockfile only, as JSON. |
+
+<Capture name="c-find" />
+
+## Options
+
+{/* cli-reference:options find */}
+
+| Argument | Meaning |
+| --- | --- |
+| `path` | file or directory palm wrote |
+
+No options of its own. The [global options](/palm/reference/cli/#global-options) apply.
+
+{/* /cli-reference */}
+
+## Matching
+
+The path may be absolute, start with `~/`, or be relative to the current folder or the scope root.
+A path matches a file the lockfile lists, or a path inside a listed folder.
+It also matches a config file that an entry merged a fragment into.
+For a merged file, the `file` column adds the JSON pointer or block of each fragment.
+
+Without `-g`, palm searches the project and the global lockfile.
+With `-g`, or when the project would be your home directory, it searches only the global one.
+
+## Behavior
+
+`palm find` never prompts, writes nothing and uses no network.
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | At least one entity wrote the path. |
+| `1` | No entity wrote the path (`E_NOT_FOUND`). |
+| `2` | No path, more than one, or no searched scope has a lockfile. |
+
+## Related
+
+- [`palm describe`](/palm/reference/cli/describe/)
+- [palm.lock.yaml](/palm/reference/palm-lock-yaml/)

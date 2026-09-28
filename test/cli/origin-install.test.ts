@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile } from 'node:fs/promises';
+import { cp, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
@@ -69,6 +69,13 @@ describe('palm install origin: fetch and index first, save only then', () => {
     expect(described.stdout).toMatch(/detected\s+marketplace/);
     expect(described.stdout).toMatch(/entities\s+\d+ skills/);
     expect(described.stdout).toContain('index file');
+    // the scan time changes on every rescan: only with --verbose, so output is repeatable
+    expect(described.stdout).not.toMatch(/^\s+scanned\s/m);
+    expect(
+      JSON.parse((await sb.palm('describe', 'origin', 'matt', '--json')).stdout).index,
+    ).not.toHaveProperty('scannedAt');
+    const verbose = await sb.palm('describe', 'origin', 'matt', '--verbose');
+    expect(verbose.stdout).toMatch(/^\s+scanned\s+\d{4}-/m);
 
     const removed = await sb.palm('uninstall', 'origin', 'matt');
     expect(removed.exitCode).toBe(0);
@@ -95,10 +102,26 @@ describe('palm install origin: fetch and index first, save only then', () => {
     expect(dry.exitCode).toBe(0);
     expect(dry.stdout).toContain('dry run: would add origin matt');
     expect(existsSync(sb.configFile)).toBe(false);
-    const project = await sb.palm('install', 'origin', path, '--alias', 'matt', '--project');
+    // --project: a local origin outside the project is refused before anything is saved (every
+    // install would refuse it); one inside is stored relative to the project, so a clone works.
+    const outside = await sb.palm('install', 'origin', path, '--alias', 'matt', '--project');
+    expect(outside.exitCode).toBe(1);
+    expect(outside.stderr).toContain('points outside the project');
+    expect(existsSync(join(sb.project, 'palm.yaml'))).toBe(false);
+    await cp(path, join(sb.project, 'vendor/matt'), { recursive: true });
+    const project = await sb.palm(
+      'install',
+      'origin',
+      './vendor/matt',
+      '--alias',
+      'matt',
+      '--project',
+    );
     expect(project.exitCode).toBe(0);
     const manifest = parse(await readFile(join(sb.project, 'palm.yaml'), 'utf8'));
-    expect(manifest.origins).toEqual([expect.objectContaining({ alias: 'matt' })]);
+    expect(manifest.origins).toEqual([{ alias: 'matt', type: 'local', path: 'vendor/matt' }]);
+    const listed = await sb.palm('get', 'origins');
+    expect(listed.stdout).toMatch(/^matt\s+local\s+\S*vendor\/matt/m);
   });
 
   it('a marketplace.json adds each plugin it lists as an origin (and origin import still works)', async () => {

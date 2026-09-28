@@ -1,0 +1,8 @@
+.agents/skills/sdk-helper/SKILL.md
+.claude/agents/sdk-reviewer.md
+.claude/skills/sdk-helper/SKILL.md
+.github/agents/sdk-reviewer.agent.md
+.mcp.json
+.vscode/mcp.json
+palm.lock.yaml
+palm.yaml

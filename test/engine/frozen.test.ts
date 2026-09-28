@@ -4,11 +4,12 @@ import { join } from 'node:path';
 import { execa } from 'execa';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getIndex } from '../../src/core/cache.js';
-import { loadLock } from '../../src/core/lockfile.js';
-import { loadManifest, saveManifest } from '../../src/core/manifest.js';
 import type { OriginSpec, PalmContext } from '../../src/core/types.js';
+import { Lock } from '../../src/domain/lock.js';
+import { Manifest } from '../../src/domain/manifest.js';
 import { installEntities } from '../../src/engine/install.js';
 import { syncManifest } from '../../src/engine/sync.js';
+import { scanOrigin } from '../../src/index/scan.js';
 import { git } from '../core/gitrepo.js';
 import { makeContext } from '../support/fakes.js';
 import { removeDir, writeFiles } from '../support/sandbox.js';
@@ -82,11 +83,11 @@ describe('lock replay and --frozen (git origin)', () => {
   it('a bare palm install deploys the locked commit, not the newer tag', async () => {
     await world();
     await installEntities(w.ctx, [{ kind: 'skill', spec: 'foo@g' }], PROJECT, w.deps);
-    const locked = (await loadLock(lockFile())).entries[0]!;
+    const locked = (await Lock.load(lockFile())).entries[0]!;
     expect(locked).toMatchObject({ sha: remote.v1, ref: 'v1.0.0', url: remote.bare });
 
     await advance(remote);
-    await getIndex(w.ctx, spec, { refresh: true }); // the cached "latest" checkout is v1.1.0 now
+    await getIndex(w.ctx, spec, { refresh: true, scan: scanOrigin }); // the cached "latest" checkout is v1.1.0 now
     await rm(join(w.sb.project, '.claude'), { recursive: true });
 
     const r = await syncManifest(w.ctx, SYNC, w.deps);
@@ -99,7 +100,7 @@ describe('lock replay and --frozen (git origin)', () => {
     expect(existsSync(join(w.sb.project, '.claude/skill/foo.txt'))).toBe(true);
 
     // palm.yaml pinning the new tag moves it (resolved fresh, not replayed)
-    await saveManifest(manifestFile(), { skills: ['foo@g#v1.1.0'] });
+    await Manifest.of({ skills: ['foo@g#v1.1.0'] }).save(manifestFile());
     const moved = await syncManifest(w.ctx, SYNC, w.deps);
     expect(moved.outcomes[0]!.entry.ref).toBe('v1.1.0');
     expect(await deployedBody()).toContain('foo v2');
@@ -117,10 +118,10 @@ describe('lock replay and --frozen (git origin)', () => {
       w.deps,
     );
     await writeFile(join(w.sb.project, '.claude/skill/foo.txt'), 'edited');
-    await saveManifest(manifestFile(), {
+    await Manifest.of({
       targets: ['claude', 'codex'],
       skills: ['foo@g#v1.1.0', 'missing@g'],
-    });
+    }).save(manifestFile());
     const lockBefore = await readFile(lockFile(), 'utf8');
     const manifestBefore = await readFile(manifestFile(), 'utf8');
     const deploys = w.calls.deploy.length;
@@ -150,7 +151,7 @@ describe('lock replay and --frozen (git origin)', () => {
     await world();
     await installEntities(w.ctx, [{ kind: 'skill', spec: 'foo@g' }], PROJECT, w.deps);
     await advance(remote);
-    await getIndex(w.ctx, spec, { refresh: true });
+    await getIndex(w.ctx, spec, { refresh: true, scan: scanOrigin });
     const lockBefore = await readFile(lockFile(), 'utf8');
     const frozen = { ...SYNC, frozen: true };
 
@@ -192,7 +193,7 @@ describe('lock replay and --frozen (git origin)', () => {
     expect(r.warnings.join('\n')).toContain(
       `origin "g" was not registered here; added ${remote.bare} to palm.yaml`,
     );
-    expect((await loadManifest(manifestFile())).origins).toEqual([
+    expect((await Manifest.load(manifestFile())).toJSON().origins).toEqual([
       { alias: 'g', type: 'git', url: remote.bare },
     ]);
     expect(existsSync(join(w.sb.project, '.claude/skill/foo.txt'))).toBe(true);

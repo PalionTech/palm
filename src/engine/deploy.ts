@@ -250,7 +250,7 @@ function unicodeRefusal(dc: DeployContext, item: PlanItem): PalmError | undefine
   return new PalmError(
     'E_CONFLICT',
     `${kind} ${name} contains hidden Unicode that can smuggle instructions: ${critical.join('; ')}`,
-    `inspect it with: palm audit; remove it with: palm audit --strip (in the origin), or install anyway with --force`,
+    `review the origin's files; to accept them run: palm install ${kind} ${name}@${item.entity.origin} --force, then palm audit shows them`,
   );
 }
 
@@ -309,16 +309,40 @@ interface McpSecrets {
   notes: string[];
 }
 
-function envRefNotes(cfg: Entity['def'] & { kind: 'mcp' }, envRefs: string[]): string[] {
+/** The secrets named, split into required and optional (`${VAR:-}` / `isRequired: false`). */
+function splitSecrets(cfg: Entity['def'] & { kind: 'mcp' }, names: readonly string[]) {
   const optional = optionalSecretNames(cfg.mcp);
-  const required = envRefs.filter((v) => !optional.has(v));
-  const maybe = envRefs.filter((v) => optional.has(v));
+  return {
+    required: names.filter((v) => !optional.has(v)),
+    optional: names.filter((v) => optional.has(v)),
+  };
+}
+
+const them = (xs: readonly string[]): string => (xs.length === 1 ? 'it' : 'them');
+const plural = (xs: readonly string[]): string => (xs.length === 1 ? '' : 's');
+
+/**
+ * `requires secret A`, `optional secret B (unset)`: the same words for a dry run and an install,
+ * which adds what to do about them (env-ref policy).
+ */
+function secretNotes(
+  cfg: Entity['def'] & { kind: 'mcp' },
+  names: readonly string[],
+  opts: { env: NodeJS.ProcessEnv; advice: boolean },
+): string[] {
+  const { required, optional } = splitSecrets(cfg, names);
   const notes: string[] = [];
-  if (required.length) notes.push(`export ${required.join(', ')} before starting the harness`);
-  if (maybe.length)
-    notes.push(
-      `optional: export ${maybe.join(', ')} to use ${maybe.length === 1 ? 'it' : 'them'} (left empty otherwise)`,
-    );
+  if (required.length) {
+    const advice = opts.advice ? `: export ${them(required)} before starting the harness` : '';
+    notes.push(`requires secret${plural(required)} ${required.join(', ')}${advice}`);
+  }
+  if (optional.length) {
+    const shown = optional.map((v) => `${v}${opts.env[v] ? '' : ' (unset)'}`);
+    const advice = opts.advice
+      ? `: export ${them(optional)} to use ${them(optional)} (left empty otherwise)`
+      : '';
+    notes.push(`optional secret${plural(optional)} ${shown.join(', ')}${advice}`);
+  }
   return notes;
 }
 
@@ -342,14 +366,14 @@ async function resolveMcpSecrets(dc: DeployContext, entity: Entity): Promise<Mcp
   const { ctx, deps, opts } = dc;
   const policy = defaultSecretPolicy(ctx, opts.scope, opts.secretPolicy);
   if (ctx.flags.dryRun) {
-    if (def.mcp.secrets?.length)
-      out.notes.push(`needs secrets: ${def.mcp.secrets.map((s) => s.name).join(', ')}`);
+    const names = (def.mcp.secrets ?? []).map((x) => x.name);
+    out.notes.push(...secretNotes(def, names, { env: ctx.env, advice: false }));
   } else {
     const r = await deps.resolveSecrets(ctx, def.mcp, policy);
     if (Object.keys(r.values).length) out.values = r.values;
     // Under literal, unresolved optional secrets are left out by the targets (they say so).
     if (r.envRefs.length && policy === 'env-ref') {
-      out.notes.push(...envRefNotes(def, r.envRefs));
+      out.notes.push(...secretNotes(def, r.envRefs, { env: ctx.env, advice: true }));
       for (const v of r.envRefs) out.exported.add(v);
     }
   }

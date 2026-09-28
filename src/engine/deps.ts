@@ -77,7 +77,7 @@ function lazyTarget(id: TargetId): Target {
 }
 
 /** Default collaborators, each dynamically imported on first use. */
-export function defaultEngineDeps(): EngineDeps {
+function defaultEngineDeps(): EngineDeps {
   return {
     scan: lazyScan,
     getTarget: lazyTarget,

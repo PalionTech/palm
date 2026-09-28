@@ -1,0 +1,139 @@
+---
+title: palm.yaml
+description: Every key of the manifest, with its type, default and an example.
+---
+
+import Capture from '../../../components/Capture.astro';
+
+`palm.yaml` is the manifest: the entities you asked for, the targets and any project origins.
+palm writes it when you install or uninstall, and you commit it.
+
+```sh
+palm init --target claude,codex
+palm install skill tdd@mattpocock
+```
+
+After a few installs, `palm.yaml` holds each request as you made it:
+
+<Capture name="c-manifest" />
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `targets` | list of target ids | none | The harnesses every install writes to. |
+| `origins` | list of origin mappings | none | Origins this project needs, in addition to your own. |
+| `skills` | list of dependencies | none | Skills to install. |
+| `agents` | list of dependencies | none | Agents (subagents) to install, with the skills and MCP servers they name. |
+| `instructions` | list of dependencies | none | Instructions to install. |
+| `commands` | list of dependencies | none | Commands to install. |
+| `hooks` | list of dependencies | none | Hooks to install. |
+| `mcp` | list of dependencies or MCP mappings | none | MCP servers to install. |
+| `plugins` | list of dependencies | none | Plugins to install, with their members. |
+
+## Location
+
+| Scope | File |
+| --- | --- |
+| project | `palm.yaml` in the project root |
+| global | `~/.palm/palm.yaml`, or `$PALM_HOME/palm.yaml` |
+
+The project root is the nearest folder upward with a `palm.yaml`.
+Without one, it is the nearest folder with a `.git`, else the current folder.
+
+## Every key
+
+```yaml title="palm.yaml"
+targets: [claude, codex]
+origins:
+  - alias: team
+    type: git
+    url: https://github.com/acme/agent-kit.git
+    ref: v2.1.0
+skills:
+  - tdd@mattpocock
+  - grill-me@mattpocock#^1.2
+agents:
+  - reviewer@team
+instructions:
+  - ts-style@team
+commands:
+  - changelog@team
+hooks:
+  - format-on-save@team
+mcp:
+  - name: context7
+    registry: io.github.upstash/context7
+  - name: docs
+    transport: http
+    url: https://example.com/mcp
+    headers:
+      Authorization: Bearer ${DOCS_TOKEN}
+plugins:
+  - superpowers@superpowers
+```
+
+### `targets`
+
+A list of `claude`, `codex`, `copilot`, `cursor`, `gemini` and `opencode`.
+With `targets:` set, every project install writes to exactly these harnesses.
+The first install writes it when it is missing, and `palm init` or an explicit `--target` replaces it.
+palm writes it on one line.
+
+### Dependency lists
+
+`skills`, `agents`, `instructions`, `commands`, `hooks`, `mcp` and `plugins` each hold dependencies.
+A dependency is a string `name[@origin][#ref]`, or the same as a mapping:
+
+```yaml title="palm.yaml"
+skills:
+  - tdd@mattpocock#v1.2.3
+  - { name: grill-me, origin: mattpocock, ref: "^1.2" }
+```
+
+palm writes each request as `name@origin`, with `#ref` only when you gave one.
+Without a `#ref`, `palm update` moves the entry to the latest release.
+A `#ref` pins it: a tag stays, a range moves within the range, a branch follows its head.
+Dependencies that a plugin or agent pulled in are not listed.
+See [names and refs](/palm/reference/cli/#names) for the grammar.
+
+### `mcp`
+
+An `mcp` item is a dependency string, or a mapping with these keys:
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `name` | string | The server key in each harness config. |
+| `registry` | string | The MCP registry name, such as `io.github.upstash/context7`. |
+| `version` | string | A registry version you pinned. |
+| `transport` | `stdio`, `http` or `sse` | How the harness talks to the server. |
+| `command` | string | The program to start, for `stdio`. |
+| `args` | list of strings | Its arguments. |
+| `env` | mapping | Environment variables for the server. |
+| `url` | string | The endpoint, for `http` and `sse`. |
+| `headers` | mapping | HTTP headers, for `http` and `sse`. |
+
+palm writes a registry server as `name` plus `registry`, and an ad hoc server with its full definition.
+When two registry servers share a short name, the second gets its namespace as a prefix.
+`name` records the key palm chose.
+Write secrets as `${NAME}`, never as values.
+
+### `origins`
+
+Each item uses the keys of an origin in [config.yaml](/palm/reference/config-yaml/#origins), and `alias` is required.
+A relative `path` resolves against the project root, and a local origin must lie inside the project.
+A project origin may not reuse the alias of one of your own origins for another source.
+With `-g`, palm ignores project origins.
+`palm install origin <spec> --project` adds one.
+
+## Rules
+
+- Every key holds a list. Any other value fails with `E_PARSE`, and an empty key is ignored.
+- palm keeps keys it does not know, and your comments and key order, when it rewrites the file.
+- palm writes the sections in the order of the table above and removes a section that an uninstall empties.
+- `palm.yaml` has no `version` key.
+
+## Related
+
+- [palm.lock.yaml](/palm/reference/palm-lock-yaml/)
+- [`palm install`](/palm/reference/cli/install/)
+- [`palm init`](/palm/reference/cli/init/)
+- [Origins](/palm/concepts/origins/)

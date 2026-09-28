@@ -57,7 +57,7 @@ export async function hashPath(absPath: string, opts: { boundary?: string } = {}
 }
 
 /** Deterministic JSON (sorted object keys) for hashing structured values. */
-export function stableStringify(value: unknown): string {
+function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;

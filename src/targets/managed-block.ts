@@ -15,20 +15,20 @@ import { PalmError } from '../core/errors.js';
 import type { MdBlockRecord } from '../domain/merged-record.js';
 import { atomicWrite, readTextOrUndefined, rewriteText } from './fs-utils.js';
 
-export function beginMarker(id: string): string {
+function beginMarker(id: string): string {
   return `<!-- palm:begin ${id} -->`;
 }
 
-export function endMarker(id: string): string {
+function endMarker(id: string): string {
   return `<!-- palm:end ${id} -->`;
 }
 
-export function renderBlock(id: string, content: string): string {
+function renderBlock(id: string, content: string): string {
   return `${beginMarker(id)}\n${content.replace(/\n+$/, '')}\n${endMarker(id)}`;
 }
 
 /** Locate a block: `start` = index of the begin marker, `end` = index just past the end marker. */
-export function findManagedBlock(
+function findManagedBlock(
   text: string,
   id: string,
 ): { start: number; end: number; content: string } | undefined {

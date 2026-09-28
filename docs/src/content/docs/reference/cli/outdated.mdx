@@ -1,0 +1,69 @@
+---
+title: palm outdated
+description: Show the locked, wanted and latest ref of every direct install.
+---
+
+import Capture from '../../../../components/Capture.astro';
+
+`palm outdated` compares each direct install with the refs its origin offers now.
+
+```sh
+palm outdated [kind] [options]
+```
+
+Kinds: `skill`, `agent`, `instruction`, `command`, `hook`, `mcp` and `plugin`, as singular, plural or [short name](/palm/reference/cli/#kinds).
+Without a kind, palm shows every kind.
+
+| Command | Meaning |
+| --- | --- |
+| `palm outdated` | Every direct install in this project. |
+| `palm outdated skills` | Skills only. |
+| `palm outdated -g` | Every direct install in your home directory. |
+| `palm outdated --json` | The same rows as JSON, with a `status` per row. |
+
+<Capture name="c-outdated" />
+
+## Options
+
+{/* cli-reference:options outdated */}
+
+| Argument | Meaning |
+| --- | --- |
+| `kind` | skill, agent, instruction, command, hook, mcp, plugin (plurals and short names work); omit it for every kind |
+
+No options of its own. The [global options](/palm/reference/cli/#global-options) apply.
+
+{/* /cli-reference */}
+
+## Columns
+
+| Column | Meaning |
+| --- | --- |
+| `current` | The ref and commit `palm.lock.yaml` records. |
+| `wanted` | What the `#ref` in `palm.yaml` resolves to now: a tag, a branch head, or the highest tag in a range. Without a `#ref`, the latest release. |
+| `latest` | The newest release tag, else the head of the default branch. |
+
+Local origins and ad hoc MCP servers show `-`.
+An origin palm cannot read, and every origin under `--offline`, shows `?` with a warning.
+MCP servers from the registry are compared with the registry's versions.
+
+In `--json` rows, `status` is `current`, `outdated`, `pinned`, `unknown` or `untracked`.
+`outdated` means `palm update` would move it.
+`pinned` means `palm.yaml` holds it below the latest release: change the `#ref`, then run `palm update`.
+
+## Behavior
+
+`palm outdated` never prompts and writes nothing.
+It reads remote refs with `git ls-remote`, and never fetches a checkout or trusts the cache.
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | Always, also when entries are behind or unreadable. |
+| `2` | A word that is not a kind, or more than one. |
+
+## Related
+
+- [`palm update`](/palm/reference/cli/update/)
+- [Names and refs](/palm/reference/cli/#refs)

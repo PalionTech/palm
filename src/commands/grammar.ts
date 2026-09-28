@@ -70,18 +70,6 @@ export const VERBS: readonly VerbSpec[] = [
   },
 ];
 
-export const UTILITIES = [
-  'init',
-  'doctor',
-  'outdated',
-  'why',
-  'find',
-  'audit',
-  'config',
-  'completion',
-  'cache',
-] as const;
-
 /** What a command action hands to the dispatcher. */
 export interface Invocation {
   /** A verb, or a utility path: `init`, `doctor`, `config get`, `cache clean`, `completion`. */
@@ -117,14 +105,14 @@ export function usage(message: string, hint?: string): PalmError {
   return new PalmError('E_USAGE', message, hint);
 }
 
-export function verbSpec(verb: Verb): VerbSpec {
+function verbSpec(verb: Verb): VerbSpec {
   const spec = VERBS.find((v) => v.name === verb);
   if (!spec) throw new PalmError('E_INTERNAL', `unknown verb ${verb}`);
   return spec;
 }
 
 /** `skill (sk)`, `origin (orig)`, `all`: how a resource is listed in help and errors. */
-export function resourceLabel(r: Resource): string {
+function resourceLabel(r: Resource): string {
   const short = SHORT_NAMES[r];
   return short && short !== r ? `${r} (${short})` : r;
 }

@@ -9,7 +9,7 @@ status       kind   name                                      origin    targets 
 3 installed
 
 i agent-sdk-verifier-py: copilot: .github/agents/agent-sdk-verifier-py.agent.md: dropped model (sonnet), mcpServers, skills, color (not supported by GitHub Copilot)
-i context7: optional: export CONTEXT7_API_KEY to use it (left empty otherwise)
+i context7: optional secret CONTEXT7_API_KEY (unset): export it to use it (left empty otherwise)
 $ palm install skill sdk-helper
 project scope → claude, copilot
 status       kind   name        origin    targets         files

@@ -1,0 +1,24 @@
+$ palm install origin ~/src/pstack
++ origin pstack → ~/src/pstack (3 skills, 1 agent, 1 plugin; detected: plugin-manifest)
+  install with: palm install skill poteto-mode@pstack
+
+Warnings
+  ! pstack: skills/poteto-mode/SKILL.md: frontmatter name "Poteto Mode" is not a valid slug; using "poteto-mode"
+  ! pstack: plugin "pstack" at . does not declare 1 skill (setup-benny); indexed standalone
+$ palm get --available -o pstack
+pstack (5)
+kind    name           version  description
+──────  ─────────────  ───────  ───────────────────────────────────────────────
+agent   comment-sicko  0.14.2   A deranged comment-hater that savors deletion.
+plugin  pstack         0.14.2   if you want to go fast, go deep first.
+skill   poteto-mode    0.14.2   Route work through the pstack workflow.
+skill   setup-benny             Configure Benny.
+skill   tdd            0.14.2   Use only when the user explicitly asks for TDD.
+$ palm install origin ~/src/unicode-demo
++ origin unicode-demo → ~/src/unicode-demo (3 skills, 1 agent; detected: convention)
+  install with: palm install skill bidi-override@unicode-demo
+
+Warnings
+  ! unicode-demo: hidden-unicode: skill "bidi-override" (critical): skills/bidi-override/SKILL.md: 1 hidden character, first U+202E RIGHT-TO-LEFT OVERRIDE at line 8
+  ! unicode-demo: hidden-unicode: skill "zero-width" (warning): skills/zero-width/SKILL.md: 1 hidden character, first U+200B ZERO WIDTH SPACE at line 8
+  ! unicode-demo: hidden-unicode: agent "tagged" (critical): agents/tagged.md: 6 hidden characters, first U+E0049 TAG LATIN CAPITAL LETTER I at line 6

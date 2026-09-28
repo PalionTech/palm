@@ -9,7 +9,8 @@
 // Every capture gets a throwaway sandbox: HOME and PALM_HOME point into a temp directory, fixture
 // origins are copied from test/fixtures, the environment is an allowlist (no tokens, no harness
 // overrides, no global git config), colour is off and output is not a terminal. Paths inside the
-// sandbox home print as ~. Output goes to src/captures/<name>.txt (and <name>.files.txt).
+// sandbox home print as ~, and tables are re-padded to match. Output goes to
+// src/captures/<name>.txt (and <name>.files.txt).
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -123,13 +124,55 @@ function quote(arg) {
   return /^[\w@%+=:,./~-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", "'\\''")}'`;
 }
 
-function tidy(box, text) {
-  let out = text;
+function tidyLine(box, line) {
+  let out = line;
   for (const home of box.homes) out = out.replaceAll(home, '~');
-  return out
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .join('\n');
+  return out.trimEnd();
+}
+
+const RULE = /^─+(?: +─+)*$/;
+
+/** Start column of every segment of a table rule such as `─────  ───`. */
+function columnStarts(rule) {
+  return [...rule.matchAll(/─+/g)].map((m) => m.index);
+}
+
+/** A table row fills the first two columns and leaves the two-space gap before every later one. */
+function isRow(line, starts) {
+  const gap = (s) => s === 0 || s > line.length + 1 || line.slice(s - 2, s) === '  ';
+  return line.length > starts[1] && starts.every(gap);
+}
+
+/** Re-pad a palm table (header, rule, rows) after ~ replaced the sandbox home in its cells. */
+function realign(box, lines, starts) {
+  const cells = lines.map((l) =>
+    starts.map((s, i) => tidyLine(box, l.slice(s, starts[i + 1] ?? l.length))),
+  );
+  const widths = starts.map((_, i) =>
+    Math.max(...cells.filter((_, r) => r !== 1).map((row) => row[i].length)),
+  );
+  return cells.map((row, r) =>
+    (r === 1 ? widths.map((w) => '─'.repeat(w)) : row.map((c, i) => c.padEnd(widths[i])))
+      .join('  ')
+      .trimEnd(),
+  );
+}
+
+function tidy(box, text) {
+  const lines = text.split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const starts = RULE.test(lines[i + 1] ?? '') ? columnStarts(lines[i + 1]) : [];
+    if (starts.length < 2) {
+      out.push(tidyLine(box, lines[i]));
+      continue;
+    }
+    let end = i + 2;
+    while (end < lines.length && isRow(lines[end], starts)) end++;
+    out.push(...realign(box, lines.slice(i, end), starts));
+    i = end - 1;
+  }
+  return out.join('\n');
 }
 
 /** Relative path -> content hash for every file under dir, skipping .git. */

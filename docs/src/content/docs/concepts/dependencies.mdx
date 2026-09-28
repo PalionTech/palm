@@ -1,0 +1,98 @@
+---
+title: Dependencies
+description: Installing an agent also installs the skills and MCP servers it names. palm removes them again once nothing needs them.
+---
+
+import Capture from '../../../components/Capture.astro';
+
+A **dependency** is an entity that another entry pulled in.
+An agent pulls in the skills and MCP servers its frontmatter names, and a plugin pulls in its members.
+You install one thing and get a working setup.
+
+<Capture name="a-dependencies" title="~/project" />
+
+The agent's frontmatter names the skill `sdk-helper` and the MCP server `context7`, so palm installed both with it.
+Each dependency shows its parent in parentheses, and `palm why` prints the chain back to `palm.yaml`.
+For Copilot, palm left the skill and server names out of the agent file and said so.
+
+## Where dependencies come from
+
+| Parent | What it pulls in |
+| --- | --- |
+| agent | The skills in `skills:`, the MCP servers in `mcpServers:` and the instructions in `instructions:` |
+| plugin | Every member: skills, agents, commands, instructions, hooks and MCP servers |
+
+`skills:` and `mcpServers:` are frontmatter fields that Claude Code agents already use.
+`instructions:` is a palm extension, because Claude Code agent files have no field for instructions.
+palm reads it and never writes it into a harness file.
+
+```md title="agents/reviewer.md"
+---
+name: reviewer
+description: Reviews a diff for bugs before merge.
+skills: [tdd]
+mcpServers: [github]
+instructions: [typescript-style@acme]
+---
+
+You review diffs. Report bugs with file and line.
+```
+
+An author declares nothing else.
+There is no separate dependency manifest to keep in sync with the agent.
+
+## How palm finds a dependency
+
+A dependency is a name, so palm resolves it like one.
+It takes the first of these that applies.
+
+1. An explicit `@origin` in the frontmatter, such as `typescript-style@acme`.
+2. The agent's own origin.
+3. The origin the dependency was installed from before, so a reinstall never turns ambiguous.
+4. All your origins. Several matches open the picker, or fail with `E_AMBIGUOUS` in a script.
+
+A dependency you already installed another way stays as it is.
+
+## What the files record
+
+`palm.yaml` lists only what you asked for, so this session added one line.
+
+```yaml title="palm.yaml"
+targets: [claude, copilot]
+agents:
+  - agent-sdk-verifier-py@official
+```
+
+The lockfile has three entries.
+The agent's entry lists what it declared under `deps`.
+Each dependency names its parent under `via`, such as `via: agent:agent-sdk-verifier-py`.
+
+## Uninstall and reference counting
+
+palm removes a dependency with its parent, unless something else still needs it.
+In this session, the skill was also installed directly before the agent was removed.
+
+<Capture name="a-dependencies-remove" title="~/project" />
+
+`palm install skill sdk-helper` found the skill already installed and added it to `palm.yaml`.
+When the agent went, palm removed `context7`, which nothing else needed.
+`sdk-helper` stayed, because `palm.yaml` now lists it.
+
+A dependency stays when either of these holds.
+
+- `palm.yaml` lists it directly. It becomes a direct install.
+- Another installed plugin or agent declares it. palm moves it under that parent.
+
+`palm update` applies the same rule when a new version of an agent stops declaring a dependency.
+
+## Consent covers dependencies
+
+A plugin can bring hooks, and an agent can bring a stdio MCP server.
+palm lists those commands before it writes them, together with the ones you asked for, and asks once.
+See the [security model](/palm/explanation/security/).
+
+## Related
+
+- [Entities and kinds](/palm/concepts/entities/)
+- [Manifest and lockfile](/palm/concepts/manifest-and-lockfile/)
+- [MCP servers and secrets](/palm/concepts/mcp-and-secrets/)

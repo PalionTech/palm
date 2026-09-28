@@ -122,6 +122,16 @@ describe('writeYamlFile', () => {
     );
   });
 
+  it('puts a new key where the value orders it, flow keys in flow style', async () => {
+    const file = join(await tmpDir(), 'palm.yaml');
+    await write(file, '# project manifest\n\nskills:\n  - a@o\nmcp:\n  - x\n');
+    const value = { targets: ['claude', 'codex'], skills: ['a@o'], agents: ['r@o'], mcp: ['x'] };
+    await writeYamlFile(file, value, { flowKeys: ['targets'] });
+    expect(await read(file)).toBe(
+      '# project manifest\n\ntargets: [claude, codex]\nskills:\n  - a@o\nagents:\n  - r@o\nmcp:\n  - x\n',
+    );
+  });
+
   it('replaces nodes whose type changed', async () => {
     const dir = await tmpDir();
     const file = join(dir, 'c.yaml');

@@ -25,7 +25,7 @@ export function minimalIgnoreGlobs(extra: string[] = []): string[] {
 }
 
 /** `skills/.system` → both `skills/.system` and `skills/.system/**` so directories are pruned. */
-export function expandExcludes(patterns: string[]): string[] {
+function expandExcludes(patterns: string[]): string[] {
   const out: string[] = [];
   for (const raw of patterns) {
     const p = raw.replace(/^\.\//, '').replace(/\/+$/, '');

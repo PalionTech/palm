@@ -40,7 +40,7 @@ interface EventInfo {
 }
 
 /** Canonical (Claude) event names and their equivalents. */
-export const HOOK_EVENTS: readonly EventInfo[] = [
+const HOOK_EVENTS: readonly EventInfo[] = [
   {
     claude: 'SessionStart',
     cursor: 'sessionStart',
@@ -110,7 +110,7 @@ function familyOf(target: TargetId): Family {
 }
 
 /** Map a source event name (any dialect) to its canonical Claude name. */
-export function canonicalEvent(name: string, dialect: HookSet['dialect']): string | undefined {
+function canonicalEvent(name: string, dialect: HookSet['dialect']): string | undefined {
   if (dialect === 'gemini' && GEMINI_EVENTS[name]) return GEMINI_EVENTS[name];
   const hit = HOOK_EVENTS.find((e) => e.claude === name || e.cursor === name || e.copilot === name);
   if (hit) return hit.claude;
@@ -120,7 +120,7 @@ export function canonicalEvent(name: string, dialect: HookSet['dialect']): strin
 }
 
 /** Target event name for a canonical event; undefined when unsupported. */
-export function targetEvent(canonical: string, target: TargetId): string | undefined {
+function targetEvent(canonical: string, target: TargetId): string | undefined {
   const info = HOOK_EVENTS.find((e) => e.claude === canonical);
   if (!info) return undefined;
   switch (target) {
@@ -174,11 +174,7 @@ export const PROJECT_DIR: Readonly<Record<TargetId, string>> = {
  * scope, or for a root inside the project, the harness's project directory plus the root's
  * project-relative path, so no absolute path reaches a committed config.
  */
-export function pluginRootReplacement(
-  target: TargetId,
-  pluginRootAbs: string,
-  paths: ScopePaths,
-): string {
+function pluginRootReplacement(target: TargetId, pluginRootAbs: string, paths: ScopePaths): string {
   if (paths.scope !== 'project' || !isWithin(pluginRootAbs, paths.root)) return pluginRootAbs;
   const rel = paths.lockForm(pluginRootAbs);
   return rel === '' ? PROJECT_DIR[target] : `${PROJECT_DIR[target]}/${rel}`;
@@ -197,7 +193,7 @@ const PLUGIN_ROOT_VAR: Partial<Record<TargetId, string>> = {
   gemini: 'CLAUDE_PLUGIN_ROOT',
 };
 
-export function substitutePluginRoot(command: string, replacement: string): string {
+function substitutePluginRoot(command: string, replacement: string): string {
   return command.replace(ROOT_TOKENS, () => replacement);
 }
 
@@ -208,7 +204,7 @@ export function substitutePluginRoot(command: string, replacement: string): stri
  * cursor). Scripts such as superpowers' `session-start` read it to find sibling files and to
  * pick the output format the harness understands. PowerShell commands only get the substitution.
  */
-export function rootedCommand(
+function rootedCommand(
   command: string,
   replacement: string,
   target: TargetId,
@@ -228,7 +224,7 @@ export function referencesPluginRoot(raw: unknown): boolean {
 }
 
 /** Extract the `{ event: entries[] }` map from a hooks file (wrapped `{hooks:{...}}` or flat). */
-export function eventMap(raw: unknown): Record<string, unknown[]> {
+function eventMap(raw: unknown): Record<string, unknown[]> {
   if (isRecord(raw) && isRecord(raw.hooks)) {
     return Object.fromEntries(
       Object.entries(raw.hooks).filter(([, v]) => Array.isArray(v)),

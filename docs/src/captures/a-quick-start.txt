@@ -1,5 +1,6 @@
 $ palm init --target claude,codex
 + ./palm.yaml: targets claude, codex
++ ./.gitignore (new): .palm/
 
 next: palm search <query>   or   palm install skill <name>@<origin>
 $ palm get skills --available

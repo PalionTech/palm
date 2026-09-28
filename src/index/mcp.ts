@@ -18,7 +18,7 @@ function looksLikeServer(v: unknown): v is Record<string, unknown> {
 }
 
 /** The name → server map inside an MCP config, or undefined when the JSON is not one. */
-export function mcpServerMap(json: unknown): Record<string, unknown> | undefined {
+function mcpServerMap(json: unknown): Record<string, unknown> | undefined {
   if (!isRecord(json)) return undefined;
   if (isRecord(json.mcpServers)) return json.mcpServers;
   if (isRecord(json.servers)) return json.servers;

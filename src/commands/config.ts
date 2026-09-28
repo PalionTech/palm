@@ -77,7 +77,7 @@ export function setConfigValue(cfg: PalmConfig, key: ConfigKey, raw: string): Pa
 async function configGet(inv: Invocation, app: App): Promise<void> {
   const g = inv.opts as GlobalOptions;
   const ctx = await makeContext(app, g);
-  const { loadConfig } = await import('../core/config.js');
+  const { loadConfig } = await import('../core/config-file.js');
   const cfg = await loadConfig(ctx.paths);
   const out = app.out;
   const [key] = inv.names;
@@ -98,7 +98,7 @@ async function configSet(inv: Invocation, app: App): Promise<void> {
   const [key = '', value = ''] = inv.names;
   const k = assertKey(key);
   const ctx = await makeContext(app, g);
-  const { loadConfig, saveConfig } = await import('../core/config.js');
+  const { loadConfig, saveConfig } = await import('../core/config-file.js');
   const next = setConfigValue(await loadConfig(ctx.paths), k, value);
   const shown = getConfigValue(next, k);
   if (app.out.jsonMode) app.out.json({ [k]: shown ?? null, dryRun: ctx.flags.dryRun });

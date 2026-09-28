@@ -25,6 +25,7 @@
  */
 import { stringify as tomlStringify } from 'smol-toml';
 import type { AgentDefinition, TargetId } from '../core/types.js';
+import { DepRef } from '../domain/dep-ref.js';
 import { normalizeBody, stringifyFrontmatter } from '../lib/frontmatter.js';
 import { withoutUndefined } from '../lib/object.js';
 import {
@@ -38,7 +39,7 @@ const CLAUDE_ALIAS = /^(opus|sonnet|haiku|inherit|opusplan|default|best)(\[[^\]]
 const CLAUDE_ID = /^(claude[-_.]|anthropic[/.])/i;
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
-export function isClaudeModelAlias(model: string): boolean {
+function isClaudeModelAlias(model: string): boolean {
   return CLAUDE_ALIAS.test(model.trim());
 }
 
@@ -347,12 +348,27 @@ const RENDERERS: Record<TargetId, (def: AgentDefinition, lists: AgentLists) => R
   opencode: renderOpencode,
 };
 
+/**
+ * Dependencies as the harness knows them: palm resolves `tdd@mattpocock#v1` (engine), the
+ * harness only sees the installed name `tdd`.
+ */
+function bareNames(refs: string[] | undefined): string[] | undefined {
+  const names = (refs ?? []).map((r) => {
+    try {
+      return DepRef.parse(r).name;
+    } catch {
+      return r.trim();
+    }
+  });
+  return nonEmpty([...new Set(names)]);
+}
+
 export function renderAgent(def: AgentDefinition, target: TargetId): RenderedAgent {
   const lists: AgentLists = {
     tools: nonEmpty(def.tools),
     disallowedTools: nonEmpty(def.disallowedTools),
-    skills: nonEmpty(def.skills),
-    mcpServers: nonEmpty(def.mcpServers),
+    skills: bareNames(def.skills),
+    mcpServers: bareNames(def.mcpServers),
   };
   return RENDERERS[target](def, lists);
 }

@@ -2,10 +2,10 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadLock } from '../../src/core/lockfile.js';
-import { loadManifest } from '../../src/core/manifest.js';
 import type { PickOption, UI } from '../../src/core/types.js';
 import { createAgent } from '../../src/create/agent.js';
+import { Lock } from '../../src/domain/lock.js';
+import { Manifest } from '../../src/domain/manifest.js';
 import { uninstallEntities } from '../../src/engine/uninstall.js';
 import { makeContext } from '../support/fakes.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
@@ -74,7 +74,7 @@ describe('palm create agent → install (fake UI, real scanner/engine/targets)',
     expect(text).toContain('skills:\n  - grill-me');
     expect(text).toContain('instructions:\n  - style@rules');
 
-    const lock = await loadLock(join(sb.project, 'palm.lock.yaml'));
+    const lock = await Lock.load(join(sb.project, 'palm.lock.yaml'));
     const byName = Object.fromEntries(lock.entries.map((e) => [`${e.kind} ${e.name}`, e]));
     expect(byName['agent code-reviewer']).toMatchObject({
       origin: 'mine',
@@ -91,7 +91,7 @@ describe('palm create agent → install (fake UI, real scanner/engine/targets)',
     });
 
     // Only the agent is a manifest entry; its dependencies come with it.
-    const m = await loadManifest(join(sb.project, 'palm.yaml'));
+    const m = (await Manifest.load(join(sb.project, 'palm.yaml'))).toJSON();
     expect(m.agents).toEqual(['code-reviewer@mine']);
     expect(m.skills).toBeUndefined();
     expect(m.instructions).toBeUndefined();

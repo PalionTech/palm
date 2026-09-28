@@ -26,7 +26,7 @@ export interface FileIndexOptions {
 
 const RELEVANT_EXT = ['.md', '.mdc', '.json', '.toml'];
 
-export function isRelevantFile(rel: string): boolean {
+function isRelevantFile(rel: string): boolean {
   const base = baseOf(rel).toLowerCase();
   if (base === 'apm.yml' || base === 'apm.yaml') return true;
   return RELEVANT_EXT.some((e) => base.endsWith(e));

@@ -1,0 +1,90 @@
+---
+title: How palm reads a repository
+description: palm scans each origin as its author published it, detects the layout and reports what it could not install.
+sidebar:
+  label: Scanning
+---
+
+import Capture from '../../../components/Capture.astro';
+
+palm **scans** an origin when you add or update it.
+The scan finds every entity the repository offers, and palm stores the result as the origin's index.
+Authors publish in many layouts, and palm reads them without a palm-specific manifest.
+
+```sh
+palm install origin anthropics/claude-plugins-official --dry-run
+```
+
+`--dry-run` prints the scan report without saving the origin.
+This session added a copy of palm's test fixture that mirrors `anthropics/claude-plugins-official`.
+
+<Capture name="a-scan-marketplace" title="~/project" />
+
+The first line names the counts per kind and the rule that matched, here `marketplace`.
+The warnings list what the scan skipped and why.
+`palm get --available` lists the index, one row per entity.
+
+## Detection order
+
+The first rule that matches decides how palm reads the repository.
+
+| Order | Rule | Reported as | Applies when |
+| --- | --- | --- | --- |
+| 1 | Layout descriptor | `descriptor` | the origin has a [layout descriptor](/palm/reference/layout/) |
+| 2 | APM package | `apm` | the root has an `apm.yml` and an `.apm/` folder |
+| 3 | Marketplace | `marketplace` | the repository has a `marketplace.json` for Claude Code, Cursor, Copilot or Codex |
+| 4 | Plugin manifest | `plugin-manifest` | the root has a Claude Code, Cursor, Agent Plugins, Codex or Gemini CLI plugin manifest |
+| 5 | Conventions | `convention` | none of the above, so palm looks for `SKILL.md`, `agents/`, `rules/` and similar paths |
+
+A marketplace entry with a relative path becomes a `plugin`, scanned at that path.
+A plugin manifest picks one format and never merges two.
+The [scan rules](/palm/reference/scan-rules/) list every file name and pattern.
+
+## What the scan reports
+
+| Warning | Meaning |
+| --- | --- |
+| remote plugin not fetched | A marketplace entry points at another repository. palm prints the `palm install origin` command that adds it. |
+| not supported by palm | The plugin has a part palm does not install, such as LSP servers. |
+| unsupported source | A marketplace entry comes from npm or another source palm cannot read. |
+| does not declare | A plugin manifest omits skills that sit in its folder. palm indexes them as standalone skills. |
+| not a valid slug | A skill's `name` cannot be a folder name. palm uses the slugified folder name. |
+| hidden-unicode | A file holds invisible characters. See the [security model](/palm/explanation/security/). |
+
+palm never fetches a remote marketplace entry by itself.
+You decide whether that repository becomes an origin.
+
+## Folders palm skips
+
+Auto-detection skips folders that hold tests, fixtures, examples, templates, docs and build output.
+It also skips install outputs, such as `.claude/skills` or `.agents/skills`, because another tool committed those copies.
+Root `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` guide the repository's contributors, so palm skips them too.
+
+palm includes other dot folders.
+`openai/skills` keeps its skills in `skills/.curated`, and palm finds them.
+
+## When detection does not fit
+
+A **layout descriptor** tells palm where an origin keeps its entities.
+With one, palm skips detection and reads only the globs you give it.
+
+<Capture name="a-scan-layout" title="~/project" />
+
+The fixture mirrors `openai/skills`, which keeps curated, experimental and system skills side by side.
+Auto-detection indexed all four.
+The second origin reads the same checkout through a descriptor and indexes only the two curated skills.
+
+Write a descriptor when a repository keeps entities in folders palm skips, or when you want only part of it.
+The [layout descriptor](/palm/reference/layout/) reference lists every key.
+
+## When the index is refreshed
+
+palm rescans an origin when a fetch brings a new commit, as `palm update origins` does.
+A newer palm version with a different index format rescans once, on first use.
+The index never changes what you installed. Only `palm update` does that.
+
+## Related
+
+- [Origins](/palm/concepts/origins/)
+- [Scan rules](/palm/reference/scan-rules/)
+- [Layout descriptor](/palm/reference/layout/)

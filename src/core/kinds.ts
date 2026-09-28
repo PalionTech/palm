@@ -4,7 +4,7 @@ import { KINDS, type Kind } from './types.js';
  * What a CLI verb acts on (`palm <verb> <resource> [names...]`): an entity kind, the origins
  * palm installs from, the targets it installs into, or `all` (only `palm get all`).
  */
-export type ResourceKind = Kind | 'origin' | 'target';
+type ResourceKind = Kind | 'origin' | 'target';
 export type Resource = ResourceKind | 'all';
 
 export const RESOURCES: readonly Resource[] = [...KINDS, 'origin', 'target', 'all'] as const;
@@ -87,10 +87,6 @@ export function parseResource(word: string | undefined): Resource | undefined {
 export function resourceWords(resource: Resource): string[] {
   const table: Record<string, Resource> = { ...ALIASES, ...RESOURCE_ALIASES };
   return Object.keys(table).filter((w) => table[w] === resource);
-}
-
-export function isKind(word: string): word is Kind {
-  return (KINDS as readonly string[]).includes(word);
 }
 
 /** Manifest section name for a kind. */

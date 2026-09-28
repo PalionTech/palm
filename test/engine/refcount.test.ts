@@ -1,23 +1,23 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadConfig } from '../../src/core/config.js';
-import { loadLock } from '../../src/core/lockfile.js';
-import { loadManifest, saveManifest } from '../../src/core/manifest.js';
+import { loadConfig } from '../../src/core/config-file.js';
+import { Lock } from '../../src/domain/lock.js';
+import { Manifest } from '../../src/domain/manifest.js';
 import { installEntities } from '../../src/engine/install.js';
 import { resolveTargets } from '../../src/engine/resolve-targets.js';
 import { uninstallEntities } from '../../src/engine/uninstall.js';
 import { updateEntities } from '../../src/engine/update.js';
 import { fakeUI } from '../support/fakes.js';
 import { removeDir } from '../support/sandbox.js';
-import { makeWorld, type World } from './world.js';
+import { makeWorld, resolveAndSave, type World } from './world.js';
 
 const opts = { scope: 'project' as const, targets: ['claude' as const] };
 
 describe('reference-counted dependencies (LockEntry.deps)', () => {
   let w: World;
   afterEach(async () => removeDir(w.sb.root));
-  const lockOf = async () => loadLock(join(w.sb.project, 'palm.lock.yaml'));
+  const lockOf = async () => Lock.load(join(w.sb.project, 'palm.lock.yaml'));
   const entry = async (kind: string, name: string) =>
     (await lockOf()).entries.find((e) => e.kind === kind && e.name === name);
 
@@ -68,7 +68,7 @@ describe('reference-counted dependencies (LockEntry.deps)', () => {
     w = await makeWorld({ origins: ['d'] });
     await installEntities(w.ctx, [{ kind: 'agent', spec: 'alpha' }], opts, w.deps);
     const file = join(w.sb.project, 'palm.yaml');
-    await saveManifest(file, { ...(await loadManifest(file)), skills: ['shared@d'] });
+    await Manifest.of({ ...(await Manifest.load(file)).toJSON(), skills: ['shared@d'] }).save(file);
     await uninstallEntities(
       w.ctx,
       [{ kind: 'agent', name: 'alpha' }],
@@ -188,30 +188,23 @@ describe('resolveTargets --target persistence', () => {
     w = await makeWorld({ detect: ['claude', 'codex'] });
     const file = join(w.sb.project, 'palm.yaml');
     w.ctx.flags.dryRun = true;
-    await resolveTargets(w.ctx, { scope: 'project', flag: ['cursor'], save: true }, w.deps);
+    await resolveAndSave(w.ctx, { scope: 'project', flag: ['cursor'] }, w.deps);
     expect(existsSync(file)).toBe(false);
     w.ctx.flags.dryRun = false;
     expect(
-      await resolveTargets(
-        w.ctx,
-        { scope: 'project', flag: ['cursor', 'claude'], save: true },
-        w.deps,
-      ),
+      await resolveAndSave(w.ctx, { scope: 'project', flag: ['cursor', 'claude'] }, w.deps),
     ).toEqual(['cursor', 'claude']);
-    expect((await loadManifest(file)).targets).toEqual(['cursor', 'claude']);
+    expect((await Manifest.load(file)).toJSON().targets).toEqual(['cursor', 'claude']);
     // Next run without a flag uses the saved targets instead of detection.
-    expect(await resolveTargets(w.ctx, { scope: 'project', save: true }, w.deps)).toEqual([
-      'cursor',
-      'claude',
-    ]);
+    expect(await resolveAndSave(w.ctx, { scope: 'project' }, w.deps)).toEqual(['cursor', 'claude']);
     // Without save the flag is used but not stored.
     await resolveTargets(w.ctx, { scope: 'project', flag: ['codex'] }, w.deps);
-    expect((await loadManifest(file)).targets).toEqual(['cursor', 'claude']);
+    expect((await Manifest.load(file)).toJSON().targets).toEqual(['cursor', 'claude']);
   });
 
   it('saves an explicit flag to config.yaml for the global scope', async () => {
     w = await makeWorld();
-    await resolveTargets(w.ctx, { scope: 'global', flag: ['claude'], save: true }, w.deps);
+    await resolveAndSave(w.ctx, { scope: 'global', flag: ['claude'] }, w.deps);
     expect((await loadConfig(w.ctx.paths)).targets).toEqual(['claude']);
   });
 });

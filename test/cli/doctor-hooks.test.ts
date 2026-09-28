@@ -2,12 +2,13 @@
  * `palm doctor` flags hook entries whose copied scripts are missing (PLAN §2 item 8): after a
  * fresh clone the committed hook config is there but `.palm/hooks/<name>` (gitignored) is not.
  */
-import { rm } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Check } from '../../src/commands/doctor.js';
-import { saveLock } from '../../src/core/lockfile.js';
+import { hashPath } from '../../src/core/hash.js';
 import { type LockEntry, TRANSFORM_VERSION } from '../../src/core/types.js';
+import { Lock } from '../../src/domain/lock.js';
 import { createTarget } from '../../src/targets/index.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 import { CLAUDE_HOOKS, makeOrigin, mkEntity, mkInput } from '../targets/helpers.js';
@@ -44,7 +45,7 @@ async function projectWithHook(): Promise<Sandbox> {
     files: r.files.map((path) => ({ path, hash: '' })),
     merged: r.merged,
   };
-  await saveLock(join(s.project, 'palm.lock.yaml'), { version: 2, entries: [entry] });
+  await Lock.from({ version: 2, entries: [entry] }).save(join(s.project, 'palm.lock.yaml'));
   return s;
 }
 
@@ -85,5 +86,30 @@ describe('palm doctor: hook assets', () => {
     expect(drift?.status).toBe('ok');
     // Scopes without hook assets get no hooks line.
     expect(checks.some((c) => c.group === 'hooks' && c.name === 'global scope')).toBe(false);
+  });
+});
+
+describe('palm doctor: files edited since install', () => {
+  it('counts palm-owned files whose hash differs from the lock, as a warning', async () => {
+    sb = await projectWithHook();
+    const lockFile = join(sb.project, 'palm.lock.yaml');
+    const lock = await Lock.load(lockFile);
+    const [entry] = lock.entries;
+    // record real hashes, then change two of the files
+    for (const f of entry!.files) f.hash = await hashPath(join(sb.project, f.path));
+    await lock.save(lockFile);
+    let before = await doctorChecks(sb);
+    expect(before.checks.some((c) => c.group === 'files')).toBe(false);
+    const [a, b] = entry!.files;
+    await writeFile(join(sb.project, a!.path), 'changed\n');
+    await writeFile(join(sb.project, b!.path), 'changed too\n');
+    before = await doctorChecks(sb);
+    expect(before.code).toBe(0);
+    expect(before.checks).toContainEqual({
+      group: 'files',
+      name: 'project scope',
+      status: 'warn',
+      detail: '2 palm-owned files modified since install (see `palm audit`)',
+    });
   });
 });

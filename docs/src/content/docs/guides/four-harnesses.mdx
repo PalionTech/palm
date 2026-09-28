@@ -1,0 +1,104 @@
+---
+title: One setup, six harnesses
+description: One agent installed for Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI and OpenCode, each in its own format.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Capture from '../../../components/Capture.astro';
+import CaptureTree from '../../../components/CaptureTree.astro';
+
+On many teams, one developer uses Claude Code, another uses Cursor, and a CI job runs Codex.
+Each harness wants the same agent (subagent) in a different folder and format.
+palm writes all six from one command and records every file in one lockfile.
+
+When you finish, one agent and its dependencies exist once per harness format:
+
+<CaptureTree name="b-six-install" depth={3} />
+
+The skill appears twice: Claude Code reads `.claude/skills`, and the other five harnesses share `.agents/skills`.
+The sessions on this page ran against a palm test fixture that mirrors `anthropics/claude-plugins-official`.
+
+## Before you start
+
+- An origin that holds an agent. This guide uses `anthropics/claude-plugins-official`:
+
+  ```sh
+  palm install origin anthropics/claude-plugins-official --alias official
+  ```
+
+## Steps
+
+<Steps>
+
+1. Install the agent for all six targets. A **target** is palm's name for a harness.
+
+   ```sh
+   palm install agent agent-sdk-verifier-py --target claude,codex,copilot,cursor,gemini,opencode
+   ```
+
+   palm saves the six targets to `palm.yaml`, so later installs in this project use them without the flag.
+
+2. Read the summary.
+
+   <Capture name="b-six-install" title="~/project" />
+
+   Each `i` line names the fields one harness has no place for.
+   For Codex, palm drops the model, the tool list and three more fields, and says so.
+
+3. Compare the formats palm wrote.
+
+   <Capture name="b-six-files" title="~/project" />
+
+   | Harness | File | What palm changes |
+   | --- | --- | --- |
+   | Claude Code | `.claude/agents/<name>.md` | nothing: this is the source format |
+   | Codex | `.codex/agents/<name>.toml` | TOML with `name`, `description` and `developer_instructions` |
+   | GitHub Copilot | `.github/agents/<name>.agent.md` | tools as a list, MCP servers as `context7/*` |
+   | Cursor | `.cursor/agents/<name>.md` | the tool list maps to `readonly: true` |
+   | Gemini CLI | `.gemini/agents/<name>.md` | strict frontmatter: `kind: local`, Gemini tool names, MCP tools as `mcp_context7_*` |
+   | OpenCode | `.opencode/agents/<name>.md` | `mode: subagent` and a `permission` map that denies by default |
+
+4. Install kinds that some harnesses cannot hold.
+
+   ```sh
+   palm install command new-sdk-app
+   palm install hook agent-sdk-dev --yes
+   ```
+
+   <Capture name="b-six-skips" title="~/project" />
+
+   palm skips a combination the harness does not support and says why in an `i` line.
+   The hook asks for consent first, because it runs a command on your machine; `--yes` gives it.
+
+</Steps>
+
+These are the combinations palm skips:
+
+| Kind | Harness | Scope | Why |
+| --- | --- | --- | --- |
+| command | Codex | project | Codex reads prompts only from `~/.codex/prompts`: install with `-g` |
+| command | GitHub Copilot | global | Copilot has no user-level prompt files |
+| instruction | Cursor | global | Cursor has no user-level rules |
+| hook | OpenCode | both | OpenCode hooks are JavaScript plugins |
+
+`palm describe target <id>` prints where each kind goes for one target, skips included:
+
+```sh
+palm describe target opencode
+```
+
+## Check the result
+
+Ask palm where the agent went:
+
+<Capture name="b-six-check" title="~/project" />
+
+`depends on` lists the skill and the MCP server that came with the agent.
+Each target lists the one file it received.
+
+## Next steps
+
+- [Share a team baseline](/palm/guides/team-baseline/) so every developer gets the same six harnesses.
+- [Build an agent that brings its tools](/palm/guides/agent-bundles/) explains `depends on`.
+- The [targets matrix](/palm/reference/targets-matrix/) lists every path for every kind.
+- [Why native files per harness](/palm/explanation/why-native-files/) explains the design.

@@ -1,0 +1,73 @@
+---
+title: palm describe
+description: Show one entity, origin or target in detail.
+---
+
+import Capture from '../../../../components/Capture.astro';
+
+`palm describe` shows one entity, origin or target: where it comes from and which files it has in each harness.
+
+```sh
+palm describe <kind> <name[@origin]> [options]
+palm describe origin <alias>
+palm describe target <target>
+```
+
+Alias: `palm info`.
+Kinds: `skill`, `agent`, `instruction`, `command`, `hook`, `mcp`, `plugin`, `origin` and `target`, as singular, plural or [short name](/palm/reference/cli/#kinds).
+The kind is required.
+
+| Command | Meaning |
+| --- | --- |
+| `palm describe skill tdd` | Origin, version, dependencies and files per harness of an installed skill. |
+| `palm describe agent comment-sicko@pstack` | An agent (subagent) from one origin, installed or not. |
+| `palm info mcp docs -g` | An MCP server in the global scope. |
+| `palm describe origin mattpocock` | URL, ref, commit, layout, detection rule, counts and cache files of an origin. |
+| `palm describe target codex` | Where each kind goes for Codex in this project. |
+| `palm describe target claude -g` | Where each kind goes for Claude Code in your home directory. |
+
+<Capture name="c-describe" />
+
+## Options
+
+{/* cli-reference:options describe */}
+
+| Argument | Meaning |
+| --- | --- |
+| `kind` | skill, agent, instruction, command, hook, mcp, plugin, origin, target (plurals and short names work) |
+| `names` | `name[@origin][#ref]` |
+
+| Option | Meaning |
+| --- | --- |
+| `-o, --origin <name-or-alias>` | only this origin: alias, owner/repo[/root], URL or local path (installed entities also: mine, registry, adhoc) |
+
+The [global options](/palm/reference/cli/#global-options) also apply.
+
+{/* /cli-reference */}
+
+## What it shows
+
+| Resource | Fields |
+| --- | --- |
+| Entity | description, origin, URL, ref, commit, path, version, plugin, kind details, dependencies, `via`, and the files per harness when installed. Otherwise, the command that installs it. |
+| Origin | type, URL or path, ref, commit, root, layout, detection rule, entities per kind, index warnings, checkout and index file. |
+| Target | config folder, detection in each scope, and the path of each kind. palm computes the paths with a dry-run install of a sample entity, so overrides such as `CODEX_HOME` count. |
+
+## Behavior
+
+`palm describe` never prompts and writes nothing in the scope.
+To read an index that is not cached yet, it fetches the origin into `~/.palm/cache/`, unless `--offline`.
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | The entity, origin or target exists. |
+| `1` | Nothing has that name in your origins or the scope's lockfile (`E_NOT_FOUND`). |
+| `2` | No kind, no name, more than one name, or an unknown target. |
+
+## Related
+
+- [`palm get`](/palm/reference/cli/get/)
+- [`palm why`](/palm/reference/cli/why/)
+- [Targets matrix](/palm/reference/targets-matrix/)

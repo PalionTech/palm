@@ -87,8 +87,12 @@ describe('parseInstallArgs', () => {
         kind: 'plugin',
         specs: ['superpowers@superpowers'],
         from: 'obra/superpowers',
-        saveOrigin: true,
+        saveOrigin: 'global',
       },
+    },
+    {
+      argv: ['install', 'skill', 'tdd', '--from', 'obra/sp', '--save-origin', '--project'],
+      expected: { specs: ['tdd'], from: 'obra/sp', saveOrigin: 'project' },
     },
     {
       argv: ['install'],

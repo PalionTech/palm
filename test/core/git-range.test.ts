@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   fetchOrigin,
   isSemverRange,
+  listRemoteRefs,
   maxSatisfyingTag,
   refSatisfies,
   resolveRef,
@@ -94,6 +95,22 @@ describe('resolveRef and fetchOrigin with ranges (local bare remote)', () => {
     expect(await resolveRef(bare, 'v1.0.0')).toBe('v1.0.0');
     expect(await resolveRef(bare, 'main')).toBe('main');
     expect(await resolveRef(bare, undefined)).toBe('v2.0.0');
+  });
+
+  it('listRemoteRefs reports each branch and tag with its commit (annotated tags peeled)', async () => {
+    const work = join(sb.root, 'work');
+    await git(work, 'tag', '-a', 'v3.0.0', '-m', 'release');
+    await git(work, 'push', '-q', bare, 'v3.0.0');
+    const refs = await listRemoteRefs(bare);
+    expect(refs.tags.sort()).toEqual(['v1.0.0', 'v1.2.0', 'v1.3.0', 'v2.0.0', 'v3.0.0']);
+    expect(refs.headShas).toEqual({ '3.x': shas['v2.0.0'], main: shas.main });
+    expect(refs.tagShas).toEqual({
+      'v1.0.0': shas['v1.0.0'],
+      'v1.2.0': shas['v1.2.0'],
+      'v1.3.0': shas['v1.3.0'],
+      'v2.0.0': shas['v2.0.0'],
+      'v3.0.0': shas.main, // the commit, not the tag object
+    });
   });
 
   it('prefers a branch or tag named exactly like the range', async () => {

@@ -2,8 +2,8 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getAllIndexes, getIndex, invalidateIndex } from '../../src/core/cache.js';
-import { originId } from '../../src/core/config.js';
 import type { EngineDeps, OriginSpec, ScanResult } from '../../src/core/types.js';
+import { Origin } from '../../src/domain/origin.js';
 import { type FakeLogger, fakeLogger, makeContext } from '../support/fakes.js';
 import { removeDir, type Sandbox, sandbox, writeFiles } from '../support/sandbox.js';
 import { makeRemote } from './gitrepo.js';
@@ -49,7 +49,7 @@ describe('index cache', () => {
       ref: 'v1.1.0',
       detected: 'convention',
     });
-    expect(existsSync(join(sb.palmHome, 'cache', `${originId(spec)}.index.json`))).toBe(true);
+    expect(existsSync(join(sb.palmHome, 'cache', `${new Origin(spec).id}.index.json`))).toBe(true);
     await getIndex(ctx, spec, { scan });
     expect(scan.calls).toHaveLength(1);
     // alias rewrite on read

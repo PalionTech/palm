@@ -2,19 +2,12 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  addOrigin,
-  allOrigins,
-  deriveAlias,
-  ensureMineOrigin,
-  findOrigin,
-  loadConfig,
-  originId,
-  parseOriginInput,
-  removeOrigin,
-} from '../../src/core/config.js';
-import { loadManifest } from '../../src/core/manifest.js';
+import { addOrigin, ensureMineOrigin, removeOrigin } from '../../src/core/config.js';
+import { loadConfig } from '../../src/core/config-file.js';
+import { deriveAlias, parseOriginInput } from '../../src/core/origin-input.js';
 import type { OriginSpec } from '../../src/core/types.js';
+import { Manifest } from '../../src/domain/manifest.js';
+import { Origin } from '../../src/domain/origin.js';
 import { makeContext } from '../support/fakes.js';
 import { removeDir, type Sandbox, sandbox, tempDir } from '../support/sandbox.js';
 
@@ -140,18 +133,18 @@ describe('aliases and ids', () => {
   });
 
   it('builds cache ids', () => {
-    expect(originId(gh('mattpocock/skills'))).toBe('github.com__mattpocock__skills');
-    expect(originId(gh('cursor/plugins/pstack'))).toBe('github.com__cursor__plugins__pstack');
-    expect(originId(gh('git@github.com:Obra/superpowers.git'))).toBe(
+    expect(new Origin(gh('mattpocock/skills')).id).toBe('github.com__mattpocock__skills');
+    expect(new Origin(gh('cursor/plugins/pstack')).id).toBe('github.com__cursor__plugins__pstack');
+    expect(new Origin(gh('git@github.com:Obra/superpowers.git')).id).toBe(
       'github.com__obra__superpowers',
     );
-    expect(originId({ alias: 'm', type: 'local', path: '/Users/Max/My Skills' })).toMatch(
+    expect(new Origin({ alias: 'm', type: 'local', path: '/Users/Max/My Skills' }).id).toMatch(
       /^local__users__max__my-skills-[0-9a-f]{8}$/,
     );
     // Paths that sanitize to the same segments still get distinct ids.
-    const a = originId({ alias: 'a', type: 'local', path: '/x/a/b' });
-    const b = originId({ alias: 'b', type: 'local', path: '/x/a-b' });
-    const c = originId({ alias: 'c', type: 'local', path: '/x/a b' });
+    const a = new Origin({ alias: 'a', type: 'local', path: '/x/a/b' }).id;
+    const b = new Origin({ alias: 'b', type: 'local', path: '/x/a-b' }).id;
+    const c = new Origin({ alias: 'c', type: 'local', path: '/x/a b' }).id;
     expect(new Set([a, b, c]).size).toBe(3);
   });
 });
@@ -205,20 +198,21 @@ describe('origin registry', () => {
       },
       { scope: 'project' },
     );
-    const m = await loadManifest(join(sb.project, 'palm.yaml'));
+    const m = (await Manifest.load(join(sb.project, 'palm.yaml'))).toJSON();
     expect(m.origins).toHaveLength(2);
-    expect(findOrigin(proj, 'mattpocock')?.ref).toBe('v2'); // project wins
-    expect(findOrigin(proj, 'superpowers-fork')?.url).toBe(
+    expect(proj.origins.byAlias('mattpocock')?.spec?.ref).toBe('v2'); // project wins
+    expect(proj.origins.byAlias('superpowers-fork')?.spec?.url).toBe(
       'https://github.com/acme/superpowers-fork.git',
     );
     expect(
-      allOrigins(proj)
+      proj.origins
+        .specs()
         .map((o) => o.alias)
         .sort(),
     ).toEqual(['mattpocock', 'someone-superpowers', 'superpowers', 'superpowers-fork']);
 
     await removeOrigin(proj, 'superpowers-fork');
-    expect(findOrigin(proj, 'superpowers-fork')).toBeUndefined();
+    expect(proj.origins.byAlias('superpowers-fork')?.spec).toBeUndefined();
     await removeOrigin(proj, 'superpowers');
     expect((await loadConfig(proj.paths)).origins.map((o) => o.alias)).toEqual([
       'mattpocock',

@@ -78,8 +78,9 @@ This removes the command only.
 Files palm installed into your projects and your home directory stay.
 Run `palm get` in each project, and `palm get -g`, and uninstall what you no longer want before you remove palm.
 
-palm keeps its own state in `~/.palm`: the global config, the global manifest and lockfile, the origin cache and the `mine` origin.
-Delete that directory to remove it.
+palm keeps its own state in `~/.palm`.
+That folder holds the global config, manifest and lockfile, the origin cache and the `mine` origin.
+Delete it to remove that state.
 
 ## Related
 

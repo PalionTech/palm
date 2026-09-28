@@ -212,6 +212,15 @@ function parseList(body: unknown): { entries: RegistryEntry[]; nextCursor?: stri
     : { entries };
 }
 
+/** Keeps one entry per server name (a live one, preferring the one marked latest). */
+function addLatest(byName: Map<string, RegistryEntry>, entries: RegistryEntry[]): void {
+  for (const e of entries) {
+    if (e.status === 'deleted') continue;
+    const prev = byName.get(e.server.name);
+    if (!prev || (e.isLatest && !prev.isLatest)) byName.set(e.server.name, e);
+  }
+}
+
 /** Latest version of every server whose name contains `search`, deduplicated by name. */
 async function listLatest(c: Client, search: string, max: number): Promise<RegistryEntry[]> {
   const byName = new Map<string, RegistryEntry>();
@@ -226,11 +235,7 @@ async function listLatest(c: Client, search: string, max: number): Promise<Regis
     const { entries, nextCursor } = parseList(
       await getJson(c, `${c.base}/servers?${params.toString()}`),
     );
-    for (const e of entries) {
-      if (e.status === 'deleted') continue;
-      const prev = byName.get(e.server.name);
-      if (!prev || (e.isLatest && !prev.isLatest)) byName.set(e.server.name, e);
-    }
+    addLatest(byName, entries);
     if (!nextCursor || nextCursor === cursor) break;
     cursor = nextCursor;
   }

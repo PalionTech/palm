@@ -1,0 +1,95 @@
+---
+title: palm update
+description: Move installed entities to the newest ref palm.yaml allows, or refresh origin indexes.
+---
+
+import Capture from '../../../../components/Capture.astro';
+
+`palm update` fetches your origins, prints a plan and, after you confirm, reinstalls what changed.
+
+```sh
+palm update [kind] [names...] [options]
+palm update origins [aliases...]
+```
+
+Alias: `palm up`.
+Kinds: `skill`, `agent`, `instruction`, `command`, `hook`, `mcp`, `plugin` and `origin`, as singular, plural or [short name](/palm/reference/cli/#kinds).
+Without a kind or names, palm updates everything installed in the scope.
+
+| Command | Meaning |
+| --- | --- |
+| `palm update` | Plan and apply updates for everything installed in this project. |
+| `palm update skills` | Every skill installed directly, not as a dependency. |
+| `palm update skill tdd --dry-run` | Print the plan only. |
+| `palm update --yes` | Apply without asking, for scripts and CI. |
+| `palm update -g` | Everything installed in your home directory. |
+| `palm update origins` | Refetch and rescan every origin. |
+| `palm update origin mattpocock` | Refetch and rescan one origin. |
+
+<Capture name="c-update" />
+
+## Options
+
+{/* cli-reference:options update */}
+
+| Argument | Meaning |
+| --- | --- |
+| `kind` | skill, agent, instruction, command, hook, mcp, plugin, origin (plurals and short names work); omit it for everything installed |
+| `names` | `name[@origin][#ref]` |
+
+No options of its own. The [global options](/palm/reference/cli/#global-options) apply.
+
+{/* /cli-reference */}
+
+## The plan
+
+| Mark | Meaning |
+| --- | --- |
+| `~ updated` | New content: the ref and commit move, or the content changes at the same ref. Also an entry rendered by an older palm, or with files removed by hand. |
+| `+ added` | A member or dependency the new version declares. |
+| `- removed` | A member or dependency the new version no longer declares. |
+| `= unchanged` | Nothing to do. |
+| `x failed` | The origin is unreachable, or no longer has the entity. |
+
+Below the table, palm lists files you changed that the update would overwrite.
+It overwrites them only with `--force`.
+
+`palm update` respects the `#ref` in `palm.yaml`.
+A tag stays where it is, and a semver range moves to its highest matching tag.
+Without a `#ref`, the entry moves to the latest release.
+A dependency is updated through the plugin or agent that pulled it in.
+
+## Behavior
+
+### What it writes
+
+- The harness files of each changed entity, and `palm.lock.yaml` with the new ref and commit.
+- Nothing under `--dry-run`, and nothing when the plan has no changes.
+- `palm update origins`: the checkouts and indexes in `~/.palm/cache/`.
+
+### What it asks
+
+`Apply N changes?`, with the default No.
+When the plan adds hooks or stdio MCP servers, the same question also asks consent to run them.
+Without a terminal, palm stops with `E_NON_INTERACTIVE` unless you pass `--yes`.
+
+### What it refuses
+
+Files you changed since palm wrote them, unless `--force`.
+
+With `--json`, the document is `{ "plan", "outcomes", "failures", "warnings" }`.
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | Nothing to update, the update applied, or you answered No. |
+| `1` | An origin, the registry or a deploy failed, or no terminal and no `--yes`. |
+| `2` | A usage error. |
+| `130` | You pressed Esc at the question. |
+
+## Related
+
+- [`palm outdated`](/palm/reference/cli/outdated/)
+- [`palm install`](/palm/reference/cli/install/)
+- [Names and refs](/palm/reference/cli/#names)

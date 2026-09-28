@@ -16,7 +16,7 @@ import { type ComponentDecls, parseComponentDecls } from './plugin-manifest.js';
 import { asBool, asString, joinRel, normRel, toSlug } from './util.js';
 
 /** Marketplace file locations relative to the repo root, in precedence order. */
-export const MARKETPLACE_FILES = [
+const MARKETPLACE_FILES = [
   '.claude-plugin/marketplace.json',
   '.cursor-plugin/marketplace.json',
   '.github/plugin/marketplace.json',
@@ -216,7 +216,7 @@ async function readMarketplaceText(file: string): Promise<string> {
 }
 
 /** Parse marketplace JSON text into normalized entries. */
-export function parseMarketplaceJson(text: string, file: string): Marketplace {
+function parseMarketplaceJson(text: string, file: string): Marketplace {
   let json: unknown;
   try {
     json = parseJson(text);
@@ -268,7 +268,7 @@ export async function readMarketplace(file: string): Promise<Marketplace> {
 }
 
 /** `https://github.com/o/r` → `https://github.com/o/r.git`; other URLs untouched. */
-export function normalizeGitUrl(url: string): string {
+function normalizeGitUrl(url: string): string {
   const m = /^https?:\/\/github\.com\/([^/]+)\/([^/#?]+?)(?:\.git)?\/?$/.exec(url.trim());
   if (m) return `https://github.com/${m[1]}/${m[2]}.git`;
   return url.trim();

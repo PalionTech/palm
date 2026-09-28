@@ -143,6 +143,10 @@ describe('palm --dry-run writes nothing (CLI)', () => {
     expect(r.exitCode).toBe(0);
     expect(r.stdout + r.stderr).toContain('would register origin');
     expect(r.stdout).toContain('dry run: no harness files, lockfile or manifest were changed');
+    // the table says what would happen, not what did
+    expect(r.stdout).toMatch(/\+ would install\s+skill\s+tdd/);
+    expect(r.stdout).not.toMatch(/\+ installed\b/);
+    expect(r.stdout).toContain('1 would install');
     expect(existsSync(join(home, '.palm', 'config.yaml'))).toBe(false);
     expect(readdirSync(project).sort()).toEqual(['.git']);
   });

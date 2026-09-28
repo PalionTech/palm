@@ -9,6 +9,7 @@ import type {
   TargetId,
 } from '../../src/core/types.js';
 import type { EngineDeps } from '../../src/engine/deps.js';
+import { findTargets, persistTargets } from '../../src/engine/resolve-targets.js';
 import {
   type FakeLogger,
   type FakeUI,
@@ -197,7 +198,7 @@ const ORIGIN_FILES: Record<string, Record<string, string>> = {
   },
 };
 
-export function fakeScan(): EngineDeps['scan'] & { calls: string[] } {
+function fakeScan(): EngineDeps['scan'] & { calls: string[] } {
   const calls: string[] = [];
   const fn = (async (root: string, spec: OriginSpec): Promise<ScanResult> => {
     calls.push(spec.alias);
@@ -211,7 +212,7 @@ export function fakeScan(): EngineDeps['scan'] & { calls: string[] } {
   return fn;
 }
 
-export const REGISTRY: Record<string, RegistryCandidate[]> = {
+const REGISTRY: Record<string, RegistryCandidate[]> = {
   'io.github.acme/weather': [
     {
       name: 'io.github.acme/weather',
@@ -281,4 +282,15 @@ export async function makeWorld(
     }),
   };
   return { sb, ctx, ui, log, origins, scan, calls, registryCalls, deps };
+}
+
+/** Resolve targets, then save them the way an install that placed something does. */
+export async function resolveAndSave(
+  ctx: PalmContext,
+  opts: { scope: 'project' | 'global'; flag?: TargetId[] },
+  deps?: Partial<EngineDeps>,
+): Promise<TargetId[]> {
+  const found = await findTargets(ctx, opts, deps);
+  await persistTargets(ctx, opts.scope, found);
+  return found.targets;
 }

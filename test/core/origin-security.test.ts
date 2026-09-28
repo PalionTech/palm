@@ -2,13 +2,9 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  allOrigins,
-  loadConfig,
-  parseOriginInput,
-  validateOriginUrl,
-} from '../../src/core/config.js';
+import { loadConfig } from '../../src/core/config-file.js';
 import { fetchOrigin, listRemoteTags, pingRemote } from '../../src/core/git.js';
+import { parseOriginInput, validateOriginUrl } from '../../src/core/origin-input.js';
 import { fakeLogger, makeContext } from '../support/fakes.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 
@@ -77,7 +73,7 @@ describe('origin URL validation (git argument / transport injection)', () => {
     );
     const log = fakeLogger();
     const ctx = await makeContext(sb, { log });
-    expect(allOrigins(ctx)).toEqual([]);
+    expect(ctx.origins.specs()).toEqual([]);
     expect(log.messages.map((m) => m.msg).join('\n')).toMatch(/Refusing/);
     expect(existsSync(marker)).toBe(false);
   });

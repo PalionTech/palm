@@ -1,0 +1,32 @@
+$ palm init --target claude,codex
++ ./palm.yaml: targets claude, codex
++ .palm/ in ./.gitignore
+
+next: palm search <query>   or   palm install skill <name>@<origin>
+$ palm install skill tdd@mattpocock
+project scope → claude, codex
+status       kind   name  origin      targets       files
+───────────  ─────  ────  ──────────  ────────────  ─────
++ installed  skill  tdd   mattpocock  claude,codex  6
+1 installed
+$ palm install agent agent-sdk-verifier-py
+project scope → claude, codex
+status       kind   name                                      origin    targets       files
+───────────  ─────  ────────────────────────────────────────  ────────  ────────────  ─────────────
++ installed  agent  agent-sdk-verifier-py                     official  claude,codex  2
++ installed  skill  sdk-helper (agent:agent-sdk-verifier-py)  official  claude,codex  2
++ installed  mcp    context7 (agent:agent-sdk-verifier-py)    official  claude,codex  0 (+2 merged)
+3 installed
+
+i agent-sdk-verifier-py: codex: .codex/agents/agent-sdk-verifier-py.toml: dropped model (sonnet), tools, skills, mcpServers, color (not supported by Codex)
+i context7: optional secret CONTEXT7_API_KEY (unset): export it to use it (left empty otherwise)
+$ palm install mcp docs --url https://docs.example.com/mcp
+project scope → claude, codex
+status       kind  name  origin  targets       files
+───────────  ────  ────  ──────  ────────────  ─────────────
++ installed  mcp   docs  adhoc   claude,codex  0 (+2 merged)
+1 installed
+
+i docs: no credentials declared; the harness will start OAuth on first connect if the server needs it
+i docs: claude: HTTP MCP servers authenticate via OAuth on first connect
+i docs: codex: HTTP MCP servers authenticate via OAuth on first connect

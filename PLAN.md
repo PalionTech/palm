@@ -50,6 +50,11 @@ rebuilt once.
 
 ## 1. Code quality (no behaviour change, no on-disk format change)
 
+**Status: waves 0–3 done (2026-09-29).** Final numbers after the cleanup pass: 1841
+tests green (102 files); lint 0 findings and 0 suppressions in src, test and scripts; function shape 0;
+knip 0 (a hard gate in `npm run verify`); `palm --help` 26 ms median of 10 (bare node 18 ms); src 24,267 lines of TypeScript, test 20,663 (fixtures excluded). The lint baseline holds only docs-owned findings in docs/scripts (5 complexity, 2 suppressions).
+The sections below record what each wave set out to do and the baselines it started from.
+
 Target layout: `src/lib` (fs, object, placeholders, names, frontmatter, yaml:
 no palm concepts), `src/domain` (dep-ref, entity-key, lock, manifest,
 scope-paths, origin, origin-set, merged-record), `src/core` shrinks to
@@ -75,7 +80,7 @@ runs lint, typecheck, shape check, tests and build. Baselines at the end of wave
 - Function shape (`scripts/shape-baseline.json`): 50 violations in 48 functions
   (32 bodies > 60 lines after formatting to 100 columns, 16 with > 4 parameters,
   2 nested deeper than 4).
-- knip (`scripts/knip-baseline.txt`): 1 unused file, 83 unused exports, 12 unused
+- knip (`scripts/knip-baseline.txt`, deleted once it reached 0): 1 unused file, 83 unused exports, 12 unused
   exported types.
 - Coverage (v8, thresholds = measured − 3): lines 80.3 %, functions 90.4 %,
   branches 86.9 %. src/commands shows 27 % because CLI tests run `dist` in a
@@ -86,22 +91,22 @@ runs lint, typecheck, shape check, tests and build. Baselines at the end of wave
   the remainder; making those three imports lazy belongs to the command-layer
   rebuild (§0b) and reaches the ~25 ms target.
 
-Wave 1, `src/lib`: one home for `isRecord`/`deepEqual`/`withoutUndefined`,
+Wave 1 (done), `src/lib`: one home for `isRecord`/`deepEqual`/`withoutUndefined`,
 atomic write and JSON/YAML readers, `isWithin` and empty-dir pruning, slug and
 safe-name rules (the ad hoc MCP name check is currently weaker and allows `..`),
 `${VAR}` token grammar, frontmatter parse/stringify. Five agents, disjoint files,
-about 350 lines removed. TODO: clear the knip findings in `scripts/knip-baseline.txt`
-(delete dead exports and the unused `src/engine/index.ts`, or mark intended API
-`@public`), then drop `--no-exit-code` from the `knip` script so CI enforces it.
+about 350 lines removed. Done; the cleanup pass then deleted the last facades
+(core/manifest.ts, core/lockfile.ts, the core/config.ts and core/paths.ts wrappers, the unused
+`src/engine/index.ts`), cleared every knip finding and made `npm run knip` a hard gate.
 
-Wave 2, `src/domain`: `DepRef` (one grammar instead of two), `EntityKey`/`LockKey`
+Wave 2 (done), `src/domain`: `DepRef` (one grammar instead of two), `EntityKey`/`LockKey`
 (replaces seven inline `kind\0name` keys with inconsistent casing), `Lock` as a
 first-class collection (find, upsert, remove, dependents, protected files),
 `ScopePaths` (manifest/lock/hook-asset paths, abs/rel, containment), `Origin` and
 `OriginSet` (splits the 689-line config.ts), `MergedRecord` as a tagged union
 (parsed from the existing pointer strings, so the lock format is unchanged).
 
-Wave 3, decomposition: the twenty largest functions split into pure planning
+Wave 3 (done), decomposition: the twenty largest functions split into pure planning
 and I/O execution, starting with `deployItem` (162 lines, cyclomatic 87),
 `registerOrigin`, `renderCodexTable`, `renderAgent`, `importMarketplace`,
 `uninstallEntities`, `parseMarketplace`, `fetchOrigin`, `updateEntities`,
@@ -115,7 +120,7 @@ Ordered by the number of real APM bugs each item prevents.
 
 1. Git runs with a clean environment (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_CONFIG_*` dropped), `BatchMode=yes` for SSH, timeouts on every git call.
 2. Lockfile replay: bare `palm install` deploys the locked commit, not the latest tag; `--frozen` fails on any manifest/lock mismatch; an alias missing from the machine's config is recreated from the URL in the lock.
-3. Machine-independent projects: the first project install persists `targets:` to `palm.yaml`; a project without it and without a flag is an error, not a guess. Project-declared origins never shadow user aliases (same alias must mean the same URL), are ignored under `-g`, and local-path origins must live inside the project.
+3. Machine-independent projects: the first project install that places something persists `targets:` to `palm.yaml` (a failed or ambiguous run saves nothing); global scope saves `targets` to config.yaml only for an explicit `--target -g` or `palm config set targets`, never detection. Project-declared origins never shadow user aliases (same alias must mean the same URL), are ignored under `-g`, and local-path origins must live inside the project.
 4. Failures are never exit 0: a failed target, origin refresh or file removal is recorded and exits 1 with the partial state in the lock.
 5. Lockfile v2: per-file content hashes (edit-safe: palm refuses to overwrite or delete a file the user changed unless `--force`), a `transform` version per entry (a palm upgrade re-renders instead of going stale or mass-deleting), no timestamps (no merge churn), CRLF-normalised hashes for text files.
 6. Target contraction: shrinking `targets:` removes the dropped harness's files on the next install.
@@ -197,7 +202,7 @@ Still needed, in order:
 
 ## 7. Launch order
 
-1. Phase 1 waves 0–3, each gated on green tests and the lint ratchet.
+1. Phase 1 waves 0–3, each gated on green tests and the lint ratchet (done).
 2. Phase 2 and 3 features in parallel workstreams with disjoint ownership.
 3. Release engineering files and workflows.
 4. Docs site and landing page; brand assets.

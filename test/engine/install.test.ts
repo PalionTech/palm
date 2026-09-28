@@ -2,8 +2,9 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadLock } from '../../src/core/lockfile.js';
-import { loadManifest } from '../../src/core/manifest.js';
+import { type McpServerConfig, TRANSFORM_VERSION } from '../../src/core/types.js';
+import { Lock } from '../../src/domain/lock.js';
+import { Manifest } from '../../src/domain/manifest.js';
 import { installEntities } from '../../src/engine/install.js';
 import { fakeUI } from '../support/fakes.js';
 import { removeDir } from '../support/sandbox.js';
@@ -13,8 +14,9 @@ describe('installEntities', () => {
   let w: World;
   afterEach(async () => removeDir(w.sb.root));
 
-  const lockOf = (world: World) => loadLock(join(world.sb.project, 'palm.lock.yaml'));
-  const manifestOf = (world: World) => loadManifest(join(world.sb.project, 'palm.yaml'));
+  const lockOf = (world: World) => Lock.load(join(world.sb.project, 'palm.lock.yaml'));
+  const manifestOf = (world: World) =>
+    Manifest.load(join(world.sb.project, 'palm.yaml')).then((m) => m.toJSON());
 
   it('installs a skill into every target and records lock + manifest', async () => {
     w = await makeWorld();
@@ -44,7 +46,7 @@ describe('installEntities', () => {
       name: 'wayfinder',
       origin: 'a',
       path: 'skills/wayfinder',
-      transform: 1,
+      transform: TRANSFORM_VERSION,
       targets: ['claude', 'codex'],
       files: [{ path: '.claude/skill/wayfinder.txt' }, { path: '.codex/skill/wayfinder.txt' }],
     });
@@ -268,6 +270,35 @@ describe('installEntities', () => {
     ).rejects.toMatchObject({ code: 'E_NOT_FOUND' });
   });
 
+  it('names required and optional secrets the same way in a dry run and an install', async () => {
+    w = await makeWorld();
+    const adhocMcp: McpServerConfig = {
+      name: 'svc',
+      transport: 'http',
+      url: 'https://svc.example/mcp',
+      headers: { Authorization: 'Bearer ${SVC_TOKEN}', 'X-Team': '${SVC_TEAM:-}' },
+      secrets: [
+        { name: 'SVC_TOKEN', in: 'header', header: 'Authorization', required: true },
+        { name: 'SVC_TEAM', in: 'header', header: 'X-Team', required: false },
+      ],
+    };
+    const request = [{ kind: 'mcp' as const, spec: 'svc', adhocMcp }];
+    const opts = { scope: 'project' as const, targets: ['claude' as const] };
+    w.ctx.flags.dryRun = true;
+    const dry = await installEntities(w.ctx, request, opts, w.deps);
+    expect(dry.outcomes[0]!.notes).toEqual(
+      expect.arrayContaining(['requires secret SVC_TOKEN', 'optional secret SVC_TEAM (unset)']),
+    );
+    w.ctx.flags.dryRun = false;
+    const real = await installEntities(w.ctx, request, opts, w.deps);
+    expect(real.outcomes[0]!.notes).toEqual(
+      expect.arrayContaining([
+        'requires secret SVC_TOKEN: export it before starting the harness',
+        'optional secret SVC_TEAM (unset): export it to use it (left empty otherwise)',
+      ]),
+    );
+  });
+
   it('installs ad hoc MCP servers with literal secrets globally', async () => {
     w = await makeWorld();
     const adhocMcp = {
@@ -289,11 +320,11 @@ describe('installEntities', () => {
       secretPolicy: 'literal',
     });
     expect(existsSync(join(w.sb.home, '.claude/mcp/fs.txt'))).toBe(true);
-    const m = await loadManifest(join(w.sb.palmHome, 'palm.yaml'));
+    const m = (await Manifest.load(join(w.sb.palmHome, 'palm.yaml'))).toJSON();
     expect(m.mcp).toEqual([
       { name: 'fs', transport: 'stdio', command: 'npx', args: ['-y', 'server-fs'] },
     ]);
-    expect((await loadLock(join(w.sb.palmHome, 'palm.lock.yaml'))).entries).toHaveLength(1);
+    expect((await Lock.load(join(w.sb.palmHome, 'palm.lock.yaml'))).entries).toHaveLength(1);
   });
 
   it('records a failed target and goes on; all targets failing is a failed outcome, not a throw', async () => {

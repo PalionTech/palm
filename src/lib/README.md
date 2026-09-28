@@ -82,7 +82,7 @@ suffix, e.g. `import { isRecord } from '../lib/object.js'`.
 - `parseYaml<T = unknown>(text: string, source?: string): T | undefined`: undefined for an empty document; throws `invalid YAML in <source>: …`.
 - `stringifyYaml(value: unknown): string` (block style, no folding, trailing newline); `yamlScalar(value: string): string` (quoted only when needed).
 - `readYamlFile<T = unknown>(file: string): Promise<T | undefined>`: undefined when missing or empty.
-- `writeYamlFile(file: string, value: unknown, opts?: WriteYamlOptions): Promise<void>`: atomic; patches the file's current YAML (or `preserveFrom` text) so comments, order and unchanged nodes survive.
+- `writeYamlFile(file: string, value: unknown, opts?: WriteYamlOptions): Promise<void>`: atomic; patches the file's current YAML (or `preserveFrom` text) so comments, order and unchanged nodes survive. A new key goes where `value` orders it among the existing keys (not at the end); a new top-level `flowKeys` list is written in flow style.
 - `interface WriteYamlOptions { preserveFrom?: string | false; flowKeys?: readonly string[]; comment?: string; mode?: number }`: `preserveFrom: false` always writes fresh; `flowKeys` and `comment` (lines without `#`) apply to fresh documents.
 
 Also in `src/core/errors.ts`: `messageOf(e: unknown): string` and the `E_CANCELLED` code.

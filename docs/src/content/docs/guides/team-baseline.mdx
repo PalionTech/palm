@@ -1,0 +1,126 @@
+---
+title: Share a team baseline
+description: Every clone installs the same entities, from the same commits, for the same harnesses.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Capture from '../../../components/Capture.astro';
+
+A platform team keeps its shared skills and agents (subagents) in one repository, and every service repository should use them.
+A new developer should get the exact same setup on day one, without registering origins or picking harnesses.
+palm stores the origin, the harnesses and the locked commits in two files you commit.
+
+When you finish, a teammate on a new machine clones the repository and runs one command:
+
+<Capture name="b-team-clone" title="~/project" />
+
+palm installs the commit the lockfile names, `v1.0.0`, although the origin has a newer tag.
+`palm outdated` shows the newer tag without changing anything.
+
+The sessions on this page use a local git repository with two tags in place of a GitHub repository.
+Its URL is `file://~/src/team-kit`; yours is `acme/agent-kit` or any git URL.
+
+## Before you start
+
+- A shared repository of skills or agents with release tags, such as `v1.0.0`.
+- palm on every developer's machine and in CI.
+
+## Steps
+
+<Steps>
+
+1. Choose the harnesses for the whole team.
+
+   ```sh
+   palm init --target claude,codex
+   ```
+
+   `targets:` in `palm.yaml` comes before each developer's global default and before detection.
+   So every clone installs for these harnesses, whatever the machine has.
+
+2. Add the team's origin to the project, not to your own config.
+
+   ```sh
+   palm install origin acme/agent-kit --alias team --project
+   ```
+
+   `--project` writes the origin under `origins:` in `palm.yaml`.
+   A teammate needs no `palm install origin` of their own.
+
+3. Install what the team uses.
+
+   ```sh
+   palm install skill ci-watch@team
+   palm install agent ci-watcher@team
+   ```
+
+   <Capture name="b-team-setup" title="~/project" />
+
+   Without a ref, palm takes the origin's latest semver tag.
+   The lockfile records that tag and its commit for each entry.
+
+4. Commit `palm.yaml` and `palm.lock.yaml`.
+
+   ```sh
+   git add palm.yaml palm.lock.yaml
+   git commit -m "Add the team agent baseline"
+   ```
+
+   Decide whether the files palm wrote go into git as well:
+
+   | You commit | On a fresh clone |
+   | --- | --- |
+   | `palm.yaml`, `palm.lock.yaml` and the harness files | The harnesses work at once. `palm install` restores what git does not hold, such as hook scripts in `.palm/`. |
+   | only `palm.yaml` and `palm.lock.yaml` | `palm install` writes every file from the locked commits, as in the session at the top. |
+
+5. On every clone, run `palm install` with no names.
+
+   ```sh
+   palm install
+   ```
+
+   palm reads the origin from `palm.yaml` and fetches the commit in the lockfile.
+   A newer tag never changes what a bare `palm install` writes.
+
+6. Move the team to a new release when you choose to.
+
+   ```sh
+   palm update --dry-run
+   palm update
+   ```
+
+   <Capture name="b-team-update" title="~/project" />
+
+   `--dry-run` prints the plan and writes nothing.
+   In a terminal, `palm update` prints the same plan and asks before it writes; `--yes` skips the question.
+   The agent did not change between the two tags, so its entry keeps the `v1.0.0` commit.
+   Commit the new `palm.lock.yaml`, and every clone moves to `v1.1.0` on its next `palm install`.
+
+</Steps>
+
+To accept only compatible releases, pin a semver range in `palm.yaml`:
+
+```yaml title="palm.yaml"
+skills:
+  - ci-watch@team#^1.0
+```
+
+`palm update` then moves to the highest `1.x` tag and never to `2.0.0`.
+
+## Check the result
+
+Run the CI check on a clean checkout:
+
+```sh
+palm install --frozen --yes
+```
+
+It exits 0 when `palm.yaml`, `palm.lock.yaml` and the files on disk agree.
+It exits 1 and lists each difference when a file was edited or an entry is missing from the lockfile.
+
+## Next steps
+
+- [Use palm in CI and scripts](/palm/guides/ci/) runs that check on every pull request.
+- [Publish your own skills](/palm/guides/publish-your-own/) creates the shared repository.
+- [Origins](/palm/concepts/origins/) explains refs, aliases and project origins.
+- [Manifest and lockfile](/palm/concepts/manifest-and-lockfile/) explains replay and `--frozen`.

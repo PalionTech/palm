@@ -12,7 +12,7 @@
       "short": "-t",
       "long": "--target",
       "argument": "<ids>",
-      "description": "targets: claude,codex,copilot,cursor"
+      "description": "comma-separated: claude, codex, copilot, cursor, gemini, opencode"
     },
     {
       "flags": "--dry-run",
@@ -197,7 +197,7 @@
             {
               "flags": "--save-origin",
               "long": "--save-origin",
-              "description": "register the --from origin"
+              "description": "register the --from origin in the global config (with --project: in palm.yaml)"
             },
             {
               "flags": "--secrets <policy>",

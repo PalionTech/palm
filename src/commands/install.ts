@@ -16,6 +16,7 @@ import type {
   TargetId,
 } from '../core/types.js';
 import { DepRef } from '../domain/dep-ref.js';
+import type { FoundTargets } from '../engine/resolve-targets.js';
 import { type Output, outputOf, printInstallSummary } from '../ui/output.js';
 import type { App } from './app.js';
 import { type Invocation, usage } from './grammar.js';
@@ -49,7 +50,8 @@ export interface ParsedInstallArgs {
   kind?: Kind;
   specs: string[];
   from?: string;
-  saveOrigin: boolean;
+  /** `--save-origin`: register the `--from` origin in config.yaml, or palm.yaml with `--project`. */
+  saveOrigin: false | 'global' | 'project';
   secrets?: SecretPolicy;
   prune: boolean;
   /** `--frozen`: install exactly what the lock records; any difference is an error. */
@@ -158,7 +160,10 @@ function checkKindAndSpecs(kind: Kind | undefined, specs: string[], opts: Instal
     const repo = specs.find(looksLikeRepoRef);
     if (repo) throw repoRefError(repo);
   }
-  const originOnly = ORIGIN_ONLY.filter((k) => opts[k] !== undefined);
+  // --project also says where --save-origin registers the --from origin
+  const originOnly = ORIGIN_ONLY.filter(
+    (k) => opts[k] !== undefined && !(k === 'project' && opts.saveOrigin),
+  );
   if (originOnly.length)
     throw usage(
       `--${originOnly.join(', --')} only apply to origins`,
@@ -191,6 +196,12 @@ function checkMode(mode: 'install' | 'sync', kind: Kind | undefined, opts: Insta
     );
 }
 
+/** Where `--save-origin` registers the `--from` origin: config.yaml, or palm.yaml with --project. */
+function saveOriginScope(save?: boolean, project?: boolean): ParsedInstallArgs['saveOrigin'] {
+  if (!save) return false;
+  return project ? 'project' : 'global';
+}
+
 /** Pure interpretation of an install invocation (entity kinds; origins go to origin.ts). */
 export function interpretInstallArgs(inv: Invocation, passthrough: string[]): ParsedInstallArgs {
   const opts = inv.opts as InstallCliOptions;
@@ -200,13 +211,25 @@ export function interpretInstallArgs(inv: Invocation, passthrough: string[]): Pa
   const adhoc = adhocArgs(kind, specs, opts, passthrough);
   const mode = specs.length === 0 ? 'sync' : 'install';
   checkMode(mode, kind, opts);
-  const { from, saveOrigin, secrets, prune, frozen, url, header, env, transport, ...global } = opts;
+  const {
+    from,
+    saveOrigin,
+    project,
+    secrets,
+    prune,
+    frozen,
+    url,
+    header,
+    env,
+    transport,
+    ...global
+  } = opts;
   return {
     mode,
     kind,
     specs,
     from,
-    saveOrigin: Boolean(saveOrigin),
+    saveOrigin: saveOriginScope(saveOrigin, project),
     secrets: parseSecretPolicy(secrets),
     prune: Boolean(prune),
     frozen: Boolean(frozen),
@@ -251,18 +274,26 @@ export async function installWithContext(
   finishInstall(r, result, targets);
 }
 
-/** Targets, saved to palm.yaml / config.yaml when none are stored (not under --frozen). */
-async function resolveTargetsFor(r: InstallRun): Promise<TargetId[]> {
-  const { resolveTargets } = await import('../engine/resolve-targets.js');
-  return resolveTargets(
-    r.ctx,
-    { scope: r.parsed.scope, flag: r.parsed.targets, save: !r.parsed.frozen },
-    r.deps,
-  );
+/** The targets of this run; `persistTargets` saves them once the run placed something. */
+async function findTargetsFor(r: InstallRun): Promise<FoundTargets> {
+  const { findTargets } = await import('../engine/resolve-targets.js');
+  return findTargets(r.ctx, { scope: r.parsed.scope, flag: r.parsed.targets }, r.deps);
+}
+
+/**
+ * Save the targets (palm.yaml, or config.yaml for an explicit `--target -g`) after an install
+ * that placed something: a failed, ambiguous or cancelled run (it threw) saves nothing, and
+ * `--frozen` never writes.
+ */
+async function saveTargetsAfter(r: InstallRun, found: FoundTargets, result: InstallResult) {
+  const { persistTargets, placedSomething } = await import('../engine/resolve-targets.js');
+  if (!r.parsed.frozen && placedSomething(result))
+    await persistTargets(r.ctx, r.parsed.scope, found);
 }
 
 async function syncInstall(r: InstallRun): Promise<void> {
-  const targets = await resolveTargetsFor(r);
+  const found = await findTargetsFor(r);
+  const { targets } = found;
   const { syncManifest } = await import('../engine/sync.js');
   const { parsed } = r;
   const result: InstallResult & { extraneous: LockEntry[] } = await syncManifest(
@@ -276,6 +307,7 @@ async function syncInstall(r: InstallRun): Promise<void> {
     },
     r.deps,
   );
+  await saveTargetsAfter(r, found, result);
   finishInstall(r, result, targets);
   if (!result.extraneous.length || r.out.jsonMode) return;
   const names = result.extraneous.map((e) => `${e.kind} ${e.name}`).join(', ');
@@ -289,7 +321,12 @@ async function syncInstall(r: InstallRun): Promise<void> {
 function finishInstall(r: InstallRun, result: InstallResult, targets: TargetId[]): void {
   const { out, parsed } = r;
   if (out.jsonMode) out.json(result);
-  else printInstallSummary(out, result, { scope: parsed.scope, targets });
+  else
+    printInstallSummary(out, result, {
+      scope: parsed.scope,
+      targets,
+      dryRun: parsed.global.dryRun,
+    });
   if (parsed.global.dryRun && !out.jsonMode) out.hint(`\n${DRY_RUN_NOTE}`);
   const failed = failureCount(result);
   if (failed) {
@@ -343,7 +380,8 @@ async function saveFromOrigin(r: InstallRun, from: OriginSpec): Promise<OriginSp
     return from;
   }
   const { addOrigin } = await import('../core/config.js');
-  const saved = await addOrigin(r.ctx, from, { scope: r.parsed.scope });
+  // Like `palm install origin`: the user's config unless --project, whatever the install scope.
+  const saved = await addOrigin(r.ctx, from, { scope: r.parsed.saveOrigin || 'global' });
   r.out.added(`origin ${pc.bold(saved.alias)}`);
   return saved;
 }
@@ -354,7 +392,7 @@ async function installRequests(
   const { parsed } = r;
   let from: OriginSpec | undefined;
   if (parsed.from) {
-    const { parseOriginInput } = await import('../core/config.js');
+    const { parseOriginInput } = await import('../core/origin-input.js');
     from = parseOriginInput(parsed.from, { cwd: r.ctx.paths.cwd });
   }
   const requests = await buildRequests(r, from);
@@ -363,7 +401,8 @@ async function installRequests(
     const saved = await saveFromOrigin(r, from);
     for (const q of requests) if (q.from) q.from = saved;
   }
-  const targets = await resolveTargetsFor(r);
+  const found = await findTargetsFor(r);
+  const { targets } = found;
   const { installEntities } = await import('../engine/install.js');
   const result = await installEntities(
     r.ctx,
@@ -371,6 +410,7 @@ async function installRequests(
     { scope: parsed.scope, targets, secretPolicy: parsed.secrets },
     r.deps,
   );
+  await saveTargetsAfter(r, found, result);
   return { result, targets };
 }
 

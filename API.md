@@ -7,15 +7,13 @@ from `src/core/types.ts`. All local imports use the `.js` suffix (NodeNext).
 ## src/core (owner: core agent)
 
 ```ts
-// paths.ts (scope functions are facades over domain/scope-paths.ts; new code uses ScopePaths)
+// paths.ts (every scope-dependent path is domain/scope-paths.ts ScopePaths)
 export function resolvePaths(cwd: string, env: NodeJS.ProcessEnv): PalmPaths; // PALM_HOME: `~` expanded, relative → against HOME
-export function scopeRoot(paths: PalmPaths, scope: Scope): string;          // projectRoot | home
-export function manifestPath(paths: PalmPaths, scope: Scope): string;       // <root>/palm.yaml | <palmHome>/palm.yaml
-export function lockPath(paths: PalmPaths, scope: Scope): string;
-export function hooksAssetDir(paths: PalmPaths, scope: Scope, entityName: string): string; // <projectRoot>/.palm/hooks/<n> | <palmHome>/hooks/<n>; throws for unsafe names
+export function projectManifest(paths: PalmPaths): string;                   // <projectRoot>/palm.yaml
 export function configPath(paths: PalmPaths): string;
 export function cacheDir(paths: PalmPaths): string;
-export function isHomeAsProject(paths: PalmPaths, env: NodeJS.ProcessEnv): boolean; // projectRoot === homeOf(env) and no palm.yaml there (a dotfiles .git is no marker): refuse project scope
+export function isHomeAsProject(paths: PalmPaths, env: NodeJS.ProcessEnv): boolean; // projectRoot === homeOf(env) and no palm.yaml there (a dotfiles .git is no marker);
+// the one rule: install/sync (engine scopedContext) refuse project scope, find and audit search only the global scope
 // lib/names.ts
 export function isSafeName(name: string): boolean;                           // one path segment: [A-Za-z0-9][A-Za-z0-9._-]*, no ".."
 
@@ -65,16 +63,10 @@ export async function createContext(init: ContextInit): Promise<PalmContext>;
 export function refreshOrigins(ctx: PalmContext, change: { config?: PalmConfig; project?: readonly OriginSpec[] | 'reload' }): void;
 // the one place ctx.config / the project layer change after a save (addOrigin/removeOrigin/ensureMineOrigin); never mutates the old config
 
-// config.ts — FACADE (`/** facade: prefer src/domain + core/config-file */`): exactly the pre-2C names, now over Origin/OriginSet/config-file
-export { loadConfig, saveConfig } from './config-file.js';
-export { deriveAlias, type ParseOriginOptions, parseOriginInput, validateOriginUrl } from './origin-input.js';
-export function originId(spec: OriginSpec): string;                          // new Origin(spec).id
-export function projectOrigins(ctx: PalmContext): OriginSpec[];             // ctx.origins.projectSpecs()
-export function allOrigins(ctx: PalmContext): OriginSpec[];                 // ctx.origins.specs(): user order, project-only appended, project wins a clash
-export function findOrigin(ctx: PalmContext, alias: string): OriginSpec | undefined;   // ctx.origins.byAlias(alias)?.spec
-export function matchOrigin(spec: OriginSpec, query: string): boolean;         // new Origin(spec).matches(query)
-export function resolveOriginQuery(ctx: PalmContext, query: string): OriginSpec; // ctx.origins.resolveQuery(query).spec
-export async function addOrigin(ctx: PalmContext, spec: OriginSpec, opts?: { scope?: Scope }): Promise<OriginSpec>; // config (global) or palm.yaml origins (project); a taken DERIVED alias is renamed, an explicit one → E_CONFLICT; bad alias → E_USAGE
+// config.ts — registering origins (reading them is ctx.origins; parsing input is origin-input.ts; the files are config-file.ts)
+export async function addOrigin(ctx: PalmContext, spec: OriginSpec, opts?: { scope?: Scope }): Promise<OriginSpec>; // config (global) or palm.yaml origins (project); a taken DERIVED alias is renamed, an explicit one → E_CONFLICT; bad alias → E_USAGE;
+//   project: a local origin outside the project → E_ORIGIN (assertProjectOrigin), stored with a project-relative path
+export function assertProjectOrigin(spec: OriginSpec, projectRoot: string): void; // `install origin <path> --project` checks before fetching
 export async function removeOrigin(ctx: PalmContext, alias: string): Promise<void>; // both files; E_NOT_FOUND when in neither; works with a broken palm.yaml
 export async function ensureMineOrigin(ctx: PalmContext): Promise<OriginSpec>; // creates <palmHome>/mine (+ git init) and registers alias "mine"
 // (ORIGIN_ALIAS_RE was never exported: use lib/names ALIAS_RE / isValidAlias.)
@@ -130,23 +122,6 @@ export class OriginSet {
   without(alias: string): OriginSet;          // from both layers
 }
 
-// manifest.ts, lockfile.ts: facades over the domain classes below (same names and behaviour); new code uses the classes.
-export function parseDepRef(spec: string): DepRef;                           // DepRef.parse(spec).toJSON()
-export function formatDepRef(ref: DepRef): string;
-export function normalizeDep(spec: DepSpec): DepRef;
-export async function loadManifest(file: string): Promise<Manifest>;          // {} when missing
-export async function saveManifest(file: string, m: Manifest): Promise<void>;
-export function addDep(m: Manifest, kind: Kind, dep: DepRef | McpManifestEntry): Manifest;
-export function removeDep(m: Manifest, kind: Kind, name: string): Manifest;
-export function listDeps(m: Manifest, kind: Kind): Array<DepRef | McpManifestEntry>;
-export function isMcpManifestEntry(dep: unknown): dep is McpManifestEntry;  // re-export (domain/manifest)
-export async function loadYaml(file: string): Promise<unknown>;             // re-export (domain/manifest): undefined when missing/empty; E_IO / E_PARSE
-export async function loadLock(file: string): Promise<Lockfile>;              // {version:1, entries:[]} when missing
-export async function saveLock(file: string, lock: Lockfile): Promise<void>;
-export function upsertEntry(lock: Lockfile, entry: LockEntry): Lockfile;
-export function removeEntry(lock: Lockfile, kind: Kind, name: string, origin?: string): Lockfile;
-export function findEntry(lock: Lockfile, kind: Kind, name: string, origin?: string): LockEntry | undefined;
-
 // ../domain/dep-ref.ts — the one dependency grammar `<name>[@<origin>][#<ref>]`; `@` splits only when no `/` follows
 export const DEP_GRAMMAR: string;                               // the E_USAGE hint
 export function sameName(a: string, b: string): boolean;         // case-insensitive
@@ -193,7 +168,7 @@ export class Manifest {
 // ../domain/lock.ts — palm.lock.yaml as a collection keyed by LockKey (O(1) find); mutators change the lock and return it
 // Lockfile v2 (core/types.ts): LockEntry { kind; name; origin; url?; root?; ref?; sha?; path; contentHash; transform: number;
 //   targets; files: LockedFile[]; merged?; via?; deps? }, LockedFile { path; hash } (hash = hashPath of the written file,
-//   CRLF-normalised text; '' = unknown), no timestamps. `TRANSFORM_VERSION` (core/types.ts, now 1) is the rendering version
+//   CRLF-normalised text; '' = unknown), no timestamps. `TRANSFORM_VERSION` (core/types.ts, now 2: agents list bare dependency names) is the rendering version
 //   entries record; bump it when a target writes different bytes for the same entity (targets import it from core/types).
 //   InstallFailure { kind: Kind | 'origin'; name; origin; target?; code; message; hint? }; InstallResult { outcomes; warnings;
 //   failures }; InstallOutcome.status adds 'failed'.
@@ -236,7 +211,8 @@ export async function withCheckoutLock<T>(file: string, fn: () => Promise<T>, op
 // advisory lock: O_EXCL create of `{pid, host, createdAt}`; mtime refreshed every 60 s while held; waits with backoff
 // (25 ms doubling to 1 s) up to timeoutMs (60 s) then E_IO with a hint; a lock untouched for staleMs (10 min) or held
 // by a dead pid on this host is taken over; release removes the file only while it is still ours.
-export async function listRemoteRefs(url: string): Promise<{ tags: string[]; heads: string[] }>; // ls-remote --tags --heads --refs
+export async function listRemoteRefs(url: string): Promise<{ tags: string[]; heads: string[]; headShas: Record<string, string>; tagShas: Record<string, string> }>;
+// ls-remote --tags --heads; tagShas peel annotated tags (`^{}`) to their commit, so outdated compares commits
 export async function listRemoteTags(url: string): Promise<string[]>;
 export function latestSemverTag(tags: string[]): string | undefined;      // highest semver tag (v-prefix ok); prereleases only when no release
 export function isSemverRange(ref: string): boolean;                     // semver.validRange and not one exact version or sha: ^1.2 ~1.2 ">=1.2 <2" 1.x v1
@@ -262,11 +238,12 @@ export const NETWORK_TIMEOUT_MS = 120_000; export const LOCAL_TIMEOUT_MS = 30_00
 // git.ts maps it to E_NETWORK (network) / E_GIT (local) with a hint and never retries a timed-out fetch
 export class GitFailure extends Error { detail: string; opts: { network: boolean; timedOutMs?: number } }
 export function isGitTimeout(e: unknown): boolean;
-export function withBatchMode(cmd: string): string; export function isSshUrl(url?: string): boolean; export function isLocalRepoUrl(url?: string): boolean;
+export function withBatchMode(cmd: string): string; export function isSshUrl(url?: string): boolean;
 
-// cache.ts
-export async function getIndex(ctx: PalmContext, spec: OriginSpec, opts?: { refresh?: boolean; scan?: EngineDeps['scan'] }): Promise<OriginIndex>;
-export async function getAllIndexes(ctx: PalmContext, opts?: { refresh?: boolean; scan?: EngineDeps['scan'] }): Promise<OriginIndex[]>;
+// cache.ts — the scanner is always injected (core never imports src/index): engine passes deps.scan, commands index/scan scanOrigin
+export async function getIndex(ctx: PalmContext, spec: OriginSpec, opts: { refresh?: boolean; scan: EngineDeps['scan'] }): Promise<OriginIndex>;
+export async function getAllIndexes(ctx: PalmContext, opts: { refresh?: boolean; scan: EngineDeps['scan'] }): Promise<OriginIndex[]>;
+export async function readCachedIndex(ctx: PalmContext, spec: OriginSpec): Promise<OriginIndex | undefined>; // no fetch; the same shape/format check as getIndex, any sha
 export async function invalidateIndex(ctx: PalmContext, spec: OriginSpec): Promise<void>;
 export function indexFilePath(ctx: PalmContext, spec: OriginSpec): string;   // Origin.indexFile(<cache>): <originId>[@<ref>][~<layout hash>].index.json (atomic writes)
 // getAllIndexes iterates ctx.origins.all(); indexes are written with lib/fs writeJsonFile (temp + rename).
@@ -288,7 +265,6 @@ export async function hashPath(absPath: string, opts?: { boundary?: string }): P
 // EngineDeps (src/core/types.ts) spells out each collaborator's signature: scan, getTarget, resolveRegistry,
 // resolveSecrets (the former ScanOriginFn/ResolveRegistryFn/ResolveSecretsFn aliases are gone; use EngineDeps['scan'] …).
 // src/engine/deps.ts re-exports EngineDeps and supplies the lazily imported defaults:
-export function defaultEngineDeps(): EngineDeps;
 export async function resolveEngineDeps(partial?: Partial<EngineDeps>, opts?: { targets?: boolean }): Promise<EngineDeps>;
 
 // install.ts — scopedContext → plan.ts (resolve + expand) → consent → per item deploy.ts, lock + manifest saved after every item
@@ -299,13 +275,14 @@ export async function installEntities(ctx: PalmContext, requests: EngineRequest[
 //   E_CANCELLED (declined consent, SIGINT: stops after the current item, lock saved), E_USAGE (home as project).
 // EngineRequest = InstallRequest & { locked?: LockEntry /* replay at locked.sha, keep locked.ref */; mcpName?: string /* registry key from palm.yaml */ }
 // EngineInstallOptions = InstallOptions & { exactTargets?: boolean /* targets is the full set: contraction */; frozen?: boolean /* no
-//   lock/manifest/config writes; content must equal the lock */; recordRequestErrors?: boolean /* sync */; consented?: boolean }
+//   lock/manifest/config writes; content must equal the lock */; recordRequestErrors?: boolean /* sync */ }
+// InstallOptions.consented?: readonly string[] — executablesOf lines the caller already had the user allow (palm update's one
+//   prompt); the install asks only about any others.
 export function dedupeOutcomes(outcomes: InstallOutcome[]): InstallOutcome[];   // one per kind+name+origin
-export async function preflightInstall(ctx: PalmContext, requests: InstallRequest[], deps?: Partial<EngineDeps>): Promise<void>; // CLI runs it before resolveTargets: throws installEntities' E_NOT_FOUND/E_ORIGIN for unmatched names; skips ad hoc/registry-only names; no picker
-export function scopedContext(ctx: PalmContext, scope: Scope): PalmContext;    // scope guards: E_USAGE home-as-project (no palm.yaml/.git);
+export async function preflightInstall(ctx: PalmContext, requests: InstallRequest[], deps?: Partial<EngineDeps>): Promise<void>; // CLI runs it before findTargets: throws installEntities' E_NOT_FOUND/E_ORIGIN for unmatched names; skips ad hoc/registry-only names; no picker
+export function scopedContext(ctx: PalmContext, scope: Scope): PalmContext;    // scope guards: E_USAGE home-as-project (core/paths isHomeAsProject);
 //   project: E_CONFLICT when ctx.origins.conflicts() (project alias = user alias, other source), E_ORIGIN for a local project origin
 //   outside the project; global: a copy of ctx whose origins are the user's only (project origins ignored under -g)
-export function assertProjectRoot(ctx: PalmContext, scope: Scope): void;        // the home-as-project guard alone
 export function executablesOf(e: Entity): string[];                            // consent lines: `hook <n> (<dialect>): <event> → <command>`, `mcp <n>: <command args>`
 export function requestInstallStop(): void;                                    // what SIGINT does: running installs stop after the current item
 // plan.ts — resolution and expansion (pure apart from index reads and the picker)
@@ -322,7 +299,9 @@ export async function deployItem(dc: DeployContext, item: PlanItem): Promise<Ins
 export async function modifiedFiles(paths: LockPaths, entries: readonly LockEntry[]): Promise<string[]>; // edit-safe check (Lock.modifiedFiles + hashPath), for install and uninstall
 export function failureOf(e: { kind; name; origin }, error: unknown, target?: TargetId): InstallFailure;
 // The previous install is undeployed only after the new deploy reached a target, and only what the new entry no longer lists
-// (files by path; merged by file + pointer, `/hooks/…` items also by value), via uninstall.ts `undeploy`.
+// (files by path, except a case variant that is the same file on disk; merged by file + pointer, appended `json-item`
+// records (hook entries, OpenCode `/instructions`) also by value), via uninstall.ts `undeploy`.
+// Secret notes, dry run and install alike: `requires secret A`, `optional secret B (unset)`; an install adds what to export.
 // uninstall.ts — selection → plan (Lock.planRemoval, pure) → apply (undeploy) → persist; never throws for per-file/target failures
 export async function uninstallEntities(ctx: PalmContext, refs: Array<{ kind?: Kind; name: string; origin?: string }>, opts: { scope: Scope }, deps?: Partial<EngineDeps>): Promise<UninstallResult>;
 // UninstallResult { removed: LockEntry[]; skipped: Array<{ kind; name; origin; files: string[] }>; failures: InstallFailure[]; warnings: string[] }
@@ -346,14 +325,17 @@ export function satisfies(e: LockEntry, d: { kind: Kind; dep: DepRef | McpManife
 export function manifestDeps(m: Manifest | domain Manifest): Array<{ kind: Kind; dep: DepRef | McpManifestEntry }>; // used by doctor
 // update.ts — selection (named entries → root of their via chain) → plan (refresh each origin index once per
 // alias+ref, compare contentHash / transform / files present; nothing in the scope is written) → apply (installEntities
-// for the roots that change, grouped by targets; it persists the lock). The CLI prints the plan and asks in between.
+// for the roots that change, grouped by targets; it persists the lock). The CLI prints the plan (with the commands it would
+// allow) and asks once; applyUpdate passes planExecutables(plan) as `consented`.
 export async function planUpdate(ctx: PalmContext, refs: Array<{ kind?: Kind; name: string }>, opts: { scope: Scope }, deps?: Partial<EngineDeps>): Promise<UpdatePlan>; // E_NOT_FOUND for names not installed
 export async function applyUpdate(ctx: PalmContext, plan: UpdatePlan, deps?: Partial<EngineDeps>): Promise<UpdateResult>;       // unchanged entries become `unchanged` outcomes
 export async function updateEntities(ctx: PalmContext, refs: Array<{ kind?: Kind; name: string }>, opts: { scope: Scope }, deps?: Partial<EngineDeps>): Promise<UpdateResult>; // plan + apply, no prompt
 export function planChanges(plan: UpdatePlan): number;                          // items marked updated / added / removed
+export function planExecutables(plan: UpdatePlan): string[];                     // every item's `executables`, once each
 // UpdatePlan { scope; items: UpdatePlanItem[]; apply: Array<{ targets; requests: InstallRequest[] }>; unchanged: LockEntry[]; failures: InstallFailure[]; warnings }
 // UpdatePlanItem { mark: 'updated' | 'added' | 'removed' | 'unchanged' | 'failed' | 'skipped'; kind; name; origin; via?;
-//   from?/to?: `v1.0.0 (abc1234)` or `content <hash7>`; atRisk: lock paths the user changed (Lock.modifiedFiles); note? }
+//   from?/to?: `v1.0.0 (abc1234)` or `content <hash7>`; atRisk: lock paths the user changed (Lock.modifiedFiles);
+//   executables?: executablesOf lines of what the item writes (updated: the new entity; added: from the root's origin index); note? }
 // failed: unreachable origin/registry, or a root its origin no longer has (InstallFailure, CLI exit 1); skipped: origin not
 // registered; a dependency its origin dropped stays `unchanged` with a warning. UpdateResult = InstallResult & { plan: UpdatePlanItem[] }.
 // outdated.ts — `palm outdated`; git refs via `git ls-remote` only (core/git listRemoteRefs / resolveRef), never the cache
@@ -361,9 +343,10 @@ export async function outdatedEntries(ctx: PalmContext, opts: { scope: Scope; ki
 // OutdatedReport { items: OutdatedItem[]; warnings }; OutdatedItem { kind; name; origin; current; wanted; latest; status }
 // direct installs only; current = locked ref (sha); wanted = palm.yaml #ref (or the origin's ref) now: a tag or branch as is,
 // a semver range its highest tag (maxSatisfyingTag), none = latest; latest = newest release tag, else the default branch.
-// status: current | outdated (wanted ≠ current) | pinned (current = wanted ≠ latest) | unknown (unreadable remote, --offline,
-// unregistered origin, a branch whose head commit is not reported) | untracked (local origin, ad hoc MCP). Registry MCP:
-// versions from deps.resolveRegistry. RemoteRefs { refs(url): { tags; heads; headShas? }; latest(url) } (tests inject it).
+// status: current | outdated (wanted's commit ≠ the locked one) | pinned (current = wanted, a newer release on another commit)
+// | unknown (unreadable remote, --offline, unregistered origin, commits not reported) | untracked (local origin, ad hoc MCP).
+// Commits are compared when known (tags peeled, branch heads), else names. Registry MCP: versions from deps.resolveRegistry.
+// RemoteRefs { refs(url): { tags; heads; headShas?; tagShas? }; latest(url) } (tests inject it).
 export function refLabel(r?: { ref?: string; sha?: string }): string;          // `v1.2.0 (abc1234)` | `v1.2.0` | `abc1234` | `?`
 // why.ts — `palm why`
 export async function whyInstalled(ctx: PalmContext, query: { kind: Kind; name: string; origin?: string }, opts: { scope: Scope }): Promise<WhyReport[]>; // one per origin; E_NOT_FOUND
@@ -373,13 +356,16 @@ export async function whyInstalled(ctx: PalmContext, query: { kind: Kind; name: 
 // find.ts — `palm find`
 export async function findFileOwners(ctx: PalmContext, query: string, opts: { scopes: readonly Scope[] }): Promise<{ owners: FileOwner[]; searched: Scope[] }>; // E_USAGE when no searched scope has a lockfile
 export function ownersIn(ctx: PalmContext, scope: Scope, lock: Lock, query: string): FileOwner[]; // pure over one lock
-// FileOwner { scope; file (lock path); match: 'file' | 'inside' (under an owned dir) | 'merged' (config file with a fragment); pointer?; entry }
+// FileOwner { scope; file (lock path); match: 'file' | 'inside' (under an owned dir) | 'merged' (config file with a fragment)
+//   | 'contains' (the queried directory holds `files` of the entry's files); pointer?; files?; entry }
 // query: absolute, `~/…`, relative to cwd or to the scope root; a path through a symlinked parent maps back under the root.
-// resolve-targets.ts
-export async function resolveTargets(ctx: PalmContext, opts: { scope: Scope; flag?: TargetId[]; save?: boolean }, deps?: Partial<EngineDeps>): Promise<TargetId[]>;
-//   flag > palm.yaml > config.yaml > detection > pick. save: palm.yaml (project) / config.yaml (global) get `targets:` when they
-//   have none, whatever decided them, and an explicit flag or pick replaces a different stored set; one info line
-//   ("saved targets claude, codex to palm.yaml"); never under --dry-run (the CLI passes save: false for --frozen).
+// resolve-targets.ts — flag > palm.yaml > config.yaml > detection > pick; nothing is saved while resolving
+export async function findTargets(ctx: PalmContext, opts: { scope: Scope; flag?: TargetId[] }, deps?: Partial<EngineDeps>): Promise<FoundTargets>; // { targets; source: flag | manifest | config | detected | picked }
+export async function resolveTargets(ctx: PalmContext, opts: { scope: Scope; flag?: TargetId[] }, deps?: Partial<EngineDeps>): Promise<TargetId[]>;
+export async function persistTargets(ctx: PalmContext, scope: Scope, found: FoundTargets): Promise<void>;
+//   project: palm.yaml gets `targets:` when it has none (any source), and a flag or pick replaces a different set;
+//   global: config.yaml only for source `flag` (detection and picks are never saved); one info line; never under --dry-run.
+export function placedSomething(result: InstallResult): boolean; // the CLI persists only after an install that placed something (not --frozen)
 // query.ts
 export async function listInstalled(ctx: PalmContext, scope: Scope, kind?: Kind): Promise<LockEntry[]>;
 export async function findCandidates(ctx: PalmContext, query: { kind?: Kind; name: string }, opts: { origin?: string; from?: OriginSpec; refresh?: boolean }, deps?: Partial<EngineDeps>): Promise<Entity[]>;
@@ -394,7 +380,7 @@ export function agentDepSpecs(entity: Entity): Array<{ kind: Kind; dep: DepRef }
 ## src/index (owner: scanner agent)
 
 ```ts
-// scan.ts: the only entry point the rest of palm uses (engine/deps, core/cache load it lazily)
+// scan.ts: the only entry point the rest of palm uses (engine/deps loads it lazily; commands pass scanOrigin to core/cache)
 export async function scanOrigin(root: string, spec: OriginSpec): Promise<ScanResult>;
 // Entity.issues / EntityIssue (core/types): scan findings per entity, see DESIGN §5 "Scan issues"
 //   { code: 'hidden-unicode', severity: 'critical' | 'warning', message: '<file>: <n> hidden characters, first U+XXXX NAME at line L', file }
@@ -427,7 +413,7 @@ Internal layout (nothing outside src/index imports these):
 | `entity-registry.ts` | name uniqueness per kind, duplicate warnings, symlinked aliases, claimed paths, plugin membership, `include` and undeclared-member warnings |
 | `adders.ts` | one adder per kind: parse a file (or skill directory) into an entity and register it |
 | `plugin-components.ts` | a plugin's declared/default components, merged hook sources, MCP files |
-| `hidden-unicode.ts` | the hidden-Unicode pass (`src/lib/unicode.ts` `scanHiddenUnicode`) |
+| `hidden-unicode.ts` | the hidden-Unicode pass (`src/lib/unicode.ts` `scanHiddenUnicode`, which runs the `MAY_HIDE_UNICODE` pre-check itself) |
 
 ## src/targets (owner: targets agent)
 
@@ -440,10 +426,13 @@ export function allTargets(): Target[];
 // Env read: CLAUDE_CONFIG_DIR, CODEX_HOME, COPILOT_HOME, GEMINI_CLI_HOME (→ $GEMINI_CLI_HOME/.gemini),
 // XDG_CONFIG_HOME (→ $XDG_CONFIG_HOME/opencode), OPENCODE_DISABLE_EXTERNAL_SKILLS, PALM_HOME.
 export function createTarget(id: TargetId, env?: NodeJS.ProcessEnv): GenericTarget;
-// Target.undeploy(entry, scope, scopeRoot, dryRun, env?) — env as DeployInput.env; entry.files are LockedFile[]
+// Target.undeploy(entry, scope, scopeRoot, dryRun, env?) — env as DeployInput.env; removes exactly entry.files (LockedFile[])
+//   inside this target's roots and `.palm/hooks`, pruning emptied dirs, and unmerges entry.merged; nothing else (a hook's
+//   asset dir keeps files the entry does not list)
 // convert-agent.ts — gemini: strict schema keys only, Gemini tool names; opencode: mode subagent,
 //   `permission` from tools/disallowedTools/mcpServers/skills, provider/model only, other keys stripped
 export function renderAgent(def: AgentDefinition, target: TargetId): { fileName: string; content: string; dropped: string[]; notes?: string[] };
+//   skills / mcpServers reach every harness as bare names (`tdd@mattpocock#v1` → `tdd`); the engine resolves the full refs
 // convert-instruction.ts — gemini: managedBlock (GEMINI.md); opencode: `<n>.md` (listed in opencode.json)
 export function renderInstruction(def: InstructionDefinition, target: TargetId): { fileName: string; content: string } | { managedBlock: string };
 // convert-command.ts — gemini: `<n>.toml` (description, prompt; $ARGUMENTS→{{args}}, !`cmd`→!{cmd}, @path→@{path}); opencode: `<n>.md`
@@ -456,7 +445,7 @@ export function opencodeServerPattern(server: string): string;          // `<ser
 export function hasToolArgument(entry: string): boolean;                // `Bash(git:*)`
 // convert-hooks.ts
 export function convertHooks(hooks: HookSet, target: TargetId, pluginRootAbs: string, paths: ScopePaths): { hooks: unknown; dropped: string[] }; // plugin-root commands also export CLAUDE_PLUGIN_ROOT (claude, codex, gemini) / CURSOR_PLUGIN_ROOT; gemini: Gemini event names, matchers via geminiMatcher, timeout ×1000 (ms); opencode: never called (hooks skipped)
-export function pluginRootReplacement(target: TargetId, pluginRootAbs: string, paths: ScopePaths): string; // global: pluginRootAbs; project (root inside it): `${PROJECT_DIR[target]}/<paths.lockForm(pluginRootAbs)>`
+// (internal) pluginRootReplacement: global → pluginRootAbs; project (root inside it) → `${PROJECT_DIR[target]}/<lock form>`
 export const PROJECT_DIR: Record<TargetId, string>; // claude $CLAUDE_PROJECT_DIR · cursor $CURSOR_PROJECT_DIR · gemini $GEMINI_PROJECT_DIR · codex, copilot (opencode, unused) $(git rev-parse --show-toplevel 2>/dev/null || pwd) — DESIGN.md §2
 // fs-utils.ts
 export async function listCopyFiles(root: string, opts?: { skipTop?: readonly string[]; boundary?: string }): Promise<WalkResult>; // lib/fs walkFiles with COPY_SKIP + top-level skipTop; symlinks only inside `boundary`
@@ -498,7 +487,8 @@ export async function removeManagedBlock(file: string, id: string): Promise<void
 // plan.ts — the deploy transaction:
 //   DeployPlan: writes (whole files), edits (shared file → planned text; `planMerge(plan, abs, transform)`
 //     reads the file once and chains transforms), files / merged / notes for the DeployResult. No IO.
-//   Ownership: ownedFiles (`file` or `file#pointer`) + force → may replace / onConflict.
+//   Ownership: ownedFiles (`file` or `file#pointer`) + force → may replace / onConflict; an existing path that is the same
+//     file on disk as an owned one (a case variant on a case-insensitive filesystem, lib/fs isSameFile) counts as owned.
 //   Writer.apply(): collision check of every whole file first (E_CONFLICT before anything is written),
 //     then changed shared files, then whole files; each path is journaled (bytes + mode, or absent +
 //     nearest existing dir) just before it is written. Writer.rollback() restores the journal newest
@@ -564,7 +554,7 @@ dynamic import per command), so `palm --help` loads commander and picocolors onl
 ```ts
 // commands/main.ts
 export const EXIT: { ok: 0; failure: 1; usage: 2; internal: 70; cancelled: 130 };
-export function exitCodeFor(e: unknown): number;               // CommanderError → 2 (0 for help/version), ExitSignal → its code, E_USAGE → 2, E_CANCELLED → 130, other PalmError → 1, anything else → 70
+export function exitCodeFor(e: unknown): number;               // CommanderError → 2 (0 for help/version), ExitSignal → its code, E_USAGE → 2, E_CANCELLED → 130, E_INTERNAL → 70, other PalmError → 1, anything else → 70
 export async function runCli(argv: string[], opts?: CliOptions): Promise<number>; // CliOptions: version, stdout/stderr sinks, ui, cwd, env, deps (engine fakes), dispatch (grammar tests)
 // commands/grammar.ts (pure; loaded by --help)
 export type Verb = 'install' | 'uninstall' | 'get' | 'describe' | 'update' | 'create' | 'search';
@@ -599,8 +589,9 @@ export interface Output extends Logger {
 export function createOutput(opts?: { json?: boolean; verbose?: boolean; stdout?: Sink; stderr?: Sink }): Output;
 export function outputOf(log: Logger): Output;               // ctx.log as a writer (plain Loggers are adapted)
 export function jsonEnvelope(value: unknown, warnings: string[]): Record<string, unknown>;
+// The writer's Logger methods live on its prototype: pass it on as is, or bind them (a spread drops them).
 export function failureCount(result: object): number;       // `failures` array or outcomes with status "failed"; non-zero → exit 1
-export function printInstallSummary(out: Output, result: InstallResult, opts: { scope: Scope; targets: TargetId[] }): void;
+export function printInstallSummary(out: Output, result: InstallResult, opts: { scope: Scope; targets: TargetId[]; dryRun?: boolean }): void; // dryRun: `would install` / `would update`
 export function formatTable(rows: string[][], header?: string[]): string;
 // ui/prompts.ts
 export function createClackUI(opts?: { output?: Writable }): MultilineUI; // Esc / Ctrl-C → PalmError('E_CANCELLED', 'cancelled')

@@ -2,8 +2,8 @@ import { existsSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadLock, saveLock } from '../../src/core/lockfile.js';
-import { saveManifest } from '../../src/core/manifest.js';
+import { Lock } from '../../src/domain/lock.js';
+import { Manifest } from '../../src/domain/manifest.js';
 import { installEntities } from '../../src/engine/install.js';
 import { syncManifest } from '../../src/engine/sync.js';
 import { updateEntities } from '../../src/engine/update.js';
@@ -26,14 +26,14 @@ describe('syncManifest', () => {
       opts,
       w.deps,
     );
-    await saveManifest(join(w.sb.project, 'palm.yaml'), {
+    await Manifest.of({
       targets: ['claude'],
       skills: ['wayfinder@a', 'tdd@a'],
       mcp: [
         'io.github.acme/weather',
         { name: 'fs', transport: 'stdio', command: 'npx', args: ['server-fs'] },
       ],
-    });
+    }).save(join(w.sb.project, 'palm.yaml'));
     const deploysBefore = w.calls.deploy.length;
 
     const r = await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
@@ -53,7 +53,7 @@ describe('syncManifest', () => {
     expect(again.outcomes.every((o) => o.status === 'unchanged')).toBe(true);
     expect(w.registryCalls.length).toBe(registryBefore);
     expect(again.extraneous.map((e) => e.name)).toEqual(['dual']);
-    const lock = await loadLock(join(w.sb.project, 'palm.lock.yaml'));
+    const lock = await Lock.load(join(w.sb.project, 'palm.lock.yaml'));
     expect(lock.entries.map((e) => e.name).sort()).toEqual(['fs', 'tdd', 'wayfinder', 'weather']);
     expect(existsSync(join(w.sb.project, '.claude/skill/dual.txt'))).toBe(false);
   });
@@ -61,15 +61,15 @@ describe('syncManifest', () => {
   it('reinstalls an ad hoc MCP entry whose definition changed', async () => {
     w = await makeWorld();
     const file = join(w.sb.project, 'palm.yaml');
-    await saveManifest(file, {
+    await Manifest.of({
       targets: ['claude'],
       mcp: [{ name: 'fs', command: 'npx', args: ['a'] }],
-    });
+    }).save(file);
     await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
-    await saveManifest(file, {
+    await Manifest.of({
       targets: ['claude'],
       mcp: [{ name: 'fs', command: 'npx', args: ['b'] }],
-    });
+    }).save(file);
     const r = await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
     expect(r.outcomes[0]!.status).toBe('updated');
   });
@@ -103,7 +103,7 @@ describe('updateEntities', () => {
       superpowers: 'updated',
       brainstorm: 'updated',
     });
-    const lock = await loadLock(join(w.sb.project, 'palm.lock.yaml'));
+    const lock = await Lock.load(join(w.sb.project, 'palm.lock.yaml'));
     expect(lock.entries.find((e) => e.name === 'brainstorm')!.via).toBe('plugin:superpowers');
 
     // naming a member updates it through its plugin
@@ -124,10 +124,10 @@ describe('updateEntities', () => {
     const opts = { scope: 'project' as const, targets: ['claude' as const] };
     await installEntities(w.ctx, [{ kind: 'plugin', spec: 'superpowers' }], opts, w.deps);
     const lockFile = join(w.sb.project, 'palm.lock.yaml');
-    const lock = await loadLock(lockFile);
+    const lock = await Lock.load(lockFile);
     const member = lock.entries.find((e) => e.name === 'brainstorm')!;
     member.via = 'plugin:SuperPowers';
-    await saveLock(lockFile, lock);
+    await lock.save(lockFile);
 
     const r = await updateEntities(
       w.ctx,
@@ -138,7 +138,7 @@ describe('updateEntities', () => {
     expect(r.outcomes.map((o) => o.entry.name)).toEqual(['superpowers', 'brainstorm']);
     // plan first: nothing changed, so nothing is reinstalled and the lock is not rewritten
     expect(r.outcomes.every((o) => o.status === 'unchanged')).toBe(true);
-    const after = await loadLock(lockFile);
+    const after = await Lock.load(lockFile);
     expect(after.entries.find((e) => e.name === 'brainstorm')!.via).toBe('plugin:SuperPowers');
   });
 
@@ -167,7 +167,7 @@ describe('updateEntities', () => {
     } finally {
       ORIGIN_ENTITIES.a = original;
     }
-    const names = (await loadLock(join(w.sb.project, 'palm.lock.yaml'))).entries
+    const names = (await Lock.load(join(w.sb.project, 'palm.lock.yaml'))).entries
       .map((e) => e.name)
       .sort();
     expect(names).toEqual(['docs', 'reviewer', 'superpowers', 'tdd']);

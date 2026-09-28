@@ -36,7 +36,7 @@ export interface RemovalPlan {
 export const LOCK_COMMENT = 'palm lockfile — generated, do not edit by hand.';
 
 /** The lockfile version palm writes. Version 1 files are read and converted in memory. */
-export const LOCK_VERSION = 2;
+const LOCK_VERSION = 2;
 
 const KEY_ORDER: Array<keyof LockEntry> = [
   'kind',

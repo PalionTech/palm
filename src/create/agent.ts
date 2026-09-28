@@ -294,7 +294,8 @@ async function loadSources(
   }
   try {
     const { getAllIndexes } = await import('../core/cache.js');
-    indexes = await getAllIndexes(ctx);
+    const { scanOrigin: scan } = await import('../index/scan.js');
+    indexes = await getAllIndexes(ctx, { scan });
   } catch (e) {
     ctx.log.warn(`could not load origin indexes: ${messageOf(e)}`);
   }

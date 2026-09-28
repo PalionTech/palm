@@ -27,13 +27,13 @@ palm <verb> [kind] [names...] [options]
 
 | Verb | Aliases | Meaning |
 | --- | --- | --- |
-| [`install`](/palm/reference/cli/install/) | `add`, `i` | Install entities or register an origin |
-| [`uninstall`](/palm/reference/cli/uninstall/) | `remove`, `rm`, `delete` | Remove entities or unregister an origin |
-| [`get`](/palm/reference/cli/get/) | `list`, `ls` | List installed entities, origins, targets |
-| [`describe`](/palm/reference/cli/describe/) | `info` | Show one entity, origin or target |
-| [`update`](/palm/reference/cli/update/) | `up` | Update entities or refresh origin indexes |
-| [`create`](/palm/reference/cli/create/) | `new` | Create a skill, agent, instruction or command |
-| [`search`](/palm/reference/cli/search/) |  | Search origins and the MCP registry |
+| [`install`](/palm/reference/cli/install/) | `add`, `i` | install entities or register an origin |
+| [`uninstall`](/palm/reference/cli/uninstall/) | `remove`, `rm`, `delete` | remove entities or unregister an origin |
+| [`get`](/palm/reference/cli/get/) | `list`, `ls` | list installed entities, origins, targets |
+| [`describe`](/palm/reference/cli/describe/) | `info` | show one entity, origin or target |
+| [`update`](/palm/reference/cli/update/) | `up` | update entities or refresh origin indexes |
+| [`create`](/palm/reference/cli/create/) | `new` | create a skill, agent, instruction or command |
+| [`search`](/palm/reference/cli/search/) |  | search origins and the MCP registry |
 
 {/* /cli-reference */}
 
@@ -43,15 +43,15 @@ palm <verb> [kind] [names...] [options]
 
 | Utility | Arguments | Meaning |
 | --- | --- | --- |
-| [`init`](/palm/reference/cli/init/) |  | Create palm.yaml for this project |
-| [`doctor`](/palm/reference/cli/doctor/) |  | Check git, node, harnesses, drift, origins |
-| [`outdated`](/palm/reference/cli/outdated/) | `[kind]` | Show current, wanted and latest refs |
-| [`why`](/palm/reference/cli/why/) | `<kind> <name>` | Show why an entity is installed |
-| [`find`](/palm/reference/cli/find/) | `<path>` | Show which entity wrote a file |
-| [`audit`](/palm/reference/cli/audit/) | `[kind] [names...]` | Scan installed files for hidden Unicode |
-| [`config`](/palm/reference/cli/config/) |  | Read or change global settings |
-| [`completion`](/palm/reference/cli/completion/) | `<shell>` | Print a shell completion script |
-| [`cache`](/palm/reference/cli/cache/) |  | Show or clear the origin cache |
+| [`init`](/palm/reference/cli/init/) |  | create palm.yaml for this project |
+| [`doctor`](/palm/reference/cli/doctor/) |  | check git, node, harnesses, drift, origins |
+| [`outdated`](/palm/reference/cli/outdated/) | `[kind]` | show current, wanted and latest refs |
+| [`why`](/palm/reference/cli/why/) | `<kind> <name>` | show why an entity is installed |
+| [`find`](/palm/reference/cli/find/) | `<path>` | show which entity wrote a file |
+| [`audit`](/palm/reference/cli/audit/) | `[kind] [names...]` | scan installed files for hidden Unicode |
+| [`config`](/palm/reference/cli/config/) |  | read or change global settings |
+| [`completion`](/palm/reference/cli/completion/) | `<shell>` | print a shell completion script |
+| [`cache`](/palm/reference/cli/cache/) |  | show or clear the origin cache |
 
 {/* /cli-reference */}
 
@@ -122,21 +122,22 @@ Every command accepts these options.
 
 | Option | Meaning |
 | --- | --- |
-| `-g, --global` | Use the global scope (~), not this project |
-| `-t, --target <ids>` | Targets: claude,codex,copilot,cursor |
-| `--dry-run` | Show what would change; write nothing |
-| `--force` | Overwrite files palm does not own |
-| `-y, --yes` | Accept defaults instead of prompting |
-| `--offline` | Use cached origins only; no network |
-| `--verbose` | Debug output and stack traces |
+| `-g, --global` | use the global scope (~), not this project |
+| `-t, --target <ids>` | comma-separated: claude, codex, copilot, cursor, gemini, opencode |
+| `--dry-run` | show what would change; write nothing |
+| `--force` | overwrite files palm does not own |
+| `-y, --yes` | accept defaults instead of prompting |
+| `--offline` | use cached origins only; no network |
+| `--verbose` | debug output and stack traces |
 | `--json` | JSON on stdout; everything else on stderr |
-| `--no-color` | No colours (also NO\_COLOR=1) |
-| `-V, --version` | Print the palm version |
-| `-h, --help` | Display help for command |
+| `--no-color` | no colours (also NO\_COLOR=1) |
+| `-V, --version` | print the palm version |
+| `-h, --help` | display help for command |
 
 {/* /cli-reference */}
 
-`--target` also accepts `gemini` and `opencode`: the six targets are `claude`, `codex`, `copilot`, `cursor`, `gemini` and `opencode`.
+`--target` takes a comma list of the six targets: `claude`, `codex`, `copilot`, `cursor`, `gemini` and `opencode`.
+`--force` also overwrites and deletes files you changed since palm wrote them.
 
 ### Targets
 
@@ -148,8 +149,9 @@ palm takes the first of these that gives a target set:
 4. The harnesses palm detects in the scope.
 5. A prompt. Without a terminal, palm stops with `E_TARGET`.
 
-An install saves the result as `targets:` in `palm.yaml`, or in `config.yaml` with `-g`, when none is stored.
-An explicit `--target` that differs from the stored set replaces it.
+A project install saves the result as `targets:` in `palm.yaml` when none is stored.
+An explicit `--target`, or a pick, that differs from the stored set replaces it.
+With `-g`, only an explicit `--target` writes `targets` to `config.yaml`; palm never saves detected targets there.
 `palm get targets` shows the active set and where it came from.
 
 ### Dry runs and offline use
@@ -157,14 +159,15 @@ An explicit `--target` that differs from the stored set replaces it.
 `--dry-run` writes no harness file, lockfile, manifest or config.
 palm still fetches origins into its cache, so the plan it prints is real.
 
-`--offline` reads origins from the cache only.
+`--offline` reads origins from the cache only and makes no network connection.
 An origin that is not in the cache fails with `E_NETWORK`.
-`palm search` then skips the MCP registry, and `palm doctor` skips the reachability check.
+palm skips the MCP registry, `palm doctor` skips the reachability check, and `palm outdated` shows `?`.
 
 ### Prompts and `--yes`
 
 palm prompts only when stdin and stdout are terminals and `CI` is unset, empty, `0` or `false`.
-Without a terminal, a question palm needs answered stops the command with `E_NON_INTERACTIVE`, and the hint names the flag to pass.
+Without a terminal, a question palm needs answered stops the command with an error.
+Its hint names the flag or the form that answers the question up front.
 `--yes` accepts the default answer of every prompt.
 
 | Prompt | Default | Without a terminal |
@@ -183,7 +186,8 @@ With `--yes`, a name that several origins offer installs only when every candida
 Before palm writes a hook or a stdio MCP server, it lists every command that would run on your machine.
 A terminal asks once for the whole run, and the default is yes.
 Declining cancels the install and writes nothing.
-Text entities, such as skills and agents, never need consent, and palm does not ask again for entries that are unchanged.
+Text entities, such as skills and agents, never need consent.
+palm does not ask again for entries that are unchanged.
 `--dry-run` lists the commands and asks nothing.
 
 ### `--frozen`
@@ -215,7 +219,7 @@ An error comes last: an `x` line with the message, then a hint line that names a
 ### Colour
 
 `--no-color`, or `NO_COLOR` set to any non-empty value, turns colour off.
-Otherwise palm colours its output in a terminal whose `TERM` is not `dumb`, and when `CI` or `FORCE_COLOR` is set.
+Otherwise palm colours its output in a terminal whose `TERM` is not `dumb`, and when `CI` or `FORCE_COLOR` is non-empty.
 
 ### JSON
 

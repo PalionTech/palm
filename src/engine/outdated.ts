@@ -13,11 +13,12 @@ import type { Origin } from '../domain/origin.js';
 import { ScopePaths } from '../domain/scope-paths.js';
 import { type EngineDeps, resolveEngineDeps } from './deps.js';
 
-/** Tag and branch names of a remote; `headShas` (branch → commit) when the reader knows them. */
+/** Tag and branch names of a remote, with their commits when the reader knows them. */
 interface RemoteRefList {
   tags: string[];
   heads: string[];
   headShas?: Record<string, string>;
+  tagShas?: Record<string, string>;
 }
 
 /** The remote queries `palm outdated` makes (core/git by default; tests pass fakes). */
@@ -51,7 +52,7 @@ export interface OutdatedReport {
   warnings: string[];
 }
 
-/** A ref on the remote: a tag or branch name, with the branch's commit when known. */
+/** A ref on the remote: a tag or branch name, with its commit when known. */
 interface RemoteRef {
   ref: string;
   branch?: boolean;
@@ -72,13 +73,23 @@ function wantedLabel(r: RemoteRef | undefined): string {
 
 type Current = Pick<LockEntry, 'ref' | 'sha'>;
 
-/** Same ref name (or the sha it spells); a branch also needs the same commit. */
+/**
+ * Does the lock already hold `wanted`? The same commit whatever the ref is called (a moved or
+ * second tag on the locked commit is not an update); else the same ref name (or the sha it
+ * spells), where a branch also needs the same commit.
+ */
 function sameRef(current: Current, wanted: RemoteRef): boolean | undefined {
+  if (current.sha && wanted.sha) return current.sha === wanted.sha;
   const named =
     current.ref === wanted.ref || (!!current.sha?.startsWith(wanted.ref) && wanted.ref.length >= 7);
   if (!named || !wanted.branch) return named;
-  if (!wanted.sha || !current.sha) return undefined; // same branch, commits unknown
-  return current.sha === wanted.sha;
+  return undefined; // same branch, commits unknown
+}
+
+/** A newer release than `wanted` exists (a different tag on another commit). */
+function newerRelease(wanted: RemoteRef, latest: RemoteRef | undefined): boolean {
+  if (!latest || latest.ref === wanted.ref) return false;
+  return !(latest.sha && latest.sha === wanted.sha);
 }
 
 function statusOf(current: Current, wanted?: RemoteRef, latest?: RemoteRef): OutdatedStatus {
@@ -86,13 +97,11 @@ function statusOf(current: Current, wanted?: RemoteRef, latest?: RemoteRef): Out
   const same = sameRef(current, wanted);
   if (same === undefined) return 'unknown';
   if (!same) return 'outdated';
-  return latest && latest.ref !== wanted.ref ? 'pinned' : 'current';
+  return newerRelease(wanted, latest) ? 'pinned' : 'current';
 }
 
 async function defaultRemote(): Promise<RemoteRefs> {
   const git = await import('../core/git.js');
-  // TODO(core/git): branch head commits (ls-remote reports them) so a branch-tracking entry can
-  // be compared by commit; until then `headShas` is absent and such entries show `unknown`.
   return { refs: git.listRemoteRefs, latest: (url) => git.resolveRef(url, undefined) };
 }
 
@@ -113,7 +122,7 @@ interface Scan {
 
 function onRemote(list: RemoteRefList, ref: string): RemoteRef {
   const branch = list.heads.includes(ref) && !list.tags.includes(ref);
-  const sha = branch ? list.headShas?.[ref] : undefined;
+  const sha = branch ? list.headShas?.[ref] : list.tagShas?.[ref];
   return { ref, ...(branch ? { branch } : {}), ...(sha ? { sha } : {}) };
 }
 
@@ -139,7 +148,7 @@ function wantedRef(view: RemoteView, pinned: string | undefined): RemoteRef | un
   if (tags.includes(pinned) || heads.includes(pinned) || !isSemverRange(pinned))
     return onRemote(view.list, pinned);
   const tag = maxSatisfyingTag(tags, pinned);
-  return tag === undefined ? undefined : { ref: tag };
+  return tag === undefined ? undefined : onRemote(view.list, tag);
 }
 
 type Row = Pick<OutdatedItem, 'current' | 'wanted' | 'latest' | 'status'>;
@@ -232,7 +241,7 @@ export async function outdatedEntries(
   }
   if (items.some((i) => i.status === 'unknown' && i.wanted.endsWith('(head)')))
     s.warnings.push(
-      'branch-tracking entries show unknown: their remote commit is not compared yet',
+      'branch-tracking entries show unknown: the locked or the remote commit is not known',
     );
   return { items, warnings: s.warnings };
 }

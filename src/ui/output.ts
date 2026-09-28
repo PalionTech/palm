@@ -21,7 +21,7 @@ export interface Sink {
 
 export type Mark = 'added' | 'removed' | 'updated' | 'unchanged' | 'error' | 'warning' | 'info';
 
-export const SYMBOLS: Readonly<Record<Mark, string>> = {
+const SYMBOLS: Readonly<Record<Mark, string>> = {
   added: '+',
   removed: '-',
   updated: '~',
@@ -294,9 +294,19 @@ const STATUS_MARK: Record<string, Mark> = {
   failed: 'error',
 };
 
-function statusCell(status: InstallOutcome['status'] | 'failed'): string {
+/** What a dry run reports instead of a status it did not reach. */
+const WOULD: Partial<Record<InstallOutcome['status'], string>> = {
+  installed: 'would install',
+  updated: 'would update',
+};
+
+function statusLabel(status: InstallOutcome['status'], dryRun: boolean): string {
+  return (dryRun && WOULD[status]) || status;
+}
+
+function statusCell(status: InstallOutcome['status'], dryRun: boolean): string {
   const mark = STATUS_MARK[status] ?? 'info';
-  return `${symbol(mark)} ${status}`;
+  return `${symbol(mark)} ${statusLabel(status, dryRun)}`;
 }
 
 function fileCount(o: InstallOutcome): string {
@@ -305,9 +315,9 @@ function fileCount(o: InstallOutcome): string {
   return merged ? `${files} (+${merged} merged)` : String(files);
 }
 
-function outcomeRow(o: InstallOutcome): string[] {
+function outcomeRow(o: InstallOutcome, dryRun: boolean): string[] {
   return [
-    statusCell(o.status),
+    statusCell(o.status, dryRun),
     o.entry.kind,
     o.entry.via ? `${o.entry.name} ${pc.dim(`(${o.entry.via})`)}` : o.entry.name,
     o.entry.origin,
@@ -316,10 +326,14 @@ function outcomeRow(o: InstallOutcome): string[] {
   ];
 }
 
-function printOutcomes(out: Output, outcomes: InstallOutcome[]): void {
-  out.table(outcomes.map(outcomeRow), ['status', 'kind', 'name', 'origin', 'targets', 'files']);
+function printOutcomes(out: Output, outcomes: InstallOutcome[], dryRun: boolean): void {
+  const rows = outcomes.map((o) => outcomeRow(o, dryRun));
+  out.table(rows, ['status', 'kind', 'name', 'origin', 'targets', 'files']);
   const tally = new Map<string, number>();
-  for (const o of outcomes) tally.set(o.status, (tally.get(o.status) ?? 0) + 1);
+  for (const o of outcomes) {
+    const label = statusLabel(o.status, dryRun);
+    tally.set(label, (tally.get(label) ?? 0) + 1);
+  }
   out.hint([...tally].map(([s, n]) => `${n} ${s}`).join(', '));
   const noted = outcomes.filter((o) => o.notes.length > 0);
   if (!noted.length) return;
@@ -336,11 +350,14 @@ export function printFailures(out: Output, failures: InstallResult['failures'] |
   }
 }
 
-/** Status table of an install/update/sync, then its failures; result warnings join the collected warnings. */
+/**
+ * Status table of an install/update/sync, then its failures; result warnings join the collected
+ * warnings. Under `dryRun` the statuses say what would happen (`would install`, `would update`).
+ */
 export function printInstallSummary(
   out: Output,
   result: InstallResult,
-  opts: { scope: Scope; targets: TargetId[] },
+  opts: { scope: Scope; targets: TargetId[]; dryRun?: boolean },
 ): void {
   const targets = opts.targets.length ? opts.targets.join(', ') : 'no targets';
   if (result.outcomes.length === 0) {
@@ -348,7 +365,7 @@ export function printInstallSummary(
       out.hint(`Nothing to install (${opts.scope} scope → ${targets}).`);
   } else {
     out.out(`${pc.bold(opts.scope)} scope → ${pc.bold(targets)}`);
-    printOutcomes(out, result.outcomes);
+    printOutcomes(out, result.outcomes, Boolean(opts.dryRun));
   }
   printFailures(out, result.failures);
   for (const w of result.warnings) out.warn(w);

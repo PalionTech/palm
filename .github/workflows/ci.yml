@@ -84,7 +84,7 @@ jobs:
       - name: Package lint (publint)
         run: npx publint
 
-      - name: Unused code and dependencies (knip, report only)
+      - name: Unused code and dependencies (knip)
         run: npm run knip
 
   changeset:

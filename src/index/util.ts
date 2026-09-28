@@ -112,7 +112,7 @@ export function displayRel(rel: string): string {
   return rel === '' ? '.' : rel;
 }
 
-export const GLOB_CHARS = /[*?[\]{}!]/;
+const GLOB_CHARS = /[*?[\]{}!]/;
 
 export function hasGlobChars(p: string): boolean {
   return GLOB_CHARS.test(p);

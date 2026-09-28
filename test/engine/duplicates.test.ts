@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { getIndex } from '../../src/core/cache.js';
 import { installEntities } from '../../src/engine/install.js';
 import { duplicateWarnings, findCandidates, getEntityInfo } from '../../src/engine/query.js';
+import { scanOrigin } from '../../src/index/scan.js';
 import { makeContext } from '../support/fakes.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 
@@ -17,7 +18,7 @@ describe('duplicate names across plugins of one origin', () => {
     const ctx = await makeContext(sb);
     ctx.config.origins.push({ alias: 'mono', type: 'local', path: FIXTURE });
 
-    const index = await getIndex(ctx, ctx.config.origins[0]!);
+    const index = await getIndex(ctx, ctx.config.origins[0]!, { scan: scanOrigin });
     const dups = duplicateWarnings(index, 'skill', 'tdd');
     expect(dups).toHaveLength(1);
     expect(dups[0]).toMatch(

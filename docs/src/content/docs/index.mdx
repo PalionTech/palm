@@ -89,17 +89,17 @@ The `@origin` suffix picks one, and palm records that choice in `palm.yaml`.
   <GuideCard
     slug="guides/new-project"
     title="Set up a new project"
-    description="Choose targets, add a skill, an agent and an MCP server, then commit palm.yaml and the lockfile."
+    description="Run palm init, add a skill, an agent and an MCP server, then commit palm.yaml and the lockfile."
   />
   <GuideCard
     slug="guides/four-harnesses"
     title="Install for several harnesses"
-    description="One command writes an agent for Claude Code, Codex, Copilot, Cursor, Gemini CLI and OpenCode."
+    description="One command writes an agent in each harness's format, and skips what a harness cannot use."
   />
   <GuideCard
     slug="guides/team-baseline"
     title="Share a team baseline"
-    description="Commit palm.yaml and palm.lock.yaml, and every clone gets the same files from the same commits."
+    description="Commit palm.yaml and the lockfile, so every clone gets the same files from the same commits."
   />
   <GuideCard
     slug="guides/mcp-secrets"
@@ -108,13 +108,13 @@ The `@origin` suffix picks one, and palm records that choice in `palm.yaml`.
   />
   <GuideCard
     slug="guides/ci"
-    title="Check the setup in CI"
-    description="Run palm install --frozen, so a pull request fails when palm.yaml, the lockfile and the files disagree."
+    title="Use palm in CI and scripts"
+    description="Run palm without a terminal, with --yes, --json and palm install --frozen."
   />
   <GuideCard
     slug="guides/migrate-from-apm"
-    title="Move from APM"
-    description="Install the same APM packages with palm and remove what APM wrote."
+    title="Migrate from APM"
+    description="Add APM packages as origins and map each apm command and file to palm."
   />
 </CardGrid>
 

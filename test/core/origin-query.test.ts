@@ -2,16 +2,11 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  addOrigin,
-  allOrigins,
-  deriveAlias,
-  loadConfig,
-  matchOrigin,
-  parseOriginInput,
-  resolveOriginQuery,
-} from '../../src/core/config.js';
+import { addOrigin } from '../../src/core/config.js';
+import { loadConfig } from '../../src/core/config-file.js';
+import { deriveAlias, parseOriginInput } from '../../src/core/origin-input.js';
 import type { OriginSpec, PalmContext } from '../../src/core/types.js';
+import { Origin } from '../../src/domain/origin.js';
 import { ALIAS_RE } from '../../src/lib/names.js';
 import { makeContext } from '../support/fakes.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
@@ -79,7 +74,7 @@ describe('matchOrigin', () => {
     ['bare repo: its path', bare, '/srv/git/bare.git', true],
     ['bare repo: no owner/repo form', bare, 'git/bare', false],
   ])('%s: %s ~ %j → %s', (_label, spec, query, expected) => {
-    expect(matchOrigin(spec, query)).toBe(expected);
+    expect(new Origin(spec).matches(query)).toBe(expected);
   });
 });
 
@@ -149,18 +144,18 @@ describe('resolveOriginQuery', () => {
     ['~ path + root', '~/palm-origin-query-test/mono/packages/web', 'mono-web'],
     ['project palm.yaml origin by owner/repo', 'acme/superpowers-fork', 'fork'],
   ])('%s: %j → %s', (_label, query, alias) => {
-    expect(resolveOriginQuery(ctx, query).alias).toBe(alias);
+    expect(ctx.origins.resolveQuery(query).spec.alias).toBe(alias);
   });
 
   it('is ambiguous when several origins match equally well', () => {
     // two aliases of one repository
-    expect(() => resolveOriginQuery(ctx, 'obra/superpowers')).toThrow(
+    expect(() => ctx.origins.resolveQuery('obra/superpowers').spec).toThrow(
       expect.objectContaining({ code: 'E_AMBIGUOUS' }),
     );
     // only rooted origins of one repository
     let err: unknown;
     try {
-      resolveOriginQuery(ctx, 'openai/skills');
+      ctx.origins.resolveQuery('openai/skills').spec;
     } catch (e) {
       err = e;
     }
@@ -172,7 +167,7 @@ describe('resolveOriginQuery', () => {
   });
 
   it('lists the registered aliases when nothing matches', () => {
-    expect(() => resolveOriginQuery(ctx, 'nobody/nothing')).toThrow(
+    expect(() => ctx.origins.resolveQuery('nobody/nothing').spec).toThrow(
       expect.objectContaining({
         code: 'E_NOT_FOUND',
         message: 'No origin matches "nobody/nothing"',
@@ -185,7 +180,7 @@ describe('resolveOriginQuery', () => {
 
   it('says so when no origin is registered', async () => {
     const empty = await makeContext(sb, { cwd: sb.root });
-    expect(() => resolveOriginQuery(empty, 'x')).toThrow(
+    expect(() => empty.origins.resolveQuery('x').spec).toThrow(
       expect.objectContaining({
         code: 'E_NOT_FOUND',
         hint: expect.stringMatching(/No origins are registered/),
@@ -245,7 +240,7 @@ describe('origin aliases are mandatory', () => {
     await writeProject('origins:\n  - url: https://github.com/acme/tools.git\n');
     const ctx = await makeContext(sb);
     const file = join(sb.project, 'palm.yaml');
-    expect(() => allOrigins(ctx)).toThrow(
+    expect(() => ctx.origins.specs()).toThrow(
       expect.objectContaining({
         code: 'E_PARSE',
         message: `${file}: origin https://github.com/acme/tools.git has no alias`,
@@ -257,7 +252,7 @@ describe('origin aliases are mandatory', () => {
   it('palm.yaml: a string entry has no alias either', async () => {
     await writeProject('origins:\n  - acme/superpowers-fork\n');
     const ctx = await makeContext(sb);
-    expect(() => allOrigins(ctx)).toThrow(
+    expect(() => ctx.origins.specs()).toThrow(
       expect.objectContaining({
         code: 'E_PARSE',
         message: expect.stringMatching(/palm\.yaml: origin acme\/superpowers-fork has no alias$/),
@@ -285,7 +280,7 @@ describe('origin aliases are mandatory', () => {
         `origins:\n  - alias: ${JSON.stringify(alias)}\n    url: https://github.com/obra/superpowers.git\n`,
       );
       const ctx = await makeContext(sb);
-      expect(() => allOrigins(ctx)).toThrow(expect.objectContaining({ code: 'E_PARSE' }));
+      expect(() => ctx.origins.specs()).toThrow(expect.objectContaining({ code: 'E_PARSE' }));
 
       expect(() => parseOriginInput('obra/superpowers', { alias })).toThrow(
         expect.objectContaining({ code: 'E_USAGE' }),
@@ -354,7 +349,7 @@ describe('origin aliases are mandatory', () => {
       'origins:\n  - { alias: sp, url: https://github.com/obra/superpowers.git }\n  - { alias: sp, url: https://github.com/acme/other.git }\n',
     );
     const proj = await makeContext(sb);
-    expect(() => allOrigins(proj)).toThrow(
+    expect(() => proj.origins.specs()).toThrow(
       expect.objectContaining({
         code: 'E_PARSE',
         message: expect.stringContaining('is used twice'),
@@ -368,7 +363,7 @@ describe('origin aliases are mandatory', () => {
     await addOrigin(ctx, parseOriginInput('someone/superpowers'), { scope: 'project' });
     expect((await loadConfig(paths())).origins.map((o) => o.alias)).toEqual(['superpowers']);
     const reloaded = await makeContext(sb);
-    expect(allOrigins(reloaded).map((o) => o.alias)).toEqual([
+    expect(reloaded.origins.specs().map((o) => o.alias)).toEqual([
       'superpowers',
       'someone-superpowers',
     ]);

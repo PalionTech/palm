@@ -1,0 +1,110 @@
+---
+title: config.yaml
+description: Every key of the global config, with its type, default and an example.
+---
+
+import Capture from '../../../components/Capture.astro';
+
+`~/.palm/config.yaml` holds your origins, your default targets and your secret policies.
+`palm install origin` and `palm config set` write it; you may also edit it by hand.
+
+```sh
+palm install origin mattpocock/skills
+palm config set targets claude,codex
+```
+
+<Capture name="c-config" />
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `targets` | list of target ids | none | Targets for `-g`, and for projects without `targets:` in `palm.yaml`. |
+| `origins` | list of origin mappings | none | Your origins, available in every project. |
+| `secrets` | mapping | see below | The MCP secret policy per scope. |
+| `mcpRegistryUrl` | URL | `https://registry.modelcontextprotocol.io` | The MCP registry palm searches and installs from. |
+
+## Location
+
+The file is `$PALM_HOME/config.yaml`, which is `~/.palm/config.yaml` unless `PALM_HOME` is set.
+A missing file counts as empty.
+palm writes it with mode `0600`, and keeps your comments, your key order and keys it does not know.
+
+## Every key
+
+```yaml title="~/.palm/config.yaml"
+targets: [claude, codex]
+origins:
+  - alias: mattpocock
+    type: git
+    url: https://github.com/mattpocock/skills.git
+  - alias: pstack
+    type: git
+    url: https://github.com/cursor/plugins.git
+    root: pstack
+    ref: ^1.2
+  - alias: openai-curated
+    type: git
+    url: https://github.com/openai/skills.git
+    layout:
+      skills: ["skills/.curated/*"]
+    description: Curated OpenAI skills only
+  - alias: mine
+    type: local
+    path: ~/.palm/mine
+secrets:
+  project: env-ref
+  global: literal
+mcpRegistryUrl: https://registry.modelcontextprotocol.io
+```
+
+### `targets`
+
+A list of `claude`, `codex`, `copilot`, `cursor`, `gemini` and `opencode`.
+palm ignores ids it does not know.
+`palm config set targets` and a global install with an explicit `--target` write it.
+palm never saves the targets it detects here.
+
+### `origins`
+
+| Key | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `alias` | string | yes | The short name after `@`. Lowercase letters, digits, `.`, `_` and `-`, starting with a letter or digit. Unique in the file. |
+| `type` | `git` or `local` | no | `local` when the entry has a `path` and no `url`, else `git`. |
+| `url` | string | for `git` | The clone URL. |
+| `path` | string | for `local` | The folder. `~` expands, and a relative path resolves against `~/.palm`. |
+| `ref` | string | no | A tag, branch, commit or semver range. Without it, palm takes the latest semver tag, else the default branch. |
+| `root` | string | no | The folder in the repository that is the origin root. |
+| `layout` | mapping | no | A [layout descriptor](/palm/reference/layout/) instead of auto-detection. |
+| `description` | string | no | A note that `palm get origins` shows. |
+
+palm accepts `https://`, `ssh://`, `file://` and `user@host:path` URLs, and absolute paths.
+`http://` and `git://` work with a warning.
+It refuses a URL that starts with `-`, a transport such as `ext::`, other schemes and control characters.
+
+palm never derives an alias when it reads the file.
+An entry without one fails with `E_PARSE`, and the hint names the alias `palm install origin` would choose.
+Two entries with one alias also fail with `E_PARSE`.
+
+`palm create` adds the local origin `mine` at `~/.palm/mine` on first use.
+
+### `secrets`
+
+| Key | Values | Default |
+| --- | --- | --- |
+| `secrets.project` | `env-ref` or `literal` | `env-ref` |
+| `secrets.global` | `env-ref` or `literal` | `literal` |
+
+`env-ref` writes each secret as an environment reference in the harness's own syntax.
+`literal` writes the value, read from your environment or asked for, into a user config file created with mode `0600`.
+`--secrets` on one command overrides both.
+
+### `mcpRegistryUrl`
+
+The base URL of an MCP registry with the same API as the official one.
+`palm config set mcpRegistryUrl ''` returns to the default.
+
+## Related
+
+- [`palm config`](/palm/reference/cli/config/)
+- [Origins](/palm/concepts/origins/)
+- [Layout descriptor](/palm/reference/layout/)
+- [Environment variables](/palm/reference/environment/)

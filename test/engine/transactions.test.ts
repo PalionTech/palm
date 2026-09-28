@@ -2,9 +2,9 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadLock } from '../../src/core/lockfile.js';
-import { saveManifest } from '../../src/core/manifest.js';
 import type { EngineDeps, Entity, McpServerConfig, ScanResult } from '../../src/core/types.js';
+import { Lock } from '../../src/domain/lock.js';
+import { Manifest } from '../../src/domain/manifest.js';
 import { installEntities, requestInstallStop } from '../../src/engine/install.js';
 import { applyUpdate, planExecutables, planUpdate } from '../../src/engine/update.js';
 import { fakeUI, makeContext } from '../support/fakes.js';
@@ -20,7 +20,7 @@ const FS_MCP: McpServerConfig = {
   args: ['-y', 'server-fs'],
 };
 
-const lockOf = (w: World) => loadLock(join(w.sb.project, 'palm.lock.yaml'));
+const lockOf = (w: World) => Lock.load(join(w.sb.project, 'palm.lock.yaml'));
 
 /** The world's scanner plus extra entities for origin `a`. */
 function withEntities(w: World, extra: Entity[]): void {
@@ -348,10 +348,14 @@ describe('scope guards', () => {
   let w: World;
   afterEach(async () => removeDir(w.sb.root));
 
-  it('refuses the home directory as a project unless it has palm.yaml or .git', async () => {
+  it('refuses the home directory as a project unless it has palm.yaml (a dotfiles .git is no marker)', async () => {
     w = await makeWorld();
-    const ctx = await makeContext(w.sb, { cwd: w.sb.home });
-    ctx.config.origins.push(...w.ctx.config.origins);
+    const inHome = async () => {
+      const ctx = await makeContext(w.sb, { cwd: w.sb.home });
+      ctx.config.origins.push(...w.ctx.config.origins);
+      return ctx;
+    };
+    const ctx = await inHome();
     const err = await installEntities(ctx, [{ kind: 'skill', spec: 'tdd' }], PROJECT, w.deps).catch(
       (e) => e,
     );
@@ -368,10 +372,16 @@ describe('scope guards', () => {
     );
     expect(g.outcomes[0]!.status).toBe('installed');
     await mkdir(join(w.sb.home, '.git'));
-    const marked = await makeContext(w.sb, { cwd: w.sb.home });
-    marked.config.origins.push(...w.ctx.config.origins);
+    const dotfiles = await installEntities(
+      await inHome(),
+      [{ kind: 'skill', spec: 'wayfinder' }],
+      PROJECT,
+      w.deps,
+    ).catch((e) => e);
+    expect(dotfiles).toMatchObject({ code: 'E_USAGE' });
+    await writeFile(join(w.sb.home, 'palm.yaml'), 'targets: [claude]\n');
     const ok = await installEntities(
-      marked,
+      await inHome(),
       [{ kind: 'skill', spec: 'wayfinder' }],
       PROJECT,
       w.deps,
@@ -381,9 +391,9 @@ describe('scope guards', () => {
 
   it('a project origin may not reuse a user alias for another source', async () => {
     w = await makeWorld();
-    await saveManifest(join(w.sb.project, 'palm.yaml'), {
+    await Manifest.of({
       origins: [{ alias: 'a', type: 'local', path: join(w.sb.project, 'vendor/other') }],
-    });
+    }).save(join(w.sb.project, 'palm.yaml'));
     const ctx = await makeContext(w.sb, { ui: w.ui, log: w.log });
     ctx.config.origins.push(...w.ctx.config.origins);
     const err = await installEntities(ctx, [{ kind: 'skill', spec: 'tdd' }], PROJECT, w.deps).catch(
@@ -396,9 +406,9 @@ describe('scope guards', () => {
 
   it('local project origins must live inside the project; project origins are ignored under -g', async () => {
     w = await makeWorld({ origins: [] });
-    await saveManifest(join(w.sb.project, 'palm.yaml'), {
+    await Manifest.of({
       origins: [{ alias: 'outside', type: 'local', path: w.origins.b }],
-    });
+    }).save(join(w.sb.project, 'palm.yaml'));
     const ctx = await makeContext(w.sb, { ui: w.ui, log: w.log });
     const err = await installEntities(
       ctx,
@@ -441,7 +451,7 @@ describe('hidden Unicode at install', () => {
       ],
     }) as unknown as Entity;
 
-  it('refuses a critical finding (hint: palm audit --strip or --force), warns on a warning', async () => {
+  it('refuses a critical finding (hint: review, --force, then palm audit), warns on a warning', async () => {
     w = await makeWorld();
     withEntities(w, [issue('critical')]);
     const r = await installEntities(w.ctx, [{ kind: 'skill', spec: 'sneaky' }], PROJECT, w.deps);
@@ -449,7 +459,10 @@ describe('hidden Unicode at install', () => {
     expect(r.failures[0]!.message).toBe(
       'skill sneaky contains hidden Unicode that can smuggle instructions: SKILL.md: 1 hidden character, first U+202E RIGHT-TO-LEFT OVERRIDE at line 3',
     );
-    expect(r.failures[0]!.hint).toContain('palm audit --strip');
+    expect(r.failures[0]!.hint).toContain("review the origin's files");
+    expect(r.failures[0]!.hint).toMatch(
+      /palm install \w+ \S+@a --force, then palm audit shows them/,
+    );
     expect(r.failures[0]!.hint).toContain('--force');
     expect(w.calls.deploy).toEqual([]);
 

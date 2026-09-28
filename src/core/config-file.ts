@@ -12,7 +12,7 @@ import { isRecord, withoutUndefined } from '../lib/object.js';
 import { parseYaml, readYamlFile, writeYamlFile } from '../lib/yaml.js';
 import { messageOf, PalmError } from './errors.js';
 import { deriveAlias, parseOriginInput, validateOriginUrl } from './origin-input.js';
-import { configPath, manifestPath } from './paths.js';
+import { configPath, projectManifest } from './paths.js';
 import {
   type LayoutDescriptor,
   type Logger,
@@ -165,7 +165,7 @@ export function removeStoredOrigin(
  * URL or missing path skips the entry with a warning; a missing or invalid alias is a hard error.
  */
 export function loadProjectOrigins(paths: PalmPaths, log: Logger): OriginSpec[] {
-  const file = manifestPath(paths, 'project');
+  const file = projectManifest(paths);
   if (!existsSync(file)) return [];
   let data: unknown;
   try {
