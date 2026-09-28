@@ -159,7 +159,7 @@ replaced.
 ## 3. Manifest (`palm.yaml`)
 
 ```yaml
-targets: [claude, codex]           # written by the first install that places something (flag, config default, detection or pick)
+targets: [claude, codex]           # written by the first install that places something (flag, config default, detection or pick); then only by `palm init --target`
 origins:                           # optional project-local origins (same shape as config, alias required)
   - { alias: mattpocock, type: git, url: https://github.com/mattpocock/skills.git }
 skills:
@@ -191,9 +191,10 @@ Names never contain `@` or `#`. A section emptied by uninstall is removed.
 Bare `palm install` (no args) syncs the manifest against the lock:
 
 - An entry the lock already realises as written (same origin, a ref the lock's
-  `ref`/`sha` satisfies, including semver ranges like `#^1.2`; the manifest's full
-  target set; the current `transform`) with every file on disk is left alone, with
-  no network access.
+  `ref`/`sha` satisfies, including semver ranges like `#^1.2`; every palm.yaml target
+  and none palm.yaml dropped; the current `transform`) with every file on disk and every
+  merged fragment (MCP key, hook entry, instruction block) still in its file as recorded
+  is left alone, with no network access. A missing or changed fragment is merged back.
 - Otherwise a locked entry is **replayed**: its origin is read at the locked `sha`
   (the checkout slot for that sha, fetched once if missing) and redeployed, keeping
   the locked `ref`. A newer tag on the origin never changes what a bare install
@@ -204,9 +205,11 @@ Bare `palm install` (no args) syncs the manifest against the lock:
   lock's `url` (+ `root`) as a project origin in palm.yaml, with a warning; under
   `-g` that is a failure whose hint names the URL
   (`palm install origin <url> --alias <a> -g`).
-- `targets:` is the full set: an entry deployed to a target palm.yaml no longer
-  lists is redeployed to the remaining ones and the dropped target's files and merged
-  keys are removed (target contraction).
+- `targets:` is every entry's minimum set. The lock records the set it was last synced
+  against (top-level `targets`); when palm.yaml's set shrinks (`palm init --target`, or an
+  edit), an entry on a target that left it is redeployed to the remaining ones and the
+  dropped target's files and merged keys are removed (target contraction). A target one
+  install added to a single entity with `--target` is not in that record and stays.
 - Lock entries with no manifest entry are reported (removed with `--prune`).
   `--secrets` applies to the sync as well.
 
@@ -214,8 +217,11 @@ Bare `palm install` (no args) syncs the manifest against the lock:
 or it fails with `E_CONFLICT` listing every difference and writes nothing. It checks
 that every manifest dependency has a direct lock entry with the same name/origin (and
 a satisfying ref when pinned), that no lock entry is extraneous or orphaned, that
-every entry has the resolved targets and the current `transform`, and that no locked
-file was edited (hash). Missing files are then restored from the locked commits
+every entry is on every palm.yaml target (and on none palm.yaml dropped) with the
+current `transform`, that no locked file was edited (hash), and that every merged
+fragment (`.mcp.json` key, hook entry in `settings.json`, `AGENTS.md` block, OpenCode
+`opencode.json` entry) is still in its file as recorded (listed as
+`<file>#<pointer> (<kind> <name>): missing …` or `changed …`). Missing whole files are then restored from the locked commits
 (the only network access: fetching a locked sha that is not in the cache), and each
 restored file must hash to the lock's value. It never writes palm.yaml,
 palm.lock.yaml or config.yaml (an alias recreated from the lock lives only for the
@@ -225,9 +231,11 @@ run).
 something writes the resolved set to palm.yaml when it has none (one info line says so), so
 the next developer gets the same harnesses instead of whatever their machine detects. A run
 that fails before that (an ambiguous name, a cancelled prompt, every item failing) saves
-nothing. Global scope is different: config.yaml `targets` is the default for every project
-without its own, so palm writes it only for an explicit `--target` with `-g` or
-`palm config set targets`; what a machine happens to detect is never saved there.
+nothing. After that the persisted set changes only through `palm init --target` (palm.yaml)
+or `palm config set targets` (config.yaml): a `--target` on a later install applies to that
+install only (an info line says palm.yaml keeps its targets). Global scope: config.yaml
+`targets` is the default for every project without its own, and only
+`palm config set targets` writes it; what a machine happens to detect is never saved there.
 
 ## 4. Lockfile (`palm.lock.yaml`)
 
@@ -262,6 +270,11 @@ entries:
       - { kind: skill, name: brainstorming }
 ```
 
+Top level, besides `version` and `entries`: `targets: [claude, codex]`, the persisted
+target set this scope was last synced against (bare `palm install` contracts only what
+left it), and `createdDirs`, the harness directories palm created (`.codex`, `~/.gemini`),
+which an uninstall removes once they hold no file.
+
 `merged[].value` never holds a literal secret: values resolved under the `literal`
 policy are recorded as their `${VAR}` placeholder, and unmerge treats a placeholder
 as matching any text.
@@ -276,7 +289,9 @@ as matching any text.
   palm compares its on-disk hash with `files[].hash`. A file the user changed is
   refused with `E_CONFLICT` naming the file and `--force` (the entity is recorded as a
   failure and left as it was; the run goes on). An empty hash (lockfile v1, dry run)
-  is never treated as edited. `Lock.modifiedFiles` / engine `modifiedFiles` expose the
+  is never treated as edited; a file palm wrote but could not hash is recorded as
+  `sha256:unreadable`, which matches nothing, so it counts as edited (and the install
+  reports the failure). `Lock.modifiedFiles` / engine `modifiedFiles` expose the
   check (uninstall uses it too).
 - **`transform`**: `TRANSFORM_VERSION` (src/core/types.ts) is bumped whenever a target
   renders the same entity to different bytes. An entry with an older transform is not
@@ -294,7 +309,7 @@ as matching any text.
 `config.yaml`:
 
 ```yaml
-targets: [claude, codex, copilot, cursor]   # default for -g and for projects without their own; set only by --target -g or `palm config set targets`
+targets: [claude, codex, copilot, cursor]   # default for -g and for projects without their own; set only by `palm config set targets`
 origins:
   - alias: mattpocock
     type: git
@@ -306,7 +321,7 @@ origins:
     root: pstack           # subdirectory
   - alias: mine
     type: local
-    path: /Users/max/.palm/mine
+    path: ~/.palm/mine
   - alias: openai
     type: git
     url: https://github.com/openai/skills.git
@@ -445,7 +460,9 @@ characters. Files checked: a skill's whole directory, walked like the deploy cop
 symlinks only inside the origin, so ignored subdirectories such as `examples/` inside a skill
 are included); the file of an agent, instruction, command, MCP config or hook set, and every
 hook file merged into a plugin's hook set (inline manifest hooks and MCP servers: the
-manifest). Binary files (a NUL byte in the first 8 KB) and files over 1 MB are skipped.
+manifest); for a hook whose commands reference its plugin root, also every file of that root
+its deploy copies (`isSkippedHookAsset`: not docs, tests or CI material), so a trojan-source
+character in a script the hook runs refuses the hook at install. Binary files (a NUL byte in the first 8 KB) and files over 1 MB are skipped.
 
 Each affected file becomes one `Entity.issues` entry:
 
@@ -468,12 +485,12 @@ palm install [<kind>] <spec>... [-g] [--from <origin>] [--target a,b] [--dry-run
 
 1. Resolve scope + targets (flag > manifest > config default > detection > interactive multiselect; `findTargets` saves nothing, the CLI calls `persistTargets` once the install placed something, see §3). Scope guards: at project scope a `projectRoot` equal to the home directory without palm.yaml is `E_USAGE` ("run inside a project or use -g"; a dotfiles `.git` in home is no marker: `isHomeAsProject`, the rule `find` and `audit` apply too); a project origin whose alias a user origin uses for another source is `E_CONFLICT` naming both, a local project origin outside the project is `E_ORIGIN`; under `-g` project origins are ignored. The CLI first runs a pre-flight (`preflightInstall`: steps 3–5 without the picker or registry), so a name that matches nothing fails before any target prompt; `registry` as the kind word and kind-less repository specs (`owner/repo`, git URLs, paths) are usage errors pointing at `palm install origin` / `--from`; `palm install origin <spec>` registers an origin (§9).
 2. Parse kind (singular/plural/aliases, see `kinds.ts`). If the first arg is not a kind, search all kinds.
-3. For each spec: parse `name[@origin][#ref]`; `--from` supplies/overrides origin and may be an unregistered spec (ad hoc origin, fetched but not saved unless `--save-origin`).
+3. For each spec: parse `name[@origin][#ref]`; `--from` supplies/overrides origin and may be an unregistered spec (ad hoc origin, fetched but not saved unless `--save-origin`). Names and origin aliases match case-insensitively; a repository after `@` (`x@owner/repo`) is E_USAGE pointing at `--from`, and a `#ref` on a local origin is E_USAGE (a directory has no refs; nothing is saved).
 4. Ensure the relevant origins are fetched and indexed (fetch lazily; `--offline` uses cache only).
 5. Match candidates: exact name within kind; if 0 → fuzzy suggestions + "add an origin" hint, exit 1; if 1 → proceed; if >1 → interactive picker showing `name  kind  origin  version  description`; non-TTY → error listing candidates with the `@origin` form to disambiguate. `--yes` picks the first only when candidates are identical content hashes.
 6. Expand composites: plugin → members; agent → referenced `skills`/`mcpServers`/`instructions` (palm's `instructions:` frontmatter extension, `name[@origin]`) queued with `via: agent:<name>`. Resolution: an explicit `@origin` → only that origin; else the agent's own origin; else the origin the dependency was installed from before (so reinstalls never turn ambiguous); else all origins (picker; non-TTY → `E_AMBIGUOUS`). A dependency already installed another way is kept as is.
 7. Executable consent: every hook (dialect, event → command) and every stdio MCP server (command + args) among the items this run will write is listed once; interactive runs confirm once (default yes, no → `E_CANCELLED`, nothing written); non-interactive runs need `--yes` (else `E_NON_INTERACTIVE`, hint naming `--yes`); `--dry-run` lists them without asking. Text entities are never gated; entries that are unchanged are not asked again, and neither are the lines a caller already had allowed (`InstallOptions.consented`: `palm update` lists them in its plan and its one confirmation covers them).
-8. Per item (`engine/deploy.ts`): the pure `planDeployment` decides from the lock (keep / unchanged / add missing targets / full deploy replacing the previous install); refusals (hidden Unicode with severity `critical` unless `--force` (hint: review the origin's files; `palm install … --force` accepts them, then `palm audit` shows them), edited files unless `--force`, `--frozen` content mismatch) become failures; `resolveMcpSecrets` (notes `requires secret A` / `optional secret B (unset)`, the same words in a dry run); `deployToTargets` (one target's error does not stop the others); `buildLockEntry` hashes every written file. An entry whose recorded files are missing counts as changed and is redeployed.
+8. Before the first write, the secrets of every MCP server the run will write are resolved (`preflightSecrets`: prompts under `literal`; a required secret without a terminal fails the whole run with `E_NON_INTERACTIVE` before anything is written, its hint the same command with `--secrets env-ref`). Per item (`engine/deploy.ts`): the pure `planDeployment` decides from the lock (keep / unchanged / add missing targets / full deploy replacing the previous install); refusals (hidden Unicode with severity `critical` unless `--force` (hint: review the origin's files; `palm install … --force` accepts them, then `palm audit` shows them), edited files unless `--force`, `--frozen` content mismatch) become failures whose hint is the `palm install <kind> <name>@<origin> --force` command; notes `requires secret A` / `optional secret B (unset)` (the same words in a dry run); `deployToTargets` (one target's error does not stop the others; a conflict's hint is the same `--force` command); `buildLockEntry` hashes every written file. An entry whose recorded files are missing, or whose merged fragments are no longer in their files, counts as changed and is redeployed.
 9. The previous install is removed only **after** the new deploy succeeded, and only what the new one no longer writes (files by path, except a case variant that is the same file on disk; merged records by file + pointer, appended array items (hook entries, OpenCode `/instructions`) also by value), so a transport change (url → command), a renamed instruction or a failed redeploy never leaves stale keys or a half-removed entity.
 10. The lock (plugin/agent entries record `deps`) and manifest (direct requests only, not `via` deps) are saved after **every** item, and again in `finally`: a crash or Ctrl-C leaves a lock that matches the disk. SIGINT during an install sets a flag: the loop stops after the current item, saves, and throws `E_CANCELLED` (exit 130); a second Ctrl-C ends palm at once.
 11. Print a summary table, then every failure (`x kind name@origin → target: message` + hint) and the warnings.
@@ -493,15 +510,22 @@ entity → overwrite on reinstall/update, unless its hash shows the user edited 
 Uninstall reverses: remove `files`, remove `merged` values, drop `via` deps that
 no other entry needs, update manifest. **Reference counting:** a `via` dependency
 stays when the manifest lists it directly (it becomes direct) or when a remaining
-entry lists it in `deps` (it is re-parented to that entry's `via`). The same rule
-applies to dependencies a plugin/agent stopped declaring (update/sync).
+entry lists it in `deps` (it is re-parented to that entry's `via`). A named entity that
+a remaining plugin/agent still declares stays too: it is re-parented to that entry and
+leaves palm.yaml (a warning names the command that removes both). The same rule
+applies to dependencies a plugin/agent stopped declaring (update/sync). **Edit-safe:**
+an entity with a file the user changed since palm wrote it is not uninstalled at all
+without `--force`: it stays installed, in the lock and in palm.yaml with what it pulled
+in, and is a failure (exit 1) whose hint is `palm uninstall <kind> <name> --force`, which
+removes it and the edits.
 
-After an install that placed something, `--target` with an explicit value is saved when it
-differs from what is stored (palm.yaml `targets:` for project scope, config.yaml for `-g`); an
-interactive pick is saved the same way at project scope; any other resolved set is saved to
-palm.yaml when it has none. Detection and picks never reach config.yaml.
-`palm install <kind> <name> --target x` adds targets to an installed entry; only a
-bare `palm install` treats the set as exact (contraction). `--dry-run` writes no
+After an install that placed something, the resolved set (a flag, the config default,
+detection or a pick) is saved to palm.yaml when it has none; nothing else ever writes the
+persisted sets (`palm init --target`, `palm config set targets` do). Detection and picks
+never reach config.yaml. `palm install <kind> <name> --target x` deploys that entity to `x`
+(adding targets to an installed entry, never removing any) and leaves palm.yaml `targets:`
+and every other entry alone; a bare `palm install --target x` adds `x` to every entry. Only
+a shrunk palm.yaml set removes targets (contraction, §3). `--dry-run` writes no
 harness file, lockfile, manifest or config (origins are still fetched into the cache
 so the plan is real).
 
@@ -544,7 +568,11 @@ Secret placement policy (`SecretPolicy`):
   `${VAR:-default}`) are written as `${VAR:-}` for Claude.
 - `global` scope default `literal`: prompt (masked) for each secret not already in
   `process.env` and write the value into the user-private config file (created
-  0600). An optional secret left empty (or unset without a TTY) drops its env
+  0600). Every JSON/TOML file of a harness that can hold secrets (the MCP config,
+  `settings.json`, `hooks.json`, `opencode.json`, `mcp-config.json`) is created 0600 at
+  global scope whichever kind creates it, and a file palm writes a literal secret into is
+  set to 0600 even when it existed (a note says so when it was readable by others).
+  Markdown block files keep the default mode. An optional secret left empty (or unset without a TTY) drops its env
   entry/header instead of leaving a bare `${VAR}`.
 - `--secrets env-ref|literal` overrides (also for a bare `palm install`). Never write
   literals into project files unless `--secrets literal` is explicit.
@@ -625,10 +653,13 @@ Utilities stay top level: `init`, `doctor`, `outdated [kind]`, `why <kind> <name
   so the output repeats). `describe target <id>`: where each
   kind goes in this scope (a dry-run deploy of a sample entity per kind, so the paths are the
   ones the target really writes, env overrides included).
-- `palm uninstall [kind] <names...>`: undeploy, delete what palm wrote, reverse merged config,
-  drop `via` dependencies nothing else needs (reference counted), update palm.yaml. A file the
-  user changed since palm wrote it (hash differs from the lock) is left on disk and listed as kept,
-  with the hint to repeat the command with `--force`. A target that cannot undeploy or a file that
+- `palm uninstall [kind] <names...>`: undeploy, delete what palm wrote, reverse merged config
+  (a JSON, TOML or markdown file left empty is deleted), drop `via` dependencies nothing else
+  needs (reference counted), remove the harness directories palm created once they hold no
+  file, update palm.yaml. An entity with a file the user changed since palm wrote it (hash
+  differs from the lock) stays installed and locked: `x <kind> <name>@<origin>: <file> was
+  modified since install; rerun with --force to remove` with the hint
+  `palm uninstall <kind> <name> --force`, exit 1. A target that cannot undeploy or a file that
   cannot be removed (EACCES …) is reported with `x`, the entry stays in the lock with what is still
   on disk, and the command exits 1.
 - `palm update [kind] [names...]`: plan first, then ask. A dependency is refreshed through the
@@ -719,7 +750,10 @@ output goes through it.
   installed, `-` removed, `~` updated, `=` unchanged, `x` error, `!` warning, `i` info.
 - Warnings are collected while the command runs and printed once at the end, on stderr,
   under a `Warnings` heading. Errors are printed last: `x message` and a hint line that names
-  a command to run.
+  a command to run; an error that the same command with another flag fixes carries
+  `retryWith` and its hint repeats the command line with that flag (`… then run: palm
+  install mcp fs --yes -- npx server-fs`). Each failure is printed once (stderr); the status
+  table marks the item `x failed`.
 - `--json`: stdout holds exactly one JSON document and nothing else; every other line goes to
   stderr. Lists become `{ "items": [...] }`; every document has `warnings: []`; an error is
   `{ "error": { code, message, hint }, "warnings": [] }`.

@@ -168,7 +168,9 @@ export class Manifest {
 // ../domain/lock.ts — palm.lock.yaml as a collection keyed by LockKey (O(1) find); mutators change the lock and return it
 // Lockfile v2 (core/types.ts): LockEntry { kind; name; origin; url?; root?; ref?; sha?; path; contentHash; transform: number;
 //   targets; files: LockedFile[]; merged?; via?; deps? }, LockedFile { path; hash } (hash = hashPath of the written file,
-//   CRLF-normalised text; '' = unknown), no timestamps. `TRANSFORM_VERSION` (core/types.ts, now 2: agents list bare dependency names) is the rendering version
+//   CRLF-normalised text; '' = unknown; 'sha256:unreadable' = palm could not hash it after writing, so it counts as edited),
+//   no timestamps. Top level: `targets?` (the persisted target set the scope was last synced against; bare install contracts
+//   only what left it) and `createdDirs?` (harness dirs palm created, removed once an uninstall leaves them without files). `TRANSFORM_VERSION` (core/types.ts, now 2: agents list bare dependency names) is the rendering version
 //   entries record; bump it when a target writes different bytes for the same entity (targets import it from core/types).
 //   InstallFailure { kind: Kind | 'origin'; name; origin; target?; code; message; hint? }; InstallResult { outcomes; warnings;
 //   failures }; InstallOutcome.status adds 'failed'.
@@ -180,6 +182,8 @@ export function answersTo(e: LockEntry, name: string): boolean;  // name, or reg
 export class Lock {
   constructor(entries?: Iterable<LockEntry>);                    // a repeated kind+name+origin keeps the first
   static from(lock: Lockfile): Lock;
+  targets?: TargetId[]; createdDirs?: string[];                  // see Lockfile above
+  noteCreatedDirs(dirs: readonly string[]): this;
   static async load(file: string): Promise<Lock>;                // empty when missing; v1 converted in memory (files → {path, hash: ''}, transform 0, installedAt dropped); version > 2, entry without kind,name,origin, malformed files item → E_PARSE
   async save(file: string): Promise<void>;                       // writes v2 deterministically: kind (KINDS order), name (any case), origin, name by code point; fixed key order; files by path; targets in TARGET_IDS order; LF; header comment; same lock → same bytes
   get entries(): LockEntry[]; get size(): number; toJSON(): Lockfile;
@@ -196,8 +200,11 @@ export class Lock {
   protectedFiles(paths: LockPaths, leaving: Iterable<{kind, name, origin}>): Set<string>; // merge targets + files of entries that stay
   static filesPresent(entry: LockEntry, paths: LockPaths): boolean;
   static async modifiedFiles(entry: Pick<LockEntry, 'files'>, paths: LockPaths, hashOf: (abs: string) => Promise<string>): Promise<string[]>; // lock paths present on disk whose hash ≠ the recorded one (missing files and hash '' never count); domain cannot import core/hash, so the hasher is injected (engine/deploy `modifiedFiles` passes hashPath)
-  intact(entry: LockEntry, paths: LockPaths): boolean;           // entry and its dependents
+  static async mergedDrift(entry: Pick<LockEntry, 'merged'>, paths: LockPaths, check: MergedCheck): Promise<MergedDrift[]>; // merged records their file no longer holds: { record, state: 'missing' | 'changed' }; a check that throws counts as changed; domain cannot read JSON/TOML, so targets `mergedRecordState` is injected
+  static async inPlace(entry: LockEntry, paths: LockPaths, check?: MergedCheck): Promise<boolean>; // files present and (with check) no merged drift
+  async intact(entry: LockEntry, paths: LockPaths, check?: MergedCheck): Promise<boolean>; // inPlace for the entry and its dependents
 }
+// MergedCheck = (rec: MergedRecord /* file absolute */) => Promise<RecordState>; RecordState = 'held' | 'missing' | 'changed' (domain/merged-record.ts)
 
 // git.ts
 export async function fetchOrigin(ctx: PalmContext, spec: OriginSpec, opts?: { refresh?: boolean }): Promise<OriginCheckout>;
@@ -274,8 +281,12 @@ export async function installEntities(ctx: PalmContext, requests: EngineRequest[
 //   outside a sync (E_NOT_FOUND, E_AMBIGUOUS, E_ORIGIN unknown alias), E_NON_INTERACTIVE (consent without --yes),
 //   E_CANCELLED (declined consent, SIGINT: stops after the current item, lock saved), E_USAGE (home as project).
 // EngineRequest = InstallRequest & { locked?: LockEntry /* replay at locked.sha, keep locked.ref */; mcpName?: string /* registry key from palm.yaml */ }
-// EngineInstallOptions = InstallOptions & { exactTargets?: boolean /* targets is the full set: contraction */; frozen?: boolean /* no
+// EngineInstallOptions = InstallOptions & { dropTargets?: readonly TargetId[] /* sync: targets that left the persisted set, contracted */;
+//   lockTargets?: readonly TargetId[] /* the persisted set, recorded as Lock.targets when the lock has none */; frozen?: boolean /* no
 //   lock/manifest/config writes; content must equal the lock */; recordRequestErrors?: boolean /* sync */ }
+//   A per-install `targets` only adds to an entry (never drops what it has); before the first write every MCP server's secrets are
+//   resolved (deploy.ts preflightSecrets), so a required secret without a terminal fails the run (E_NON_INTERACTIVE, retryWith
+//   `--secrets env-ref`) before anything is written. The consent error carries retryWith `--yes`.
 // InstallOptions.consented?: readonly string[] — executablesOf lines the caller already had the user allow (palm update's one
 //   prompt); the install asks only about any others.
 export function dedupeOutcomes(outcomes: InstallOutcome[]): InstallOutcome[];   // one per kind+name+origin
@@ -295,6 +306,10 @@ export async function contentHashOf(c: Candidate): Promise<string>;
 // Registry MCP keys: config name (or short name), made safe; a key another server holds → scopedMcpKey; palm.yaml `name:` wins.
 // deploy.ts — one item: planDeployment (pure) → refusals → resolveMcpSecrets → deployToTargets → buildLockEntry → replace previous
 export function planDeployment(d: DeploymentInput): Deployment;              // keep | unchanged | deploy { to; carry?; previous; owned; status; notes }
+//   DeploymentInput { item; hash; existing?; others; intact /* files present and merged records held */; targets /* added */; drop /* removed */; force }
+export async function preflightSecrets(dc: DeployContext, plan: readonly PlanItem[]): Promise<void>; // resolve MCP secrets before any write
+//   The hint of an edit refusal, hidden-Unicode refusal and a target conflict (`retryWith: '--force'`) is the runnable
+//   `palm install <kind> <name>@<origin>[ -g] --force` (registry: `mcp <name>`, ad hoc: `palm install --force`).
 export async function deployItem(dc: DeployContext, item: PlanItem): Promise<InstallOutcome>;
 export async function modifiedFiles(paths: LockPaths, entries: readonly LockEntry[]): Promise<string[]>; // edit-safe check (Lock.modifiedFiles + hashPath), for install and uninstall
 export function failureOf(e: { kind; name; origin }, error: unknown, target?: TargetId): InstallFailure;
@@ -304,25 +319,32 @@ export function failureOf(e: { kind; name; origin }, error: unknown, target?: Ta
 // Secret notes, dry run and install alike: `requires secret A`, `optional secret B (unset)`; an install adds what to export.
 // uninstall.ts — selection → plan (Lock.planRemoval, pure) → apply (undeploy) → persist; never throws for per-file/target failures
 export async function uninstallEntities(ctx: PalmContext, refs: Array<{ kind?: Kind; name: string; origin?: string }>, opts: { scope: Scope }, deps?: Partial<EngineDeps>): Promise<UninstallResult>;
-// UninstallResult { removed: LockEntry[]; skipped: Array<{ kind; name; origin; files: string[] }>; failures: InstallFailure[]; warnings: string[] }
-//   skipped: files the user changed since palm wrote them (Lock.modifiedFiles; --force removes them); they stay on disk
-//   and out of the target undeploy. failures: a target undeploy or a file removal (EACCES …) that failed; that entry
+// UninstallResult { removed: LockEntry[]; failures: InstallFailure[]; warnings: string[] }
+//   An entity with a file the user changed since palm wrote it (Lock.modifiedFiles) is not removed at all without --force:
+//   it stays installed, in the lock and in palm.yaml with what it pulled in (a kept dependency whose parent goes becomes
+//   direct), and is an E_CONFLICT failure whose hint is `palm uninstall <kind> <name>[ -g] --force`. A named entity that a
+//   remaining plugin/agent still declares is kept, re-parented to it (`via`) and dropped from palm.yaml (a warning names the
+//   command that removes both). Other failures: a target undeploy or a file removal (EACCES …) that failed; that entry
 //   stays in the lock with the files still on disk (and its merged records when a target failed), palm.yaml drops it.
 export async function undeploy(ctx: PalmContext, deps: EngineDeps, job: UndeployJob): Promise<UndeployReport>;
-// UndeployJob { scope; entries; protect: Set<abs path>; keep?: Map<lockId, lock paths left alone> }
+// UndeployJob { scope; entries; protect: Set<abs path>; lock?: Lock /* its createdDirs without files are removed, the list updated */ }
 // UndeployReport { failures: InstallFailure[]; warnings: string[]; failed: Map<lockId, { targets: boolean; files: string[] }> }
 // (planRemoval / reparent / collectDependents over plain Lockfile data are gone: use Lock.planRemoval / reparent / dependentsOf.)
 // The engine itself works on Lock / Manifest / ScopePaths (load once, mutate, save when JSON.stringify changed).
 // installEntities classifies each InstallRequest once into an internal tagged union
 // `{ mode: 'adhoc' | 'registry' | 'index' }`; the public InstallRequest shape is unchanged.
-// sync.ts — bare `palm install`: unchanged (lock realises the dep: origin, refSatisfies(ref), exact targets, current
-// transform, files intact; no network) | replay (EngineRequest.locked) | fresh; exactTargets (contraction); --frozen
-export async function syncManifest(ctx: PalmContext, opts: { scope: Scope; prune: boolean; targets?: TargetId[]; secretPolicy?: SecretPolicy; frozen?: boolean }, deps?: Partial<EngineDeps>): Promise<InstallResult & { extraneous: LockEntry[] }>;
-//   frozen: E_CONFLICT listing every difference (dep missing/other origin/ref, extraneous or orphaned entry, other targets, older
-//   transform, edited file) before anything is written; then restores missing files from the locked shas (fetching a sha only
+// sync.ts — bare `palm install`: unchanged (lock realises the dep: origin, refSatisfies(ref), on every persisted target and
+// on none that left it, current transform, files present and merged records held; no network) | replay (EngineRequest.locked)
+// | fresh. Contraction only for targets that left the persisted set since the lock recorded it (Lock.targets); a target one
+// install added with --target stays. After a run without failures the lock records the persisted set.
+export async function syncManifest(ctx: PalmContext, opts: { scope: Scope; prune: boolean; targets?: TargetId[] /* minimum set: persisted + --target */; persisted?: TargetId[]; secretPolicy?: SecretPolicy; frozen?: boolean }, deps?: Partial<EngineDeps>): Promise<InstallResult & { extraneous: LockEntry[] }>;
+//   frozen: E_CONFLICT listing every difference (dep missing/other origin/ref, extraneous or orphaned entry, missing or dropped
+//   target, older transform, edited file, merged fragment missing or changed: `<file>#<pointer> (<kind> <name>): …`) before anything is written; then restores missing files from the locked shas (fetching a sha only
 //   when not cached) and records a failure for a restored file whose hash differs from the lock. Writes no lock/manifest.
 export function satisfies(e: LockEntry, d: { kind: Kind; dep: DepRef | McpManifestEntry }): boolean; // domain depMatches; registry MCP: lock path = registry name (used by doctor)
 export function manifestDeps(m: Manifest | domain Manifest): Array<{ kind: Kind; dep: DepRef | McpManifestEntry }>; // used by doctor
+export function mergedLabel(rec: { file: string; pointer: string }): string;  // `.mcp.json#/mcpServers/docs` (doctor, --frozen)
+export function driftWords(state: 'missing' | 'changed'): string;             // `missing (palm merged it)` / `changed since palm merged it`
 // update.ts — selection (named entries → root of their via chain) → plan (refresh each origin index once per
 // alias+ref, compare contentHash / transform / files present; nothing in the scope is written) → apply (installEntities
 // for the roots that change, grouped by targets; it persists the lock). The CLI prints the plan (with the commands it would
@@ -354,7 +376,7 @@ export async function whyInstalled(ctx: PalmContext, query: { kind: Kind; name: 
 // WhyReport { scope; entry: { kind; name; origin }; direct; listedIn?: manifest section of the chain's listed root;
 //   chain: entry → via parent → … → root (Lock.parentOf); neededBy: Lock.usersOf(entry) }
 // find.ts — `palm find`
-export async function findFileOwners(ctx: PalmContext, query: string, opts: { scopes: readonly Scope[] }): Promise<{ owners: FileOwner[]; searched: Scope[] }>; // E_USAGE when no searched scope has a lockfile
+export async function findFileOwners(ctx: PalmContext, query: string, opts: { scopes: readonly Scope[] }): Promise<{ owners: FileOwner[]; searched: Scope[] }>; // E_USAGE when no searched scope has a lockfile; a relative query is cwd-relative, and root-relative only in scopes[0] when the cwd path does not exist (never into the other scope)
 export function ownersIn(ctx: PalmContext, scope: Scope, lock: Lock, query: string): FileOwner[]; // pure over one lock
 // FileOwner { scope; file (lock path); match: 'file' | 'inside' (under an owned dir) | 'merged' (config file with a fragment)
 //   | 'contains' (the queried directory holds `files` of the entry's files); pointer?; files?; entry }
@@ -363,8 +385,12 @@ export function ownersIn(ctx: PalmContext, scope: Scope, lock: Lock, query: stri
 export async function findTargets(ctx: PalmContext, opts: { scope: Scope; flag?: TargetId[] }, deps?: Partial<EngineDeps>): Promise<FoundTargets>; // { targets; source: flag | manifest | config | detected | picked }
 export async function resolveTargets(ctx: PalmContext, opts: { scope: Scope; flag?: TargetId[] }, deps?: Partial<EngineDeps>): Promise<TargetId[]>;
 export async function persistTargets(ctx: PalmContext, scope: Scope, found: FoundTargets): Promise<void>;
-//   project: palm.yaml gets `targets:` when it has none (any source), and a flag or pick replaces a different set;
-//   global: config.yaml only for source `flag` (detection and picks are never saved); one info line; never under --dry-run.
+//   project: palm.yaml gets `targets:` only when it has none (the first install, any source); global: never (config.yaml
+//   `targets` changes only through `palm config set targets`, palm.yaml through `palm init --target`). A flag that differs
+//   from the stored set logs `--target applied to this install only; …`. Never under --dry-run.
+export async function persistedTargets(ctx: PalmContext, scope: Scope, found: FoundTargets): Promise<TargetId[] | undefined>;
+//   the persisted set after this run: palm.yaml targets (or what a first install writes), config.yaml targets, else the detected
+//   or picked global default; undefined when only a flag decided at global scope.
 export function placedSomething(result: InstallResult): boolean; // the CLI persists only after an install that placed something (not --frozen)
 // query.ts
 export async function listInstalled(ctx: PalmContext, scope: Scope, kind?: Kind): Promise<LockEntry[]>;
@@ -385,6 +411,8 @@ export async function scanOrigin(root: string, spec: OriginSpec): Promise<ScanRe
 // Entity.issues / EntityIssue (core/types): scan findings per entity, see DESIGN §5 "Scan issues"
 //   { code: 'hidden-unicode', severity: 'critical' | 'warning', message: '<file>: <n> hidden characters, first U+XXXX NAME at line L', file }
 //   plus one ScanResult.warnings line per affected entity: 'hidden-unicode: <kind> "<name>" (<severity>): <message>[; <n> more files]'
+//   Checked files: a skill's directory; other entities' source file(s); a hook whose commands reference its plugin root also
+//   every plugin-root file its deploy copies (domain/ignore isSkippedHookAsset), so a critical finding in a script it runs refuses it.
 // marketplace.ts
 export const parseMarketplace: (file: string, base: { url?: string; path?: string; ref?: string }) => Promise<{ origins: OriginSpec[]; warnings: string[] }>; // expand marketplace.json → OriginSpec[]
 export function findMarketplaceFile(root: string): Promise<string | undefined>;
@@ -437,19 +465,20 @@ export function renderAgent(def: AgentDefinition, target: TargetId): { fileName:
 export function renderInstruction(def: InstructionDefinition, target: TargetId): { fileName: string; content: string } | { managedBlock: string };
 // convert-command.ts — gemini: `<n>.toml` (description, prompt; $ARGUMENTS→{{args}}, !`cmd`→!{cmd}, @path→@{path}); opencode: `<n>.md`
 export function renderCommand(def: CommandDefinition, target: TargetId): { fileName: string; content: string; notes?: string[] };
-// tool-names.ts — Claude tool names in Gemini CLI / OpenCode (research R7)
+// tool-names.ts — Claude tool names in Gemini CLI / OpenCode (research R7), GitHub Copilot and Cursor
 export function geminiTool(entry: string): string | undefined;          // Read→read_file, Edit/MultiEdit→replace, mcp__s__t→mcp_s_t, mcp__s→mcp_s_*; Task, NotebookEdit → undefined
-export function geminiMatcher(matcher: string): string;                 // hook matcher regex with Gemini tool names
+export type ToolDialect = 'claude' | 'cursor' | 'copilot' | 'gemini';
+export function hookMatcher(matcher: string, from: ToolDialect, to: ToolDialect): string; // hook matcher regex between dialects via Claude names: Claude Edit|Write → Gemini replace|write_file, Cursor Write, Copilot edit|create; Gemini run_shell_command / Cursor Shell / Copilot bash → Bash; mcp__s__ ↔ mcp_s_ (Gemini) / MCP: (Cursor)
+export function copilotTool(entry: string): string | undefined;         // Copilot agent tool alias: Bash→execute, Read→read, Write/Edit→edit, Grep/Glob→search, Task→agent, WebFetch/WebSearch→web, TodoWrite→todo, mcp__s__t→s/t, mcp__s→s/*; native names kept; else undefined
 export function opencodePermission(entry: string): string | undefined;  // Write/Edit→edit, LS→list, mcp__s__t→s_t (sanitized)
 export function opencodeServerPattern(server: string): string;          // `<server>_*`
 export function hasToolArgument(entry: string): boolean;                // `Bash(git:*)`
 // convert-hooks.ts
-export function convertHooks(hooks: HookSet, target: TargetId, pluginRootAbs: string, paths: ScopePaths): { hooks: unknown; dropped: string[] }; // plugin-root commands also export CLAUDE_PLUGIN_ROOT (claude, codex, gemini) / CURSOR_PLUGIN_ROOT; gemini: Gemini event names, matchers via geminiMatcher, timeout ×1000 (ms); opencode: never called (hooks skipped)
+export function convertHooks(hooks: HookSet, target: TargetId, pluginRootAbs: string, paths: ScopePaths): { hooks: unknown; dropped: string[] }; // plugin-root commands also export CLAUDE_PLUGIN_ROOT (claude, codex, gemini) / CURSOR_PLUGIN_ROOT; tool-event matchers (Pre/PostToolUse, PostToolUseFailure, PermissionRequest) translated both ways via hookMatcher; gemini: Gemini event names, timeout ×1000 (ms); opencode: never called (hooks skipped)
 // (internal) pluginRootReplacement: global → pluginRootAbs; project (root inside it) → `${PROJECT_DIR[target]}/<lock form>`
 export const PROJECT_DIR: Record<TargetId, string>; // claude $CLAUDE_PROJECT_DIR · cursor $CURSOR_PROJECT_DIR · gemini $GEMINI_PROJECT_DIR · codex, copilot (opencode, unused) $(git rev-parse --show-toplevel 2>/dev/null || pwd) — DESIGN.md §2
 // fs-utils.ts
 export async function listCopyFiles(root: string, opts?: { skipTop?: readonly string[]; boundary?: string }): Promise<WalkResult>; // lib/fs walkFiles with COPY_SKIP + top-level skipTop; symlinks only inside `boundary`
-export async function rewriteText(file: string, transform: (text: string | undefined) => string | undefined, dryRun: boolean): Promise<boolean>; // read, pure transform, atomic write when changed
 // recorded.ts
 export function redactSecrets<T>(value: T, secrets: Record<string, string> | undefined): T;  // literal values → ${NAME} for MergedRecord.value
 export function containsAll(actual: unknown, recorded: unknown): boolean;                   // ${VAR} in recorded strings matches any text
@@ -458,32 +487,37 @@ export function renderMcp(cfg: McpServerConfig, target: TargetId, policy: Secret
 //   env-ref syntax: claude/gemini `${VAR}` (optional `${VAR:-}`), copilot CLI `${VAR}`, cursor/VS Code `${env:VAR}`, opencode `{env:VAR}`
 //   gemini: {command,args,env,cwd} | {url,type:http|sse,headers}; opencode: {type:local,command:[cmd,...args],cwd,environment,enabled:true} | {type:remote,url,headers,oauth:false (header auth),enabled:true}
 export function renderMcpEntry(cfg: McpServerConfig, target: TargetId, policy: SecretPolicy, opts?: { values?: Record<string, string>; scope?: Scope }): unknown; // harness-specific object/table; scope picks the Copilot format
-// Shared-file merges come in two forms: a pure text transform (text in, next text or undefined
-// when unchanged; conflicts throw E_CONFLICT) that deploys plan with, and an async wrapper
-// (read, transform, atomic write) for direct use. Records are the domain/merged-record.ts
-// union with an absolute `file`; the plan stores them with toStored().
+// Shared-file merges are pure text transforms (text in, next text or undefined when unchanged;
+// conflicts throw E_CONFLICT) that planners chain with planMerge(); the Writer writes the
+// result. The unmerge functions edit the file in place at undeploy. Records are the
+// domain/merged-record.ts union with an absolute `file`; the plan stores them with toStored().
 // json-merge.ts — JsonEdit { file; path; value; onConflict?; displayFile? }
 export function appendItemText(text: string | undefined, edit: JsonEdit): string | undefined; // no-op when a deep-equal item exists
 export function setKeyText(text: string | undefined, edit: JsonEdit): string | undefined;     // onConflict: 'error' → E_CONFLICT
 export function ensureKeyText(text: string | undefined, edit: JsonEdit): string | undefined;  // only when missing; not recorded
-export async function appendJsonItem(file: string, arrayPath: readonly string[], item: unknown, opts: JsonMergeOptions): Promise<JsonItemRecord>;
-export async function setJsonKey(file: string, keyPath: readonly string[], value: unknown, opts: JsonMergeOptions): Promise<JsonKeyRecord>;
-export async function ensureJsonKey(file: string, keyPath: readonly string[], value: unknown, opts: { dryRun: boolean }): Promise<boolean>;
 export async function unmergeJsonFile(file: string, record: JsonItemRecord | JsonKeyRecord): Promise<void>;
+export function jsonRecordState(text: string | undefined, rec: JsonRecord): RecordState;
 // toml-merge.ts (codex) — TomlEdit { file; path; value; onConflict?; displayFile? }
 export function mergeTableText(text: string | undefined, edit: TomlEdit): string | undefined;
-export async function mergeTomlTable(file: string, tablePath: string[], value: Record<string, unknown>, opts: TomlMergeOptions): Promise<TomlTableRecord>;
-export async function unmergeTomlTable(file: string, record: TomlTableRecord): Promise<void>;
+export async function unmergeTomlTable(file: string, record: TomlTableRecord): Promise<void>; // a file left empty is deleted
+export function tomlRecordState(text: string | undefined, rec: TomlTableRecord): RecordState;
 // managed-block.ts (AGENTS.md sections) — BlockEdit { file; id; content; onConflict?; displayFile? }
 export function upsertBlockText(text: string | undefined, edit: BlockEdit): string | undefined;
-export async function upsertManagedBlock(file: string, id: string, content: string, opts: ManagedBlockOptions): Promise<MdBlockRecord>;
 export async function removeManagedBlock(file: string, id: string): Promise<void>;
+export function blockState(text: string | undefined, id: string, content: string): RecordState;
+// merged-state.ts — export async function mergedRecordState(stored: MergedRecord /* file absolute */): Promise<RecordState>;
+//   json-key/toml-table: held when the key/table contains everything palm wrote (user keys fine, `${VAR}` placeholders match
+//   redacted secrets), changed otherwise; json-item: held while an equal item is there; md-block: same content; no file,
+//   key, item or block → missing; a file that no longer parses → changed.
 // layout.ts — TargetSpec { id; displayName; layout(paths: ScopePaths): TargetLayout; detect(paths: ScopePaths): Promise<boolean> }
 //   one per harness (claude.ts, codex.ts, copilot.ts, cursor.ts, gemini.ts, opencode.ts); `skip` notes use `<name>` for the entity name.
 //   TargetLayout.instructions: { dir; list?: { json; path } } (opencode: file + json-item in opencode.json#/instructions, lock-form path)
 //     | { blockFile } (codex AGENTS.md, gemini GEMINI.md) | { skip }; hooks: { mergeFile; versioned? } | { dir } | { skip } (opencode)
 //   Detection: gemini `.gemini/` or GEMINI.md · ~/.gemini ($GEMINI_CLI_HOME/.gemini); opencode `.opencode/`, opencode.json(c) · ~/.config/opencode ($XDG_CONFIG_HOME/opencode)
 // planners.ts — PLANNERS: Record<Kind, (job: Job) => Promise<boolean /* skipped */>>; plan only, no writes.
+//   markPrivateFiles(job): at global scope a JSON/TOML file of the layout that can hold secrets (the MCP config, settings.json,
+//   hooks.json, opencode.json) is created 0600 whichever kind creates it; a literal secret makes the MCP file 0600 even when it
+//   existed (PlannedEdit.mode; noted when it was readable by others). Markdown block files keep the default mode.
 // plan.ts — the deploy transaction:
 //   DeployPlan: writes (whole files), edits (shared file → planned text; `planMerge(plan, abs, transform)`
 //     reads the file once and chains transforms), files / merged / notes for the DeployResult. No IO.
@@ -514,6 +548,9 @@ export const COPY_SKIP: readonly string[];             // .git, node_modules, .D
 export const HASH_SKIP: readonly string[];             // === COPY_SKIP (hash what is deployed)
 export const HOOK_ASSET_SKIP_TOP: readonly string[];   // plugin-root docs/tests/CI dirs not copied with hook scripts
 export const HOOK_ASSET_SKIP_FILE: RegExp;             // README|CHANGELOG|… at the plugin root
+export const PLUGIN_ROOT_TOKENS: RegExp;               // ${CLAUDE_PLUGIN_ROOT}, ${CURSOR_PLUGIN_ROOT}, ${PLUGIN_ROOT}, $CLAUDE_PLUGIN_ROOT (global)
+export function referencesPluginRoot(raw: unknown): boolean;          // a hook's commands use the plugin root: its deploy copies the root
+export function isSkippedHookAsset(name: string, rel: string): boolean; // COPY_SKIP anywhere, HOOK_ASSET_SKIP_TOP / _FILE at the top
 export function matchesSkip(list: readonly string[], name: string): boolean;
 export function shouldSkipDir(name: string): boolean;  // scan: SCAN_IGNORE_DIRS
 export function shouldSkipFile(name: string): boolean; // copy/hash: COPY_SKIP, decided on the name before the entry is examined
@@ -555,6 +592,9 @@ dynamic import per command), so `palm --help` loads commander and picocolors onl
 // commands/main.ts
 export const EXIT: { ok: 0; failure: 1; usage: 2; internal: 70; cancelled: 130 };
 export function exitCodeFor(e: unknown): number;               // CommanderError → 2 (0 for help/version), ExitSignal → its code, E_USAGE → 2, E_CANCELLED → 130, E_INTERNAL → 70, other PalmError → 1, anything else → 70
+// A PalmError with `retryWith` (core/errors: `new PalmError(code, message, hint, { retryWith: '--yes' })`) is printed with the
+// hint `<hint>: palm <the argv it ran, the option replaced> <retryWith> [-- <passthrough>]` (core/errors `retryHint`), so
+// every such hint is a runnable command; without a command line it reads `<hint> it again with <retryWith>`.
 export async function runCli(argv: string[], opts?: CliOptions): Promise<number>; // CliOptions: version, stdout/stderr sinks, ui, cwd, env, deps (engine fakes), dispatch (grammar tests)
 // commands/grammar.ts (pure; loaded by --help)
 export type Verb = 'install' | 'uninstall' | 'get' | 'describe' | 'update' | 'create' | 'search';

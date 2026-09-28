@@ -5,15 +5,15 @@
  *   ...content...
  *   <!-- palm:end instruction:<name> -->
  *
- * Upsert replaces an existing block in place (everything outside it stays
- * byte-identical) or appends one after a blank line. The file always ends with a
- * newline after an upsert. Record: an `md-block` (stored as `{ file, pointer: "block:<id>",
- * value: content }`). `upsertBlockText` is the pure form deploys plan with.
+ * `upsertBlockText` (the pure transform deploys plan with) replaces an existing block in
+ * place (everything outside it stays byte-identical) or appends one after a blank line; the
+ * text always ends with a newline after an upsert. The planner records an `md-block` (stored
+ * as `{ file, pointer: "block:<id>", value: content }`); `removeManagedBlock` undoes it.
  */
 import { promises as fs } from 'node:fs';
 import { PalmError } from '../core/errors.js';
-import type { MdBlockRecord } from '../domain/merged-record.js';
-import { atomicWrite, readTextOrUndefined, rewriteText } from './fs-utils.js';
+import type { RecordState } from '../domain/merged-record.js';
+import { atomicWrite, readTextOrUndefined } from './fs-utils.js';
 
 function beginMarker(id: string): string {
   return `<!-- palm:begin ${id} -->`;
@@ -43,13 +43,6 @@ function findManagedBlock(
     .replace(/^\r?\n/, '')
     .replace(/\r?\n$/, '');
   return { start, end: endIdx + end.length, content: inner };
-}
-
-export interface ManagedBlockOptions {
-  dryRun: boolean;
-  /** Existing block with different content: overwrite (default) or throw E_CONFLICT. */
-  onConflict?: 'overwrite' | 'error';
-  displayFile?: string;
 }
 
 /** `text` ending with exactly the newline it had, or one added. */
@@ -83,21 +76,18 @@ export function upsertBlockText(text: string | undefined, edit: BlockEdit): stri
     throw new PalmError(
       'E_CONFLICT',
       `refusing to overwrite ${edit.displayFile ?? edit.file} (palm block "${edit.id}" exists with different content)`,
-      'rerun with --force',
+      'to overwrite it, run',
+      { retryWith: '--force' },
     );
   }
   return withFinalNewline(src.slice(0, found.start) + block + src.slice(found.end));
 }
 
-export async function upsertManagedBlock(
-  file: string,
-  id: string,
-  content: string,
-  opts: ManagedBlockOptions,
-): Promise<MdBlockRecord> {
-  const edit = { ...opts, file, id, content };
-  await rewriteText(file, (text) => upsertBlockText(text, edit), opts.dryRun);
-  return { type: 'md-block', file, id, content };
+/** Whether `text` still holds the block `id` with `content`. */
+export function blockState(text: string | undefined, id: string, content: string): RecordState {
+  const found = text === undefined ? undefined : findManagedBlock(text, id);
+  if (!found) return 'missing';
+  return found.content === content.replace(/\n+$/, '') ? 'held' : 'changed';
 }
 
 /**

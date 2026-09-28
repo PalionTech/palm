@@ -9,8 +9,10 @@
  *   cannot be expressed: dropped (the servers palm installs into config.toml are
  *   inherited by subagents).
  * - copilot `.agent.md`: name (displayName), description, model (not a Claude alias),
- *   tools (list; `<server>/*` added for each mcpServers entry so MCP tools stay
- *   allowed). `mcp-servers` is a map of definitions in Copilot, so names are dropped.
+ *   tools (list in Copilot's tool aliases, tool-names.ts `copilotTool`: `Bash` → `execute`,
+ *   `mcp__s__t` → `s/t`, argument restrictions and unknown names reported; `<server>/*` added
+ *   for each mcpServers entry so MCP tools stay allowed). `mcp-servers` is a map of definitions
+ *   in Copilot, so names are dropped.
  * - cursor  `.md`: name, description, model (not a Claude alias; `inherit` kept),
  *   readonly when tools exist and none of them writes.
  * - gemini  `.md`: Gemini's agent schema is `.strict()` ("any unknown key fails the whole
@@ -29,6 +31,7 @@ import { DepRef } from '../domain/dep-ref.js';
 import { normalizeBody, stringifyFrontmatter } from '../lib/frontmatter.js';
 import { withoutUndefined } from '../lib/object.js';
 import {
+  copilotTool,
   geminiTool,
   hasToolArgument,
   opencodePermission,
@@ -197,24 +200,36 @@ function renderCodex(def: AgentDefinition, lists: AgentLists): RenderedAgent {
   return { fileName: `${def.name}.toml`, content, dropped };
 }
 
-/** Copilot `tools`: MCP tools stay allowed when tools are restricted (`<server>/*` per server). */
-function copilotTools({ tools, mcpServers }: AgentLists): string[] | undefined {
-  if (!tools) return undefined;
-  const out = [...tools];
-  for (const s of mcpServers ?? []) if (!out.includes(`${s}/*`)) out.push(`${s}/*`);
-  return out;
+/**
+ * Copilot `tools` in Copilot's names ("All unrecognized tool names are ignored", so a copied
+ * `Bash(git:*)` would silently lose the shell): each entry mapped, lost argument restrictions and
+ * entries without an equivalent recorded as dropped. MCP tools stay allowed when tools are
+ * restricted (`<server>/*` per referenced server).
+ */
+function copilotTools(lists: AgentLists, dropped: string[]): string[] | undefined {
+  if (!lists.tools) return undefined;
+  const out = new Set<string>();
+  for (const entry of lists.tools) {
+    const mapped = copilotTool(entry);
+    if (!mapped) dropped.push(`tools: ${entry} (no GitHub Copilot equivalent)`);
+    else if (hasToolArgument(entry)) dropped.push(`tools: ${entry} restriction (all of ${mapped})`);
+    if (mapped) out.add(mapped);
+  }
+  for (const server of lists.mcpServers ?? []) out.add(`${server}/*`);
+  return [...out];
 }
 
 function renderCopilot(def: AgentDefinition, lists: AgentLists): RenderedAgent {
   const dropped: string[] = [];
   const model = keepModel(def.model, isClaudeModelAlias, dropped);
+  const tools = copilotTools(lists, dropped);
   dropFields(def, lists, ['mcpServers', 'skills', 'disallowedTools', 'color'], dropped);
   const kept = keepExtra(def, COPILOT_EXTRA, dropped);
   const fm = {
     name: def.displayName ?? def.name,
     description: def.description,
     model,
-    tools: copilotTools(lists),
+    tools,
     ...kept,
   };
   return {

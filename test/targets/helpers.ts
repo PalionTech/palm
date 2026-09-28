@@ -1,4 +1,5 @@
 /** Target-specific fixtures; the generic fs helpers live in test/support/sandbox.ts. */
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { DeployInput, Entity, LockEntry, TargetId } from '../../src/core/types.js';
 import { tmpDir, write } from '../support/sandbox.js';
@@ -12,6 +13,24 @@ export {
   tmpDir,
   write,
 } from '../support/sandbox.js';
+
+/**
+ * What the deploy Writer does with one planned shared-file edit: read `file` (undefined when
+ * missing), apply the pure text transform, write the result when it changed. True when written.
+ */
+export async function applyText(
+  file: string,
+  transform: (text: string | undefined) => string | undefined,
+): Promise<boolean> {
+  const text = await readFile(file, 'utf8').catch((e: NodeJS.ErrnoException) => {
+    if (e.code === 'ENOENT') return undefined;
+    throw e;
+  });
+  const next = transform(text);
+  if (next === undefined) return false;
+  await write(file, next);
+  return true;
+}
 
 export function mkEntity(def: Entity['def'], name = 'demo'): Entity {
   return { kind: def.kind, name, path: `${def.kind}s/${name}`, origin: 'test', def };

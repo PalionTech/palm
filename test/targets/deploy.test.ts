@@ -3,6 +3,7 @@ import path from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
+  DeployInput,
   DeployResult,
   Entity,
   LockEntry,
@@ -480,8 +481,8 @@ async function checkUndeploy(c: Case, results: Deployed): Promise<void> {
     expect(await exists(abs(P.hookFile))).toBe(id === 'cursor');
     if (id === 'cursor') expect(await readJson(abs(P.hookFile))).toEqual({ version: 1 });
   }
-  if (id === 'codex') expect(parseToml(await read(abs(P.mcpFile)))).toEqual({});
-  else expect(await exists(abs(P.mcpFile))).toBe(false);
+  // an MCP config left empty is deleted, TOML included (no 0-byte config.toml, L10)
+  expect(await exists(abs(P.mcpFile))).toBe(false);
   // the harness config dir itself survives
   expect(await exists(c.target.configDir(scope, root, c.env))).toBe(true);
 }
@@ -518,7 +519,8 @@ describe('collision policy', () => {
     await expect(t.deploy(input)).rejects.toMatchObject({
       code: 'E_CONFLICT',
       message: 'refusing to overwrite .claude/agents/demo.md',
-      hint: 'rerun with --force',
+      hint: 'to overwrite it, run',
+      retryWith: '--force', // the engine turns this into `palm install agent demo@test --force`
     });
     expect(await read(path.join(root, '.claude/agents/demo.md'))).toBe('user agent\n');
     await t.deploy({ ...input, ownedFiles: ['.claude/agents/demo.md'] });
@@ -1096,5 +1098,54 @@ describe('a deploy that fails half-way leaves no untracked files', () => {
     } finally {
       await fs.chmod(scripts, 0o755);
     }
+  });
+});
+
+describe('files that can hold secrets are private (H2)', () => {
+  const modeOf = async (p: string) => (await fs.stat(p)).mode & 0o777;
+  const literal = { secretPolicy: 'literal' as const, secretValues: { GH_TOKEN: 'sk-literal-42' } };
+
+  it('global: a hook or instruction creates the shared file 0600, and a later literal MCP keeps it so', async () => {
+    const origin = await makeOrigin();
+    const home = await tmpDir();
+    const env = fakeEnv(home);
+    const E = entities(origin);
+    const input = (e: { entity: Entity; absPath: string }, over: Partial<DeployInput> = {}) =>
+      mkInput({ ...e, originRoot: origin.root, scope: 'global', scopeRoot: home, env, ...over });
+    await getTarget('gemini').deploy(input(E.hook));
+    const settings = path.join(home, '.gemini/settings.json');
+    expect(await modeOf(settings)).toBe(0o600);
+    await getTarget('gemini').deploy(input(E.mcp, literal));
+    expect(await read(settings)).toContain('sk-literal-42');
+    expect(await modeOf(settings)).toBe(0o600);
+
+    await getTarget('opencode').deploy(input(E.instruction));
+    const config = path.join(home, '.config/opencode/opencode.json');
+    expect(await modeOf(config)).toBe(0o600);
+    await getTarget('opencode').deploy(input(E.mcp, literal));
+    expect(await read(config)).toContain('sk-literal-42');
+    expect(await modeOf(config)).toBe(0o600);
+    // markdown blocks never hold secrets and keep the default mode
+    await getTarget('gemini').deploy(input(E.instruction));
+    expect(await modeOf(path.join(home, '.gemini/GEMINI.md'))).not.toBe(0o600);
+  });
+
+  it('an existing readable file keeps its mode until palm writes a literal secret into it (then 0600 + note)', async () => {
+    const origin = await makeOrigin();
+    const root = await tmpDir();
+    const E = entities(origin);
+    const settings = path.join(root, '.gemini/settings.json');
+    await write(settings, '{"theme":"dark"}\n', 0o644);
+    const input = (over: Partial<DeployInput> = {}) =>
+      mkInput({ ...E.mcp, originRoot: origin.root, scopeRoot: root, ...over });
+    await getTarget('gemini').deploy(input());
+    expect(await modeOf(settings)).toBe(0o644);
+    const r = await getTarget('gemini').deploy(
+      input({ ...literal, ownedFiles: ['.gemini/settings.json#/mcpServers/gh'] }),
+    );
+    expect(await modeOf(settings)).toBe(0o600);
+    expect(r.notes).toContain(
+      '.gemini/settings.json: permissions set to 600 (it now holds a literal secret)',
+    );
   });
 });

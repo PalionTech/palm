@@ -18,7 +18,13 @@ import { convertHooks } from '../../src/targets/convert-hooks.js';
 import { renderInstruction } from '../../src/targets/convert-instruction.js';
 import { createTarget } from '../../src/targets/index.js';
 import { OAUTH_NOTE, renderMcp } from '../../src/targets/mcp-config.js';
-import { geminiMatcher, geminiTool, opencodePermission } from '../../src/targets/tool-names.js';
+import {
+  copilotTool,
+  geminiTool,
+  hookMatcher,
+  opencodePermission,
+} from '../../src/targets/tool-names.js';
+
 import {
   CLAUDE_HOOKS,
   cleanupTmp,
@@ -33,6 +39,8 @@ import {
   tmpDir,
   write,
 } from './helpers.js';
+
+const geminiMatcher = (m: string): string => hookMatcher(m, 'claude', 'gemini');
 
 afterEach(cleanupTmp);
 
@@ -111,6 +119,46 @@ describe('tool names', () => {
     expect(geminiMatcher('mcp__my_srv__tool|Read')).toBe('mcp_my_srv_tool|read_file');
     expect(geminiMatcher('startup|resume')).toBe('startup|resume');
     expect(geminiMatcher('Notebook.*')).toBe('Notebook.*');
+  });
+
+  it('hook matchers into Claude names and between dialects (R8 M8)', () => {
+    expect(hookMatcher('run_shell_command|replace', 'gemini', 'claude')).toBe('Bash|Edit');
+    expect(hookMatcher('mcp_github_.*', 'gemini', 'claude')).toBe('mcp__github__.*');
+    expect(hookMatcher('Shell', 'cursor', 'claude')).toBe('Bash');
+    expect(hookMatcher('Write', 'cursor', 'claude')).toBe('Write|Edit|MultiEdit|NotebookEdit');
+    expect(hookMatcher('Write.*', 'cursor', 'claude')).toBe(
+      '(?:Write|Edit|MultiEdit|NotebookEdit).*',
+    );
+    expect(hookMatcher('MCP:search', 'cursor', 'claude')).toBe('mcp__.*__search');
+    expect(hookMatcher('view|powershell', 'copilot', 'claude')).toBe('Read|Bash');
+    expect(hookMatcher('Edit|MultiEdit|Write', 'claude', 'cursor')).toBe('Write');
+    expect(hookMatcher('mcp__gh__.*', 'claude', 'cursor')).toBe('MCP:.*');
+    expect(hookMatcher('Bash|Read', 'claude', 'copilot')).toBe('bash|view');
+    expect(hookMatcher('write_file', 'gemini', 'cursor')).toBe('Write');
+    expect(hookMatcher('constructor|toString', 'gemini', 'claude')).toBe('constructor|toString');
+    expect(hookMatcher('*', 'cursor', 'gemini')).toBe('*');
+  });
+
+  it('copilot agent tools: aliases, MCP server/tool, native names (R8 M9)', () => {
+    const table: Record<string, string | undefined> = {
+      Bash: 'execute',
+      'Bash(git:*)': 'execute',
+      Read: 'read',
+      Write: 'edit',
+      MultiEdit: 'edit',
+      Glob: 'search',
+      Task: 'agent',
+      WebFetch: 'web',
+      TodoWrite: 'todo',
+      mcp__docs__search: 'docs/search',
+      mcp__docs: 'docs/*',
+      'github/*': 'github/*',
+      read: 'read',
+      Skill: undefined,
+      constructor: undefined,
+    };
+    for (const [claude, copilot] of Object.entries(table))
+      expect(copilotTool(claude)).toBe(copilot);
   });
 
   it('opencode: permission keys, sanitized MCP names', () => {
@@ -353,7 +401,7 @@ describe('convertHooks: gemini', () => {
     };
     const r = convertHooks({ name: 'g', dialect: 'gemini', raw: native }, 'gemini', asset, GLOBAL);
     expect(r).toEqual({ hooks: native, dropped: [] });
-    // to Claude: canonical events and seconds
+    // to Claude: canonical events, seconds and Claude tool names (R8 M8)
     const claude = convertHooks(
       { name: 'g', dialect: 'gemini', raw: native },
       'claude',
@@ -362,7 +410,7 @@ describe('convertHooks: gemini', () => {
     );
     expect(claude.hooks).toEqual({
       hooks: {
-        PostToolUse: [{ matcher: 'write_file', hooks: [{ type: 'command', command: 'w' }] }],
+        PostToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'w' }] }],
       },
     });
     expect(claude.dropped).toEqual(['BeforeModel: no equivalent event']);

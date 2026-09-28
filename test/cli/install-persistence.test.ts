@@ -8,6 +8,7 @@ import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
+import type { LockEntry } from '../../src/core/types.js';
 import { makeWorld, type World } from '../engine/world.js';
 import { fakeUI } from '../support/fakes.js';
 import { removeDir } from '../support/sandbox.js';
@@ -77,5 +78,91 @@ describe('palm install: what it saves', () => {
     expect(parse(await readFile(manifest(), 'utf8')).origins).toEqual([
       expect.objectContaining({ type: 'local', path: 'vendor/b' }),
     ]);
+  });
+});
+
+describe('palm install --target on one entity (H1)', () => {
+  let w: World;
+  afterEach(async () => removeDir(w.sb.root));
+
+  const palm = (args: string[]) =>
+    runInProcess(args, { cwd: w.sb.project, env: w.sb.env, deps: w.deps, ui: fakeUI() });
+  const at = (p: string) => join(w.sb.project, p);
+  const lockTargets = async () =>
+    Object.fromEntries(
+      (parse(await readFile(at('palm.lock.yaml'), 'utf8')).entries as LockEntry[]).map((e) => [
+        e.name,
+        e.targets,
+      ]),
+    );
+
+  async function twoEntities(): Promise<void> {
+    w = await makeWorld();
+    w.deps.getTarget = (await import('../../src/targets/index.js')).getTarget;
+    await mkdir(w.sb.palmHome, { recursive: true });
+    await writeFile(
+      join(w.sb.palmHome, 'config.yaml'),
+      `origins:\n  - { alias: a, type: local, path: ${w.origins.a} }\n`,
+    );
+    expect((await palm(['install', 'skill', 'wayfinder@a', '--target', 'claude,codex'])).code).toBe(
+      0,
+    );
+    expect((await palm(['install', 'skill', 'tdd@a'])).code).toBe(0);
+    expect(await lockTargets()).toEqual({
+      tdd: ['claude', 'codex'],
+      wayfinder: ['claude', 'codex'],
+    });
+  }
+
+  it('narrowing --target keeps palm.yaml targets and every other entry; --frozen still passes', async () => {
+    await twoEntities();
+    const before = await readFile(at('palm.yaml'), 'utf8');
+    const r = await palm(['install', 'skill', 'tdd@a', '--target', 'claude']);
+    expect(r.code).toBe(0);
+    expect(r.stderr + r.stdout).not.toContain('saved targets');
+    expect(r.stderr + r.stdout).toContain('--target applied to this install only');
+    expect(await readFile(at('palm.yaml'), 'utf8')).toBe(before);
+    expect(parse(await readFile(at('palm.lock.yaml'), 'utf8')).targets).toEqual([
+      'claude',
+      'codex',
+    ]);
+
+    const sync = await palm(['install']);
+    expect(sync.code).toBe(0);
+    expect(sync.stdout + sync.stderr).not.toContain('removed from');
+    expect(existsSync(at('.agents/skills/wayfinder/SKILL.md'))).toBe(true);
+    expect(existsSync(at('.agents/skills/tdd/SKILL.md'))).toBe(true);
+    expect(await lockTargets()).toEqual({
+      tdd: ['claude', 'codex'],
+      wayfinder: ['claude', 'codex'],
+    });
+    expect((await palm(['install', '--frozen'])).code).toBe(0);
+  });
+
+  it('an extending --target stays on that entry through bare installs; only a shrunk palm.yaml contracts', async () => {
+    await twoEntities();
+    expect((await palm(['install', 'skill', 'tdd@a', '--target', 'cursor'])).code).toBe(0);
+    expect((await palm(['install'])).code).toBe(0);
+    expect(await lockTargets()).toEqual({
+      tdd: ['claude', 'codex', 'cursor'],
+      wayfinder: ['claude', 'codex'],
+    });
+    expect((await palm(['install', '--frozen'])).code).toBe(0);
+
+    // the persisted set shrinks (palm init --target): the next bare install contracts codex
+    expect((await palm(['init', '--target', 'claude'])).code).toBe(0);
+    const frozen = await palm(['install', '--frozen']);
+    expect(frozen.code).toBe(1);
+    expect(frozen.stderr).toContain(
+      'skill wayfinder@a: locked for claude, codex, palm.yaml dropped codex',
+    );
+    const sync = await palm(['install']);
+    expect(sync.code).toBe(0);
+    expect(sync.stdout).toContain('removed from codex');
+    expect(await lockTargets()).toEqual({ tdd: ['claude', 'cursor'], wayfinder: ['claude'] });
+    expect(existsSync(at('.agents/skills/wayfinder'))).toBe(false);
+    expect(existsSync(at('.agents/skills/tdd/SKILL.md'))).toBe(true); // cursor still reads it
+    expect(parse(await readFile(at('palm.lock.yaml'), 'utf8')).targets).toEqual(['claude']);
+    expect((await palm(['install', '--frozen'])).code).toBe(0);
   });
 });

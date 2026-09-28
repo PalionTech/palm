@@ -67,7 +67,7 @@ interface IndexRequest {
 export function planned(req: EngineRequest): Planned {
   if (req.adhocMcp) return { mode: 'adhoc', config: req.adhocMcp };
   if (req.locked) return { mode: 'replay', locked: req.locked };
-  const dep = DepRef.from(req.spec);
+  const dep = DepRef.from(req.spec, req.kind);
   if (req.registry)
     return { mode: 'registry', name: req.registry, version: dep.ref, key: req.mcpName };
   return { mode: 'index', kind: req.kind, dep, from: req.from };
@@ -309,6 +309,21 @@ export interface IndexLookup {
   registryFallback: boolean;
 }
 
+/**
+ * A `#ref` pins a git origin. A local directory has only what is on disk, so a ref there is
+ * refused (E_USAGE) rather than ignored and then saved to palm.yaml.
+ */
+function assertRefable(spec: OriginSpec, req: IndexRequest): void {
+  const { dep, from } = req;
+  if (!dep.ref || spec.type === 'git') return;
+  const bare = from ? `${dep.name} --from ${spec.path ?? spec.alias}` : `${dep.withRef(undefined)}`;
+  throw new PalmError(
+    'E_USAGE',
+    `"${dep}": origin "${spec.alias}" is a local directory, which has no refs`,
+    `drop "#${dep.ref}": palm install ${req.kind ? `${req.kind} ` : ''}${bare}`,
+  );
+}
+
 /** Match a request against the origin indexes (DESIGN §6 steps 3–5, before any registry lookup). */
 export async function lookupIndexed(
   session: IndexSession,
@@ -318,10 +333,13 @@ export async function lookupIndexed(
   let pool: SourcedIndex[];
   let scopedTo: string | undefined;
   if (from) {
+    assertRefable(from, req);
     pool = [await session.get(dep.ref ? { ...from, ref: dep.ref } : from)];
     scopedTo = from.alias;
   } else if (dep.origin) {
-    pool = [await session.byAlias(dep.origin, dep.ref)];
+    const si = await session.byAlias(dep.origin, dep.ref);
+    assertRefable(si.spec, req);
+    pool = [si];
     scopedTo = dep.origin;
   } else {
     pool = await session.all();

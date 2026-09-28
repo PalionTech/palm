@@ -27,6 +27,7 @@ suffix, e.g. `import { isRecord } from '../lib/object.js'`.
 - `readJsonIfExists<T = unknown>(file: string, opts?: { tolerant?: boolean }): Promise<T | undefined>`: undefined when missing or blank.
 - `writeJsonFile(file: string, value: unknown, opts?: { mode?: number }): Promise<void>`: `stringifyJson` + `writeFileAtomic`.
 - `removeEmptyParents(from: string, stopAt: string): Promise<string[]>`: rmdir from `dirname(from)` upwards, never `stopAt` or outside it; skips missing dirs, stops at the first it cannot remove; returns the removed dirs.
+- `removeEmptyTree(dir: string): Promise<boolean>`: removes `dir` when it holds no file or link at any depth (only empty directories), pruning the empty branches of one that does; true when `dir` went.
 - `walkFiles(root: string, opts?: WalkOptions): Promise<WalkResult>`: every regular file below the directory `root` as `{ rel, abs, mode }` (depth first, names sorted). Symlinks are followed only when their real target stays inside `opts.boundary` (default `root`); links leaving it, broken links and a root resolving outside it (`'.'`) go to `skipped`. `opts.skip(name, rel)` drops entries by name before they are examined. Each real directory is walked once (no loops). The one walk behind the copy (targets/fs-utils `listCopyFiles`) and content hashes (core/hash `hashPath`).
 
 ## json.ts
@@ -35,6 +36,7 @@ suffix, e.g. `import { isRecord } from '../lib/object.js'`.
 - `stripJsonComments(text: string): string`: comments outside strings become spaces (positions kept).
 - `stripTrailingCommas(text: string): string`: commas before `}`/`]` outside strings become spaces.
 - `stringifyJson(value: unknown): string`: 2-space indent plus trailing newline.
+- `stableJson(value: unknown): string`: deterministic JSON for hashing (object keys sorted, undefined-valued keys dropped, no whitespace); what core/hash `hashValue` and origin cache slot names hash.
 
 ## json-pointer.ts
 
@@ -45,6 +47,7 @@ suffix, e.g. `import { isRecord } from '../lib/object.js'`.
 ## text.ts
 
 - `stripBom(text: string): string` and `normalizeText(text: string): string` (BOM stripped, CRLF and CR to LF).
+- `plural(n: number, word: string): string` (`1 file`, `3 files`) and `pluralWord(n: number, word: string): string` (`file`, `files`).
 
 ## names.ts
 
@@ -97,3 +100,9 @@ Hidden-Unicode detection for text palm deploys (`palm audit`, the pre-deploy sca
 - `stripHiddenUnicode(text: string, opts?: { severity?: HiddenUnicodeSeverity }): string`: removes the findings (default every one; `'critical'` only critical), everything else byte for byte.
 - `hasHiddenUnicode(text: string, severity?: HiddenUnicodeSeverity): boolean` (default: any finding).
 - `describeCodePoint(cp: number): string` (`U+202E RIGHT-TO-LEFT OVERRIDE`) and `codePointName(cp: number): string` (`FORMAT CHARACTER` when unnamed).
+
+Terminal display width (string-width's rules, no dependency), for tables (`src/ui/output.ts`):
+
+- `displayWidth(text: string): number`: columns `text` takes. ANSI colour codes 0; East Asian Wide/Fullwidth characters and emoji (ZWJ sequences, skin tones, keycaps, `U+FE0F` presentation) 2; combining marks, joiners, variation selectors and other default-ignorable characters 0; everything else 1. Measured per grapheme cluster (`Intl.Segmenter`).
+- `sliceToWidth(text: string, width: number): string`: the longest prefix at most `width` columns, cut between grapheme clusters (a wide character or emoji sequence is never split).
+- `stripAnsi(text: string): string`: without ANSI colour (SGR) sequences.

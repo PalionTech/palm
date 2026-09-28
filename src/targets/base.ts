@@ -27,7 +27,7 @@ import { unmergeJsonFile } from './json-merge.js';
 import type { CleanupRoot, TargetLayout, TargetSpec } from './layout.js';
 import { removeManagedBlock } from './managed-block.js';
 import { DeployPlan, Ownership, Writer } from './plan.js';
-import { type Job, PLANNERS } from './planners.js';
+import { type Job, markPrivateFiles, PLANNERS } from './planners.js';
 import { unmergeTomlTable } from './toml-merge.js';
 
 /** Entity names become file and directory names: refuse anything that could leave its directory. */
@@ -132,6 +132,7 @@ export class GenericTarget implements Target {
       target: { id: this.id, displayName: this.displayName },
     };
     const skipped = await PLANNERS[input.entity.def.kind](job);
+    markPrivateFiles(job);
     const writer = new Writer(job.plan, job.owner, input.dryRun);
     try {
       await writer.apply();

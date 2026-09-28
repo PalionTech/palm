@@ -260,10 +260,12 @@ export function agentDepSpecs(entity: Entity): Array<{ kind: Kind; dep: DepRef }
   const out: Array<{ kind: Kind; dep: DepRef }> = [];
   const add = (kind: Kind, specs: string[] | undefined): void => {
     for (const spec of specs ?? []) {
+      if (!spec.trim()) continue; // an empty entry: nothing to depend on
       try {
         out.push({ kind, dep: DepRef.parse(spec) });
       } catch {
-        // an empty entry: nothing to depend on
+        // `x@owner/repo`: kept verbatim, so it is reported as a dependency no origin provides
+        out.push({ kind, dep: DepRef.of(spec.trim()) });
       }
     }
   };

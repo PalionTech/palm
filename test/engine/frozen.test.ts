@@ -141,7 +141,9 @@ describe('lock replay and --frozen (git origin)', () => {
       '  - skill foo@g: locked for claude, palm.yaml targets claude, codex',
       '  - .claude/skill/foo.txt (skill foo): changed since palm wrote it',
     ]);
-    expect(err.hint).toContain('palm install without --frozen');
+    expect(err.hint).toBe(
+      'bring them in line: palm install, then review and commit palm.yaml and palm.lock.yaml',
+    );
     expect(await readFile(lockFile(), 'utf8')).toBe(lockBefore);
     expect(await readFile(manifestFile(), 'utf8')).toBe(manifestBefore);
     expect(w.calls.deploy).toHaveLength(deploys);

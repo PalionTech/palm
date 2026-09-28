@@ -4,7 +4,7 @@
  * `errnoCode`); callers wrap them in their own error types.
  */
 import { randomBytes } from 'node:crypto';
-import type { Stats } from 'node:fs';
+import type { Dirent, Stats } from 'node:fs';
 import {
   access,
   chmod,
@@ -206,6 +206,27 @@ export async function removeEmptyParents(from: string, stopAt: string): Promise<
     dir = path.dirname(dir);
   }
   return removed;
+}
+
+/**
+ * Remove `dir` when it holds no file at any depth (only empty directories); true when it went.
+ * Anything else (a file, a link, an unreadable entry) keeps it and its path to that entry.
+ */
+export async function removeEmptyTree(dir: string): Promise<boolean> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  let empty = true;
+  for (const e of entries)
+    if (!e.isDirectory() || !(await removeEmptyTree(path.join(dir, e.name)))) empty = false;
+  if (!empty) return false;
+  return rmdir(dir).then(
+    () => true,
+    () => false,
+  );
 }
 
 export interface WalkOptions {

@@ -102,7 +102,7 @@ describe('reference-counted dependencies (LockEntry.deps)', () => {
     expect(existsSync(join(w.sb.project, '.claude/skill/shared.txt'))).toBe(false);
   });
 
-  it('warns when a skill is removed directly while an agent still references it', async () => {
+  it('keeps a skill named directly while an agent still references it, and says how to remove both', async () => {
     w = await makeWorld({ origins: ['d'] });
     await installEntities(w.ctx, [{ kind: 'agent', spec: 'beta' }], opts, w.deps);
     const r = await uninstallEntities(
@@ -111,8 +111,10 @@ describe('reference-counted dependencies (LockEntry.deps)', () => {
       { scope: 'project' },
       w.deps,
     );
-    expect(r.removed.map((e) => e.name)).toEqual(['shared']);
-    expect(r.warnings).toContain('agent beta still references skill shared');
+    expect(r.removed).toEqual([]);
+    expect(r.warnings).toEqual([
+      'kept skill shared: still needed by agent beta (to remove both: palm uninstall agent beta)',
+    ]);
   });
 });
 
@@ -184,7 +186,7 @@ describe('resolveTargets --target persistence', () => {
   let w: World;
   afterEach(async () => removeDir(w.sb.root));
 
-  it('saves an explicit flag to palm.yaml (project) when it differs, and not under --dry-run', async () => {
+  it('saves an explicit flag to palm.yaml (project) when it has none, and not under --dry-run', async () => {
     w = await makeWorld({ detect: ['claude', 'codex'] });
     const file = join(w.sb.project, 'palm.yaml');
     w.ctx.flags.dryRun = true;
@@ -202,9 +204,22 @@ describe('resolveTargets --target persistence', () => {
     expect((await Manifest.load(file)).toJSON().targets).toEqual(['cursor', 'claude']);
   });
 
-  it('saves an explicit flag to config.yaml for the global scope', async () => {
+  it('never saves a flag to config.yaml (global): palm config set targets does', async () => {
     w = await makeWorld();
     await resolveAndSave(w.ctx, { scope: 'global', flag: ['claude'] }, w.deps);
-    expect((await loadConfig(w.ctx.paths)).targets).toEqual(['claude']);
+    expect((await loadConfig(w.ctx.paths)).targets).toBeUndefined();
+  });
+
+  it('a flag never replaces palm.yaml targets once stored; it says so once', async () => {
+    w = await makeWorld({ detect: ['claude', 'codex'] });
+    const file = join(w.sb.project, 'palm.yaml');
+    await resolveAndSave(w.ctx, { scope: 'project' }, w.deps);
+    expect((await Manifest.load(file)).toJSON().targets).toEqual(['claude', 'codex']);
+    await resolveAndSave(w.ctx, { scope: 'project', flag: ['gemini'] }, w.deps);
+    expect((await Manifest.load(file)).toJSON().targets).toEqual(['claude', 'codex']);
+    expect(w.log.messages).toContainEqual({
+      level: 'info',
+      msg: '--target applied to this install only; palm.yaml keeps targets claude, codex (change them with: palm init --target <ids>)',
+    });
   });
 });

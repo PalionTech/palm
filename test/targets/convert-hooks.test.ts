@@ -125,7 +125,8 @@ describe('convertHooks from Claude', () => {
           {
             command:
               'CURSOR_PLUGIN_ROOT="$CURSOR_PROJECT_DIR/.palm/hooks/fmt" "$CURSOR_PROJECT_DIR/.palm/hooks/fmt/hooks/format.sh"',
-            matcher: 'Edit|Write',
+            // Cursor's tool type for every file write (R8 M8)
+            matcher: 'Write',
             timeout: 30,
           },
         ],
@@ -158,7 +159,8 @@ describe('convertHooks from Claude', () => {
             type: 'command',
             bash: `"${GIT_TOP}/.palm/hooks/fmt/hooks/format.sh"`,
             timeoutSec: 30,
-            matcher: 'Edit|Write',
+            // Copilot tool names (R8 M8)
+            matcher: 'edit|create',
           },
         ],
         sessionStart: [{ type: 'command', bash: 'echo hi' }],
@@ -193,7 +195,8 @@ describe('convertHooks into Claude', () => {
       hooks: {
         PreToolUse: [
           {
-            matcher: 'Shell',
+            // Cursor's `Shell` is Claude's `Bash` (R8 M8)
+            matcher: 'Bash',
             hooks: [
               { type: 'command', command: 'CLAUDE_PLUGIN_ROOT="/abs/c" /abs/c/a.sh', timeout: 10 },
               { type: 'command', command: 'b.sh' },
@@ -316,5 +319,74 @@ describe('convertHooks into Claude', () => {
         PreToolUse: [{ matcher: 'x', hooks: [{ type: 'command', command: 'c', timeout: 2 }] }],
       },
     });
+  });
+});
+
+describe('hook matchers translated both ways (R8 M8)', () => {
+  const tool = (dialect: HookSet['dialect'], raw: unknown): HookSet => ({
+    name: 'm',
+    dialect,
+    raw,
+  });
+  const matchersOf = (hooks: unknown): string[] =>
+    JSON.stringify(hooks)
+      .match(/"matcher":"[^"]*"/g)
+      ?.map((m) => m.slice('"matcher":"'.length, -1)) ?? [];
+
+  it('gemini → claude/codex/cursor/copilot: Gemini tool names become the target names', () => {
+    const set = tool('gemini', {
+      hooks: {
+        BeforeTool: [
+          { matcher: 'run_shell_command|write_file', hooks: [{ type: 'command', command: 'a' }] },
+        ],
+        AfterTool: [{ matcher: 'mcp_github_.*', hooks: [{ type: 'command', command: 'b' }] }],
+      },
+    });
+    expect(matchersOf(convertHooks(set, 'claude', '/a', GLOBAL).hooks)).toEqual([
+      'Bash|Write',
+      'mcp__github__.*',
+    ]);
+    expect(matchersOf(convertHooks(set, 'codex', '/a', GLOBAL).hooks)).toEqual([
+      'Bash|Write',
+      'mcp__github__.*',
+    ]);
+    expect(matchersOf(convertHooks(set, 'cursor', '/a', GLOBAL).hooks)).toEqual([
+      'Shell|Write',
+      'MCP:.*',
+    ]);
+    expect(matchersOf(convertHooks(set, 'copilot', '/a', GLOBAL).hooks)).toEqual([
+      'bash|create',
+      'mcp__github__.*',
+    ]);
+  });
+
+  it('cursor → gemini and copilot → claude go through Claude names', () => {
+    const cursor = tool('cursor', {
+      version: 1,
+      hooks: { preToolUse: [{ command: 'x', matcher: 'Shell|Read' }] },
+    });
+    expect(matchersOf(convertHooks(cursor, 'gemini', '/a', GLOBAL).hooks)).toEqual([
+      'run_shell_command|read_file',
+    ]);
+    const copilot = tool('copilot', {
+      version: 1,
+      hooks: { postToolUse: [{ type: 'command', bash: 'y', matcher: 'bash|edit|view' }] },
+    });
+    expect(matchersOf(convertHooks(copilot, 'claude', '/a', GLOBAL).hooks)).toEqual([
+      'Bash|Edit|Read',
+    ]);
+  });
+
+  it('non-tool events keep their matcher; regex matchers are mapped in place', () => {
+    const set = tool('gemini', {
+      hooks: {
+        SessionStart: [{ matcher: 'startup', hooks: [{ type: 'command', command: 's' }] }],
+        BeforeTool: [{ matcher: '(replace|glob)', hooks: [{ type: 'command', command: 't' }] }],
+      },
+    });
+    expect(matchersOf(convertHooks(set, 'claude', '/a', GLOBAL).hooks)).toEqual([
+      'startup',
+      '(Edit|Glob)',
+    ]);
   });
 });

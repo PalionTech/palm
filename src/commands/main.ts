@@ -4,7 +4,7 @@
  * src/cli.ts only calls this and exits; tests call it in process with fake streams and UI.
  */
 import { CommanderError } from 'commander';
-import { isPalmError } from '../core/errors.js';
+import { isPalmError, PalmError, retryHint } from '../core/errors.js';
 import type { EngineDeps, UI } from '../core/types.js';
 import { createOutput, type Output, type Sink } from '../ui/output.js';
 import type { App } from './app.js';
@@ -42,32 +42,41 @@ function commanderMessage(e: CommanderError): string {
   return e.message.replace(/^error:\s*/, '');
 }
 
-function errorDoc(err: Error): Record<string, unknown> {
+/** The command line that failed, for hints that repeat it (`PalmError.retryWith`). */
+interface RunLine {
+  args: readonly string[];
+  passthrough: readonly string[];
+}
+
+function errorDoc(err: Error, run: RunLine): Record<string, unknown> {
   const palm = isPalmError(err) ? err : undefined;
-  const hint = palm?.hint ? { hint: palm.hint } : {};
+  const text = palm ? retryHint(palm, run) : undefined;
+  const hint = text ? { hint: text } : {};
   return { error: { code: palm?.code ?? 'E_INTERNAL', message: err.message, ...hint } };
 }
 
-function printError(out: Output, err: Error): void {
+function printError(out: Output, err: Error, run: RunLine): void {
   out.finish(); // warnings first, the error last
-  if (isPalmError(err)) out.error(err.message, err.hint);
+  if (isPalmError(err)) out.error(err.message, retryHint(err, run));
   else {
-    const hint = out.verbose ? undefined : 're-run with --verbose for a stack trace';
-    out.error(`internal error: ${err.message}`, hint);
+    const verbose = new PalmError('E_INTERNAL', '', 'for a stack trace, run', {
+      retryWith: '--verbose',
+    });
+    out.error(`internal error: ${err.message}`, out.verbose ? undefined : retryHint(verbose, run));
   }
   if (err.stack) out.debug(err.stack);
 }
 
 /** Print what went wrong (commander already printed its own usage errors). */
-function report(e: unknown, out: Output, code: number): void {
+function report(e: unknown, out: Output, code: number, run: RunLine): void {
   if (code === EXIT.ok || code === EXIT.cancelled || e instanceof ExitSignal) return;
   if (e instanceof CommanderError) {
     if (out.jsonMode) out.json({ error: { code: 'E_USAGE', message: commanderMessage(e) } });
     return;
   }
   const err = e instanceof Error ? e : new Error(String(e));
-  if (out.jsonMode) out.json(errorDoc(err));
-  else printError(out, err);
+  if (out.jsonMode) out.json(errorDoc(err, run));
+  else printError(out, err, run);
 }
 
 export async function runCli(argv: string[], opts: CliOptions = {}): Promise<number> {
@@ -99,7 +108,7 @@ export async function runCli(argv: string[], opts: CliOptions = {}): Promise<num
     await program.parseAsync(args, { from: 'user' });
   } catch (e) {
     code = exitCodeFor(e);
-    report(e, out, code);
+    report(e, out, code, { args, passthrough });
   }
   out.finish();
   return code;

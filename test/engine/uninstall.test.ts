@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { chmod, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Lock } from '../../src/domain/lock.js';
@@ -102,7 +102,7 @@ describe('uninstallEntities', () => {
     expect((await Lock.load(join(w.sb.project, 'palm.lock.yaml'))).entries).toHaveLength(1);
   });
 
-  it('keeps files the user changed (reported as skipped); --force removes them', async () => {
+  it('an entity with a file the user changed stays installed and locked (a failure); --force removes both (H4)', async () => {
     w = await makeWorld();
     await installEntities(w.ctx, [{ kind: 'skill', spec: 'wayfinder' }], opts, w.deps);
     const mine = join(w.sb.project, '.claude/skill/wayfinder.txt');
@@ -110,29 +110,42 @@ describe('uninstallEntities', () => {
     await writeFile(mine, 'edited by hand\n');
 
     const r = await uninstallEntities(w.ctx, [{ name: 'wayfinder' }], { scope: 'project' }, w.deps);
-    expect(r.removed.map((e) => e.name)).toEqual(['wayfinder']);
-    expect(r.skipped).toEqual([
-      { kind: 'skill', name: 'wayfinder', origin: 'a', files: ['.claude/skill/wayfinder.txt'] },
+    expect(r.removed).toEqual([]);
+    expect(r.failures).toEqual([
+      {
+        kind: 'skill',
+        name: 'wayfinder',
+        origin: 'a',
+        code: 'E_CONFLICT',
+        message:
+          '.claude/skill/wayfinder.txt was modified since install; rerun with --force to remove',
+        hint: 'palm kept this skill installed; to remove it and your edits: palm uninstall skill wayfinder --force',
+      },
     ]);
-    expect(r.failures).toEqual([]);
     expect(existsSync(mine)).toBe(true); // the edit survives
-    expect(existsSync(codex)).toBe(false); // the untouched copy is gone
-    const undeployed = w.calls.undeploy.filter((c) => c.entry.name === 'wayfinder');
-    expect(undeployed.flatMap((c) => c.entry.files.map((f) => f.path))).not.toContain(
-      '.claude/skill/wayfinder.txt',
-    );
-    expect((await Lock.load(join(w.sb.project, 'palm.lock.yaml'))).entries).toEqual([]);
+    expect(existsSync(codex)).toBe(true); // and so does the rest of the entity
+    expect(w.calls.undeploy.filter((c) => c.entry.name === 'wayfinder')).toEqual([]);
+    const lockFile = join(w.sb.project, 'palm.lock.yaml');
+    expect((await Lock.load(lockFile)).find({ kind: 'skill', name: 'wayfinder' })).toBeDefined();
+    expect(
+      (await Manifest.load(join(w.sb.project, 'palm.yaml'))).hasDep('skill', 'wayfinder'),
+    ).toBe(true);
 
-    await installEntities(w.ctx, [{ kind: 'skill', spec: 'tdd' }], opts, w.deps);
-    const tdd = join(w.sb.project, '.claude/skill/tdd.txt');
-    await writeFile(tdd, 'edited\n');
     w.ctx.flags.force = true;
-    const forced = await uninstallEntities(w.ctx, [{ name: 'tdd' }], { scope: 'project' }, w.deps);
-    expect(forced.skipped).toEqual([]);
-    expect(existsSync(tdd)).toBe(false);
+    const forced = await uninstallEntities(
+      w.ctx,
+      [{ name: 'wayfinder' }],
+      { scope: 'project' },
+      w.deps,
+    );
+    expect(forced.failures).toEqual([]);
+    expect(forced.removed.map((e) => e.name)).toEqual(['wayfinder']);
+    expect(existsSync(mine)).toBe(false);
+    expect(existsSync(codex)).toBe(false);
+    expect((await Lock.load(lockFile)).entries).toEqual([]);
   });
 
-  it('a dependency another entry still uses stays, even when the user changed files of the removed one', async () => {
+  it('an edited dependency stays (now direct) when its parent goes; the shared one is re-parented', async () => {
     w = await makeWorld({ origins: ['d'] });
     await installEntities(
       w.ctx,
@@ -150,14 +163,61 @@ describe('uninstallEntities', () => {
       { scope: 'project' },
       w.deps,
     );
-    expect(r.removed.map((e) => e.name).sort()).toEqual(['alpha', 'style']);
-    expect(r.skipped.map((s) => [s.name, s.files])).toEqual([
-      ['style', ['.claude/instruction/style.txt']],
-    ]);
+    expect(r.removed.map((e) => e.name)).toEqual(['alpha']);
+    expect(r.failures.map((f) => [f.name, f.code])).toEqual([['style', 'E_CONFLICT']]);
     expect(existsSync(join(w.sb.project, '.claude/instruction/style.txt'))).toBe(true);
     expect(existsSync(join(w.sb.project, '.claude/skill/shared.txt'))).toBe(true);
     const lock = await Lock.load(join(w.sb.project, 'palm.lock.yaml'));
     expect(lock.find({ kind: 'skill', name: 'shared' })?.via).toBe('agent:beta');
+    expect(lock.find({ kind: 'instruction', name: 'style' })?.via).toBeUndefined();
+  });
+
+  it('a named dependency another installed agent declares is re-parented, not removed (M1)', async () => {
+    w = await makeWorld({ origins: ['d'] });
+    await installEntities(w.ctx, [{ kind: 'agent', spec: 'beta' }], opts, w.deps);
+    const r = await uninstallEntities(
+      w.ctx,
+      [{ kind: 'skill', name: 'shared' }],
+      { scope: 'project' },
+      w.deps,
+    );
+    expect(r.removed).toEqual([]);
+    expect(r.warnings).toContain(
+      'kept skill shared: still needed by agent beta (to remove both: palm uninstall agent beta)',
+    );
+    expect(existsSync(join(w.sb.project, '.claude/skill/shared.txt'))).toBe(true);
+    const lock = await Lock.load(join(w.sb.project, 'palm.lock.yaml'));
+    expect(lock.find({ kind: 'skill', name: 'shared' })?.via).toBe('agent:beta');
+
+    // installed directly and declared by beta: it leaves palm.yaml and becomes beta's dependency
+    await installEntities(w.ctx, [{ kind: 'skill', spec: 'shared@d' }], opts, w.deps);
+    const manifest = join(w.sb.project, 'palm.yaml');
+    expect((await Manifest.load(manifest)).hasDep('skill', 'shared')).toBe(true);
+    await uninstallEntities(
+      w.ctx,
+      [{ kind: 'skill', name: 'shared' }],
+      { scope: 'project' },
+      w.deps,
+    );
+    expect((await Manifest.load(manifest)).hasDep('skill', 'shared')).toBe(false);
+    const after = await Lock.load(join(w.sb.project, 'palm.lock.yaml'));
+    expect(after.find({ kind: 'skill', name: 'shared' })?.via).toBe('agent:beta');
+    expect(existsSync(join(w.sb.project, '.claude/skill/shared.txt'))).toBe(true);
+  });
+
+  it('harness dirs palm created go once empty; ones that were there stay (L10)', async () => {
+    w = await makeWorld();
+    await mkdir(join(w.sb.project, '.codex'), { recursive: true }); // the user's own
+    await installEntities(w.ctx, [{ kind: 'skill', spec: 'wayfinder' }], opts, w.deps);
+    await installEntities(w.ctx, [{ kind: 'skill', spec: 'tdd' }], opts, w.deps);
+    const lockFile = join(w.sb.project, 'palm.lock.yaml');
+    expect((await Lock.load(lockFile)).createdDirs).toEqual(['.claude']);
+    await uninstallEntities(w.ctx, [{ name: 'wayfinder' }], { scope: 'project' }, w.deps);
+    expect(existsSync(join(w.sb.project, '.claude'))).toBe(true); // tdd still lives there
+    await uninstallEntities(w.ctx, [{ name: 'tdd' }], { scope: 'project' }, w.deps);
+    expect(existsSync(join(w.sb.project, '.claude'))).toBe(false);
+    expect(existsSync(join(w.sb.project, '.codex'))).toBe(true);
+    expect((await Lock.load(lockFile)).createdDirs).toBeUndefined();
   });
 
   it.skipIf(process.getuid?.() === 0)(

@@ -13,6 +13,8 @@
  */
 import pc from 'picocolors';
 import type { InstallOutcome, InstallResult, Logger, Scope, TargetId } from '../core/types.js';
+import { isRecord } from '../lib/object.js';
+import { displayWidth, sliceToWidth } from '../lib/unicode.js';
 
 /** Anything with a `write(text)`: process.stdout, process.stderr, or a test buffer. */
 export interface Sink {
@@ -78,27 +80,20 @@ export interface Output extends Logger {
   finish(): void;
 }
 
-const ESC = String.fromCharCode(27);
-const ANSI_RE = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
-
-export function stripAnsi(text: string): string {
-  return text.replace(ANSI_RE, '');
-}
-
-function visibleWidth(text: string): number {
-  return stripAnsi(text).length;
-}
-
+/** Pad `text` with spaces to `width` terminal columns (wide characters count 2, ANSI codes 0). */
 function padVisible(text: string, width: number): string {
-  const pad = width - visibleWidth(text);
+  const pad = width - displayWidth(text);
   return pad > 0 ? text + ' '.repeat(pad) : text;
 }
 
-/** Shorten `text` to at most `max` visible characters, ending with an ellipsis when cut. */
+/**
+ * Shorten `text` to at most `max` terminal columns, ending with an ellipsis when cut. Widths are
+ * display widths (CJK and emoji count 2), and a cut never splits a character.
+ */
 export function truncate(text: string | undefined, max: number): string {
   const flat = (text ?? '').replace(/\s+/g, ' ').trim();
-  if (flat.length <= max) return flat;
-  return `${flat.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+  if (displayWidth(flat) <= max) return flat;
+  return `${sliceToWidth(flat, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
 function renderRow(r: string[], widths: number[], style?: (s: string) => string): string {
@@ -121,7 +116,7 @@ export function formatTable(rows: string[][], header?: string[]): string {
   const cols = all.reduce((n, r) => Math.max(n, r.length), 0);
   if (cols === 0) return '';
   const widths = Array.from({ length: cols }, (_, i) =>
-    all.reduce((w, r) => Math.max(w, visibleWidth(r[i] ?? '')), 0),
+    all.reduce((w, r) => Math.max(w, displayWidth(r[i] ?? '')), 0),
   );
   const out: string[] = [];
   if (head) {
@@ -130,10 +125,6 @@ export function formatTable(rows: string[][], header?: string[]): string {
   }
   for (const r of body) out.push(renderRow(r, widths));
   return out.join('\n');
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 /**
@@ -335,11 +326,14 @@ function printOutcomes(out: Output, outcomes: InstallOutcome[], dryRun: boolean)
     tally.set(label, (tally.get(label) ?? 0) + 1);
   }
   out.hint([...tally].map(([s, n]) => `${n} ${s}`).join(', '));
-  const noted = outcomes.filter((o) => o.notes.length > 0);
+  // `failed: …` notes repeat a failure printed on stderr (printFailures): shown once, there.
+  const shown = (note: string) => !note.startsWith('failed: ');
+  const noted = outcomes.filter((o) => o.notes.some(shown));
   if (!noted.length) return;
   out.out();
   for (const o of noted)
-    for (const note of o.notes) out.out(`${symbol('info')} ${pc.bold(o.entry.name)}: ${note}`);
+    for (const note of o.notes.filter(shown))
+      out.out(`${symbol('info')} ${pc.bold(o.entry.name)}: ${note}`);
 }
 
 /** Each failure on stderr: `✗ kind name@origin → target: message`, then its hint. */

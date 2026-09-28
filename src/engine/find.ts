@@ -31,12 +31,25 @@ export interface FileOwner {
   entry: LockEntry;
 }
 
-/** The absolute paths `query` may mean in this scope: as given (cwd, `~`) and scope-relative. */
-function candidates(ctx: PalmContext, paths: ScopePaths, query: string): string[] {
+/**
+ * The absolute paths `query` may mean in this scope: `~/…` and absolute paths as given; a
+ * relative path against the working directory, and against the scope root only when
+ * `rootRelative` (the scope the command runs in) and nothing exists at the cwd-relative path. So
+ * a project path never resolves into the global scope root (R8 L5), nor a global one into the
+ * project.
+ */
+function candidates(
+  ctx: PalmContext,
+  paths: ScopePaths,
+  query: string,
+  rootRelative: boolean,
+): string[] {
   const home = ctx.paths.home;
   if (query === '~' || query.startsWith('~/')) return [expandHomeDir(query, home) ?? query];
   if (isAbsolute(query)) return [resolve(query)];
-  return [...new Set([resolve(ctx.paths.cwd, query), resolve(paths.root, query)])];
+  const fromCwd = resolve(ctx.paths.cwd, query);
+  if (!rootRelative || existsSync(fromCwd)) return [fromCwd];
+  return [...new Set([fromCwd, resolve(paths.root, query)])];
 }
 
 /**
@@ -78,19 +91,32 @@ function containing(
   return undefined;
 }
 
-/** Entries of one scope's lock that own `query`. */
-export function ownersIn(ctx: PalmContext, scope: Scope, lock: Lock, query: string): FileOwner[] {
+/** Where to look: the scope, and whether its root resolves a relative query (see `candidates`). */
+interface LookIn {
+  scope: Scope;
+  rootRelative: boolean;
+}
+
+function ownersAt(ctx: PalmContext, lock: Lock, query: string, at: LookIn): FileOwner[] {
+  const { scope } = at;
   const paths = ScopePaths.of(ctx, scope);
-  const wanted = candidates(ctx, paths, query).map((p) => lexical(paths, p));
+  const wanted = candidates(ctx, paths, query, at.rootRelative).map((p) => lexical(paths, p));
   return lock.entries.flatMap((entry) => {
     const hit = ownership(paths, entry, wanted);
     return hit ? [{ scope, entry, ...hit }] : [];
   });
 }
 
+/** Entries of one scope's lock that own `query` (a relative query may be scope-root relative). */
+export function ownersIn(ctx: PalmContext, scope: Scope, lock: Lock, query: string): FileOwner[] {
+  return ownersAt(ctx, lock, query, { scope, rootRelative: true });
+}
+
 /**
- * Lock entries that wrote `query`, searching each scope in `scopes` that has a lockfile.
- * E_USAGE when none of them has one (nothing palm installed to search).
+ * Lock entries that wrote `query`, searching each scope in `scopes` that has a lockfile. The
+ * first scope is the one the command runs in: only its root resolves a relative `query`; the
+ * others are reached by absolute or `~/…` paths. E_USAGE when none of them has a lockfile
+ * (nothing palm installed to search).
  */
 export async function findFileOwners(
   ctx: PalmContext,
@@ -109,7 +135,7 @@ export async function findFileOwners(
   const owners: FileOwner[] = [];
   for (const scope of searched) {
     const lock = await Lock.load(ScopePaths.of(ctx, scope).lockFile);
-    owners.push(...ownersIn(ctx, scope, lock, query));
+    owners.push(...ownersAt(ctx, lock, query, { scope, rootRelative: scope === opts.scopes[0] }));
   }
   return { owners, searched };
 }

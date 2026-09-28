@@ -213,3 +213,97 @@ export function stripHiddenUnicode(text: string, opts: StripHiddenUnicodeOptions
   }
   return out + text.slice(from);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Display width: how many terminal columns text takes (string-width's rules, no dependency).
+
+const ANSI_SGR_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+
+/** `text` without ANSI colour (SGR) sequences. */
+export function stripAnsi(text: string): string {
+  return text.replace(ANSI_SGR_RE, '');
+}
+
+/** Graphemes that take no column: controls, format and default-ignorable characters, lone marks. */
+const ZERO_WIDTH_RE =
+  /^[\p{Default_Ignorable_Code_Point}\p{Control}\p{Format}\p{Mark}\p{Surrogate}]+$/u;
+/** Unicode sets mode: `\p{RGI_Emoji}` needs it, and the ES2022 target cannot spell `/…/v`. */
+const SETS_FLAG = 'v';
+/** A fully qualified emoji (sequences included), built at run time for the `v` flag. */
+const RGI_EMOJI_RE = new RegExp('^\\p{RGI_Emoji}$', SETS_FLAG);
+const EMOJI_PRESENTATION_RE = /^\p{Emoji_Presentation}/u;
+const PRINTABLE_ASCII_RE = /^[\x20-\x7e]*$/;
+
+/** East Asian Wide and Fullwidth blocks (UAX #11) outside the emoji, sorted, inclusive. */
+const WIDE: ReadonlyArray<readonly [number, number]> = [
+  [0x1100, 0x115f], // Hangul Jamo initial consonants
+  [0x2e80, 0x303e], // CJK radicals, Kangxi, CJK symbols and punctuation (U+3000 included)
+  [0x3041, 0x33ff], // Kana, Bopomofo, Hangul compatibility Jamo, enclosed CJK, CJK compatibility
+  [0x3400, 0x4dbf], // CJK extension A
+  [0x4e00, 0x9fff], // CJK unified ideographs
+  [0xa000, 0xa4cf], // Yi
+  [0xa960, 0xa97f], // Hangul Jamo extended-A
+  [0xac00, 0xd7a3], // Hangul syllables
+  [0xf900, 0xfaff], // CJK compatibility ideographs
+  [0xfe10, 0xfe19], // vertical forms
+  [0xfe30, 0xfe6f], // CJK compatibility forms, small form variants
+  [0xff00, 0xff60], // fullwidth ASCII variants
+  [0xffe0, 0xffe6], // fullwidth signs
+  [0x16fe0, 0x16fe4], // ideographic symbols
+  [0x17000, 0x18cff], // Tangut, Khitan
+  [0x1aff0, 0x1b2ff], // Kana supplements, Nushu
+  [0x1f200, 0x1f2ff], // enclosed ideographic supplement
+  [0x20000, 0x3fffd], // CJK extensions B and later (planes 2 and 3)
+];
+
+function isWide(cp: number): boolean {
+  return WIDE.some(([from, to]) => cp >= from && cp <= to);
+}
+
+let segmenter: Intl.Segmenter | undefined;
+
+/** User-perceived characters of `text` (Intl grapheme clusters). */
+function graphemes(text: string): string[] {
+  segmenter ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+  return Array.from(segmenter.segment(text), (s) => s.segment);
+}
+
+/** Columns one grapheme cluster takes: 0, 1, or 2 (emoji, East Asian Wide/Fullwidth). */
+function graphemeWidth(g: string): number {
+  if (ZERO_WIDTH_RE.test(g)) return 0;
+  if (RGI_EMOJI_RE.test(g) || EMOJI_PRESENTATION_RE.test(g)) return 2;
+  for (const ch of g) {
+    if (ZERO_WIDTH_RE.test(ch)) continue;
+    return isWide(ch.codePointAt(0) as number) ? 2 : 1;
+  }
+  return 0;
+}
+
+/**
+ * Terminal columns `text` takes: ANSI colour codes count 0, East Asian Wide/Fullwidth characters
+ * and emoji (sequences included) 2, combining marks, joiners and variation selectors 0.
+ */
+export function displayWidth(text: string): number {
+  const plain = stripAnsi(text);
+  if (PRINTABLE_ASCII_RE.test(plain)) return plain.length;
+  let width = 0;
+  for (const g of graphemes(plain)) width += graphemeWidth(g);
+  return width;
+}
+
+/**
+ * The longest prefix of `text` (plain, no ANSI codes) at most `width` columns wide, cut between
+ * grapheme clusters, so a wide character or an emoji sequence is never split.
+ */
+export function sliceToWidth(text: string, width: number): string {
+  if (PRINTABLE_ASCII_RE.test(text)) return text.slice(0, Math.max(0, width));
+  let out = '';
+  let used = 0;
+  for (const g of graphemes(text)) {
+    const w = graphemeWidth(g);
+    if (used + w > width) break;
+    out += g;
+    used += w;
+  }
+  return out;
+}

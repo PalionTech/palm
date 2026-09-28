@@ -44,21 +44,6 @@ export async function atomicWrite(
   }
 }
 
-/**
- * Read `file` (undefined when missing), apply the pure `transform` and write the result
- * atomically unless it is undefined (unchanged) or `dryRun`. True when the text changed.
- */
-export async function rewriteText(
-  file: string,
-  transform: (text: string | undefined) => string | undefined,
-  dryRun: boolean,
-): Promise<boolean> {
-  const next = transform(await readTextOrUndefined(file));
-  if (next === undefined) return false;
-  if (!dryRun) await atomicWrite(file, next);
-  return true;
-}
-
 /** Permission bits of `file` (links followed), or undefined when it cannot be stat'ed. */
 export async function statMode(file: string): Promise<number | undefined> {
   return fs.stat(file).then(

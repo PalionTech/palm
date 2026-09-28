@@ -1,10 +1,13 @@
 /**
  * Bare `palm install`: make the scope match palm.yaml + palm.lock.yaml. Entries the lock
  * already realises stay untouched (no network); others are replayed from the commit the lock
- * names, or resolved fresh when palm.yaml asks for something the lock does not have. The
- * manifest's targets are the full set: an entry on a target palm.yaml dropped loses it.
+ * names, or resolved fresh when palm.yaml asks for something the lock does not have. Every
+ * entry is deployed to at least the persisted targets (palm.yaml / config.yaml); an entry on a
+ * target that left the persisted set since the last sync (`Lock.targets`) loses it, while a
+ * target one install added with `--target` stays.
  * `--frozen` first checks that palm.yaml, the lock and the files agree, and writes nothing.
  */
+import { existsSync } from 'node:fs';
 import { PalmError } from '../core/errors.js';
 import { refSatisfies } from '../core/git.js';
 import { hashValue } from '../core/hash.js';
@@ -30,6 +33,7 @@ import { entityId } from '../domain/entity-key.js';
 import { filePaths, Lock } from '../domain/lock.js';
 import { depMatches, isMcpManifestEntry, Manifest } from '../domain/manifest.js';
 import { ScopePaths } from '../domain/scope-paths.js';
+import { mergedRecordState } from '../targets/merged-state.js';
 import { failureOf, modifiedFiles } from './deploy.js';
 import type { EngineDeps } from './deps.js';
 import { dedupeOutcomes, type EngineRequest, installEntities, scopedContext } from './install.js';
@@ -74,8 +78,17 @@ function realising(lock: Lock, d: ManifestDep): LockEntry | undefined {
   return all.find((e) => !e.via) ?? all[0];
 }
 
-function sameTargets(a: readonly TargetId[], b: readonly TargetId[]): boolean {
-  return a.length === b.length && a.every((t) => b.includes(t));
+/** Targets of `want` the entry is not on, and targets it is on that must go. */
+function targetGaps(e: LockEntry, at: { targets: TargetId[]; drop: TargetId[] }) {
+  return {
+    missing: at.targets.filter((t) => !e.targets.includes(t)),
+    stale: e.targets.filter((t) => at.drop.includes(t)),
+  };
+}
+
+function onTargets(e: LockEntry, at: { targets: TargetId[]; drop: TargetId[] }): boolean {
+  const { missing, stale } = targetGaps(e, at);
+  return missing.length === 0 && stale.length === 0;
 }
 
 function mcpMismatch(e: LockEntry, dep: McpManifestEntry): string | undefined {
@@ -100,10 +113,10 @@ function depMismatch(e: LockEntry, d: ManifestDep): string | undefined {
 }
 
 /** True when the lock entry is an exact, up-to-date realisation of the manifest dependency. */
-function upToDate(e: LockEntry, d: ManifestDep, targets: TargetId[]): boolean {
+function upToDate(e: LockEntry, d: ManifestDep, state: SyncState): boolean {
   if (e.via) return false; // promote to a direct install
   if (e.transform !== TRANSFORM_VERSION) return false; // rendered by an older palm
-  if (!sameTargets(e.targets, targets)) return false;
+  if (!onTargets(e, state)) return false;
   return depMismatch(e, d) === undefined;
 }
 
@@ -143,18 +156,23 @@ interface SyncState {
   scope: Scope;
   manifest: Manifest;
   lock: Lock;
+  /** Every entry's minimum target set: the persisted set plus any `--target`. */
   targets: TargetId[];
+  /** Targets that left the persisted set since the last sync (`Lock.targets`). */
+  drop: TargetId[];
+  /** The persisted set, recorded in the lock after a sync without failures. */
+  persisted?: TargetId[];
 }
 
-/** Per manifest dependency: unchanged (lock realises it, files intact), a replay, or fresh. */
-function planSync(ctx: PalmContext, state: SyncState): SyncPlan {
-  const { lock, targets } = state;
+/** Per manifest dependency: unchanged (lock realises it, files and merged records intact), a replay, or fresh. */
+async function planSync(ctx: PalmContext, state: SyncState): Promise<SyncPlan> {
+  const { lock } = state;
   const paths = ScopePaths.of(ctx, state.scope);
   const plan: SyncPlan = { unchanged: [], requests: [] };
   for (const d of manifestDeps(state.manifest)) {
     const present = realising(lock, d);
-    const current = !!present && !ctx.flags.force && upToDate(present, d, targets);
-    if (present && current && lock.intact(present, paths)) {
+    const current = !!present && !ctx.flags.force && upToDate(present, d, state);
+    if (present && current && (await lock.intact(present, paths, mergedRecordState))) {
       plan.unchanged.push({ entry: present, status: 'unchanged', notes: [] });
     } else if (present && replayable(present, d)) {
       plan.requests.push({ kind: d.kind, spec: present.name, locked: present });
@@ -176,23 +194,32 @@ function depLabel(d: ManifestDep): string {
 }
 
 /** Differences between palm.yaml and the lock, entry by entry. */
-function manifestDifferences(wanted: ManifestDep[], lock: Lock, targets: TargetId[]): string[] {
+function manifestDifferences(wanted: ManifestDep[], state: SyncState): string[] {
   const out: string[] = [];
+  const { lock } = state;
   for (const d of wanted) {
     const e = lock.entries.find((x) => !x.via && satisfies(x, d));
     const why = e ? depMismatch(e, d) : undefined;
     if (!e) out.push(`${depLabel(d)}: in palm.yaml, not in palm.lock.yaml`);
     else if (why) out.push(`${depLabel(d)}: palm.yaml ${why}`);
   }
-  for (const e of lock.entries) out.push(...entryDifferences(e, { wanted, lock, targets }));
+  for (const e of lock.entries) out.push(...entryDifferences(e, { ...state, wanted }));
+  return out;
+}
+
+/** An entry that lacks a persisted target, or is on one palm.yaml dropped. */
+function targetDifferences(e: LockEntry, label: string, at: SyncState): string[] {
+  const { missing, stale } = targetGaps(e, at);
+  const on = e.targets.join(', ') || 'no target';
+  const out: string[] = [];
+  if (missing.length)
+    out.push(`${label}: locked for ${on}, palm.yaml targets ${at.targets.join(', ')}`);
+  if (stale.length) out.push(`${label}: locked for ${on}, palm.yaml dropped ${stale.join(', ')}`);
   return out;
 }
 
 /** What is wrong with one lock entry under --frozen: extraneous, orphaned, stale, other targets. */
-function entryDifferences(
-  e: LockEntry,
-  at: { wanted: ManifestDep[]; lock: Lock; targets: TargetId[] },
-): string[] {
+function entryDifferences(e: LockEntry, at: SyncState & { wanted: ManifestDep[] }): string[] {
   const label = `${e.kind} ${e.name}@${e.origin}`;
   const out: string[] = [];
   if (!e.via && !at.wanted.some((d) => satisfies(e, d)))
@@ -203,32 +230,43 @@ function entryDifferences(
     out.push(
       `${label}: locked by an older palm (transform ${e.transform}, now ${TRANSFORM_VERSION})`,
     );
-  if (!sameTargets(e.targets, at.targets))
-    out.push(
-      `${label}: locked for ${e.targets.join(', ') || 'no target'}, palm.yaml targets ${at.targets.join(', ')}`,
-    );
+  out.push(...targetDifferences(e, label, at));
   return out;
 }
 
 /**
  * `--frozen`: palm.yaml and palm.lock.yaml must agree (every dependency locked as written,
- * nothing extra, same targets, current transform) and no locked file may have been edited.
- * Missing files are fine: they are restored from the locked commits. E_CONFLICT lists every
- * difference; nothing has been written.
+ * nothing extra, same targets, current transform), no locked file may have been edited, and
+ * every merged fragment (MCP keys, hook entries, instruction blocks) must still be in its file
+ * as recorded. Missing files are fine: they are restored from the locked commits. E_CONFLICT
+ * lists every difference; nothing has been written.
  */
 async function assertFrozen(ctx: PalmContext, state: SyncState): Promise<void> {
-  const { manifest, lock, targets } = state;
-  const diffs = manifestDifferences(manifestDeps(manifest), lock, targets);
+  const { manifest, lock } = state;
+  const diffs = manifestDifferences(manifestDeps(manifest), state);
   const paths = ScopePaths.of(ctx, state.scope);
-  for (const e of lock.entries)
+  for (const e of lock.entries) {
     for (const f of await modifiedFiles(paths, [e]))
       diffs.push(`${f} (${e.kind} ${e.name}): changed since palm wrote it`);
+    for (const d of await Lock.mergedDrift(e, paths, mergedRecordState))
+      diffs.push(`${mergedLabel(d.record)} (${e.kind} ${e.name}): ${driftWords(d.state)}`);
+  }
   if (!diffs.length) return;
   throw new PalmError(
     'E_CONFLICT',
     `palm.yaml, palm.lock.yaml and the installed files do not match (--frozen):\n${diffs.map((x) => `  - ${x}`).join('\n')}`,
-    'run palm install without --frozen, review the result and commit palm.yaml and palm.lock.yaml',
+    `bring them in line: palm install${state.scope === 'global' ? ' -g' : ''}, then review and commit palm.yaml and palm.lock.yaml`,
   );
+}
+
+/** `file#pointer` of a merged record (`.mcp.json#/mcpServers/docs`, `AGENTS.md#block:…`). */
+export function mergedLabel(rec: { file: string; pointer: string }): string {
+  return `${rec.file}#${rec.pointer}`;
+}
+
+/** How a merged record drifted, in words. */
+export function driftWords(state: 'missing' | 'changed'): string {
+  return state === 'missing' ? 'missing (palm merged it)' : 'changed since palm merged it';
 }
 
 /** After a frozen restore: every restored file must hash to what the lock says. */
@@ -268,7 +306,16 @@ function dryRunEntries(before: Lock, outcomes: InstallOutcome[]): LockEntry[] {
 export interface SyncOptions {
   scope: Scope;
   prune: boolean;
+  /**
+   * Every entry's minimum target set (the persisted set plus any `--target`); resolved like
+   * `palm get targets` when absent, and then also the persisted set.
+   */
   targets?: TargetId[];
+  /**
+   * The persisted target set (`persistedTargets`): recorded in the lock, and what the lock's
+   * previous record lost is contracted. Absent: nothing is contracted.
+   */
+  persisted?: TargetId[];
   secretPolicy?: SecretPolicy;
   /** `--frozen`: fail on any manifest/lock/file mismatch; restore only; write no lock or manifest. */
   frozen?: boolean;
@@ -280,7 +327,7 @@ async function runSync(
   state: SyncState,
   deps?: Partial<EngineDeps>,
 ): Promise<InstallResult> {
-  const plan = planSync(ctx, state);
+  const plan = await planSync(ctx, state);
   const empty: InstallResult = { outcomes: [], warnings: [], failures: [] };
   const result = plan.requests.length
     ? await installEntities(
@@ -290,7 +337,8 @@ async function runSync(
           scope: opts.scope,
           targets: state.targets,
           noSave: true,
-          exactTargets: true,
+          dropTargets: state.drop,
+          ...(state.persisted ? { lockTargets: state.persisted } : {}),
           recordRequestErrors: true,
           ...(opts.frozen ? { frozen: true } : {}),
           ...(opts.secretPolicy ? { secretPolicy: opts.secretPolicy } : {}),
@@ -320,6 +368,38 @@ async function pruneExtraneous(
   into.failures.push(...(r.failures ?? []));
 }
 
+/** The sync's targets: the minimum set, the persisted set and what left it since the last sync. */
+async function syncTargets(
+  ctx: PalmContext,
+  opts: SyncOptions,
+  lock: Lock,
+  deps?: Partial<EngineDeps>,
+): Promise<Pick<SyncState, 'targets' | 'drop' | 'persisted'>> {
+  const given = opts.targets?.length ? opts.targets : undefined;
+  const targets = given ?? (await resolveTargets(ctx, { scope: opts.scope }, deps));
+  const persisted = given ? opts.persisted : targets;
+  const drop = persisted && lock.targets ? lock.targets.filter((t) => !persisted.includes(t)) : [];
+  return { targets, drop, ...(persisted ? { persisted } : {}) };
+}
+
+/**
+ * After a sync without failures, the lock records the persisted set it realises (so the next
+ * contraction removes only what leaves it after this); never in dry run or --frozen.
+ */
+async function recordSyncedTargets(
+  ctx: PalmContext,
+  file: string,
+  run: { state: SyncState; result: InstallResult; frozen: boolean },
+): Promise<Lock> {
+  const lock = await Lock.load(file);
+  const { persisted } = run.state;
+  if (ctx.flags.dryRun || run.frozen || !persisted || run.result.failures.length) return lock;
+  if (lock.targets && lock.targets.join() === persisted.join()) return lock;
+  lock.targets = [...persisted];
+  if (lock.size || existsSync(file)) await lock.save(file);
+  return lock;
+}
+
 /** `palm install` with no arguments: install what the manifest lists, report (or prune) the rest. */
 export async function syncManifest(
   ctxIn: PalmContext,
@@ -330,16 +410,15 @@ export async function syncManifest(
   const paths = ScopePaths.of(ctx, opts.scope);
   const manifest = await Manifest.load(paths.manifestFile);
   const lock = await Lock.load(paths.lockFile);
-  const targets = opts.targets?.length
-    ? opts.targets
-    : await resolveTargets(ctx, { scope: opts.scope }, deps);
-  const state: SyncState = { scope: opts.scope, manifest, lock, targets };
+  const at = await syncTargets(ctx, opts, lock, deps);
+  const state: SyncState = { scope: opts.scope, manifest, lock, ...at };
   if (opts.frozen) await assertFrozen(ctx, state);
   const result = await runSync(ctx, opts, state, deps);
+  const frozen = !!opts.frozen;
   const after =
-    ctx.flags.dryRun || opts.frozen
+    ctx.flags.dryRun || frozen
       ? dryRunEntries(lock, result.outcomes)
-      : (await Lock.load(paths.lockFile)).entries;
+      : (await recordSyncedTargets(ctx, paths.lockFile, { state, result, frozen })).entries;
   const wanted = manifestDeps(manifest);
   const extraneous = after.filter((e) => !e.via && !wanted.some((d) => satisfies(e, d)));
   await pruneExtraneous(ctx, opts, { extraneous, into: result }, deps);

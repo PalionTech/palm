@@ -11,6 +11,7 @@ import { PalmError } from '../core/errors.js';
 import type { Kind, PalmContext, Scope, TargetId } from '../core/types.js';
 import { DepRef } from '../domain/dep-ref.js';
 import type { UpdateMark, UpdatePlan, UpdatePlanItem, UpdateResult } from '../engine/update.js';
+import { plural } from '../lib/text.js';
 import {
   type Mark,
   type Output,
@@ -111,7 +112,7 @@ async function confirmed(
       'palm update changes installed files and needs a confirmation',
       `review the plan, then run: ${again} --yes   (or ${again} --dry-run to only print it)`,
     );
-  const apply = `Apply ${changes.count} change${changes.count === 1 ? '' : 's'}`;
+  const apply = `Apply ${plural(changes.count, 'change')}`;
   const allow = changes.runs
     ? ` and allow ${changes.runs === 1 ? 'that command' : 'those commands'} to run`
     : '';

@@ -7,16 +7,20 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { messageOf, PalmError } from '../core/errors.js';
 import type { DeployInput, Entity, HookSet, Kind, TargetId } from '../core/types.js';
-import { HOOK_ASSET_SKIP_FILE, HOOK_ASSET_SKIP_TOP } from '../domain/ignore.js';
+import {
+  HOOK_ASSET_SKIP_FILE,
+  HOOK_ASSET_SKIP_TOP,
+  referencesPluginRoot,
+} from '../domain/ignore.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
 import { isWithin, pathExists } from '../lib/fs.js';
 import { stringifyJson } from '../lib/json.js';
 import { formatPointer } from '../lib/json-pointer.js';
 import { renderAgent } from './convert-agent.js';
 import { renderCommand } from './convert-command.js';
-import { convertHooks, referencesPluginRoot } from './convert-hooks.js';
+import { convertHooks } from './convert-hooks.js';
 import { renderInstruction } from './convert-instruction.js';
-import { listCopyFiles } from './fs-utils.js';
+import { listCopyFiles, statMode } from './fs-utils.js';
 import { appendItemText, ensureKeyText, setKeyText } from './json-merge.js';
 import type { InstructionList, TargetLayout } from './layout.js';
 import { upsertBlockText } from './managed-block.js';
@@ -262,6 +266,20 @@ async function planMcpEntry(
   return planned;
 }
 
+/**
+ * A file that now holds a literal secret is private to the user (0600), even when it existed:
+ * one palm or the user created earlier keeps its mode otherwise. Chmod'ing an existing file
+ * that others could read is noted.
+ */
+async function makePrivate(job: Job, planned: PlannedEdit): Promise<void> {
+  planned.mode = PRIVATE_MODE;
+  const current = planned.existed ? await statMode(planned.abs) : undefined;
+  if (current !== undefined && (current & 0o077) !== 0)
+    job.plan.note(
+      `${job.paths.lockForm(planned.abs)}: permissions set to 600 (it now holds a literal secret)`,
+    );
+}
+
 async function planMcp(job: Job): Promise<boolean> {
   const { mcp } = defOf(job.input.entity, 'mcp');
   const { secretPolicy, secretValues, scope } = job.input;
@@ -272,9 +290,7 @@ async function planMcp(job: Job): Promise<boolean> {
   for (const n of r.notes) plan.note(n);
   if (!r.entry) return true;
   const planned = await planMcpEntry(job, key, r.entry);
-  // User-level MCP configs and anything holding literal secrets: private to the user when palm creates them.
-  const literal = secretPolicy === 'literal' && Object.keys(values).length > 0;
-  if (scope === 'global' || literal) planned.createMode = 0o600;
+  if (secretPolicy === 'literal' && Object.keys(values).length > 0) await makePrivate(job, planned);
   if (r.envRefs.length)
     plan.note(
       `MCP ${key}: export ${r.envRefs.join(', ')} in the environment ${target.displayName} runs in`,
@@ -285,6 +301,33 @@ async function planMcp(job: Job): Promise<boolean> {
 async function planPlugin(job: Job): Promise<boolean> {
   job.plan.note(`plugin ${job.input.entity.name}: members are installed individually`);
   return true;
+}
+
+/** Permission bits of a file that can hold secrets. */
+const PRIVATE_MODE = 0o600;
+
+/**
+ * The shared files of this layout that can hold secrets: the MCP config (`.mcp.json`,
+ * `~/.claude.json`, `config.toml`, `mcp.json`, `settings.json`, `opencode.json`,
+ * `mcp-config.json`) and the other JSON/TOML settings palm merges into. Markdown blocks
+ * (`AGENTS.md`, `GEMINI.md`) never do.
+ */
+function secretBearing(layout: TargetLayout): Set<string> {
+  const mcp = 'toml' in layout.mcp ? layout.mcp.toml : layout.mcp.json;
+  return new Set([mcp, ...layout.mergedFiles.filter((f) => /\.(json|toml)$/i.test(f))]);
+}
+
+/**
+ * At global scope, a secret-bearing file palm creates is 0600 whichever kind creates it (a
+ * hook's `settings.json`, an instruction's `opencode.json`), so an MCP server merged into it
+ * later in the same run never lands in a group- or world-readable file.
+ */
+export function markPrivateFiles(job: Job): void {
+  if (job.input.scope !== 'global') return;
+  for (const file of secretBearing(job.layout)) {
+    const edit = job.plan.edits.get(file);
+    if (edit && !edit.existed) edit.createMode = PRIVATE_MODE;
+  }
 }
 
 export const PLANNERS: Record<Kind, Planner> = {

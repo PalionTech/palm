@@ -4,6 +4,7 @@
  */
 
 import type { Entity, EntityRef, Kind } from '../core/types.js';
+import { plural } from '../lib/text.js';
 import { dirOf, displayRel, joinRel } from './util.js';
 
 /** Entities that belong to one plugin, each kind+name once, in the order they were found. */
@@ -18,10 +19,6 @@ export class MemberList {
   addAll(list: Entity[]): void {
     for (const e of list) this.add(e);
   }
-}
-
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
 const key = (kind: Kind, id: string): string => `${kind}\0${id}`;

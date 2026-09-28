@@ -123,9 +123,14 @@ export function printTargets(ctx: PalmContext, out: Output, view: TargetsView): 
     ['target', 'harness', 'status', 'project', 'global', `${scope} config dir`],
   );
   if (view.unresolved)
-    out.warn(
-      `no targets resolved: ${view.unresolved}; set them with: palm init --target claude,codex`,
-    );
+    out.warn(`no targets resolved: ${view.unresolved}; set them with: ${setTargetsHint(scope)}`);
+}
+
+/** The command that records targets at `scope`: palm.yaml via init, the global config via config. */
+function setTargetsHint(scope: Scope): string {
+  return scope === 'global'
+    ? 'palm config set targets claude,codex'
+    : 'palm init --target claude,codex';
 }
 
 /** `palm get targets [id...]`. */

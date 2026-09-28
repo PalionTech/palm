@@ -358,6 +358,10 @@ export interface LockEntry {
 /** palm.lock.yaml. Version 2: per-file hashes, `transform`, no timestamps. v1 files load and convert. */
 export interface Lockfile {
   version: 2;
+  /** The persisted target set the scope was last synced against (target contraction). */
+  targets?: TargetId[];
+  /** Harness directories palm created (lock form), removed once an uninstall leaves them empty. */
+  createdDirs?: string[];
   entries: LockEntry[];
 }
 

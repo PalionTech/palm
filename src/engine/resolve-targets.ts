@@ -1,4 +1,3 @@
-import { saveConfig } from '../core/config-file.js';
 import { messageOf, PalmError } from '../core/errors.js';
 import {
   type InstallResult,
@@ -29,21 +28,22 @@ function validate(ids: readonly string[], where: string): TargetId[] {
 
 type TargetSource = 'flag' | 'manifest' | 'config' | 'detected' | 'picked';
 
-function sameList(a: readonly string[] | undefined, b: readonly string[]): boolean {
-  return !!a && a.length === b.length && a.every((t, i) => t === b[i]);
+function sameSet(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((t) => b.includes(t));
 }
 
 /**
- * Persist resolved targets so the next run (and the next developer) gets the same set.
+ * Persist resolved targets so the next run (and the next developer) gets the same set. The
+ * persisted set changes only through `palm init --target` (palm.yaml), `palm config set targets`
+ * (config.yaml) or here, by the FIRST project install when palm.yaml has none:
  *
- * - Project scope: `targets:` in palm.yaml, written when it has none, whatever decided them
- *   (config default, detection, a pick), and when an explicit flag or a pick differs from it.
- *   This is what makes a project machine-independent.
- * - Global scope: `targets` in config.yaml is the default for every project without its own, so
- *   only an explicit `--target` writes it (or `palm config set targets`); what this machine
- *   happens to detect, or a one-off pick, is never saved.
+ * - Project scope: `targets:` in palm.yaml, written only when it has none, whatever decided them
+ *   (a flag, the config default, detection, a pick). This is what makes a project
+ *   machine-independent. A later `--target` applies to that install only.
+ * - Global scope: config.yaml `targets` is the default for every project without its own, so an
+ *   install never writes it; `palm config set targets` does.
  *
- * One info line says so. Never under --dry-run.
+ * One info line says what happened. Never under --dry-run.
  */
 export async function persistTargets(
   ctx: PalmContext,
@@ -52,19 +52,45 @@ export async function persistTargets(
 ): Promise<void> {
   const { targets, source } = found;
   if (ctx.flags.dryRun) return;
-  if (scope === 'project') {
-    const explicit = source === 'flag' || source === 'picked';
-    const file = ScopePaths.of(ctx, 'project').manifestFile;
-    const m = await Manifest.load(file);
-    if ((m.targets?.length && !explicit) || sameList(m.targets, targets)) return;
-    await m.setTargets(targets).save(file);
-    ctx.log.info(`saved targets ${targets.join(', ')} to palm.yaml`);
+  const stored =
+    scope === 'project'
+      ? (await Manifest.load(ScopePaths.of(ctx, 'project').manifestFile)).targets
+      : ctx.config.targets;
+  if (stored?.length) {
+    if (source === 'flag' && !sameSet(stored, targets)) ctx.log.info(flagOnlyNote(scope, stored));
     return;
   }
-  if (source !== 'flag' || sameList(ctx.config.targets, targets)) return;
-  ctx.config.targets = targets;
-  await saveConfig(ctx.paths, ctx.config);
-  ctx.log.info(`saved targets ${targets.join(', ')} to config.yaml`);
+  if (scope === 'global') return;
+  const file = ScopePaths.of(ctx, 'project').manifestFile;
+  await (await Manifest.load(file)).setTargets(targets).save(file);
+  ctx.log.info(`saved targets ${targets.join(', ')} to palm.yaml`);
+}
+
+/** `--target` differs from the stored set: it applied to this install only. */
+function flagOnlyNote(scope: Scope, stored: readonly string[]): string {
+  const where = scope === 'project' ? 'palm.yaml' : 'config.yaml';
+  const change = scope === 'project' ? 'palm init --target <ids>' : 'palm config set targets <ids>';
+  return `--target applied to this install only; ${where} keeps targets ${stored.join(', ')} (change them with: ${change})`;
+}
+
+/**
+ * The scope's persisted target set once this run saved what it may: palm.yaml `targets:`
+ * (project; a first install writes the resolved set), config.yaml `targets` (global), or at
+ * global scope without one the detected or picked default. Undefined when only a `--target`
+ * flag decided at global scope. Bare `palm install` deploys every entry to at least this set
+ * and contracts only the targets that left it (the lock records it: `Lock.targets`).
+ */
+export async function persistedTargets(
+  ctx: PalmContext,
+  scope: Scope,
+  found: FoundTargets,
+): Promise<TargetId[] | undefined> {
+  if (scope === 'project') {
+    const m = await Manifest.load(ScopePaths.of(ctx, 'project').manifestFile);
+    return m.targets?.length ? validate(m.targets, 'palm.yaml') : found.targets;
+  }
+  if (ctx.config.targets?.length) return validate(ctx.config.targets, 'config.yaml');
+  return found.source === 'flag' ? undefined : found.targets;
 }
 
 async function detectTargets(
@@ -86,12 +112,19 @@ async function detectTargets(
   return detected.filter((x): x is TargetId => !!x);
 }
 
+/** The command that stores the scope's targets (runnable as printed). */
+function setTargetsHint(scope: Scope): string {
+  return scope === 'global'
+    ? 'choose them with: palm config set targets claude,codex'
+    : 'choose them with: palm init --target claude,codex';
+}
+
 async function pickTargets(ctx: PalmContext, scope: Scope, deps: EngineDeps): Promise<TargetId[]> {
   if (!ctx.ui.isInteractive) {
     throw new PalmError(
       'E_TARGET',
       `No coding harness detected ${scope === 'global' ? 'in your home directory' : 'in this project'}`,
-      '--target claude,codex (or set `targets:` in palm.yaml / `palm config set targets claude,codex`)',
+      setTargetsHint(scope),
     );
   }
   const { root } = ScopePaths.of(ctx, scope);
@@ -109,8 +142,7 @@ async function pickTargets(ctx: PalmContext, scope: Scope, deps: EngineDeps): Pr
     }),
     [],
   );
-  if (!picked.length)
-    throw new PalmError('E_TARGET', 'No target selected', '--target claude,codex');
+  if (!picked.length) throw new PalmError('E_TARGET', 'No target selected', setTargetsHint(scope));
   return validate(picked, 'selection');
 }
 

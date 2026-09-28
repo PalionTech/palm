@@ -15,6 +15,7 @@ import type {
   SecretPolicy,
   TargetId,
 } from '../core/types.js';
+import { TARGET_IDS } from '../core/types.js';
 import { DepRef } from '../domain/dep-ref.js';
 import type { FoundTargets } from '../engine/resolve-targets.js';
 import { type Output, outputOf, printInstallSummary } from '../ui/output.js';
@@ -269,6 +270,9 @@ export async function installWithContext(
   opts: { out?: Output; deps?: Partial<EngineDeps> } = {},
 ): Promise<void> {
   const r: InstallRun = { ctx, parsed, out: opts.out ?? outputOf(ctx.log), deps: opts.deps };
+  // Scope guards first (the home directory is no project, …): before any origin or target work.
+  const { scopedContext } = await import('../engine/install.js');
+  scopedContext(ctx, parsed.scope);
   if (parsed.mode === 'sync') return syncInstall(r);
   const { result, targets } = await installRequests(r);
   finishInstall(r, result, targets);
@@ -281,9 +285,9 @@ async function findTargetsFor(r: InstallRun): Promise<FoundTargets> {
 }
 
 /**
- * Save the targets (palm.yaml, or config.yaml for an explicit `--target -g`) after an install
- * that placed something: a failed, ambiguous or cancelled run (it threw) saves nothing, and
- * `--frozen` never writes.
+ * Save the targets to palm.yaml when it has none, after an install that placed something: a
+ * failed, ambiguous or cancelled run (it threw) saves nothing, and `--frozen` never writes. A
+ * `--target` on a later install applies to that install only.
  */
 async function saveTargetsAfter(r: InstallRun, found: FoundTargets, result: InstallResult) {
   const { persistTargets, placedSomething } = await import('../engine/resolve-targets.js');
@@ -291,9 +295,20 @@ async function saveTargetsAfter(r: InstallRun, found: FoundTargets, result: Inst
     await persistTargets(r.ctx, r.parsed.scope, found);
 }
 
+/**
+ * The persisted set (palm.yaml / config.yaml, or what this first install persists) and every
+ * entry's minimum set for a sync: the persisted set plus any `--target`.
+ */
+async function syncTargetSets(r: InstallRun, found: FoundTargets) {
+  const { persistedTargets } = await import('../engine/resolve-targets.js');
+  const persisted = await persistedTargets(r.ctx, r.parsed.scope, found);
+  const all = new Set([...(persisted ?? []), ...found.targets]);
+  return { persisted, targets: TARGET_IDS.filter((t) => all.has(t)) };
+}
+
 async function syncInstall(r: InstallRun): Promise<void> {
   const found = await findTargetsFor(r);
-  const { targets } = found;
+  const { persisted, targets } = await syncTargetSets(r, found);
   const { syncManifest } = await import('../engine/sync.js');
   const { parsed } = r;
   const result: InstallResult & { extraneous: LockEntry[] } = await syncManifest(
@@ -302,6 +317,7 @@ async function syncInstall(r: InstallRun): Promise<void> {
       scope: parsed.scope,
       prune: parsed.prune,
       targets,
+      ...(persisted ? { persisted } : {}),
       ...(parsed.frozen ? { frozen: true } : {}),
       ...(parsed.secrets ? { secretPolicy: parsed.secrets } : {}),
     },
@@ -330,8 +346,9 @@ function finishInstall(r: InstallRun, result: InstallResult, targets: TargetId[]
   if (parsed.global.dryRun && !out.jsonMode) out.hint(`\n${DRY_RUN_NOTE}`);
   const failed = failureCount(result);
   if (failed) {
-    if (!out.jsonMode)
-      out.error(`${failed} failed; see above (the lockfile records what succeeded)`);
+    const saved =
+      parsed.global.dryRun || parsed.frozen ? '' : ' (the lockfile records what succeeded)';
+    if (!out.jsonMode) out.error(`${failed} failed; see above${saved}`);
     throw new ExitSignal(1);
   }
 }
@@ -403,11 +420,18 @@ async function installRequests(
   }
   const found = await findTargetsFor(r);
   const { targets } = found;
+  const { persistedTargets } = await import('../engine/resolve-targets.js');
+  const lockTargets = await persistedTargets(r.ctx, parsed.scope, found);
   const { installEntities } = await import('../engine/install.js');
   const result = await installEntities(
     r.ctx,
     requests,
-    { scope: parsed.scope, targets, secretPolicy: parsed.secrets },
+    {
+      scope: parsed.scope,
+      targets,
+      secretPolicy: parsed.secrets,
+      ...(lockTargets ? { lockTargets } : {}),
+    },
     r.deps,
   );
   await saveTargetsAfter(r, found, result);

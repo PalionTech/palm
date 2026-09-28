@@ -10,3 +10,13 @@ export function normalizeText(text: string): string {
   const t = stripBom(text);
   return t.includes('\r') ? t.replace(/\r\n?/g, '\n') : t;
 }
+
+/** `word` for one, `word` + `s` for any other count (`secret`, `secrets`). */
+export function pluralWord(n: number, word: string): string {
+  return n === 1 ? word : `${word}s`;
+}
+
+/** The count and the word: `1 file`, `3 files`. */
+export function plural(n: number, word: string): string {
+  return `${n} ${pluralWord(n, word)}`;
+}

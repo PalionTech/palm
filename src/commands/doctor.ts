@@ -14,6 +14,7 @@ import {
 import { ScopePaths } from '../domain/scope-paths.js';
 import { isWithin, pathExists } from '../lib/fs.js';
 import { isSafeName } from '../lib/names.js';
+import { plural } from '../lib/text.js';
 import { type Output, symbol } from '../ui/output.js';
 import type { App } from './app.js';
 import { dirSize, formatBytes } from './disk.js';
@@ -140,7 +141,18 @@ async function missingFiles(sp: ScopePaths, e: LockEntry): Promise<string | unde
   return `${e.kind} ${e.name}: ${missing.length}/${files.length} files missing (e.g. ${missing[0]})`;
 }
 
-/** Lock entries whose files are gone, and manifest entries that are not installed, in one scope. */
+/** Merged fragments of `e` (MCP keys, hook entries, instruction blocks) no longer in their file. */
+async function mergedDrift(sp: ScopePaths, e: LockEntry): Promise<string | undefined> {
+  const { Lock } = await import('../domain/lock.js');
+  const { mergedRecordState } = await import('../targets/merged-state.js');
+  const { driftWords, mergedLabel } = await import('../engine/sync.js');
+  const drift = await Lock.mergedDrift(e, sp, mergedRecordState);
+  if (!drift.length) return undefined;
+  const what = drift.map((d) => `${mergedLabel(d.record)} ${driftWords(d.state)}`);
+  return `${e.kind} ${e.name}: ${what.join(', ')}`;
+}
+
+/** Lock entries whose files or merged fragments are gone, and manifest entries not installed, in one scope. */
 async function scopeDrift(ctx: PalmContext, scope: Scope): Promise<Check> {
   const { Lock } = await import('../domain/lock.js');
   const { Manifest } = await import('../domain/manifest.js');
@@ -150,8 +162,8 @@ async function scopeDrift(ctx: PalmContext, scope: Scope): Promise<Check> {
   const manifest = await Manifest.load(sp.manifestFile);
   const problems: string[] = [];
   for (const e of lock.entries) {
-    const problem = await missingFiles(sp, e);
-    if (problem) problems.push(problem);
+    for (const problem of [await missingFiles(sp, e), await mergedDrift(sp, e)])
+      if (problem) problems.push(problem);
   }
   for (const d of manifestDeps(manifest))
     if (!lock.entries.some((e) => satisfies(e, d)))
@@ -295,10 +307,6 @@ function printChecks(out: Output, checks: Check[]): void {
     const detail = c.status === 'info' ? pc.dim(c.detail) : c.detail;
     out.out(`  ${SYMBOL[c.status]} ${c.name.padEnd(16)} ${detail}`);
   }
-}
-
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
 /**

@@ -795,8 +795,45 @@ describe('Lock files on disk', () => {
     const at = paths(dir);
     expect(Lock.filesPresent(p, at)).toBe(true);
     expect(Lock.filesPresent(m, at)).toBe(false);
-    expect(lock.intact(p, at)).toBe(false);
+    expect(await lock.intact(p, at)).toBe(false);
     await mkdir(join(dir, '.claude/skills/m'), { recursive: true });
-    expect(lock.intact(p, at)).toBe(true);
+    expect(await lock.intact(p, at)).toBe(true);
+  });
+
+  it('merged records count too: mergedDrift names each one its file no longer holds (H3)', async () => {
+    const merged = [
+      { file: '.mcp.json', pointer: '/mcpServers/a', value: { url: 'u' } },
+      { file: 'AGENTS.md', pointer: 'block:instruction:a', value: 'text' },
+    ];
+    const e = entry('a', { files: [], merged });
+    const lock = new Lock([e]);
+    const at = paths(dir);
+    const states: Record<string, 'held' | 'missing' | 'changed'> = {
+      [join(dir, '.mcp.json')]: 'held',
+      [join(dir, 'AGENTS.md')]: 'changed',
+    };
+    const check = async (rec: { file: string }) => states[rec.file] ?? 'missing';
+    expect(await Lock.mergedDrift(e, at, check)).toEqual([{ record: merged[1], state: 'changed' }]);
+    expect(await lock.intact(e, at, check)).toBe(false);
+    expect(await lock.intact(e, at)).toBe(true); // without a check only files count
+    states[join(dir, 'AGENTS.md')] = 'held';
+    expect(await Lock.inPlace(e, at, check)).toBe(true);
+    const failing = async () => {
+      throw new Error('unreadable');
+    };
+    expect(await Lock.mergedDrift(e, at, failing)).toHaveLength(2); // an error counts as changed
+  });
+
+  it('records the persisted targets and the dirs palm created, sorted and deduplicated', async () => {
+    const file = join(dir, 'palm.lock.yaml');
+    const lock = new Lock([entry('a')]);
+    lock.targets = ['codex', 'claude'];
+    lock.noteCreatedDirs(['.codex', '.claude']).noteCreatedDirs(['.codex']);
+    await lock.save(file);
+    const text = await readFile(file, 'utf8');
+    expect(text).toContain('targets: [claude, codex]\ncreatedDirs:\n  - .claude\n  - .codex\n');
+    const back = await Lock.load(file);
+    expect(back.targets).toEqual(['claude', 'codex']);
+    expect(back.createdDirs).toEqual(['.claude', '.codex']);
   });
 });

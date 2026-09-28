@@ -114,8 +114,8 @@ describe('renderAgent', () => {
         'name: Code Reviewer',
         'description: "Reviews code: use after edits"',
         'tools:',
-        '  - Read',
-        '  - Grep',
+        '  - read',
+        '  - search',
         '  - github/*',
         '---',
         '',
@@ -134,6 +134,21 @@ describe('renderAgent', () => {
     expect(renderAgent({ ...AGENT, model: 'claude-sonnet-4.5' }, 'copilot').content).toContain(
       'model: claude-sonnet-4.5\n',
     );
+  });
+
+  it('copilot: tools mapped to Copilot aliases, restrictions and unknown names reported (R8 M9)', () => {
+    const r = renderAgent(
+      {
+        ...AGENT,
+        tools: ['Bash(git:*)', 'Edit', 'Write', 'mcp__docs__search', 'mcp__gh', 'Skill', 'web'],
+        mcpServers: undefined,
+      },
+      'copilot',
+    );
+    const tools = r.content.split('\n').filter((l) => l.startsWith('  - '));
+    expect(tools).toEqual(['  - execute', '  - edit', '  - docs/search', '  - gh/*', '  - web']);
+    expect(r.dropped).toContain('tools: Bash(git:*) restriction (all of execute)');
+    expect(r.dropped).toContain('tools: Skill (no GitHub Copilot equivalent)');
   });
 
   it('cursor: readonly when no write tools; inherit kept', () => {

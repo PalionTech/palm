@@ -34,7 +34,7 @@ function input(over: Partial<DeploymentInput> = {}): DeploymentInput {
     others: [],
     intact: true,
     targets: ['claude', 'codex'],
-    exact: false,
+    drop: [],
     force: false,
     ...over,
   };
@@ -69,11 +69,20 @@ describe('planDeployment (pure)', () => {
     );
   });
 
-  it('exact targets contract: the dropped target is not deployed and the note says so', () => {
-    const d = planDeployment(input({ targets: ['claude'], exact: true }));
+  it('a dropped target contracts: it is not deployed and the note says so', () => {
+    const d = planDeployment(input({ targets: ['claude'], drop: ['codex'] }));
     expect(d).toMatchObject({ action: 'deploy', to: ['claude'], notes: ['removed from codex'] });
-    // not exact: installing with fewer targets keeps the others
+    // nothing dropped: installing with fewer targets keeps the others
     expect(planDeployment(input({ targets: ['claude'] }))).toMatchObject({ action: 'unchanged' });
+  });
+
+  it('only dropped targets go: an extra target the entry has beyond the set stays', () => {
+    const existing = entry({ targets: ['claude', 'codex', 'gemini'] });
+    expect(planDeployment(input({ existing, targets: ['claude', 'codex'] }))).toMatchObject({
+      action: 'unchanged',
+    });
+    const d = planDeployment(input({ existing, targets: ['claude'], drop: ['codex'], hash: 'h2' }));
+    expect(d).toMatchObject({ action: 'deploy', to: ['claude', 'gemini'] });
   });
 
   it('another origin copy is replaced; the owned keys cover files and merged pointers', () => {

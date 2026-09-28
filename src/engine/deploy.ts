@@ -5,8 +5,9 @@
  * removes what the previous install left that the new one no longer writes. Failures are
  * recorded, never thrown: the lock lists only what succeeded.
  */
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { isPalmError, messageOf, PalmError } from '../core/errors.js';
+import { isPalmError, messageOf, PalmError, retryHint } from '../core/errors.js';
 import { hashPath } from '../core/hash.js';
 import {
   type DeployInput,
@@ -29,6 +30,8 @@ import type { ScopePaths } from '../domain/scope-paths.js';
 import { optionalSecretNames } from '../domain/secrets.js';
 import { isSameFile } from '../lib/fs.js';
 import { deepEqual } from '../lib/object.js';
+import { pluralWord } from '../lib/text.js';
+import { mergedRecordState } from '../targets/merged-state.js';
 import type { EngineDeps } from './deps.js';
 import { itemHash, type PlanItem } from './plan.js';
 import { entityDeps } from './query.js';
@@ -36,8 +39,14 @@ import { undeploy } from './uninstall.js';
 
 /** Engine-internal install options on top of the public `InstallOptions`. */
 export interface EngineInstallOptions extends InstallOptions {
-  /** Bare `palm install`: `targets` is the full set; an entry on other targets loses them. */
-  exactTargets?: boolean;
+  /**
+   * Bare `palm install`: targets that left the persisted set since the last sync; an entry on
+   * one of them loses it (target contraction). Other targets an entry has beyond `targets`
+   * (a per-install `--target`) stay.
+   */
+  dropTargets?: readonly TargetId[];
+  /** The persisted target set, recorded in the lock (`Lock.targets`) when it has none yet. */
+  lockTargets?: readonly TargetId[];
   /** `--frozen`: content must match the lock; no lock, manifest or config is written. */
   frozen?: boolean;
   /** Manifest sync: a request that cannot be resolved is a failure, not an error. */
@@ -53,6 +62,8 @@ export interface DeployContext {
   lock: Lock;
   warnings: string[];
   failures: InstallFailure[];
+  /** MCP secrets resolved before anything was written (`preflightSecrets`), per plan item. */
+  secrets?: Map<PlanItem, McpSecrets>;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +97,8 @@ export function failureOf(
     message: messageOf(error),
   };
   if (target) f.target = target;
-  if (isPalmError(error) && error.hint) f.hint = error.hint;
+  const hint = isPalmError(error) ? retryHint(error) : undefined;
+  if (hint) f.hint = hint;
   return f;
 }
 
@@ -125,11 +137,12 @@ export interface DeploymentInput {
   existing?: LockEntry | undefined;
   /** The entity's entries from other origins (replaced by this install). */
   others: LockEntry[];
-  /** Every file `existing` lists is on disk. */
+  /** Every file `existing` lists is on disk and every fragment it merged is still in place. */
   intact: boolean;
+  /** Targets the entity must be on after this deploy (added to what it has). */
   targets: TargetId[];
-  /** `targets` is the full set (bare `palm install`), not an addition. */
-  exact: boolean;
+  /** Targets it must no longer be on (bare `palm install` after the persisted set shrank). */
+  drop: readonly TargetId[];
   force: boolean;
 }
 
@@ -184,7 +197,7 @@ function deploymentNotes(d: DeploymentInput, dropped: TargetId[]): string[] {
  * What to do with one planned item, from the lock alone: keep a dependency installed another
  * way, report it unchanged, add the targets it is missing (incremental), or deploy it in full
  * and replace the previous install (new content, other origin, older transform, missing files,
- * `--force`, or a smaller exact target set).
+ * `--force`, or a target to drop).
  */
 export function planDeployment(d: DeploymentInput): Deployment {
   const { item, existing, others } = d;
@@ -200,7 +213,7 @@ export function planDeployment(d: DeploymentInput): Deployment {
     !d.force &&
     others.length === 0;
   const missing = d.targets.filter((t) => !existing?.targets.includes(t));
-  const dropped = d.exact ? (existing?.targets ?? []).filter((t) => !d.targets.includes(t)) : [];
+  const dropped = (existing?.targets ?? []).filter((t) => d.drop.includes(t));
   if (same && existing && missing.length === 0 && dropped.length === 0)
     return { action: 'unchanged', entry: relinked(existing, item), notes: [] };
   const previous = [...(existing ? [existing] : []), ...others];
@@ -212,8 +225,8 @@ export function planDeployment(d: DeploymentInput): Deployment {
   };
   if (same && existing && dropped.length === 0)
     return { ...base, to: missing, carry: existing, previous: [] };
-  const to = orderTargets(d.exact ? d.targets : [...(existing?.targets ?? []), ...d.targets]);
-  return { ...base, to, previous };
+  const kept = (existing?.targets ?? []).filter((t) => !d.drop.includes(t));
+  return { ...base, to: orderTargets([...kept, ...d.targets]), previous };
 }
 
 // ---------------------------------------------------------------------------
@@ -249,9 +262,21 @@ function unicodeRefusal(dc: DeployContext, item: PlanItem): PalmError | undefine
   }
   return new PalmError(
     'E_CONFLICT',
-    `${kind} ${name} contains hidden Unicode that can smuggle instructions: ${critical.join('; ')}`,
-    `review the origin's files; to accept them run: palm install ${kind} ${name}@${item.entity.origin} --force, then palm audit shows them`,
+    `contains hidden Unicode that can smuggle instructions: ${critical.join('; ')}`,
+    `review the origin's files; to accept them run: ${forceCommand(dc, item)}, then palm audit shows them`,
   );
+}
+
+/**
+ * The command that installs this item again with `--force` (`palm install skill tdd@a -g
+ * --force`); an ad hoc MCP server is reinstalled from palm.yaml, a registry one by its name.
+ */
+function forceCommand(dc: DeployContext, item: PlanItem): string {
+  const { kind, name, origin, path } = item.entity;
+  const g = dc.opts.scope === 'global' ? ' -g' : '';
+  if (origin === 'adhoc') return `palm install${g} --force`;
+  const spec = origin === 'registry' ? `mcp ${path}` : `${kind} ${name}@${origin}`;
+  return `palm install ${spec}${g} --force`;
 }
 
 async function editRefusal(
@@ -263,26 +288,26 @@ async function editRefusal(
   const mine = [...(d.carry ? [d.carry] : []), ...d.previous];
   const changed = await modifiedFiles(dc.paths, mine);
   if (!changed.length) return undefined;
-  const { kind, name } = item.entity;
   const them = changed.length === 1 ? 'it' : 'them';
   return new PalmError(
     'E_CONFLICT',
-    `${kind} ${name}: ${changed.join(', ')} changed since palm installed ${them}; not overwriting`,
-    `palm left this ${kind} as it was; keep your edits, or overwrite ${them} with: palm install ${kind} ${name}@${item.entity.origin} --force`,
+    `${changed.join(', ')} changed since palm installed ${them}; not overwriting`,
+    `palm left this ${item.entity.kind} as it was; keep your edits, or overwrite ${them} with: ${forceCommand(dc, item)}`,
   );
 }
 
 function frozenRefusal(dc: DeployContext, item: PlanItem, hash: string): PalmError | undefined {
   if (!dc.opts.frozen) return undefined;
-  const { kind, name, origin } = item.entity;
+  const { origin } = item.entity;
   const locked = dc.lock.find(item.entity, origin);
   if (locked?.contentHash === hash) return undefined;
+  const g = dc.opts.scope === 'global' ? ' -g' : '';
   return new PalmError(
     'E_CONFLICT',
     locked
-      ? `${kind} ${name}: the content at ${item.source.sha?.slice(0, 12) ?? origin} differs from palm.lock.yaml`
-      : `${kind} ${name}@${origin} is not in palm.lock.yaml`,
-    'run palm install without --frozen, then commit palm.lock.yaml',
+      ? `the content at ${item.source.sha?.slice(0, 12) ?? origin} differs from palm.lock.yaml`
+      : 'not in palm.lock.yaml',
+    `update the lock first: palm install${g}, then commit palm.lock.yaml`,
   );
 }
 
@@ -319,7 +344,6 @@ function splitSecrets(cfg: Entity['def'] & { kind: 'mcp' }, names: readonly stri
 }
 
 const them = (xs: readonly string[]): string => (xs.length === 1 ? 'it' : 'them');
-const plural = (xs: readonly string[]): string => (xs.length === 1 ? '' : 's');
 
 /**
  * `requires secret A`, `optional secret B (unset)`: the same words for a dry run and an install,
@@ -334,14 +358,14 @@ function secretNotes(
   const notes: string[] = [];
   if (required.length) {
     const advice = opts.advice ? `: export ${them(required)} before starting the harness` : '';
-    notes.push(`requires secret${plural(required)} ${required.join(', ')}${advice}`);
+    notes.push(`requires ${pluralWord(required.length, 'secret')} ${required.join(', ')}${advice}`);
   }
   if (optional.length) {
     const shown = optional.map((v) => `${v}${opts.env[v] ? '' : ' (unset)'}`);
     const advice = opts.advice
       ? `: export ${them(optional)} to use ${them(optional)} (left empty otherwise)`
       : '';
-    notes.push(`optional secret${plural(optional)} ${shown.join(', ')}${advice}`);
+    notes.push(`optional ${pluralWord(optional.length, 'secret')} ${shown.join(', ')}${advice}`);
   }
   return notes;
 }
@@ -381,6 +405,22 @@ async function resolveMcpSecrets(dc: DeployContext, entity: Entity): Promise<Mcp
   return out;
 }
 
+/**
+ * Resolve (prompt for, under `literal`) the secrets of every MCP server this run will write,
+ * before anything is written: a required secret that cannot be had (no terminal) fails the
+ * whole run up front instead of after other items were installed.
+ */
+export async function preflightSecrets(dc: DeployContext, plan: readonly PlanItem[]) {
+  const cache = new Map<PlanItem, McpSecrets>();
+  for (const item of plan) {
+    if (item.keep || item.entity.def.kind !== 'mcp') continue;
+    const d = await decide(dc, item);
+    if (d.action === 'deploy' && d.to.length)
+      cache.set(item, await resolveMcpSecrets(dc, item.entity));
+  }
+  dc.secrets = cache;
+}
+
 // ---------------------------------------------------------------------------
 // deployToTargets
 // ---------------------------------------------------------------------------
@@ -392,6 +432,8 @@ interface TargetRun {
   merged: MergedRecord[];
   notes: string[];
   failed: Array<{ id: TargetId; error: unknown }>;
+  /** Harness directories the targets created. */
+  createdDirs: string[];
 }
 
 /** A target's "MCP x: export A, B in the environment …" note whose variables the engine already listed. */
@@ -458,20 +500,42 @@ async function deployToTargets(
   secrets: McpSecrets,
 ): Promise<TargetRun> {
   const notes = [...secrets.notes];
-  const run: TargetRun = { ok: [], skipped: 0, files: [], merged: [], notes, failed: [] };
+  const run: TargetRun = {
+    ok: [],
+    skipped: 0,
+    files: [],
+    merged: [],
+    notes,
+    failed: [],
+    createdDirs: [],
+  };
   if (item.entity.kind === 'plugin') {
     run.ok.push(...d.to); // members carry the content; the plugin itself is bookkeeping
     return run;
   }
   const input = deployInput(dc, item, d.owned, secrets);
   for (const id of d.to) {
+    const dir = absentConfigDir(dc, id);
     try {
       collect(run, id, await dc.deps.getTarget(id).deploy(input), secrets.exported);
     } catch (error) {
       run.failed.push({ id, error });
     }
+    if (dir && !dc.ctx.flags.dryRun && existsSync(dir))
+      run.createdDirs.push(dc.paths.lockForm(dir));
   }
   return run;
+}
+
+/** The target's config dir (`.codex`, `~/.gemini`) when it does not exist yet (the deploy may create it). */
+function absentConfigDir(dc: DeployContext, id: TargetId): string | undefined {
+  const { ctx, paths } = dc;
+  try {
+    const dir = dc.deps.getTarget(id).configDir(paths.scope, paths.root, ctx.env);
+    return dir !== paths.root && !existsSync(dir) ? dir : undefined;
+  } catch {
+    return undefined; // a target whose module is not loaded yet: nothing recorded
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -498,10 +562,22 @@ function provisionalEntry(item: PlanItem, hash: string): LockEntry {
   return relinked(entry, item);
 }
 
-async function hashed(dc: DeployContext, path: string): Promise<LockedFile> {
+/**
+ * Recorded for a written file palm could not hash: it matches no content, so the file counts as
+ * edited (a later overwrite or uninstall needs `--force`). An empty hash would mean "never
+ * edited" and let palm overwrite it silently.
+ */
+const UNHASHED = 'sha256:unreadable';
+
+async function hashed(dc: DeployContext, item: PlanItem, path: string): Promise<LockedFile> {
   if (dc.ctx.flags.dryRun) return { path, hash: '' };
-  const hash = await hashPath(dc.paths.abs(path)).catch(() => '');
-  return { path, hash };
+  try {
+    return { path, hash: await hashPath(dc.paths.abs(path)) };
+  } catch (e) {
+    const why = `could not hash ${path} after writing it (${messageOf(e)}); palm treats it as edited`;
+    dc.failures.push(failureOf(item.entity, new PalmError('E_IO', why)));
+    return { path, hash: UNHASHED };
+  }
 }
 
 /** The lock entry for a (partly) successful deploy: carried state plus what the targets wrote. */
@@ -515,7 +591,7 @@ async function buildLockEntry(
   const carried = (d.carry?.files ?? []).filter((f) => !run.files.includes(f.path));
   entry.targets = orderTargets([...(d.carry?.targets ?? []), ...run.ok]);
   entry.files = [...carried];
-  for (const f of run.files) entry.files.push(await hashed(dc, f));
+  for (const f of run.files) entry.files.push(await hashed(dc, item, f));
   const merged = [...(d.carry?.merged ?? [])];
   for (const m of run.merged) if (!merged.some((x) => deepEqual(x, m))) merged.push(m);
   if (merged.length) entry.merged = merged;
@@ -572,7 +648,8 @@ async function replacePrevious(dc: DeployContext, previous: LockEntry[], next: L
   if (views.length && !ctx.flags.dryRun) {
     const protect = lock.protectedFiles(paths, previous);
     for (const f of next.files) protect.add(paths.abs(f.path));
-    const report = await undeploy(ctx, deps, { scope: dc.opts.scope, entries: views, protect });
+    const job = { scope: dc.opts.scope, entries: views, protect, lock };
+    const report = await undeploy(ctx, deps, job);
     dc.failures.push(...report.failures);
     dc.warnings.push(...report.warnings);
   }
@@ -592,6 +669,22 @@ function outcomeStatus(
   return skippedAll ? 'skipped' : d.status;
 }
 
+/**
+ * A target's failure; a conflict (a foreign file or config key palm will not overwrite) gets the
+ * command that overwrites it as its hint.
+ */
+function targetFailure(
+  dc: DeployContext,
+  item: PlanItem,
+  error: unknown,
+  id: TargetId,
+): InstallFailure {
+  const f = failureOf(item.entity, error, id);
+  if (isPalmError(error) && error.retryWith === '--force')
+    f.hint = `to overwrite it, run: ${forceCommand(dc, item)}`;
+  return f;
+}
+
 /** Records the lock entry of a deploy that reached at least one target, then removes stale files. */
 async function finishDeploy(
   dc: DeployContext,
@@ -600,7 +693,7 @@ async function finishDeploy(
   run: TargetRun,
 ): Promise<InstallOutcome> {
   const failureNotes = run.failed.map((f) => `failed: ${f.id}: ${messageOf(f.error)}`);
-  for (const f of run.failed) dc.failures.push(failureOf(item.entity, f.error, f.id));
+  for (const f of run.failed) dc.failures.push(targetFailure(dc, item, f.error, f.id));
   const notes = [...d.notes, ...run.notes, ...failureNotes];
   if (item.entity.kind === 'hook')
     notes.push(`hooks run shell commands on your machine; review ${absPathOf(item, dc.paths)}`);
@@ -615,7 +708,7 @@ async function finishDeploy(
   }
   const entry = await buildLockEntry(dc, item, d, run);
   await replacePrevious(dc, d.previous, entry);
-  dc.lock.upsert(entry);
+  dc.lock.upsert(entry).noteCreatedDirs(run.createdDirs);
   return { entry, status: outcomeStatus(item, d, run), notes };
 }
 
@@ -632,9 +725,9 @@ export async function decide(dc: DeployContext, item: PlanItem): Promise<Deploym
     hash: await itemHash(item),
     existing,
     others: dc.lock.findAll(entity).filter((e) => e.origin !== entity.origin),
-    intact: !!existing && Lock.filesPresent(existing, dc.paths),
+    intact: !!existing && (await Lock.inPlace(existing, dc.paths, mergedRecordState)),
     targets: dc.opts.targets,
-    exact: !!dc.opts.exactTargets,
+    drop: dc.opts.dropTargets ?? [],
     force: dc.ctx.flags.force,
   });
 }
@@ -657,7 +750,7 @@ export async function deployItem(dc: DeployContext, item: PlanItem): Promise<Ins
   const existing = dc.lock.find(item.entity, item.entity.origin);
   const refused = await refusal(dc, item, d, await itemHash(item));
   if (refused) return failedOutcome(dc, item, failureOf(item.entity, refused), existing);
-  const secrets = await resolveMcpSecrets(dc, item.entity);
+  const secrets = dc.secrets?.get(item) ?? (await resolveMcpSecrets(dc, item.entity));
   const run = await deployToTargets(dc, item, d, secrets);
   return finishDeploy(dc, item, d, run);
 }

@@ -207,9 +207,19 @@ function printInstalled(out: Output, entries: LockEntry[], empty: string): void 
   );
 }
 
+/** E_NOT_FOUND (exit 1) when a name the user gave matches no installed entry, as describe/why do. */
+async function assertNamedInstalled(entries: LockEntry[], q: EntityQuery): Promise<void> {
+  const found = new Set(entries.map((e) => e.name.toLowerCase()));
+  const missing = q.names.find((n) => !found.has(n.toLowerCase()));
+  if (missing === undefined) return;
+  const { notInstalled } = await import('../engine/query.js');
+  throw notInstalled({ kind: q.kind, name: missing, origin: q.origin }, q.scope);
+}
+
 /** `palm get [kind] [names...]`: what is installed in the scope (from the lockfile). */
 async function getInstalled(ctx: PalmContext, out: Output, q: EntityQuery): Promise<void> {
   const entries = await installedEntries(ctx, q);
+  await assertNamedInstalled(entries, q);
   if (out.jsonMode) return out.json(entries);
   const what = q.kind ? pluralize(q.kind, 2) : 'entities';
   const from = q.origin ? ` from origin ${q.origin}` : '';

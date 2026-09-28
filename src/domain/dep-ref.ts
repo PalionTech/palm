@@ -4,16 +4,33 @@ import type { DepRef as DepRefData, DepSpec } from '../core/types.js';
 /** The one dependency grammar (DESIGN.md §3). */
 export const DEP_GRAMMAR = 'Expected <name>[@<origin>][#<ref>]';
 
-/** Case-insensitive name comparison (entity names and origin aliases). */
+/**
+ * Case-insensitive name comparison (entity names and origin aliases): `TDD@Matt` names the
+ * same entity as `tdd@matt`, in requests, palm.yaml, agent dependencies and the lock.
+ */
 export function sameName(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
+}
+
+/**
+ * `name@owner/repo[#ref]`: a repository where an origin alias belongs. `--from` takes a
+ * repository for one install; `palm install origin` registers it under an alias.
+ */
+function repoAsOriginError(text: string, name: string, repo: string, kind?: string): PalmError {
+  return new PalmError(
+    'E_USAGE',
+    `Invalid dependency "${text.trim()}": @ takes an origin alias, not a repository`,
+    `take it from the repository: palm install ${kind ? `${kind} ` : ''}${name} --from ${repo}   or register the repository: palm install origin ${repo}`,
+  );
 }
 
 /**
  * A dependency reference `<name>[@<origin>][#<ref>]`.
  *
  * `@` separates an origin only when no `/` follows it, so MCP registry names
- * (`io.github.acme/weather`) and scoped names (`@scope/pkg`) pass through as names.
+ * (`io.github.acme/weather`) and scoped names (`@scope/pkg`) pass through as names; a plain
+ * name followed by `@owner/repo` is a repository given as an origin (E_USAGE, pointing at
+ * `--from`). Names and origin aliases match case-insensitively (`matches`, `sameName`).
  * Structurally a `DepRef` from core/types (absent parts are not own properties).
  */
 export class DepRef implements DepRefData {
@@ -27,8 +44,11 @@ export class DepRef implements DepRefData {
     if (ref) (this as { ref?: string }).ref = ref;
   }
 
-  /** Parses `<name>[@<origin>][#<ref>]`; empty origin/ref parts are dropped. */
-  static parse(text: string): DepRef {
+  /**
+   * Parses `<name>[@<origin>][#<ref>]`; empty origin/ref parts are dropped. `kind` (when the
+   * caller knows it) only completes the hint of a usage error.
+   */
+  static parse(text: string, kind?: string): DepRef {
     let rest = text.trim();
     let ref: string | undefined;
     const hash = rest.lastIndexOf('#');
@@ -38,8 +58,16 @@ export class DepRef implements DepRefData {
     }
     let origin: string | undefined;
     const at = rest.lastIndexOf('@');
-    if (at > 0 && !rest.slice(at + 1).includes('/')) {
-      origin = rest.slice(at + 1).trim();
+    const after = rest.slice(at + 1);
+    if (at > 0 && after.includes('/') && !rest.slice(0, at).includes('/'))
+      throw repoAsOriginError(
+        text,
+        rest.slice(0, at).trim(),
+        `${after.trim()}${ref ? `#${ref}` : ''}`,
+        kind,
+      );
+    if (at > 0 && !after.includes('/')) {
+      origin = after.trim();
       rest = rest.slice(0, at);
     }
     const name = rest.trim();
@@ -49,9 +77,9 @@ export class DepRef implements DepRefData {
   }
 
   /** A manifest entry: a dependency string or a `{ name, origin?, ref? }` object. */
-  static from(spec: DepSpec): DepRef {
+  static from(spec: DepSpec, kind?: string): DepRef {
     if (spec instanceof DepRef) return spec;
-    if (typeof spec === 'string') return DepRef.parse(spec);
+    if (typeof spec === 'string') return DepRef.parse(spec, kind);
     if (!spec || typeof spec !== 'object' || typeof spec.name !== 'string' || !spec.name) {
       throw new PalmError(
         'E_PARSE',

@@ -11,22 +11,15 @@
  * (keys the user added are tolerated; a table whose palm-written values were
  * edited is left alone).
  *
- * `mergeTableText` is the pure form of `mergeTomlTable` (text in, next text out) that deploys
- * plan with.
+ * `mergeTableText` is the pure merge (text in, next text out) deploys plan with;
+ * `unmergeTomlTable` edits the file in place (undeploy).
  */
 import { parse, stringify } from 'smol-toml';
 import { messageOf, PalmError } from '../core/errors.js';
-import type { TomlTableRecord } from '../domain/merged-record.js';
+import type { RecordState, TomlTableRecord } from '../domain/merged-record.js';
 import { deepEqual, isRecord } from '../lib/object.js';
-import { atomicWrite, readTextOrUndefined, rewriteText } from './fs-utils.js';
+import { atomicWrite, readTextOrUndefined, removeFileIfExists } from './fs-utils.js';
 import { containsAll } from './recorded.js';
-
-export interface TomlMergeOptions {
-  dryRun: boolean;
-  /** Existing table with different content: overwrite (default) or throw E_CONFLICT. */
-  onConflict?: 'overwrite' | 'error';
-  displayFile?: string;
-}
 
 type Table = Record<string, unknown>;
 
@@ -208,7 +201,8 @@ export function mergeTableText(text: string | undefined, edit: TomlEdit): string
     throw new PalmError(
       'E_CONFLICT',
       `refusing to overwrite ${edit.displayFile ?? edit.file} ([${edit.path.join('.')}] already exists with different content)`,
-      'rerun with --force',
+      'to overwrite it, run',
+      { retryWith: '--force' },
     );
   }
   const expected = structuredClone(doc);
@@ -216,19 +210,23 @@ export function mergeTableText(text: string | undefined, edit: TomlEdit): string
   return mergedText(src, edit, current !== undefined, expected);
 }
 
-/** Set table `tablePath` to `value` in `file` (stored pointer: `/mcp_servers/fs`). */
-export async function mergeTomlTable(
-  file: string,
-  tablePath: string[],
-  value: Record<string, unknown>,
-  opts: TomlMergeOptions,
-): Promise<TomlTableRecord> {
-  const edit = { ...opts, file, path: tablePath, value };
-  await rewriteText(file, (text) => mergeTableText(text, edit), opts.dryRun);
-  return { type: 'toml-table', file, path: [...tablePath], value };
+/** Whether `text` still holds the table palm wrote (keys the user added are fine). */
+export function tomlRecordState(text: string | undefined, rec: TomlTableRecord): RecordState {
+  if (text === undefined) return 'missing';
+  let current: unknown;
+  try {
+    current = getPath(parseToml(text, rec.file), rec.path);
+  } catch {
+    return 'changed';
+  }
+  if (current === undefined) return 'missing';
+  return containsAll(current, rec.value) ? 'held' : 'changed';
 }
 
-/** Remove the table recorded by `record` (`['mcp_servers', name]`). Missing file/table is a no-op. */
+/**
+ * Remove the table recorded by `record` (`['mcp_servers', name]`); a file left empty is deleted.
+ * Missing file/table is a no-op.
+ */
 export async function unmergeTomlTable(file: string, record: TomlTableRecord): Promise<void> {
   const text = await readTextOrUndefined(file);
   if (text === undefined || text.trim() === '') return;
@@ -255,5 +253,7 @@ export async function unmergeTomlTable(file: string, record: TomlTableRecord): P
     next = undefined;
   }
   next ??= stringify(expected);
-  await atomicWrite(file, next);
+  // A file left with nothing in it (palm created it, or the user's last table went) is deleted.
+  if (next.trim() === '') await removeFileIfExists(file);
+  else await atomicWrite(file, next);
 }

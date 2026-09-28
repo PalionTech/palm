@@ -77,7 +77,7 @@ describe('exit codes', () => {
     const quiet = await runInProcess(['get'], { dispatch: boom });
     expect(quiet.code).toBe(70);
     expect(quiet.stderr).toContain('x internal error: boom');
-    expect(quiet.stderr).toContain('re-run with --verbose');
+    expect(quiet.stderr).toContain('for a stack trace, run: palm get --verbose');
     expect(quiet.stderr).not.toContain('at ');
     const loud = await runInProcess(['get', '--verbose'], { dispatch: boom });
     expect(loud.code).toBe(70);

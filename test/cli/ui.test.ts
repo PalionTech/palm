@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InstallResult } from '../../src/core/types.js';
+import { stripAnsi } from '../../src/lib/unicode.js';
 import {
   createOutput,
   failureCount,
@@ -8,7 +9,6 @@ import {
   type Output,
   outputOf,
   printInstallSummary,
-  stripAnsi,
   truncate,
 } from '../../src/ui/output.js';
 
@@ -101,6 +101,18 @@ describe('formatTable / printTable', () => {
   it('handles ragged rows and no header', () => {
     expect(stripAnsi(formatTable([['a', 'b', 'c'], ['dd']]))).toBe('a   b  c\ndd');
     expect(formatTable([])).toBe('');
+  });
+
+  it('aligns columns by display width for CJK and emoji cells (R8 M7)', () => {
+    const out = formatTable([
+      ['日本語', 'a'],
+      ['🚀x', 'b'],
+      ['abcdef', 'c'],
+      ['é\u0301', 'd'],
+    ]);
+    const lines = stripAnsi(out).split('\n');
+    // Every second column starts at the same terminal column (6 wide + 2 gutter).
+    expect(lines).toEqual(['日本語  a', '🚀x     b', 'abcdef  c', 'é\u0301       d']);
   });
 });
 
@@ -201,6 +213,13 @@ describe('truncate', () => {
     expect(truncate('a\n b', 10)).toBe('a b');
     expect(truncate('abcdefghij', 5)).toBe('abcd…');
     expect(truncate(undefined, 5)).toBe('');
+  });
+
+  it('cuts by display width and never splits a wide character or emoji (R8 M7)', () => {
+    expect(truncate('日本語のテキスト', 7)).toBe('日本語…');
+    expect(truncate('日本語', 6)).toBe('日本語');
+    expect(truncate('👨‍👩‍👧 family', 4)).toBe('👨‍👩‍👧…');
+    expect(truncate('a👍b', 3)).toBe('a…');
   });
 });
 

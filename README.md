@@ -42,7 +42,7 @@ Without a terminal an ambiguous name stops with `E_AMBIGUOUS`, listing the `name
 
 | Verb | Aliases | What it does |
 |---|---|---|
-| `install [kind] <name[@origin][#ref]>...` | `add`, `i` | Install entities. With no names, install what `palm.yaml` lists (`--prune` removes extras, `--frozen` fails on any difference from the lockfile and writes nothing, for CI). `install origin <spec>` registers an origin. |
+| `install [kind] <name[@origin][#ref]>...` | `add`, `i` | Install entities. With no names, install what `palm.yaml` lists (`--prune` removes extras, `--frozen` fails when palm.yaml, the lockfile, the files palm wrote or the fragments it merged into shared configs differ, and writes nothing but missing files, for CI). `install origin <spec>` registers an origin. |
 | `uninstall [kind] <name>...` | `remove`, `rm`, `delete` | Remove entities, reverse merged config, drop dependencies nothing else needs. `uninstall origin <alias>` unregisters one. |
 | `get [kind] [name...]` | `list`, `ls` | What is installed. `--available` lists what origins offer; `get origins`, `get targets`, `get all`. |
 | `describe <kind> <name>` | `info` | One entity, origin (`describe origin <alias>`) or target (`describe target <id>`). |
@@ -130,17 +130,21 @@ entries:
 
 The lock has no timestamps, so the same install gives the same file on every machine. Each file
 carries the hash palm wrote: palm refuses to overwrite or delete a file you changed since then,
-unless you pass `--force`. A bare `palm install` deploys the locked commit, not the newest tag.
+unless you pass `--force` (an uninstall then leaves the whole entity installed and says how to
+remove it anyway). A bare `palm install` deploys the locked commit, not the newest tag, and puts
+back what went missing: deleted files, and MCP servers, hook entries or instruction blocks
+removed from a shared config. `palm doctor` reports both kinds of drift.
 
 ## Targets
 
 palm picks targets in this order: `--target claude,codex`, `targets:` in `palm.yaml`, `targets`
 in `~/.palm/config.yaml`, the harness directories it finds, then a picker. At project scope the
 first successful install saves the result to `palm.yaml`, so the next developer gets the same
-harnesses. At
-global scope palm saves `targets` to `config.yaml` only when you pass `--target` or run
-`palm config set targets claude,codex`; detected targets are never saved there. `palm get targets`
-shows the result and where it came from.
+harnesses. After that `--target` applies to one install only (it adds harnesses to the entities
+it names and never removes any); change the project's set with `palm init --target claude,codex`,
+and the next `palm install` removes what a dropped harness had. At global scope only
+`palm config set targets claude,codex` saves `targets` to `config.yaml`; detected targets are never
+saved there. `palm get targets` shows the result and where it came from.
 
 ## Origins
 
@@ -171,7 +175,9 @@ palm stores it with the origin in `~/.palm/config.yaml` as
 - Project scope (default `env-ref`): palm writes each harness's own environment reference and
   tells you which variables to export. No secret value lands in a project file.
 - Global scope (default `literal`): palm reads the value from your environment or asks for it
-  (masked) and writes it into the user-level config, created with mode 0600.
+  (masked) before it writes anything, and writes it into the user-level config, kept at mode
+  0600. Without a terminal an unset required secret stops the install before anything is
+  written, and the hint repeats the command with `--secrets env-ref`.
 - `--secrets env-ref|literal` overrides the default for one run; `palm config set secrets.project
   literal` changes it for good. The lockfile only ever holds the `${VAR}` placeholder.
 
@@ -180,8 +186,9 @@ palm stores it with the origin in `~/.palm/config.yaml` as
 Before palm writes a hook or a stdio MCP server, it lists every command it would allow to run
 and asks once. Without a terminal it needs `--yes`; `--dry-run` lists them without asking. Text
 entities (skills, agents, instructions, commands) are never gated. palm refuses entities that
-contain hidden Unicode such as bidi overrides or tag characters: review the origin's files, and
-install with `--force` to accept them; `palm audit` then shows them (`--strip` removes them).
+contain hidden Unicode such as bidi overrides or tag characters, including in the scripts a hook
+runs from its plugin: review the origin's files, and install with `--force` to accept them;
+`palm audit` then shows them (`--strip` removes them).
 
 ## Exit codes
 

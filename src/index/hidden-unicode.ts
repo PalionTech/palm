@@ -4,15 +4,17 @@
  * one `hidden-unicode:` line per affected entity in the scan warnings.
  *
  * Files: a skill's whole directory, walked like the deploy copy walks it (COPY_SKIP, symlinks only
- * inside the origin); any other entity's source file(s). Binary files (a NUL byte in the first
- * 8 KB) and files over 1 MB are skipped.
+ * inside the origin); any other entity's source file(s); for a hook whose commands reference its
+ * plugin root, also every file of that root the deploy copies next to it (the scripts it runs).
+ * Binary files (a NUL byte in the first 8 KB) and files over 1 MB are skipped.
  */
 
 import { type FileHandle, open, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import type { Entity, EntityIssue } from '../core/types.js';
-import { shouldSkipFile } from '../domain/ignore.js';
+import { isSkippedHookAsset, referencesPluginRoot, shouldSkipFile } from '../domain/ignore.js';
 import { walkFiles } from '../lib/fs.js';
+import { plural } from '../lib/text.js';
 import { describeCodePoint, type HiddenUnicodeFinding, scanHiddenUnicode } from '../lib/unicode.js';
 import type { ScanContext } from './scan-context.js';
 import { joinRel } from './util.js';
@@ -47,20 +49,33 @@ async function readText(abs: string): Promise<string | undefined> {
   }
 }
 
-async function sourceFiles(ctx: ScanContext, e: Entity): Promise<SourceFile[]> {
-  if (e.kind === 'skill') {
-    const dirRel = e.path === '.' ? '' : e.path;
-    const walked = await walkFiles(join(ctx.rootAbs, dirRel), {
-      boundary: ctx.rootAbs,
-      skip: (name) => shouldSkipFile(name),
-    }).catch(() => ({ files: [] }));
-    return walked.files.map((f) => ({ rel: joinRel(dirRel, f.rel), abs: f.abs }));
-  }
-  const rels = [...new Set([e.path, ...(ctx.extraSources.get(e) ?? [])])];
-  return rels.map((rel) => ({ rel, abs: join(ctx.rootAbs, rel) }));
+/** Files below the origin-relative directory `rel` (`.` = the root) the walk does not `skip`. */
+async function walkedFiles(
+  ctx: ScanContext,
+  rel: string,
+  skip: (name: string, rel: string) => boolean,
+): Promise<SourceFile[]> {
+  const dirRel = rel === '.' ? '' : rel;
+  const walked = await walkFiles(join(ctx.rootAbs, dirRel), { boundary: ctx.rootAbs, skip }).catch(
+    () => ({ files: [] }),
+  );
+  return walked.files.map((f) => ({ rel: joinRel(dirRel, f.rel), abs: f.abs }));
 }
 
-const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
+/** The plugin-root files a hook's deploy copies (only when its commands reference the root). */
+async function hookAssetFiles(ctx: ScanContext, e: Entity): Promise<SourceFile[]> {
+  if (e.def.kind !== 'hook' || !referencesPluginRoot(e.def.hooks.raw)) return [];
+  const root = e.def.hooks.pluginRootRel ?? posix.dirname(e.path);
+  return walkedFiles(ctx, root, isSkippedHookAsset);
+}
+
+async function sourceFiles(ctx: ScanContext, e: Entity): Promise<SourceFile[]> {
+  if (e.kind === 'skill') return walkedFiles(ctx, e.path, (name) => shouldSkipFile(name));
+  const rels = [...new Set([e.path, ...(ctx.extraSources.get(e) ?? [])])];
+  const own = rels.map((rel) => ({ rel, abs: join(ctx.rootAbs, rel) }));
+  const assets = (await hookAssetFiles(ctx, e)).filter((f) => !rels.includes(f.rel));
+  return [...own, ...assets];
+}
 
 function worstFirst(findings: HiddenUnicodeFinding[]): HiddenUnicodeFinding {
   return (findings.find((f) => f.severity === 'critical') ?? findings[0]) as HiddenUnicodeFinding;

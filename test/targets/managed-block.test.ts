@@ -1,20 +1,32 @@
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { toStored } from '../../src/domain/merged-record.js';
-import { removeManagedBlock, upsertManagedBlock } from '../../src/targets/managed-block.js';
-import { cleanupTmp, exists, read, tmpDir, write } from './helpers.js';
+import { type MdBlockRecord, toStored } from '../../src/domain/merged-record.js';
+import {
+  type BlockEdit,
+  removeManagedBlock,
+  upsertBlockText,
+} from '../../src/targets/managed-block.js';
+import { applyText, cleanupTmp, exists, read, tmpDir, write } from './helpers.js';
 
 afterEach(cleanupTmp);
 
 const USER = '# Project\n\nUser text stays.\n';
 
+/** Plan-and-write a block the way a deploy does; the record the planner stores. */
+async function upsert(
+  file: string,
+  id: string,
+  content: string,
+  opts: Partial<BlockEdit> = {},
+): Promise<MdBlockRecord> {
+  await applyText(file, (text) => upsertBlockText(text, { ...opts, file, id, content }));
+  return { type: 'md-block', file, id, content };
+}
+
 describe('managed blocks', () => {
   it('creates the file when missing and records the block', async () => {
     const file = path.join(await tmpDir(), 'AGENTS.md');
-    const rec = await upsertManagedBlock(file, 'instruction:ts', 'Use strict.\n', {
-      dryRun: false,
-    });
-    expect(rec).toEqual({ type: 'md-block', file, id: 'instruction:ts', content: 'Use strict.\n' });
+    const rec = await upsert(file, 'instruction:ts', 'Use strict.\n');
     // lockfile form
     expect(toStored(rec)).toEqual({
       file,
@@ -29,46 +41,45 @@ describe('managed blocks', () => {
   it('upserting twice yields one block; update keeps surrounding text byte-identical', async () => {
     const file = path.join(await tmpDir(), 'AGENTS.md');
     await write(file, USER);
-    await upsertManagedBlock(file, 'instruction:ts', 'A\n', { dryRun: false });
-    await upsertManagedBlock(file, 'instruction:ts', 'A\n', { dryRun: false });
+    await upsert(file, 'instruction:ts', 'A\n');
+    await upsert(file, 'instruction:ts', 'A\n');
     const once = `${USER}\n<!-- palm:begin instruction:ts -->\nA\n<!-- palm:end instruction:ts -->\n`;
     expect(await read(file)).toBe(once);
+    expect(upsertBlockText(once, { file, id: 'instruction:ts', content: 'A\n' })).toBeUndefined();
     await write(file, `${once}\nMore user text.\n`);
-    await upsertManagedBlock(file, 'instruction:ts', 'B\nC\n', { dryRun: false });
+    await upsert(file, 'instruction:ts', 'B\nC\n');
     expect(await read(file)).toBe(
       `${USER}\n<!-- palm:begin instruction:ts -->\nB\nC\n<!-- palm:end instruction:ts -->\n\nMore user text.\n`,
     );
   });
 
-  it('adds a trailing newline and a separating blank line to files without one', async () => {
-    const file = path.join(await tmpDir(), 'AGENTS.md');
-    await write(file, 'no newline');
-    await upsertManagedBlock(file, 'x', 'c', { dryRun: false });
-    expect(await read(file)).toBe('no newline\n\n<!-- palm:begin x -->\nc\n<!-- palm:end x -->\n');
+  it('adds a trailing newline and a separating blank line to files without one', () => {
+    expect(upsertBlockText('no newline', { file: 'AGENTS.md', id: 'x', content: 'c' })).toBe(
+      'no newline\n\n<!-- palm:begin x -->\nc\n<!-- palm:end x -->\n',
+    );
   });
 
-  it('conflict mode and dryRun', async () => {
-    const file = path.join(await tmpDir(), 'AGENTS.md');
-    await upsertManagedBlock(file, 'x', 'one', { dryRun: false });
-    await expect(
-      upsertManagedBlock(file, 'x', 'two', { dryRun: false, onConflict: 'error' }),
-    ).rejects.toMatchObject({ code: 'E_CONFLICT' });
-    await upsertManagedBlock(file, 'y', 'two', { dryRun: true });
-    expect(await read(file)).toBe('<!-- palm:begin x -->\none\n<!-- palm:end x -->\n');
+  it('conflict mode: a different block is E_CONFLICT, default replaces it', () => {
+    const text = '<!-- palm:begin x -->\none\n<!-- palm:end x -->\n';
+    const edit = { file: 'AGENTS.md', id: 'x', content: 'two' };
+    expect(() => upsertBlockText(text, { ...edit, onConflict: 'error' })).toThrow(
+      expect.objectContaining({ code: 'E_CONFLICT' }),
+    );
+    expect(upsertBlockText(text, edit)).toBe('<!-- palm:begin x -->\ntwo\n<!-- palm:end x -->\n');
   });
 
   it('removal restores the original text and deletes files left empty', async () => {
     const dir = await tmpDir();
     const file = path.join(dir, 'AGENTS.md');
     await write(file, USER);
-    await upsertManagedBlock(file, 'a', 'A', { dryRun: false });
-    await upsertManagedBlock(file, 'b', 'B', { dryRun: false });
+    await upsert(file, 'a', 'A');
+    await upsert(file, 'b', 'B');
     await removeManagedBlock(file, 'a');
     await removeManagedBlock(file, 'b');
     expect(await read(file)).toBe(USER);
     await removeManagedBlock(file, 'b');
     const other = path.join(dir, 'other.md');
-    await upsertManagedBlock(other, 'a', 'A', { dryRun: false });
+    await upsert(other, 'a', 'A');
     await removeManagedBlock(other, 'a');
     expect(await exists(other)).toBe(false);
     await removeManagedBlock(path.join(dir, 'missing.md'), 'a');

@@ -11,6 +11,7 @@ import {
   readJsonIfExists,
   readTextIfExists,
   removeEmptyParents,
+  removeEmptyTree,
   toPosix,
   writeFileAtomic,
   writeJsonFile,
@@ -151,6 +152,25 @@ describe('JSON files', () => {
     expect(await readJsonIfExists(join(dir, 'ok.json'))).toEqual({ a: 1 });
     await write(join(dir, 'bad.json'), '{');
     await expect(readJsonIfExists(join(dir, 'bad.json'))).rejects.toThrow('invalid JSON');
+  });
+});
+
+describe('removeEmptyTree', () => {
+  it('removes a directory holding only empty directories, keeps one with a file or a link', async () => {
+    const root = await tmpDir();
+    await mkdir(join(root, 'a/b/c'), { recursive: true });
+    await mkdir(join(root, 'a/d'), { recursive: true });
+    expect(await removeEmptyTree(join(root, 'a'))).toBe(true);
+    expect(await exists(join(root, 'a'))).toBe(false);
+    await write(join(root, 'k/x/file.txt'), 'x');
+    await mkdir(join(root, 'k/empty'), { recursive: true });
+    expect(await removeEmptyTree(join(root, 'k'))).toBe(false);
+    expect(await exists(join(root, 'k/x/file.txt'))).toBe(true);
+    expect(await exists(join(root, 'k/empty'))).toBe(false); // empty branches still go
+    await mkdir(join(root, 'l'));
+    await symlink(join(root, 'nowhere'), join(root, 'l/link'));
+    expect(await removeEmptyTree(join(root, 'l'))).toBe(false);
+    expect(await removeEmptyTree(join(root, 'missing'))).toBe(false);
   });
 });
 

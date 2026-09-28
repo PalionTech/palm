@@ -2,10 +2,12 @@
  * `palm uninstall`: selection (what the refs name) → plan (reference-counted removal, pure) →
  * apply (undeploy from each target, delete the files palm wrote) → persist (lock, palm.yaml).
  *
- * Edit-safe: a file palm wrote that the user changed since (its hash no longer matches the lock)
- * is left on disk and reported as skipped, unless `--force`. Failures (a target that cannot
- * undeploy, a file that cannot be removed) are collected, never thrown: the entry stays in the
- * lock with what is still on disk, and the CLI exits 1.
+ * Reference counting: a named entity another installed plugin/agent still declares stays,
+ * re-parented to it (`via`), and leaves palm.yaml. Edit-safe: an entity with a file the user
+ * changed since palm wrote it (its hash no longer matches the lock) is not removed at all,
+ * unless `--force`: it stays installed and in the lock, with what it pulled in, and is a
+ * failure whose hint is the `--force` command. Failures (that refusal, a target that cannot
+ * undeploy, a file that cannot be removed) are collected, never thrown; the CLI exits 1.
  */
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
@@ -25,7 +27,7 @@ import { lockId, Via } from '../domain/entity-key.js';
 import { filePaths, Lock, type RemovalPlan } from '../domain/lock.js';
 import { Manifest } from '../domain/manifest.js';
 import { ScopePaths } from '../domain/scope-paths.js';
-import { isWithin, removeEmptyParents } from '../lib/fs.js';
+import { isWithin, removeEmptyParents, removeEmptyTree } from '../lib/fs.js';
 import { type EngineDeps, resolveEngineDeps } from './deps.js';
 import { type EntityQuery, notInstalled } from './query.js';
 
@@ -81,8 +83,8 @@ export interface UndeployJob {
   entries: readonly LockEntry[];
   /** Absolute paths never deleted: shared merge targets and files of entries that stay. */
   protect: ReadonlySet<string>;
-  /** Per entry (`lockId`), lock paths the user modified: left on disk and out of the undeploy. */
-  keep?: ReadonlyMap<string, readonly string[]>;
+  /** The scope's lock: harness directories it says palm created are removed once empty. */
+  lock?: Lock;
 }
 
 export interface UndeployReport {
@@ -155,28 +157,23 @@ async function removeOwned(run: Run, entry: LockEntry, file: string): Promise<vo
 }
 
 async function undeployOne(run: Run, entry: LockEntry, job: UndeployJob): Promise<void> {
-  const keep = new Set(job.keep?.get(lockId(entry)) ?? []);
   const outside = filePaths(entry).filter((f) => !run.paths.safeAbs(f));
   if (outside.length)
     run.report.warnings.push(
       `${entry.kind} ${entry.name}: ignored lock paths outside the ${job.scope} scope: ${outside.join(', ')}`,
     );
-  await undeployTargets(
-    run,
-    entry,
-    entry.files.filter((f) => !keep.has(f.path)),
-  );
+  await undeployTargets(run, entry, entry.files);
   if (run.ctx.flags.dryRun) return;
   for (const file of filePaths(entry)) {
     const abs = run.paths.safeAbs(file);
-    if (!keep.has(file) && abs && !job.protect.has(abs)) await removeOwned(run, entry, file);
+    if (abs && !job.protect.has(abs)) await removeOwned(run, entry, file);
   }
 }
 
 /**
  * Undeploy lock entries from every target they were installed to, then remove any listed file
- * a target left behind (palm owns everything in `files`), except protected paths and the
- * files `keep` names. Nothing is thrown: failures are reported.
+ * a target left behind (palm owns everything in `files`), except protected paths. Nothing is
+ * thrown: failures are reported.
  */
 export async function undeploy(
   ctx: PalmContext,
@@ -188,7 +185,23 @@ export async function undeploy(
   const run: Run = { ctx, deps, paths, report, touched: [] };
   for (const entry of job.entries) await undeployOne(run, entry, job);
   if (!ctx.flags.dryRun) await pruneContainers(paths, run.touched);
+  if (!ctx.flags.dryRun && job.lock) await pruneCreatedDirs(paths, job.lock);
   return report;
+}
+
+/**
+ * Harness directories palm created that hold no file any more go (with the empty directories
+ * left inside them); the lock forgets any that are gone.
+ */
+async function pruneCreatedDirs(paths: ScopePaths, lock: Lock): Promise<void> {
+  const dirs = lock.createdDirs ?? [];
+  for (const d of dirs) {
+    const abs = paths.safeAbs(d);
+    if (abs && abs !== paths.root) await removeEmptyTree(abs);
+  }
+  const left = dirs.filter((d) => existsSync(paths.abs(d)));
+  if (left.length) lock.createdDirs = left;
+  else delete lock.createdDirs;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,20 +210,10 @@ export async function undeploy(
 
 type RemovalRef = EntityQuery;
 
-/** Files palm kept because the user changed them since palm wrote them. */
-interface SkippedFiles {
-  kind: Kind;
-  name: string;
-  origin: string;
-  /** Lock paths (scope-relative at project scope, absolute at global). */
-  files: string[];
-}
-
 export interface UninstallResult {
   /** Entries undeployed (in a dry run: that would be). */
   removed: LockEntry[];
-  /** Modified files left on disk (`--force` removes them). */
-  skipped: SkippedFiles[];
+  /** Failures: an entity kept because the user changed its files (`--force` removes it), a target or file that could not go. */
   failures: InstallFailure[];
   warnings: string[];
 }
@@ -261,21 +264,14 @@ function selectForRemoval(
   return out;
 }
 
-/** Warnings for selected entries that entries which stay still list in `deps`. */
-function stillUsedWarnings(lock: Lock, selected: LockEntry[], removed: LockEntry[]): string[] {
-  const leaving = new Set(removed.map(lockId));
-  return selected.flatMap((s) => {
-    const users = lock.usersOf(s, leaving);
-    if (!users.length) return [];
-    const who = users.map((u) => `${u.kind} ${u.name}`).join(', ');
-    return [`${who} still reference${users.length === 1 ? 's' : ''} ${s.kind} ${s.name}`];
-  });
-}
-
-function keptWarning(k: RemovalPlan['kept'][number]): string {
+/** Why a dependency stays; for one the user named, the command that removes it with its user. */
+function keptWarning(k: RemovalPlan['kept'][number], named: boolean, scope: Scope): string {
   const via = k.via ? Via.parse(k.via) : undefined;
-  const why = via ? `still needed by ${via.kind} ${via.name}` : 'listed in the manifest';
-  return `kept ${k.entry.kind} ${k.entry.name}: ${why}`;
+  const head = `kept ${k.entry.kind} ${k.entry.name}`;
+  if (!via) return `${head}: listed in the manifest`;
+  const why = `${head}: still needed by ${via.kind} ${via.name}`;
+  const g = scope === 'global' ? ' -g' : '';
+  return named ? `${why} (to remove both: palm uninstall ${via.kind} ${via.name}${g})` : why;
 }
 
 /** The loaded scope an uninstall works on. */
@@ -298,38 +294,74 @@ interface UninstallPlan extends Selection, RemovalPlan {
   protect: Set<string>;
 }
 
-/** What an uninstall of `refs` removes and keeps (pure over the loaded lock and manifest). */
+/**
+ * What an uninstall of `refs` removes and keeps (pure over the loaded lock and manifest). A
+ * named entity that a plugin/agent staying installed still declares is kept and re-parented
+ * to it; a dependency stays when the manifest lists it (and it was not named) or another
+ * entry still declares it.
+ */
 function planUninstall(state: ScopeState, refs: readonly RemovalRef[]): UninstallPlan {
   const { lock, manifest, paths } = state;
   const selection = selectForRemoval(lock, manifest, refs, paths.scope);
+  const named = new Set(selection.selected.map(lockId));
   const { removed, kept } = lock.planRemoval(selection.selected, {
-    listed: (e) => manifest.lists(e),
+    listed: (e) => !named.has(lockId(e)) && manifest.lists(e),
+    checkRoots: true,
   });
   const warnings = [
     ...selection.warnings,
-    ...stillUsedWarnings(lock, selection.selected, removed),
-    ...kept.map(keptWarning),
+    ...kept.map((k) => keptWarning(k, named.has(lockId(k.entry)), paths.scope)),
   ];
   const protect = lock.protectedFiles(paths, removed);
   return { ...selection, removed, kept, protect, warnings };
 }
 
-/** Per removed entry, the files the user changed since palm wrote them (none with `--force`). */
-async function userEdits(ctx: PalmContext, paths: ScopePaths, removed: LockEntry[]) {
-  const edits = new Map<string, string[]>();
-  if (ctx.flags.force) return edits;
-  for (const e of removed) {
-    const files = await Lock.modifiedFiles(e, paths, (abs) => hashPath(abs));
-    if (files.length) edits.set(lockId(e), files);
-  }
-  return edits;
+/** The command that removes `e` despite the user's edits. */
+function forceCommand(e: LockEntry, scope: Scope, lock: Lock): string {
+  const origin = lock.findAll(e).length > 1 ? `@${e.origin}` : '';
+  return `palm uninstall ${e.kind} ${e.name}${origin}${scope === 'global' ? ' -g' : ''} --force`;
 }
 
-function skippedOf(removed: LockEntry[], edits: Map<string, string[]>): SkippedFiles[] {
-  return removed.flatMap((e) => {
-    const files = edits.get(lockId(e));
-    return files ? [{ kind: e.kind, name: e.name, origin: e.origin, files }] : [];
-  });
+function editRefusal(e: LockEntry, files: string[], state: ScopeState): InstallFailure {
+  const them = files.length === 1 ? `${files[0]} was` : `${files.join(', ')} were`;
+  const err = new PalmError(
+    'E_CONFLICT',
+    `${them} modified since install; rerun with --force to remove`,
+    `palm kept this ${e.kind} installed; to remove it and your edits: ${forceCommand(e, state.paths.scope, state.lock)}`,
+  );
+  return failure(e, err);
+}
+
+/**
+ * Without `--force`, entries with files the user changed since palm wrote them stay installed
+ * (and so does everything they pulled in): the plan loses them, a kept dependency whose parent
+ * goes becomes direct, and each refusal is a failure.
+ */
+async function holdEdited(
+  ctx: PalmContext,
+  state: ScopeState,
+  plan: UninstallPlan,
+): Promise<InstallFailure[]> {
+  if (ctx.flags.force) return [];
+  const { lock, paths } = state;
+  const refused: LockEntry[] = [];
+  const failures: InstallFailure[] = [];
+  for (const e of plan.removed) {
+    const files = await Lock.modifiedFiles(e, paths, (abs) => hashPath(abs));
+    if (!files.length) continue;
+    refused.push(e);
+    failures.push(editRefusal(e, files, state));
+  }
+  if (!refused.length) return failures;
+  const held = new Set(lock.dependentsOf(refused).map(lockId));
+  plan.removed = plan.removed.filter((e) => !held.has(lockId(e)));
+  const leaving = new Set(plan.removed.map(lockId));
+  for (const e of lock.entries.filter((x) => held.has(lockId(x)))) {
+    const parent = lock.parentOf(e);
+    if (parent && leaving.has(lockId(parent))) plan.kept.push({ entry: e }); // now direct
+  }
+  plan.protect = lock.protectedFiles(paths, plan.removed);
+  return failures;
 }
 
 /** Drops removed direct installs (registry MCP servers also by registry name) from the manifest. */
@@ -359,6 +391,12 @@ async function persist(state: ScopeState, plan: UninstallPlan, report: UndeployR
     else lock.remove(e);
   }
   forgetRemoved(manifest, plan.removed);
+  // A named entity kept for another entry leaves palm.yaml: it is that entry's dependency now.
+  const named = new Set(plan.selected.map(lockId));
+  forgetRemoved(
+    manifest,
+    plan.kept.filter((k) => k.via && named.has(lockId(k.entry))).map((k) => k.entry),
+  );
   for (const m of plan.manifestOnly) manifest.removeDep(m.kind, m.name);
   if (plan.removed.length || plan.kept.length) await lock.save(paths.lockFile);
   if (JSON.stringify(manifest) !== state.manifestBefore) await manifest.save(paths.manifestFile);
@@ -373,14 +411,13 @@ export async function uninstallEntities(
   const deps = await resolveEngineDeps(depsIn, { targets: true });
   const state = await loadScope(ctx, opts.scope);
   const plan = planUninstall(state, refs);
-  const keep = await userEdits(ctx, state.paths, plan.removed);
-  const job = { scope: opts.scope, entries: plan.removed, protect: plan.protect, keep };
+  const refused = await holdEdited(ctx, state, plan);
+  const job = { scope: opts.scope, entries: plan.removed, protect: plan.protect, lock: state.lock };
   const report = await undeploy(ctx, deps, job);
   if (!ctx.flags.dryRun) await persist(state, plan, report);
   return {
     removed: plan.removed,
-    skipped: skippedOf(plan.removed, keep),
-    failures: report.failures,
+    failures: [...refused, ...report.failures],
     warnings: [...plan.warnings, ...report.warnings],
   };
 }

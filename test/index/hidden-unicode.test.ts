@@ -120,6 +120,34 @@ describe('hidden Unicode during the scan', () => {
       ]);
     });
 
+    it('checks the plugin-root files a hook copies and runs (M2), not the ones it does not copy', async () => {
+      await put('.claude-plugin/plugin.json', { name: 'p' });
+      await put('hooks/hooks.json', {
+        hooks: {
+          PostToolUse: [
+            { hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/fmt.sh"' }] },
+          ],
+        },
+      });
+      await put('scripts/fmt.sh', '#!/bin/sh\necho "\u202Eevil"\n');
+      await put('docs/notes.md', 'not copied \u202E\n');
+      await put('README.md', 'not copied \u202E\n');
+      const r = await run();
+      expect(issuesOf(r, 'hook', 'p')).toMatchObject([
+        { file: 'scripts/fmt.sh', severity: 'critical' },
+      ]);
+    });
+
+    it('a hook that does not reference its plugin root is checked on its own file only', async () => {
+      await put('.claude-plugin/plugin.json', { name: 'p' });
+      await put('hooks/hooks.json', {
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo done' }] }] },
+      });
+      await put('scripts/fmt.sh', 'echo "\u202Eevil"\n');
+      const r = await run();
+      expect(issuesOf(r, 'hook', 'p')).toBeUndefined();
+    });
+
     it('leaves clean origins without issues or warnings', async () => {
       await put('skills/a/SKILL.md', skillMd('a', 'Emoji 👍🏽 and ümlauts.'));
       const r = await run();

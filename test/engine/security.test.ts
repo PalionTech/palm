@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { LockEntry } from '../../src/core/types.js';
 import { Lock } from '../../src/domain/lock.js';
 import { uninstallEntities } from '../../src/engine/uninstall.js';
+import { fakeUI } from '../support/fakes.js';
 import { removeDir } from '../support/sandbox.js';
 import { makeWorld, type World } from './world.js';
 
@@ -147,5 +148,45 @@ describe('literal secrets stay in the harness config only', () => {
 
     await uninstallEntities(w.ctx, [{ kind: 'mcp', name: 'docs' }], { scope: 'global' }, w.deps);
     expect(await grepTree(w.sb.root, SECRET)).toEqual([]);
+  });
+});
+
+describe('a required secret that cannot be had fails the run before anything is written (M4)', () => {
+  let w: World;
+  afterEach(async () => removeDir(w.sb.root));
+
+  it('global literal, no terminal: E_NON_INTERACTIVE up front, no harness file, no lock', async () => {
+    w = await makeWorld({ ui: fakeUI({ interactive: false }) });
+    const { getTarget } = await import('../../src/targets/index.js');
+    const { resolveSecrets } = await import('../../src/mcp/secrets.js');
+    const { installEntities } = await import('../../src/engine/install.js');
+    w.deps.getTarget = getTarget;
+    w.deps.resolveSecrets = resolveSecrets;
+    w.ctx.flags.yes = true;
+    const open = {
+      name: 'open',
+      transport: 'stdio' as const,
+      command: 'npx',
+      args: ['open-mcp'],
+    };
+    const keyed = {
+      name: 'keyed',
+      transport: 'http' as const,
+      url: 'https://keyed.example/mcp',
+      headers: { Authorization: 'Bearer ${KEYED_TOKEN}' },
+    };
+    const err = await installEntities(
+      w.ctx,
+      [
+        { kind: 'mcp', spec: 'open', adhocMcp: open },
+        { kind: 'mcp', spec: 'keyed', adhocMcp: keyed },
+      ],
+      { scope: 'global', targets: ['claude'] },
+      w.deps,
+    ).catch((e) => e);
+    expect(err).toMatchObject({ code: 'E_NON_INTERACTIVE', retryWith: '--secrets env-ref' });
+    expect(err.message).toContain('KEYED_TOKEN');
+    expect(existsSync(join(w.sb.home, '.claude.json'))).toBe(false);
+    expect(existsSync(join(w.sb.palmHome, 'palm.lock.yaml'))).toBe(false);
   });
 });

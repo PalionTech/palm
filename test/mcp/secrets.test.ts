@@ -135,7 +135,8 @@ describe('resolveSecrets: literal', () => {
     await expect(resolveSecrets(ctx, brave, 'literal')).rejects.toMatchObject({
       code: 'E_NON_INTERACTIVE',
       message: expect.stringContaining('BRAVE_API_KEY'),
-      hint: 'export BRAVE_API_KEY=... or use --secrets env-ref',
+      hint: 'export BRAVE_API_KEY=<value> and run the same command again, or keep a reference to the variable instead of its value',
+      retryWith: '--secrets env-ref',
     });
     expect(prompts).toEqual([]);
   });

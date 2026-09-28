@@ -65,6 +65,17 @@ function printRegistry(out: Output, registry: RegistryCandidate[]): void {
   out.hint(`\ninstall with: palm install mcp ${registry[0]?.name ?? '<name>'}`);
 }
 
+/**
+ * The `--json` list, in the `{ items }` envelope every list uses: origin hits (best first, with
+ * `score`), then MCP registry candidates, each tagged with `source`.
+ */
+function searchItems(hits: Hit[], registry: RegistryCandidate[]): Array<Record<string, unknown>> {
+  return [
+    ...hits.map((h) => ({ source: 'origin', ...h.entity, score: h.score })),
+    ...registry.map((c) => ({ source: 'registry', ...c })),
+  ];
+}
+
 function kindOf(inv: Invocation, o: SearchOptions): Kind | undefined {
   const fromWord = entityKind(inv.resource, 'search');
   if (!o.kind) return fromWord;
@@ -93,8 +104,7 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const wantRegistry = (!kind || kind === 'mcp') && !origin && !ctx.flags.offline;
   const registry = wantRegistry ? await searchRegistry(ctx, query) : [];
   const out = app.out;
-  if (out.jsonMode)
-    return out.json({ index: hits.map((h) => ({ ...h.entity, score: h.score })), registry });
+  if (out.jsonMode) return out.json(searchItems(hits, registry));
   if (hits.length === 0 && registry.length === 0) {
     out.hint(`No matches for "${query}".`);
     out.hint(

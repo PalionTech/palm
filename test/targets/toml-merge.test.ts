@@ -1,9 +1,14 @@
 import path from 'node:path';
 import { parse } from 'smol-toml';
 import { afterEach, describe, expect, it } from 'vitest';
-import { toStored } from '../../src/domain/merged-record.js';
-import { mergeTomlTable, parseTomlHeader, unmergeTomlTable } from '../../src/targets/toml-merge.js';
-import { cleanupTmp, read, tmpDir, write } from './helpers.js';
+import { type TomlTableRecord, toStored } from '../../src/domain/merged-record.js';
+import {
+  mergeTableText,
+  parseTomlHeader,
+  type TomlEdit,
+  unmergeTomlTable,
+} from '../../src/targets/toml-merge.js';
+import { applyText, cleanupTmp, exists, read, tmpDir, write } from './helpers.js';
 
 afterEach(cleanupTmp);
 
@@ -17,22 +22,24 @@ command = "mine" # keep me
 model = "gpt-5.6-luna"
 `;
 
-describe('mergeTomlTable', () => {
+/** Plan-and-write a table the way a deploy does; the record the planner stores. */
+async function mergeTable(
+  file: string,
+  path: string[],
+  value: Record<string, unknown>,
+  opts: Partial<TomlEdit> = {},
+): Promise<TomlTableRecord> {
+  await applyText(file, (text) => mergeTableText(text, { ...opts, file, path, value }));
+  return { type: 'toml-table', file, path, value };
+}
+
+describe('mergeTableText', () => {
   it('appends a table and preserves comments and other tables byte-for-byte', async () => {
     const file = path.join(await tmpDir(), 'config.toml');
     await write(file, ORIGINAL);
-    const rec = await mergeTomlTable(
-      file,
-      ['mcp_servers', 'fs'],
-      { command: 'npx', args: ['-y', 'fs'], env: { A: 'b' } },
-      { dryRun: false },
-    );
-    expect(rec).toMatchObject({ type: 'toml-table', path: ['mcp_servers', 'fs'] });
-    expect(toStored(rec)).toEqual({
-      file,
-      pointer: '/mcp_servers/fs',
-      value: { command: 'npx', args: ['-y', 'fs'], env: { A: 'b' } },
-    });
+    const value = { command: 'npx', args: ['-y', 'fs'], env: { A: 'b' } };
+    const rec = await mergeTable(file, ['mcp_servers', 'fs'], value);
+    expect(toStored(rec)).toEqual({ file, pointer: '/mcp_servers/fs', value });
     const text = await read(file);
     expect(text).toBe(
       `${ORIGINAL}\n[mcp_servers.fs]\ncommand = "npx"\nargs = [ "-y", "fs" ]\n\n[mcp_servers.fs.env]\nA = "b"\n`,
@@ -46,61 +53,39 @@ describe('mergeTomlTable', () => {
   it('round-trips: merge then unmerge restores the original text', async () => {
     const file = path.join(await tmpDir(), 'config.toml');
     await write(file, ORIGINAL);
-    const rec = await mergeTomlTable(
-      file,
-      ['mcp_servers', 'fs'],
-      { command: 'npx', env: { A: 'b' } },
-      { dryRun: false },
-    );
+    const rec = await mergeTable(file, ['mcp_servers', 'fs'], { command: 'npx', env: { A: 'b' } });
     await unmergeTomlTable(file, rec);
     expect(await read(file)).toBe(ORIGINAL);
   });
 
-  it('creates a missing file; idempotent; conflict detection', async () => {
-    const file = path.join(await tmpDir(), 'config.toml');
-    await mergeTomlTable(file, ['mcp_servers', 'x'], { url: 'https://a' }, { dryRun: false });
-    const first = await read(file);
+  it('creates a missing document; idempotent; conflict detection', () => {
+    const edit = { file: 'config.toml', path: ['mcp_servers', 'x'], value: { url: 'https://a' } };
+    const first = mergeTableText(undefined, edit);
     expect(first).toBe('[mcp_servers.x]\nurl = "https://a"\n');
-    await mergeTomlTable(
-      file,
-      ['mcp_servers', 'x'],
-      { url: 'https://a' },
-      { dryRun: false, onConflict: 'error' },
+    expect(mergeTableText(first, { ...edit, onConflict: 'error' })).toBeUndefined();
+    const changed = { ...edit, value: { url: 'https://b' } };
+    expect(() => mergeTableText(first, { ...changed, onConflict: 'error' })).toThrow(
+      expect.objectContaining({ code: 'E_CONFLICT' }),
     );
-    expect(await read(file)).toBe(first);
-    await expect(
-      mergeTomlTable(
-        file,
-        ['mcp_servers', 'x'],
-        { url: 'https://b' },
-        { dryRun: false, onConflict: 'error' },
-      ),
-    ).rejects.toMatchObject({
-      code: 'E_CONFLICT',
-    });
-    await mergeTomlTable(file, ['mcp_servers', 'x'], { url: 'https://b' }, { dryRun: false });
-    expect(await read(file)).toBe('[mcp_servers.x]\nurl = "https://b"\n');
+    expect(mergeTableText(first, changed)).toBe('[mcp_servers.x]\nurl = "https://b"\n');
   });
 
-  it('replaces an existing section in place of text when updating', async () => {
-    const file = path.join(await tmpDir(), 'config.toml');
-    await write(
-      file,
-      '[mcp_servers.x]\nurl = "old"\n\n[mcp_servers.x.http_headers]\nA = "1"\n\n[other]\nk = 1\n',
-    );
-    await mergeTomlTable(file, ['mcp_servers', 'x'], { url: 'new' }, { dryRun: false });
-    expect(await read(file)).toBe('[other]\nk = 1\n\n[mcp_servers.x]\nurl = "new"\n');
+  it('replaces an existing section in place of text when updating', () => {
+    const text =
+      '[mcp_servers.x]\nurl = "old"\n\n[mcp_servers.x.http_headers]\nA = "1"\n\n[other]\nk = 1\n';
+    expect(
+      mergeTableText(text, {
+        file: 'config.toml',
+        path: ['mcp_servers', 'x'],
+        value: { url: 'new' },
+      }),
+    ).toBe('[other]\nk = 1\n\n[mcp_servers.x]\nurl = "new"\n');
   });
 
   it('falls back to a full re-stringify when the text edit cannot express the change', async () => {
     const file = path.join(await tmpDir(), 'config.toml');
     await write(file, 'mcp_servers = { other = { command = "o" } }\n');
-    const rec = await mergeTomlTable(
-      file,
-      ['mcp_servers', 'x'],
-      { command: 'c' },
-      { dryRun: false },
-    );
+    const rec = await mergeTable(file, ['mcp_servers', 'x'], { command: 'c' });
     expect(parse(await read(file))).toEqual({
       mcp_servers: { other: { command: 'o' }, x: { command: 'c' } },
     });
@@ -108,36 +93,25 @@ describe('mergeTomlTable', () => {
     expect(parse(await read(file))).toEqual({ mcp_servers: { other: { command: 'o' } } });
   });
 
-  it('dryRun does not write', async () => {
-    const file = path.join(await tmpDir(), 'config.toml');
-    await write(file, ORIGINAL);
-    await mergeTomlTable(file, ['mcp_servers', 'fs'], { command: 'x' }, { dryRun: true });
-    expect(await read(file)).toBe(ORIGINAL);
+  it('unparseable TOML is E_PARSE', () => {
+    expect(() =>
+      mergeTableText('[a\n', { file: 'config.toml', path: ['mcp_servers', 'x'], value: {} }),
+    ).toThrow(expect.objectContaining({ code: 'E_PARSE' }));
   });
 
   it('quoted table names', async () => {
     const file = path.join(await tmpDir(), 'config.toml');
-    const rec = await mergeTomlTable(
-      file,
-      ['mcp_servers', 'io.github/x'],
-      { url: 'u' },
-      { dryRun: false },
-    );
+    const rec = await mergeTable(file, ['mcp_servers', 'io.github/x'], { url: 'u' });
     expect(await read(file)).toBe('[mcp_servers."io.github/x"]\nurl = "u"\n');
     await unmergeTomlTable(file, rec);
-    expect(await read(file)).toBe('');
+    expect(await exists(file)).toBe(false); // left empty: deleted, no 0-byte config.toml (L10)
   });
 });
 
 describe('unmergeTomlTable', () => {
   it('leaves a table whose palm-written values were edited', async () => {
     const file = path.join(await tmpDir(), 'config.toml');
-    const rec = await mergeTomlTable(
-      file,
-      ['mcp_servers', 'x'],
-      { command: 'c' },
-      { dryRun: false },
-    );
+    const rec = await mergeTable(file, ['mcp_servers', 'x'], { command: 'c' });
     await write(file, '[mcp_servers.x]\ncommand = "edited"\n');
     await unmergeTomlTable(file, rec);
     expect(await read(file)).toBe('[mcp_servers.x]\ncommand = "edited"\n');

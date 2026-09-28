@@ -31,6 +31,7 @@ import {
   deployItem,
   type EngineInstallOptions,
   failureOf,
+  preflightSecrets,
 } from './deploy.js';
 import { type EngineDeps, resolveEngineDeps } from './deps.js';
 import {
@@ -195,7 +196,8 @@ async function askConsent(dc: DeployContext, plan: PlanItem[]): Promise<void> {
     throw new PalmError(
       'E_NON_INTERACTIVE',
       `palm will not install ${what} on your machine without your consent`,
-      'review them above (or with --dry-run), then rerun with --yes',
+      'review them above (or with --dry-run), then run',
+      { retryWith: '--yes' },
     );
   if (!(await ctx.ui.confirm('Install and allow these to run?', true)))
     throw new PalmError('E_CANCELLED', 'Install cancelled; nothing was changed');
@@ -363,6 +365,7 @@ async function dropOrphans(dc: DeployContext, plan: PlanItem[], manifest: Manife
     scope: opts.scope,
     entries: removal.removed,
     protect,
+    lock,
   });
   dc.failures.push(...report.failures);
   dc.warnings.push(...report.warnings);
@@ -387,6 +390,7 @@ async function deployAll(
       if (state.stop) throw interrupted(outcomes.length, plan.length);
       const outcome = await deployItem(dc, item);
       outcomes.push(outcome);
+      if (outcome.status !== 'failed') recordLockTargets(dc);
       if (item.direct && !dc.opts.noSave && item.manifestDep && outcome.status !== 'failed')
         manifest.addDep(item.entity.kind, item.manifestDep);
       await persister.save();
@@ -398,6 +402,12 @@ async function deployAll(
     await persister.save();
   }
   return outcomes;
+}
+
+/** The first install that places something records the persisted target set in the lock. */
+function recordLockTargets(dc: DeployContext): void {
+  const { lockTargets } = dc.opts;
+  if (lockTargets && !dc.lock.targets) dc.lock.targets = [...lockTargets];
 }
 
 function interrupted(done: number, total: number): PalmError {
@@ -438,6 +448,7 @@ export async function installEntities(
   };
   const plan = await resolveAll(rc, requests, opts, dc.failures);
   await askConsent(dc, plan);
+  await preflightSecrets(dc, plan);
   const outcomes = await deployAll(dc, plan, manifest);
   return { outcomes, warnings: dc.warnings, failures: dc.failures };
 }

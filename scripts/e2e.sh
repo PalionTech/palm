@@ -290,7 +290,7 @@ s09_mcp() {
   contains "$P1/palm.yaml" "io.github.upstash/context7"
   # a stdio server runs a command on this machine: without a terminal it needs --yes
   run_fails "$P1" install mcp fs -- npx -y @modelcontextprotocol/server-filesystem .
-  has "rerun with --yes"
+  has "then run: palm install mcp fs --yes -- npx -y @modelcontextprotocol/server-filesystem ."
   js "$P1/.mcp.json" '!d.mcpServers.fs'
   run "$P1" install mcp fs -y -- npx -y @modelcontextprotocol/server-filesystem .
   js "$P1/.mcp.json" 'd.mcpServers.fs.command === "npx" && d.mcpServers.fs.args.join(" ") === "-y @modelcontextprotocol/server-filesystem ."'

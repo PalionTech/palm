@@ -116,6 +116,8 @@ describe('palm create agent → install (fake UI, real scanner/engine/targets)',
     ]);
     expect(existsSync(join(sb.project, '.claude/skills/grill-me'))).toBe(false);
     expect(existsSync(join(sb.project, '.agents'))).toBe(false); // palm-created container removed once empty
-    expect(existsSync(join(sb.project, '.claude'))).toBe(true); // harness config dir stays
+    // palm created .claude and .codex here (the sandbox had neither): empty now, so they go too
+    expect(existsSync(join(sb.project, '.claude'))).toBe(false);
+    expect(existsSync(join(sb.project, '.codex'))).toBe(false);
   });
 });

@@ -6,12 +6,15 @@ import {
   type LockEntry,
   type LockedFile,
   type Lockfile,
+  type MergedRecord,
   TARGET_IDS,
+  type TargetId,
 } from '../core/types.js';
 import { isRecord, withoutUndefined } from '../lib/object.js';
 import { writeYamlFile } from '../lib/yaml.js';
 import { entityId, isViaKind, lockId, Via } from './entity-key.js';
 import { loadYaml } from './manifest.js';
+import type { RecordState } from './merged-record.js';
 
 interface Keyed {
   kind: Kind;
@@ -23,6 +26,15 @@ type LockKeyed = Keyed & { origin: string };
 /** Resolves lock paths (scope-relative at project scope, absolute at global); `ScopePaths` fits. */
 export interface LockPaths {
   abs(lockPath: string): string;
+}
+
+/** Reads a merged record (its `file` absolute) from disk: targets `mergedRecordState` fits. */
+export type MergedCheck = (rec: MergedRecord) => Promise<RecordState>;
+
+/** A merged record (lock form) its file no longer holds as palm wrote it. */
+export interface MergedDrift {
+  record: MergedRecord;
+  state: Exclude<RecordState, 'held'>;
 }
 
 /** Reference-counted removal: what goes, and which `via` dependencies stay with a new `via`. */
@@ -133,6 +145,12 @@ function validEntries(file: string, raw: unknown): LockEntry[] {
   return entries.map((e, i) => normalizeEntry(file, i, e));
 }
 
+/** The top-level `targets` list: known target ids in TARGET_IDS order; undefined when absent. */
+function validTargets(raw: unknown): TargetId[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return TARGET_IDS.filter((t) => raw.includes(t));
+}
+
 /** A user-supplied name selects an entry by name, or a registry MCP server by registry name. */
 export function answersTo(e: LockEntry, name: string): boolean {
   const lower = name.toLowerCase();
@@ -158,6 +176,15 @@ export class Lock {
   private readonly byEntity = new Map<string, LockEntry[]>();
   /** Built on demand, dropped on every change: `via` children and `deps` users per entity id. */
   private links?: { children: Map<string, LockEntry[]>; users: Map<string, LockEntry[]> };
+  /**
+   * The persisted target set (palm.yaml `targets:`, config.yaml `targets`) this scope was last
+   * synced against. A bare `palm install` removes only the targets that left it since (target
+   * contraction happens when the persisted set shrinks, never because one install used
+   * `--target`). Undefined in a lock no install recorded it in: nothing is contracted then.
+   */
+  targets?: TargetId[];
+  /** Harness directories palm created (lock form): an uninstall removes them once empty. */
+  createdDirs?: string[];
 
   /** Entries in order; a repeated kind + name + origin keeps the first. */
   constructor(entries: Iterable<LockEntry> = []) {
@@ -180,7 +207,12 @@ export class Lock {
         'Upgrade palm.',
       );
     }
-    return new Lock(validEntries(file, data.entries));
+    const lock = new Lock(validEntries(file, data.entries));
+    const targets = validTargets(data.targets);
+    if (targets) lock.targets = targets;
+    if (Array.isArray(data.createdDirs))
+      lock.createdDirs = data.createdDirs.filter((d): d is string => typeof d === 'string');
+    return lock;
   }
 
   /**
@@ -189,12 +221,23 @@ export class Lock {
    * no timestamps, as a fresh document. Saving the same lock twice gives identical bytes.
    */
   async save(file: string): Promise<void> {
-    await writeYamlFile(file, this.toData(), { preserveFrom: false, comment: LOCK_COMMENT });
+    await writeYamlFile(file, this.toData(), {
+      preserveFrom: false,
+      comment: LOCK_COMMENT,
+      flowKeys: ['targets'],
+    });
   }
 
   /** The document `save` writes. */
-  private toData(): { version: number; entries: Array<Record<string, unknown>> } {
-    return { version: LOCK_VERSION, entries: this.entries.sort(byKindNameOrigin).map(orderEntry) };
+  private toData(): Record<string, unknown> {
+    return {
+      version: LOCK_VERSION,
+      ...(this.targets ? { targets: TARGET_IDS.filter((t) => this.targets?.includes(t)) } : {}),
+      ...(this.createdDirs?.length
+        ? { createdDirs: [...new Set(this.createdDirs)].sort(compareText) }
+        : {}),
+      entries: this.entries.sort(byKindNameOrigin).map(orderEntry),
+    };
   }
 
   /** Every entry, in order (a new array). */
@@ -207,7 +250,18 @@ export class Lock {
   }
 
   toJSON(): Lockfile {
-    return { version: 2, entries: this.entries };
+    return {
+      version: 2,
+      ...(this.targets ? { targets: this.targets } : {}),
+      ...(this.createdDirs?.length ? { createdDirs: this.createdDirs } : {}),
+      entries: this.entries,
+    };
+  }
+
+  /** Remember harness directories a deploy created (lock form). */
+  noteCreatedDirs(dirs: readonly string[]): this {
+    if (dirs.length) this.createdDirs = [...new Set([...(this.createdDirs ?? []), ...dirs])];
+    return this;
   }
 
   /** The entry for the entity from `origin`, or (no origin) the first from any origin. */
@@ -420,8 +474,36 @@ export class Lock {
     return out;
   }
 
-  /** Every file the entry and whatever it pulled in wrote is still on disk. */
-  intact(entry: LockEntry, paths: LockPaths): boolean {
-    return this.dependentsOf([entry]).every((e) => Lock.filesPresent(e, paths));
+  /**
+   * The entry's merged records (`.mcp.json` keys, hook entries, `AGENTS.md` blocks, …) that
+   * their file no longer holds as palm wrote them, per `check` (e.g. targets
+   * `mergedRecordState`): missing, or changed by someone else.
+   */
+  static async mergedDrift(
+    entry: Pick<LockEntry, 'merged'>,
+    paths: LockPaths,
+    check: MergedCheck,
+  ): Promise<MergedDrift[]> {
+    const out: MergedDrift[] = [];
+    for (const record of entry.merged ?? []) {
+      const state = await check({ ...record, file: paths.abs(record.file) }).catch(
+        () => 'changed' as const,
+      );
+      if (state !== 'held') out.push({ record, state });
+    }
+    return out;
+  }
+
+  /** True when every file the entry lists is on disk and (with `check`) every merged record is in place. */
+  static async inPlace(entry: LockEntry, paths: LockPaths, check?: MergedCheck): Promise<boolean> {
+    if (!Lock.filesPresent(entry, paths)) return false;
+    return !check || (await Lock.mergedDrift(entry, paths, check)).length === 0;
+  }
+
+  /** Every file and merged record the entry and whatever it pulled in wrote is still in place. */
+  async intact(entry: LockEntry, paths: LockPaths, check?: MergedCheck): Promise<boolean> {
+    for (const e of this.dependentsOf([entry]))
+      if (!(await Lock.inPlace(e, paths, check))) return false;
+    return true;
   }
 }

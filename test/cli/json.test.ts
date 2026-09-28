@@ -40,6 +40,28 @@ describe('--json: stdout carries one JSON document, everything else goes to stde
     }
   });
 
+  it('search --json: the { items } envelope, each item tagged with its source (R8 M3)', async () => {
+    sb = await cliSandbox();
+    await writeOrigins(sb, [{ alias: 'matt', fixture: 'mattpocock-like' }]);
+    const r = await runInProcess(['search', 'tdd', '--json', '--offline'], {
+      cwd: sb.project,
+      env: sb.env,
+    });
+    expect(r.code).toBe(0);
+    const doc = onlyJson(r.stdout);
+    expect(Object.keys(doc).sort()).toEqual(['items', 'warnings']);
+    const items = doc.items as Array<Record<string, unknown>>;
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0]).toMatchObject({
+      source: 'origin',
+      kind: 'skill',
+      name: 'tdd',
+      origin: 'matt',
+    });
+    expect(typeof items[0]?.score).toBe('number');
+    expect(items.every((i) => i.source === 'origin' || i.source === 'registry')).toBe(true);
+  });
+
   it('describe of something missing: an error document, exit 1', async () => {
     sb = await cliSandbox();
     const r = await sb.palm('describe', 'skill', 'nope', '--json', '--offline');

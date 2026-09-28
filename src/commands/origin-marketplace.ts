@@ -8,6 +8,7 @@ import { stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { messageOf, PalmError } from '../core/errors.js';
 import type { OriginIndex, OriginSpec, PalmContext } from '../core/types.js';
+import { plural } from '../lib/text.js';
 import type { Output } from '../ui/output.js';
 import { describeLocation, indexOrigin, kindCounts } from './origin.js';
 
@@ -158,8 +159,8 @@ function printImport(out: Output, r: ImportResult, dryRun: boolean): void {
   for (const s of r.skipped) out.warn(`skipped ${s.spec.alias}: ${s.error}`);
   const n = r.added.length;
   const also = r.existing.length ? `, ${r.existing.length} already registered` : '';
-  if (dryRun) out.hint(`\ndry run: would add ${n} origin${n === 1 ? '' : 's'}${also}`);
-  else out.added(`${n} origin${n === 1 ? '' : 's'}${also}`);
+  if (dryRun) out.hint(`\ndry run: would add ${plural(n, 'origin')}${also}`);
+  else out.added(`${plural(n, 'origin')}${also}`);
 }
 
 /** Add the plugins a marketplace lists as origins (file, directory or URL). */

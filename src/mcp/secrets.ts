@@ -46,7 +46,8 @@ async function literalValue(
     throw new PalmError(
       'E_USAGE',
       `A value for ${s.name} is required by MCP server ${cfg.name}`,
-      `export ${s.name}=... or use --secrets env-ref`,
+      `export ${s.name}=<value> and run the same command again, or keep a reference to the variable instead of its value`,
+      { retryWith: '--secrets env-ref' },
     );
   }
   ctx.log.debug(`${cfg.name}: skipped optional ${s.name}`);
@@ -56,8 +57,9 @@ async function literalValue(
 function missingWithoutTerminal(cfg: McpServerConfig, names: string[]): PalmError {
   return new PalmError(
     'E_NON_INTERACTIVE',
-    `MCP server ${cfg.name} needs ${names.join(', ')}, which ${names.length === 1 ? 'is' : 'are'} not set and cannot be prompted for without a terminal`,
-    `${names.map((n) => `export ${n}=...`).join('; ')} or use --secrets env-ref`,
+    `MCP server ${cfg.name} needs ${names.join(', ')}, which ${names.length === 1 ? 'is' : 'are'} not set and cannot be prompted for without a terminal; nothing was installed`,
+    `export ${names.map((n) => `${n}=<value>`).join(' ')} and run the same command again, or keep a reference to the variable instead of its value`,
+    { retryWith: '--secrets env-ref' },
   );
 }
 

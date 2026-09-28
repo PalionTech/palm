@@ -22,13 +22,16 @@
  * copilot→copilot, gemini→gemini) keep entries verbatim apart from the substitution; other
  * conversions go through a canonical `{ event, matcher, command, timeout }` form and
  * only `type: "command"` hooks survive. Events without an equivalent are reported
- * in `dropped`.
+ * in `dropped`. Tool-event matchers (regexes over tool names) are translated both ways through
+ * Claude's names (tool-names.ts `hookMatcher`): a Gemini `run_shell_command` or Cursor `Shell`
+ * matcher becomes `Bash` for Claude and Codex, Claude `Edit|Write` becomes Cursor `Write`.
  */
 import type { HookSet, TargetId } from '../core/types.js';
+import { PLUGIN_ROOT_TOKENS } from '../domain/ignore.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
 import { isWithin } from '../lib/fs.js';
 import { isRecord } from '../lib/object.js';
-import { geminiMatcher } from './tool-names.js';
+import { hookMatcher, type ToolDialect } from './tool-names.js';
 
 interface EventInfo {
   claude: string;
@@ -97,6 +100,14 @@ const HOOK_EVENTS: readonly EventInfo[] = [
   { claude: 'Notification', copilot: 'notification', gemini: 'Notification', codex: false },
 ];
 
+/** Canonical events whose matcher is a regex over tool names (others match sources, triggers). */
+const TOOL_EVENTS: ReadonlySet<string> = new Set([
+  'PreToolUse',
+  'PostToolUse',
+  'PostToolUseFailure',
+  'PermissionRequest',
+]);
+
 /** Gemini CLI event names → canonical. */
 const GEMINI_EVENTS: Readonly<Record<string, string>> = Object.fromEntries(
   HOOK_EVENTS.flatMap((e) => (e.gemini ? [[e.gemini, e.claude]] : [])),
@@ -138,9 +149,6 @@ function targetEvent(canonical: string, target: TargetId): string | undefined {
       return undefined;
   }
 }
-
-const ROOT_TOKENS =
-  /\$\{(?:CLAUDE_PLUGIN_ROOT|CURSOR_PLUGIN_ROOT|PLUGIN_ROOT)\}|\$CLAUDE_PLUGIN_ROOT\b/g;
 
 /**
  * Codex and Copilot export no project-directory variable, and run hooks from the session's
@@ -194,7 +202,7 @@ const PLUGIN_ROOT_VAR: Partial<Record<TargetId, string>> = {
 };
 
 function substitutePluginRoot(command: string, replacement: string): string {
-  return command.replace(ROOT_TOKENS, () => replacement);
+  return command.replace(PLUGIN_ROOT_TOKENS, () => replacement);
 }
 
 /**
@@ -210,17 +218,12 @@ function rootedCommand(
   target: TargetId,
   shell?: unknown,
 ): string {
-  if (!new RegExp(ROOT_TOKENS.source).test(command)) return command;
+  if (!new RegExp(PLUGIN_ROOT_TOKENS.source).test(command)) return command;
   const substituted = substitutePluginRoot(command, replacement);
   const variable = PLUGIN_ROOT_VAR[target];
   if (!variable || (typeof shell === 'string' && shell.toLowerCase() === 'powershell'))
     return substituted;
   return `${variable}="${replacement.replace(/(["\\`])/g, '\\$1')}" ${substituted}`;
-}
-
-/** True when any command string in the raw hooks references the plugin root. */
-export function referencesPluginRoot(raw: unknown): boolean {
-  return JSON.stringify(raw ?? null).match(ROOT_TOKENS) !== null;
 }
 
 /** Extract the `{ event: entries[] }` map from a hooks file (wrapped `{hooks:{...}}` or flat). */
@@ -302,7 +305,13 @@ function fromFlat(h: unknown, src: CanonSource, out: CanonHook[], dropped: strin
   });
 }
 
-/** Flatten any dialect into canonical command hooks. */
+/** `h` with its tool-event matcher moved from one dialect's tool names to another's. */
+function withMatcher(h: CanonHook, from: ToolDialect, to: ToolDialect): CanonHook {
+  if (h.matcher === undefined || !TOOL_EVENTS.has(h.event)) return h;
+  return { ...h, matcher: hookMatcher(h.matcher, from, to) };
+}
+
+/** Flatten any dialect into canonical command hooks (tool matchers in Claude's names). */
 function toCanonical(hooks: HookSet, dropped: string[]): CanonHook[] {
   const out: CanonHook[] = [];
   for (const [srcEvent, entries] of Object.entries(eventMap(hooks.raw))) {
@@ -315,7 +324,8 @@ function toCanonical(hooks: HookSet, dropped: string[]): CanonHook[] {
     const convert = isGrouped(entries) ? fromGroup : fromFlat;
     for (const entry of entries) convert(entry, src, out, dropped);
   }
-  return out;
+  const from = sourceFamily(hooks) ?? 'claude';
+  return out.map((h) => withMatcher(h, from, 'claude'));
 }
 
 function sourceFamily(hooks: HookSet): Family | undefined {
@@ -405,10 +415,9 @@ function pushHook(list: unknown[], fam: Family, h: CanonHook, command: string): 
     return;
   }
   if (fam === 'gemini') {
-    // Matchers are regexes over tool names, and Gemini timeouts are milliseconds (R7 §6).
-    const matcherIn = h.matcher !== undefined ? geminiMatcher(h.matcher) : undefined;
+    // Gemini timeouts are milliseconds (R7 §6).
     const timeout = h.timeout !== undefined ? h.timeout * 1000 : undefined;
-    pushGrouped(list, { ...h, matcher: matcherIn, timeout }, command);
+    pushGrouped(list, { ...h, timeout }, command);
     return;
   }
   pushGrouped(list, h, command);
@@ -435,7 +444,7 @@ function convertViaCanonical(
         : rootedCommand(h.command, replacement, target);
     const list = events[ev] ?? [];
     events[ev] = list;
-    pushHook(list, fam, h, command);
+    pushHook(list, fam, withMatcher(h, 'claude', fam), command);
   }
   return events;
 }

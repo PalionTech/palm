@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { PalmError } from '../core/errors.js';
 import type { OriginSpec } from '../core/types.js';
+import { stableJson } from '../lib/json.js';
 import { isValidAlias } from '../lib/names.js';
 
 // ---------------------------------------------------------------------------
@@ -60,19 +61,6 @@ function sanitizeId(s: string): string {
 /** Ref or slot text safe as one file-name segment. */
 function sanitizeRef(ref: string): string {
   return ref.replace(/[^A-Za-z0-9._-]/g, '-');
-}
-
-/** Deterministic JSON (sorted keys, undefined dropped): the same text core/hash `hashValue` hashes. */
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    const obj = value as Record<string, unknown>;
-    const keys = Object.keys(obj)
-      .filter((k) => obj[k] !== undefined)
-      .sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(value) ?? 'null';
 }
 
 function sha256Hex(text: string): string {

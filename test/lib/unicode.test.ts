@@ -3,10 +3,12 @@ import { describe, expect, it } from 'vitest';
 import {
   codePointName,
   describeCodePoint,
+  displayWidth,
   hasHiddenUnicode,
   hiddenUnicodeSeverity,
   MAY_HIDE_UNICODE,
   scanHiddenUnicode,
+  sliceToWidth,
   stripHiddenUnicode,
 } from '../../src/lib/unicode.js';
 
@@ -176,5 +178,31 @@ describe('MAY_HIDE_UNICODE (the pre-check inside scanHiddenUnicode)', () => {
       }
     }
     expect(missed).toEqual([]);
+  });
+});
+
+describe('displayWidth / sliceToWidth', () => {
+  it('counts terminal columns: wide CJK and emoji 2, marks and joiners 0, ANSI 0', () => {
+    expect(displayWidth('abc')).toBe(3);
+    expect(displayWidth('日本語')).toBe(6);
+    expect(displayWidth('ｱ')).toBe(1); // halfwidth katakana
+    expect(displayWidth('Ａ')).toBe(2); // fullwidth A
+    expect(displayWidth('한글')).toBe(4);
+    expect(displayWidth('🚀')).toBe(2);
+    expect(displayWidth('👨‍👩‍👧')).toBe(2); // ZWJ sequence
+    expect(displayWidth('👍🏽')).toBe(2); // skin tone modifier
+    expect(displayWidth('☺')).toBe(1); // text presentation
+    expect(displayWidth('☺️')).toBe(2); // emoji presentation selector
+    expect(displayWidth('é')).toBe(1); // combining acute
+    expect(displayWidth('a​b')).toBe(2); // zero width space
+    expect(displayWidth('\u001b[31m日本\u001b[39m')).toBe(4);
+  });
+
+  it('slices between grapheme clusters without exceeding the width', () => {
+    expect(sliceToWidth('日本語', 5)).toBe('日本');
+    expect(sliceToWidth('abc', 2)).toBe('ab');
+    expect(sliceToWidth('👨‍👩‍👧x', 1)).toBe('');
+    expect(sliceToWidth('👨‍👩‍👧x', 3)).toBe('👨‍👩‍👧x');
+    expect(sliceToWidth('éx', 1)).toBe('é');
   });
 });

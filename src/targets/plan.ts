@@ -48,8 +48,10 @@ export interface PlannedEdit {
   text: string | undefined;
   /** True once a merge changed the text (an untouched file is never rewritten). */
   changed: boolean;
-  /** Permission bits when palm creates the file (user-level MCP configs: 0600). */
+  /** Permission bits when palm creates the file (user-level MCP and settings files: 0600). */
   createMode?: number;
+  /** Permission bits set even on an existing file (one that now holds a literal secret: 0600). */
+  mode?: number;
 }
 
 /** What one deploy produces: writes, edits, the result's files, records and notes. No IO. */
@@ -91,12 +93,15 @@ export class DeployPlan {
     this.merged.push(toStored({ ...rec, file: this.paths.lockForm(rec.file) }));
   }
 
-  result(skipped?: boolean): DeployResult {
+  result(skipped?: boolean, createdDirs: string[] = []): DeployResult {
     return {
       files: this.files,
       merged: this.merged,
       notes: this.notes,
       ...(skipped ? { skipped: true } : {}),
+      ...(createdDirs.length
+        ? { createdDirs: createdDirs.map((d) => this.paths.lockForm(d)) }
+        : {}),
     };
   }
 }
@@ -223,7 +228,9 @@ export class Writer {
     }
     if (existing?.equals(w.data)) return { ...w, same: true };
     if (existing && !(await this.owner.mayReplace(w.abs)))
-      throw new PalmError('E_CONFLICT', `refusing to overwrite ${shown}`, 'rerun with --force');
+      throw new PalmError('E_CONFLICT', `refusing to overwrite ${shown}`, 'to overwrite it, run', {
+        retryWith: '--force',
+      });
     return { ...w, same: false };
   }
 
@@ -241,10 +248,12 @@ export class Writer {
   }
 
   private async applyEdit(e: PlannedEdit): Promise<void> {
-    const { text } = e;
-    if (!e.changed || text === undefined) return;
-    const mode = e.existed ? undefined : e.createMode;
-    await this.touch(e.abs, () => atomicWrite(e.abs, text, mode));
+    const { text, mode: forced } = e;
+    if (text === undefined) return;
+    const mode = forced ?? (e.existed ? undefined : e.createMode);
+    if (e.changed) await this.touch(e.abs, () => atomicWrite(e.abs, text, mode));
+    else if (forced !== undefined && (await statMode(e.abs)) !== forced)
+      await this.touch(e.abs, () => ensureMode(e.abs, forced));
   }
 
   /** Check, then write the shared files and the whole files (nothing at all on a dry run). */

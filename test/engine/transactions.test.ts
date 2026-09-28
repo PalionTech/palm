@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { retryHint } from '../../src/core/errors.js';
 import type { EngineDeps, Entity, McpServerConfig, ScanResult } from '../../src/core/types.js';
 import { Lock } from '../../src/domain/lock.js';
 import { Manifest } from '../../src/domain/manifest.js';
@@ -118,20 +119,31 @@ describe('transactions: persist after every item, SIGINT, crash', () => {
 
   it('a crash on the second item leaves the first one in the lock', async () => {
     w = await makeWorld();
-    w.deps.resolveSecrets = async () => {
-      throw new Error('keychain exploded');
+    const getTarget = w.deps.getTarget!;
+    // deploying tdd removes wayfinder's source: hashing it then throws (a crash mid-run)
+    w.deps.getTarget = (id) => {
+      const t = getTarget(id);
+      return {
+        ...t,
+        deploy: async (input) => {
+          const r = await t.deploy(input);
+          const gone = join(w.origins.a, 'skills/wayfinder');
+          if (input.entity.name === 'tdd') await rm(gone, { recursive: true, force: true });
+          return r;
+        },
+      };
     };
     await expect(
       installEntities(
         w.ctx,
         [
           { kind: 'skill', spec: 'tdd' },
-          { kind: 'mcp', spec: 'fs', adhocMcp: FS_MCP },
+          { kind: 'skill', spec: 'wayfinder' },
         ],
         PROJECT,
         w.deps,
       ),
-    ).rejects.toThrow('keychain exploded');
+    ).rejects.toThrow('Cannot hash');
     const lock = await lockOf(w);
     expect(lock.entries.map((e) => e.name)).toEqual(['tdd']);
   });
@@ -249,8 +261,10 @@ describe('executable consent', () => {
       PROJECT,
       w.deps,
     ).catch((e) => e);
-    expect(err).toMatchObject({ code: 'E_NON_INTERACTIVE' });
-    expect(err.hint).toContain('--yes');
+    expect(err).toMatchObject({ code: 'E_NON_INTERACTIVE', retryWith: '--yes' });
+    expect(retryHint(err)).toBe(
+      'review them above (or with --dry-run), then run it again with --yes',
+    );
     expect(w.calls.deploy).toEqual([]);
 
     const text = await installEntities(
@@ -457,7 +471,7 @@ describe('hidden Unicode at install', () => {
     const r = await installEntities(w.ctx, [{ kind: 'skill', spec: 'sneaky' }], PROJECT, w.deps);
     expect(r.outcomes[0]!.status).toBe('failed');
     expect(r.failures[0]!.message).toBe(
-      'skill sneaky contains hidden Unicode that can smuggle instructions: SKILL.md: 1 hidden character, first U+202E RIGHT-TO-LEFT OVERRIDE at line 3',
+      'contains hidden Unicode that can smuggle instructions: SKILL.md: 1 hidden character, first U+202E RIGHT-TO-LEFT OVERRIDE at line 3',
     );
     expect(r.failures[0]!.hint).toContain("review the origin's files");
     expect(r.failures[0]!.hint).toMatch(
@@ -535,5 +549,69 @@ describe('scoped MCP names', () => {
     expect(again.outcomes[0]!.entry.name).toBe('b-mcp');
     expect(again.outcomes[0]!.status).toBe('unchanged');
     expect((await lockOf(w)).entries).toHaveLength(2);
+  });
+});
+
+describe('a written file palm cannot hash counts as edited (L8: fail closed)', () => {
+  let w: World;
+  afterEach(async () => removeDir(w.sb.root));
+
+  it('records the entity as a failure and refuses a later overwrite without --force', async () => {
+    w = await makeWorld();
+    const getTarget = w.deps.getTarget!;
+    const { symlink } = await import('node:fs/promises');
+    let dangle = true;
+    w.deps.getTarget = (id) => {
+      const t = getTarget(id);
+      return {
+        ...t,
+        deploy: async (input) => {
+          const r = await t.deploy(input);
+          const abs = join(input.scopeRoot, r.files[0]!);
+          if (dangle) await rm(abs).then(() => symlink(join(w.sb.root, 'nowhere'), abs));
+          return r;
+        },
+      };
+    };
+    const r = await installEntities(w.ctx, [{ kind: 'skill', spec: 'tdd' }], PROJECT, w.deps);
+    expect(r.failures.map((f) => [f.code, f.message])).toContainEqual([
+      'E_IO',
+      expect.stringContaining('could not hash .claude/skill/tdd.txt after writing it'),
+    ]);
+    const entry = (await lockOf(w)).entries[0]!;
+    expect(entry.files.find((f) => f.path === '.claude/skill/tdd.txt')?.hash).toBe(
+      'sha256:unreadable',
+    );
+
+    dangle = false;
+    await rm(join(w.sb.project, '.claude/skill/tdd.txt'));
+    await writeFile(join(w.sb.project, '.claude/skill/tdd.txt'), 'whatever is here now');
+    await writeFile(join(w.origins.a, 'skills/tdd/SKILL.md'), 'tdd v2\n');
+    const again = await installEntities(w.ctx, [{ kind: 'skill', spec: 'tdd' }], PROJECT, w.deps);
+    expect(again.failures[0]).toMatchObject({ code: 'E_CONFLICT' });
+    expect(await readFile(join(w.sb.project, '.claude/skill/tdd.txt'), 'utf8')).toBe(
+      'whatever is here now',
+    );
+  });
+});
+
+describe('conflict hints are runnable commands (M5)', () => {
+  let w: World;
+  afterEach(async () => removeDir(w.sb.root));
+
+  it('a foreign file in the way: the failure hint is the palm install … --force command', async () => {
+    w = await makeWorld();
+    w.deps.getTarget = (await import('../../src/targets/index.js')).getTarget;
+    await mkdir(join(w.sb.project, '.claude/skills/tdd'), { recursive: true });
+    await writeFile(join(w.sb.project, '.claude/skills/tdd/SKILL.md'), 'mine\n');
+    const r = await installEntities(w.ctx, [{ kind: 'skill', spec: 'tdd' }], PROJECT, w.deps);
+    expect(r.failures).toEqual([
+      expect.objectContaining({
+        code: 'E_CONFLICT',
+        target: 'claude',
+        message: 'refusing to overwrite .claude/skills/tdd/SKILL.md',
+        hint: 'to overwrite it, run: palm install skill tdd@a --force',
+      }),
+    ]);
   });
 });

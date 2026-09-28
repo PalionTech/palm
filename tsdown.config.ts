@@ -8,7 +8,8 @@ export default defineConfig({
   // Emit dist/cli.js (package.json "bin"), not cli.mjs.
   fixedExtension: false,
   clean: true,
-  sourcemap: true,
+  // No source maps: they would map to src/, which the package does not ship, and triple its size.
+  sourcemap: false,
   dts: false,
   // tsdown marks the chunk executable (chmod 755) because it starts with a shebang.
   banner: { js: '#!/usr/bin/env node' },

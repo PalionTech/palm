@@ -28,6 +28,30 @@ describe('DepRef.parse', () => {
     expect(() => DepRef.parse('#ref')).toThrow(/missing name/);
   });
 
+  it('refuses a repository where an origin alias belongs, pointing at --from', () => {
+    const err = (text: string, kind?: string) => {
+      try {
+        DepRef.parse(text, kind);
+      } catch (e) {
+        return e as { code: string; message: string; hint: string };
+      }
+      throw new Error(`${text} parsed`);
+    };
+    const e = err('x@a/b#v1', 'skill');
+    expect(e.code).toBe('E_USAGE');
+    expect(e.message).toMatch(/@ takes an origin alias, not a repository/);
+    expect(e.hint).toBe(
+      'take it from the repository: palm install skill x --from a/b#v1   or register the repository: palm install origin a/b#v1',
+    );
+    expect(err('x@owner/repo').hint).toContain('palm install x --from owner/repo ');
+    expect(() => DepRef.from('x@a/b', 'agent')).toThrow(
+      expect.objectContaining({ code: 'E_USAGE', hint: expect.stringContaining('--from a/b') }),
+    );
+    // `@` followed by `/` inside a registry or scoped name stays part of the name
+    expect(DepRef.parse('io.x/y@z/w').name).toBe('io.x/y@z/w');
+    expect(DepRef.parse('@scope/pkg').name).toBe('@scope/pkg');
+  });
+
   it('has no own keys for absent parts', () => {
     const d = DepRef.parse('a');
     expect(Object.keys(d)).toEqual(['name']);

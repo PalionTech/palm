@@ -114,13 +114,13 @@ describe('machine-independent targets', () => {
     ]);
     await removeDir(other.sb.root);
 
-    // config.yaml `targets` would become every project's default: -g saves only --target.
+    // config.yaml `targets` would become every project's default: only `palm config set targets` writes it.
     const logged = w.log.messages.length;
     await resolveAndSave(w.ctx, { scope: 'global' }, w.deps);
     expect((await loadConfig(w.ctx.paths)).targets).toBeUndefined();
     expect(w.log.messages.slice(logged).filter((m) => m.level === 'info')).toEqual([]);
     await resolveAndSave(w.ctx, { scope: 'global', flag: ['codex'] }, w.deps);
-    expect((await loadConfig(w.ctx.paths)).targets).toEqual(['codex']);
+    expect((await loadConfig(w.ctx.paths)).targets).toBeUndefined();
   });
 
   it('shrinking targets removes the dropped harness files on the next install', async () => {

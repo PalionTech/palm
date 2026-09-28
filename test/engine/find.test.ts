@@ -80,6 +80,26 @@ describe('palm find', () => {
     expect((await findFileOwners(w.ctx, 'README.md', both)).owners).toEqual([]);
   });
 
+  it('a relative project path never resolves into the global scope root (R8 L5)', async () => {
+    w = await makeWorld();
+    const claude = ['claude' as const];
+    const install = (spec: string, scope: 'project' | 'global') =>
+      installEntities(w.ctx, [{ kind: 'skill', spec }], { scope, targets: claude }, w.deps);
+    await install('wayfinder', 'project');
+    await install('tdd', 'global');
+    // `.claude/skill/tdd.txt` exists only under ~ (global); from the project it names nothing
+    expect((await findFileOwners(w.ctx, '.claude/skill/tdd.txt', both)).owners).toEqual([]);
+    // the global file stays reachable by an absolute or ~ path, or scope-relative with -g
+    expect((await findFileOwners(w.ctx, '~/.claude/skill/tdd.txt', both)).owners).toHaveLength(1);
+    const onlyGlobal = { scopes: ['global'] as const };
+    expect((await findFileOwners(w.ctx, '.claude/skill/tdd.txt', onlyGlobal)).owners).toHaveLength(
+      1,
+    );
+    // an existing cwd-relative path wins over the scope root: no fallback into the other file
+    const inClaude = { ...w.ctx, paths: { ...w.ctx.paths, cwd: join(w.sb.project, '.claude') } };
+    expect((await findFileOwners(inClaude, 'skill', onlyGlobal)).owners).toEqual([]);
+  });
+
   it('a path inside an owned directory, and a merged config file', async () => {
     w = await makeWorld();
     const lock = new Lock([

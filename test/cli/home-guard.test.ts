@@ -46,6 +46,18 @@ describe('the home directory with a dotfiles .git is not a project', () => {
     const install = await palm(['install', 'skill', 'tdd', '--target', 'claude']);
     expect(install.code).toBe(2);
     expect(install.stderr).toContain('run inside a project or use -g');
+    // no harness in home and no --target: still the scope error, before any target or origin work (M10)
+    for (const args of [['install', 'skill', 'tdd'], ['install'], ['install', 'skill', 'nope']]) {
+      const r = await runInProcess(args, {
+        cwd: w.sb.home,
+        env: w.sb.env,
+        deps: w.deps,
+        ui: fakeUI({ interactive: false }),
+      });
+      expect(r.code).toBe(2);
+      expect(r.stderr).toContain('run inside a project or use -g');
+      expect(r.stderr).not.toContain('No coding harness detected');
+    }
     const find = await palm(['find', 'notes.md']);
     expect(find.code).not.toBe(0);
     expect(find.stderr).not.toContain('project');

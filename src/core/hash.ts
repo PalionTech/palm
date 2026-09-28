@@ -2,6 +2,7 @@ import { createHash, type Hash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { HASH_SKIP, matchesSkip } from '../domain/ignore.js';
 import { isWithin, walkFiles } from '../lib/fs.js';
+import { stableJson } from '../lib/json.js';
 import { PalmError } from './errors.js';
 
 /** Text is a file without a NUL byte in its first 8 KB (git's heuristic). */
@@ -56,19 +57,6 @@ export async function hashPath(absPath: string, opts: { boundary?: string } = {}
   return `sha256:${h.digest('hex')}`;
 }
 
-/** Deterministic JSON (sorted object keys) for hashing structured values. */
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  if (value && typeof value === 'object') {
-    const obj = value as Record<string, unknown>;
-    const keys = Object.keys(obj)
-      .filter((k) => obj[k] !== undefined)
-      .sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(value) ?? 'null';
-}
-
 export function hashValue(value: unknown): string {
-  return `sha256:${createHash('sha256').update(stableStringify(value)).digest('hex')}`;
+  return `sha256:${createHash('sha256').update(stableJson(value)).digest('hex')}`;
 }

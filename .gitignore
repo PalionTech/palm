@@ -11,4 +11,9 @@ docs/node_modules/
 docs/dist/
 docs/.astro/
 docs/public/brand/
+docs/public/favicon*
+docs/public/apple-touch-icon.png
+docs/public/icon-*.png
+docs/public/site.webmanifest
+docs/public/social-card.png
 docs/src/assets/brand/

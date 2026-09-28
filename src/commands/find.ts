@@ -7,6 +7,7 @@ import { PalmError } from '../core/errors.js';
 import { isHomeAsProject } from '../core/paths.js';
 import type { Scope } from '../core/types.js';
 import type { FileOwner } from '../engine/find.js';
+import { plural } from '../lib/text.js';
 import type { App } from './app.js';
 import { fileTargetLabel } from './describe.js';
 import { type Invocation, usage } from './grammar.js';
@@ -16,7 +17,7 @@ const MATCH_TEXT: Record<FileOwner['match'], (o: FileOwner) => string> = {
   file: () => '',
   inside: () => ' (in)',
   merged: () => ' (merged into)',
-  contains: (o) => ` (${o.files} file${o.files === 1 ? '' : 's'} under it)`,
+  contains: (o) => ` (${plural(o.files ?? 0, 'file')} under it)`,
 };
 
 function ownerRow(o: FileOwner): string[] {

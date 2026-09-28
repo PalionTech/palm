@@ -177,6 +177,47 @@ describe('installEntities', () => {
     ).rejects.toMatchObject({ code: 'E_ORIGIN' });
   });
 
+  it('refuses a #ref on a local origin (alias or --from) and a repository after @ (DepRef edge cases)', async () => {
+    w = await makeWorld();
+    const install = (req: Parameters<typeof installEntities>[1][number]) =>
+      installEntities(w.ctx, [req], { scope: 'project', targets: ['claude'] }, w.deps).catch(
+        (e) => e,
+      );
+    const byAlias = await install({ kind: 'skill', spec: 'tdd@a#v1' });
+    expect(byAlias).toMatchObject({
+      code: 'E_USAGE',
+      message: '"tdd@a#v1": origin "a" is a local directory, which has no refs',
+      hint: 'drop "#v1": palm install skill tdd@a',
+    });
+    const from = w.ctx.config.origins.find((o) => o.alias === 'a')!;
+    const viaFrom = await install({ kind: 'skill', spec: 'tdd#v1', from });
+    expect(viaFrom).toMatchObject({
+      code: 'E_USAGE',
+      hint: `drop "#v1": palm install skill tdd --from ${w.origins.a}`,
+    });
+    const repo = await install({ kind: 'skill', spec: 'tdd@acme/skills#v1' });
+    expect(repo).toMatchObject({ code: 'E_USAGE' });
+    expect(repo.hint).toContain('palm install skill tdd --from acme/skills#v1');
+    // nothing was persisted: no palm.yaml entry carries the ignored ref
+    expect(existsSync(join(w.sb.project, 'palm.yaml'))).toBe(false);
+    expect(existsSync(join(w.sb.project, 'palm.lock.yaml'))).toBe(false);
+  });
+
+  it('matches entity names and origin aliases case-insensitively', async () => {
+    w = await makeWorld();
+    const r = await installEntities(
+      w.ctx,
+      [{ kind: 'skill', spec: 'TDD@A' }],
+      { scope: 'project', targets: ['claude'] },
+      w.deps,
+    );
+    expect(r.outcomes[0]).toMatchObject({
+      status: 'installed',
+      entry: { kind: 'skill', name: 'tdd', origin: 'a' },
+    });
+    expect((await manifestOf(w)).skills).toEqual(['tdd@a']);
+  });
+
   it('expands plugins into members recorded with via', async () => {
     w = await makeWorld();
     const r = await installEntities(

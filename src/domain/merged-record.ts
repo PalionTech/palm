@@ -61,6 +61,13 @@ export interface MdBlockRecord {
 }
 
 export type JsonRecord = JsonItemRecord | JsonKeyRecord;
+
+/**
+ * Whether a shared file still holds a merged record as palm wrote it: `held`, `missing` (no
+ * file, key, item or block) or `changed` (the key, table or block holds something else, or the
+ * file no longer parses). Recorded `${VAR}` placeholders match any value (redacted secrets).
+ */
+export type RecordState = 'held' | 'missing' | 'changed';
 export type MergedRecord = JsonRecord | TomlTableRecord | MdBlockRecord;
 
 function invalid(stored: StoredMergedRecord, why: string): PalmError {

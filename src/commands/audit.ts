@@ -10,6 +10,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import pc from 'picocolors';
+import { PalmError } from '../core/errors.js';
 import { hashPath } from '../core/hash.js';
 import { parseKind } from '../core/kinds.js';
 import { isHomeAsProject } from '../core/paths.js';
@@ -17,6 +18,7 @@ import type { Kind, LockEntry, PalmContext, Scope } from '../core/types.js';
 import { answersTo, Lock } from '../domain/lock.js';
 import { ScopePaths } from '../domain/scope-paths.js';
 import { isEnoent, writeFileAtomic } from '../lib/fs.js';
+import { plural } from '../lib/text.js';
 import {
   describeCodePoint,
   type HiddenUnicodeSeverity,
@@ -212,8 +214,29 @@ function countRemaining(files: AuditedFile[], severity: HiddenUnicodeSeverity, d
     .reduce((n, f) => n + f.findings.filter((x) => x.severity === severity).length, 0);
 }
 
+/**
+ * E_NOT_FOUND (exit 1) when a name the user gave matches no entry in any scanned scope, checked
+ * before anything is read or stripped.
+ */
+async function assertNamesInstalled(ctx: PalmContext, opts: AuditOptions): Promise<void> {
+  if (!opts.names?.length) return;
+  const entries: LockEntry[] = [];
+  for (const scope of opts.scopes)
+    entries.push(...(await Lock.load(ScopePaths.of(ctx, scope).lockFile)).entries);
+  const kindOk = (e: LockEntry) => !opts.kind || e.kind === opts.kind;
+  const missing = opts.names.find((n) => !entries.some((e) => kindOk(e) && answersTo(e, n)));
+  if (missing === undefined) return;
+  const { notInstalled } = await import('../engine/query.js');
+  const q = { kind: opts.kind, name: missing };
+  const [only] = opts.scopes;
+  if (opts.scopes.length === 1 && only) throw notInstalled(q, only);
+  const project = notInstalled(q, 'project');
+  throw new PalmError('E_NOT_FOUND', `${project.message} or globally`, project.hint);
+}
+
 /** Scans (and with `strip`, cleans) the palm-owned files of each scope's lock. */
 export async function runAudit(ctx: PalmContext, opts: AuditOptions): Promise<AuditReport> {
+  await assertNamesInstalled(ctx, opts);
   const report: AuditReport = {
     scanned: 0,
     files: [],
@@ -253,10 +276,7 @@ function scopesFor(ctx: PalmContext, g: GlobalOptions): Scope[] {
 function severityCounts(f: AuditedFile): string {
   const crit = f.findings.filter((x) => x.severity === 'critical').length;
   const warn = f.findings.length - crit;
-  const parts = [
-    crit && pc.red(`${crit} critical`),
-    warn && `${warn} warning${warn === 1 ? '' : 's'}`,
-  ];
+  const parts = [crit && pc.red(`${crit} critical`), warn && plural(warn, 'warning')];
   return parts.filter(Boolean).join(', ');
 }
 
@@ -276,10 +296,6 @@ function printFile(ctx: PalmContext, out: Output, f: AuditedFile, dryRun: boolea
   let mark: Mark = critical ? 'error' : 'warning';
   if (f.stripped !== undefined) mark = 'updated';
   out.mark(mark, `${where}: ${findingLine(f, first, dryRun)}`);
-}
-
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
 function printSummary(out: Output, r: AuditReport, g: AuditCliOptions, dryRun: boolean): void {

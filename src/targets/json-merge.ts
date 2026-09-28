@@ -4,31 +4,26 @@
  *
  * - Missing file → `{}`. JSONC comments and trailing commas are tolerated on read;
  *   the file is written back as plain JSON with 2-space indent (comments are lost).
- * - Writes are atomic (temp + rename) and skipped when nothing changed.
- * - The returned record carries the absolute `file`; callers convert it to the lock form
- *   (scope-relative for project scope). `appendJsonItem` gives a `json-item` record (the
- *   path names the array, `value` is the item), `setJsonKey` a `json-key` record (the path
- *   names the key itself, `/mcpServers/<name>`).
- * - Each edit also exists as a pure text transform (`appendItemText`, `setKeyText`,
- *   `ensureKeyText`): current text in, next text out (undefined when unchanged). Deploys plan
- *   with those and let the Writer write (and, on failure, restore) the file.
+ * - Merges are pure text transforms (`appendItemText`, `setKeyText`, `ensureKeyText`):
+ *   current text in, next text out (undefined when unchanged). Deploys plan with them and let
+ *   the Writer (plan.ts) write, atomically, and on failure restore the file. The planner
+ *   records a `json-item` (the path names the array, `value` is the item) or a `json-key`
+ *   (the path names the key itself, `/mcpServers/<name>`).
+ * - `unmergeJsonFile` removes a recorded fragment in place (undeploy).
  */
 
 import { messageOf, PalmError } from '../core/errors.js';
-import type { JsonItemRecord, JsonKeyRecord, JsonRecord } from '../domain/merged-record.js';
+import type {
+  JsonItemRecord,
+  JsonKeyRecord,
+  JsonRecord,
+  RecordState,
+} from '../domain/merged-record.js';
 import { parseJson, stringifyJson } from '../lib/json.js';
 import { formatPointer } from '../lib/json-pointer.js';
 import { deepEqual, isRecord } from '../lib/object.js';
-import { atomicWrite, readTextOrUndefined, removeFileIfExists, rewriteText } from './fs-utils.js';
+import { atomicWrite, readTextOrUndefined, removeFileIfExists } from './fs-utils.js';
 import { containsAll } from './recorded.js';
-
-export interface JsonMergeOptions {
-  dryRun: boolean;
-  /** Existing object key with a different value: overwrite (default) or throw E_CONFLICT. */
-  onConflict?: 'overwrite' | 'error';
-  /** Name used in error messages (defaults to `file`). */
-  displayFile?: string;
-}
 
 /** One edit of a JSON file, for the pure text transforms. */
 export interface JsonEdit {
@@ -152,7 +147,8 @@ export function setKeyText(text: string | undefined, edit: JsonEdit): string | u
     throw new PalmError(
       'E_CONFLICT',
       `refusing to overwrite ${edit.displayFile ?? edit.file} (${formatPointer(edit.path)} already exists with different content)`,
-      'rerun with --force',
+      'to overwrite it, run',
+      { retryWith: '--force' },
     );
   }
   obj[key] = structuredClone(edit.value);
@@ -169,45 +165,23 @@ export function ensureKeyText(text: string | undefined, edit: JsonEdit): string 
 }
 
 /**
- * Append `item` to the array at `arrayPath` unless a deep-equal item is already there.
- * Missing intermediate objects and the array itself are created.
+ * Whether `text` still holds what `rec` inserted: an equal item in the array (`json-item`), or
+ * the key with everything palm wrote (`json-key`; keys the user added are fine, placeholders
+ * match redacted secrets). A file that no longer parses counts as changed.
  */
-export async function appendJsonItem(
-  file: string,
-  arrayPath: readonly string[],
-  item: unknown,
-  opts: JsonMergeOptions,
-): Promise<JsonItemRecord> {
-  const edit = { file, path: arrayPath, value: item };
-  await rewriteText(file, (text) => appendItemText(text, edit), opts.dryRun);
-  return { type: 'json-item', file, path: [...arrayPath], value: item };
-}
-
-/**
- * Set the object key at `keyPath` (last segment = the key) to `value`. Missing intermediate
- * objects are created; an existing different value is overwritten or, with
- * `onConflict: 'error'`, refused with E_CONFLICT.
- */
-export async function setJsonKey(
-  file: string,
-  keyPath: readonly string[],
-  value: unknown,
-  opts: JsonMergeOptions,
-): Promise<JsonKeyRecord> {
-  const edit = { ...opts, file, path: keyPath, value };
-  await rewriteText(file, (text) => setKeyText(text, edit), opts.dryRun);
-  return { type: 'json-key', file, path: [...keyPath], value };
-}
-
-/** Set the object key at `keyPath` only when it is missing. Not recorded (never removed by unmerge). */
-export async function ensureJsonKey(
-  file: string,
-  keyPath: readonly string[],
-  value: unknown,
-  opts: { dryRun: boolean },
-): Promise<boolean> {
-  const edit = { file, path: keyPath, value };
-  return rewriteText(file, (text) => ensureKeyText(text, edit), opts.dryRun);
+export function jsonRecordState(text: string | undefined, rec: JsonRecord): RecordState {
+  if (text === undefined) return 'missing';
+  let doc: Record<string, unknown>;
+  try {
+    doc = parseJsonObject(text, rec.file);
+  } catch {
+    return 'changed';
+  }
+  const node = getAt(doc, rec.path);
+  if (rec.type === 'json-item')
+    return Array.isArray(node) && node.some((x) => deepEqual(x, rec.value)) ? 'held' : 'missing';
+  if (node === undefined) return 'missing';
+  return containsAll(node, rec.value) ? 'held' : 'changed';
 }
 
 /**

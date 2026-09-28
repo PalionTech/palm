@@ -114,6 +114,24 @@ export const HOOK_ASSET_SKIP_TOP: readonly string[] = [
 export const HOOK_ASSET_SKIP_FILE =
   /^(README|CHANGELOG|CHANGES|HISTORY|RELEASE[-_]NOTES|CONTRIBUTING|CODE_OF_CONDUCT|SECURITY)(\.[a-z]+)?$/i;
 
+/** A hook command's reference to its plugin root (`${CLAUDE_PLUGIN_ROOT}`, `$CLAUDE_PLUGIN_ROOT`, …). */
+export const PLUGIN_ROOT_TOKENS =
+  /\$\{(?:CLAUDE_PLUGIN_ROOT|CURSOR_PLUGIN_ROOT|PLUGIN_ROOT)\}|\$CLAUDE_PLUGIN_ROOT\b/g;
+
+/** Hook assets: true when any command of the raw hooks references the plugin root (deploy copies it). */
+export function referencesPluginRoot(raw: unknown): boolean {
+  return JSON.stringify(raw ?? null).match(PLUGIN_ROOT_TOKENS) !== null;
+}
+
+/**
+ * Hook assets: true for an entry of the plugin root the deploy does not copy (`rel` is its path
+ * below the root): `COPY_SKIP` anywhere, `HOOK_ASSET_SKIP_TOP` and `HOOK_ASSET_SKIP_FILE` at the top.
+ */
+export function isSkippedHookAsset(name: string, rel: string): boolean {
+  if (shouldSkipFile(name)) return true;
+  return rel === name && (HOOK_ASSET_SKIP_TOP.includes(name) || HOOK_ASSET_SKIP_FILE.test(name));
+}
+
 /** True when `name` is in `list`, or matches one of its `*.ext` entries (suffix, any case). */
 export function matchesSkip(list: readonly string[], name: string): boolean {
   const lower = name.toLowerCase();
