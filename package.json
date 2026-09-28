@@ -77,14 +77,14 @@
     "@changesets/cli": "^3.0.3",
     "@types/node": "^24.0.0",
     "@types/semver": "^7.8.0",
-    "@vitest/coverage-v8": "~3.2.7",
+    "@vitest/coverage-v8": "~5.0.2",
     "fast-check": "^4.10.2",
     "knip": "^6.38.0",
     "publint": "^0.3.24",
     "tsdown": "^0.23.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
-    "vitest": "^3.2.0"
+    "vitest": "^5.0.2"
   },
   "allowScripts": {
     "esbuild@0.27.7": true,
