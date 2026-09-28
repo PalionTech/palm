@@ -60,6 +60,12 @@
 .palm-capture {
   --ec-codeFontFml: var(--sl-font-system-mono);
 }
+/* Wide tables scroll sideways instead of being cut off. */
+.palm-capture pre,
+.palm-capture .ec-line {
+  overflow-x: auto;
+  white-space: pre;
+}
 
 /* Landing: real terminal beside the file tree it produced. */
 .palm-show {
