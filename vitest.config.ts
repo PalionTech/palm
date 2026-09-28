@@ -18,8 +18,11 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       reporter: ['text-summary', 'lcov'],
       // Measured at wave 0 (lines/statements 80.25, functions 90.38, branches 86.89) minus 3.
+      // Branches re-measured for vitest 4, whose v8 provider always uses AST-aware remapping:
+      // 79.16 minus 3. vitest 3 with experimentalAstAwareRemapping reports the same 79.16, so
+      // the drop from 90 is a change in how branches are counted, not lost coverage.
       // CLI tests run dist/ in a subprocess, so src/commands and src/cli.ts show low here.
-      thresholds: { lines: 77, statements: 77, functions: 87, branches: 83 },
+      thresholds: { lines: 77, statements: 77, functions: 87, branches: 76 },
     },
   },
 });
