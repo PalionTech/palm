@@ -1,6 +1,6 @@
 {
   "name": "@paliontech/palm",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Package manager for agent resources: skills, agents, instructions, commands, hooks, MCP servers and plugins, installed into Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI and OpenCode.",
   "keywords": [
     "agent-skills",
