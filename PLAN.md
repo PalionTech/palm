@@ -178,27 +178,14 @@ each name a mechanism, use-case cards, the targets matrix, a dated comparison
 table, trust line (tested against named public repos, MIT, no telemetry,
 provenance).
 
-## 6b. Launch checklist (needs the repo owner)
+## 6b. Launch status
 
-Done on 2026-09-28: public repo, first push, CI and CodeQL green on `main`, docs
-deployed to GitHub Pages, private vulnerability reporting, secret scanning with
-push protection, Dependabot (minor and patch only), labels, `npm` environment.
-
-Still needed, in order:
-
-1. Org setting "Allow GitHub Actions to create and approve pull requests" for
-   PalionTech, then for the repo (the release workflow's "Version Packages" PR
-   fails with 409 until then).
-2. Apply the `main` ruleset from `.github/rulesets/main.json` once direct pushes
-   from this migration stop. For tags, use `tags.json` without the creation
-   restriction, so the release workflow can push `v*`.
-3. Create the npm org `paliontech` with 2FA, then publish `0.1.0` once by hand
-   from the `changeset-release/main` branch (`npm publish`; provenance only works
-   from CI).
-4. Link trusted publishing:
-   `npm trust github @paliontech/palm --repo PalionTech/palm --file release.yml --env npm --allow-publish`,
-   then on npmjs.com choose "Require 2FA and disallow tokens".
-5. Merge the Version Packages PR; later releases are automatic.
+Done on 2026-09-29: rulesets active on `main` and `v*` tags, the org and repo allow
+Actions to open pull requests, npm org `paliontech` created with two-factor auth,
+`@paliontech/palm@0.1.0` published, trusted publishing linked to `release.yml`
+(environment `npm`), package set to require two-factor auth and disallow bypass
+tokens. Later releases: merge a pull request with a changeset, then merge the
+"Version Packages" pull request the release workflow opens.
 
 ## 7. Launch order
 
