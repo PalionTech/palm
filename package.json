@@ -27,7 +27,7 @@
   "author": "PalionTech / Maximilian Bertram",
   "type": "module",
   "bin": {
-    "palm": "./dist/cli.js"
+    "palm": "dist/cli.js"
   },
   "exports": {
     "./package.json": "./package.json"
