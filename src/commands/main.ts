@@ -19,7 +19,7 @@ import {
   usage,
   VERBS,
 } from './grammar.js';
-import { buildProgram } from './program.js';
+import { buildProgram, LEGACY_COMMAND_NAMES } from './program.js';
 
 export const EXIT = { ok: 0, failure: 1, usage: 2, cancelled: 130 } as const;
 
@@ -65,6 +65,7 @@ const COMMAND_WORDS = new Set([
   'migrate',
   'completion',
   'cache',
+  'help',
 ]);
 
 /** Commander's own message as a usage error: `x unknown option '--bogus'` and where help is. */
@@ -81,10 +82,30 @@ function errorDoc(e: unknown, run: RunLine): { code: string; message: string; hi
   return hint ? { code: e.code, message: e.message, hint } : { code: e.code, message: e.message };
 }
 
+/** Commander printed help itself (`--help`, or a command group without its subcommand). */
+function helpShown(e: unknown): boolean {
+  if (!(e instanceof CommanderError)) return false;
+  return e.exitCode === 0 || e.code === 'commander.help' || e.message === '(outputHelp)';
+}
+
+/**
+ * An interrupted install says how far it got (L11: `interrupted after 3 of 19; …`); a plain
+ * cancel (Esc, a declined question) prints nothing more.
+ */
+function reportCancel(e: unknown, out: Output): void {
+  if (!isPalmError(e) || e.message === 'cancelled' || out.jsonMode) return;
+  out.info(e.message);
+  if (e.hint) out.hint(`  ${e.hint}`);
+}
+
 /** Print what went wrong: warnings first, the error last; nothing for a cancel or an exit. */
 function report(e: unknown, out: Output, run: RunLine): void {
-  if (e instanceof ExitSignal || exitCodeFor(e) === EXIT.cancelled) return;
-  if (e instanceof CommanderError && e.exitCode === 0) return;
+  if (e instanceof ExitSignal) return;
+  if (exitCodeFor(e) === EXIT.cancelled) {
+    reportCancel(e, out);
+    return;
+  }
+  if (helpShown(e)) return;
   const err = e instanceof CommanderError ? fromCommander(e, run.args) : e;
   const doc = errorDoc(err, run);
   if (out.jsonMode) {
@@ -124,6 +145,14 @@ function makeApp(args: string[], passthrough: string[], opts: CliOptions): App {
   return { out, stdin, ui, cwd, env: opts.env, deps, argv: args, passthrough };
 }
 
+/** C15: `palm help <word>` for a word that is no command is the error `palm <word>` gives. */
+function unknownHelpTopic(args: readonly string[]): PalmError | undefined {
+  const [first, topic] = args;
+  if (first !== 'help' || topic === undefined || topic.startsWith('-')) return undefined;
+  if (COMMAND_WORDS.has(topic) || LEGACY_COMMAND_NAMES.includes(topic)) return undefined;
+  return usage(`unknown command '${topic}'`, 'see: palm --help');
+}
+
 export async function runCli(argv: string[], opts: CliOptions = {}): Promise<number> {
   const { args, passthrough } = prepareArgv(argv);
   const app = makeApp(args, passthrough, opts);
@@ -141,6 +170,8 @@ export async function runCli(argv: string[], opts: CliOptions = {}): Promise<num
   const unwatch = opts.exit ? watchInterrupts(app, opts.exit) : () => undefined;
   let code: number = EXIT.ok;
   try {
+    const unknownTopic = unknownHelpTopic(args);
+    if (unknownTopic) throw unknownTopic;
     if (args.length === 0) program.outputHelp();
     else await program.parseAsync(args, { from: 'user' });
   } catch (e) {

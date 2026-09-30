@@ -1,14 +1,19 @@
 /**
  * The command grammar (DESIGN.md §10): eight verbs, the source first for install and remove,
  * kind nouns for get and describe, and the palm 0.1 forms that still work for one release
- * (`install skill tdd@alias`, `install origin <spec>`), each printing its new form. Pure and
- * light: `palm --help` loads this module.
+ * (src/commands/legacy.ts), each printing its new form. Every command palm suggests is built
+ * from what palm.yaml declares (src/commands/hints.ts). Pure and light: `palm --help` loads it.
  */
 import { PalmError } from '../core/errors.js';
 import { isCommandWord, parseKind, parseResource, type Resource } from '../core/kinds.js';
 import { looksLikeSourceInput } from '../core/source-input.js';
 import type { EntityRefSpec, Kind } from '../core/types.js';
 import { parseEntityRef } from '../domain/entity-ref.js';
+import { type GrammarContext, palmLine, shellWord } from './hints.js';
+import { commandLine, kindWord, legacyAlias, legacyOrigin, sourcedNames } from './legacy.js';
+import { kindWordError, notASource } from './not-a-source.js';
+
+export { formatName, type GrammarContext } from './hints.js';
 
 export type Verb =
   | 'init'
@@ -123,191 +128,76 @@ export interface InstallWords {
   legacy?: Legacy;
 }
 
-export interface GrammarContext {
-  /** True for a source name or alias palm.yaml declares. Absent: decided later by the command. */
-  isDeclared?: (word: string) => boolean;
-}
-
-/** `skill:tdd` for a name with a kind, else the name. */
-export function formatName(n: EntityRefSpec): string {
-  return n.kind ? `${n.kind}:${n.name}` : n.name;
-}
-
-const SHELL_SAFE = /^[\w@%+=:,./-]+$/;
-
-/** A word as it would be typed in a shell. */
-function shellWord(word: string): string {
-  return SHELL_SAFE.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
-}
-
-function commandLine(verb: string, source: string | undefined, names: EntityRefSpec[]): string {
-  return ['palm', verb, source, ...names.map(formatName)].filter(Boolean).join(' ');
-}
-
 const parseNames = (words: string[]): EntityRefSpec[] => words.map((w) => parseEntityRef(w));
 
-/** The kind word of the 0.1 grammar (`install skill tdd`), when more words follow it. */
-function kindWord(words: string[]): Kind | undefined {
-  const [first = '', second] = words;
-  return second !== undefined && !first.includes(':') ? parseKind(first) : undefined;
-}
-
-// Palm 0.1 `name@alias#ref` -------------------------------------------------------------------
-
-const TAGGED = /^([^@#]+)(?:@([^#]+))?(?:#(.+))?$/;
-
-function aliasOf(word: string): { name: string; alias?: string; ref?: string } {
-  const m = TAGGED.exec(word);
-  return m ? { name: m[1] as string, alias: m[2], ref: m[3] } : { name: word };
-}
-
-/** `[kind] name@alias...`: the alias becomes the source; a `#ref` belongs to `update --to`. */
-function legacyAlias(verb: 'install' | 'remove', words: string[]): InstallWords | undefined {
-  const kind = kindWord(words);
-  const items = (kind ? words.slice(1) : words).map(aliasOf);
-  const aliases = [...new Set(items.flatMap((t) => (t.alias ? [t.alias] : [])))];
-  const [alias] = aliases;
-  if (!alias) return undefined;
-  const names = items.map((t) => (kind ? { kind, name: t.name } : { name: t.name }));
-  if (aliases.length > 1)
-    throw usage(
-      `${words.join(' ')} names ${aliases.length} sources; ${verb} from one source at a time`,
-      commandLine(
-        verb,
-        alias,
-        names.filter((_, i) => items[i]?.alias === alias),
-      ),
-    );
-  const ref = items.find((t) => t.ref)?.ref;
-  if (ref && verb === 'install')
-    throw usage(
-      'a version belongs to the source in palm.yaml, not to a name',
-      `palm update ${alias} --to ${ref}`,
-    );
-  const form = `palm ${verb} ${words.join(' ')}`;
-  return { source: alias, names, legacy: { form, replacement: commandLine(verb, alias, names) } };
-}
-
 // install ---------------------------------------------------------------------------------------
-
-/** Examples for the "not a repository" error; palm consults no registry for a name. */
-const KNOWN_SOURCES: ReadonlyArray<{ repo: string; names: readonly string[] }> = [
-  { repo: 'obra/superpowers', names: ['brainstorming', 'test-driven-development'] },
-  { repo: 'mattpocock/skills', names: ['tdd', 'handoff'] },
-];
-
-const FOR_EXAMPLE_COLUMN = 42;
-
-function exampleLine(form: string, example: string): string {
-  const pad = Math.max(FOR_EXAMPLE_COLUMN - form.length, 2);
-  return `  ${form}${' '.repeat(pad)}for example  ${example}`;
-}
-
-function searchLine(word: string): string {
-  const q = encodeURIComponent(word);
-  return `Not sure which repository? https://github.com/search?q=${q}+SKILL.md&type=code`;
-}
-
-/**
- * DESIGN.md §10 and PLAN.md §4.9: the first word is no source. The hint is the command to type,
- * with an example; a word that names a well-known entity gets that entity's repository.
- */
-function notARepository(words: string[]): PalmError {
-  const [word = '', ...rest] = words;
-  const lower = word.toLowerCase();
-  const repo = KNOWN_SOURCES.find((k) => k.repo.split('/')[1] === lower);
-  const owner = KNOWN_SOURCES.find((k) => k.names.includes(lower));
-  const message = `"${word}" is not a repository. palm installs from git repositories:`;
-  if (owner && !repo) {
-    const names = words.join(' ');
-    const hint = exampleLine(
-      `palm install <owner/repo> ${names}`,
-      `palm install ${owner.repo} ${names}`,
-    );
-    return new PalmError('E_USAGE', message, hint);
-  }
-  const example = repo
-    ? ['palm install', repo.repo, ...rest].join(' ')
-    : 'palm install mattpocock/skills tdd';
-  const lines = [exampleLine('palm install <owner/repo> [names...]', example), searchLine(word)];
-  return new PalmError('E_USAGE', message, lines.join('\n'));
-}
 
 function isSource(word: string, ctx: GrammarContext): boolean {
   return looksLikeSourceInput(word) || Boolean(ctx.isDeclared?.(word));
 }
 
-function legacyOrigin(rest: string[]): InstallWords {
-  const [spec, ...words] = rest;
-  if (!spec) throw usage('name the repository to install from', 'palm install obra/superpowers');
-  const names = parseNames(words);
-  const replacement = commandLine('install', spec, names);
-  return { source: spec, names, legacy: { form: 'palm install origin', replacement } };
-}
-
-function checkedAlias(legacy: InstallWords, ctx: GrammarContext): InstallWords {
-  const alias = legacy.source ?? '';
-  if (!ctx.isDeclared || ctx.isDeclared(alias)) return legacy;
-  throw usage(
-    `"${alias}" is not a source in palm.yaml`,
-    'declare the sources your palm 0.1 project used: palm migrate',
-  );
-}
-
 /**
- * `install skill tdd`: the words after the kind word, their names narrowed to that kind. The new
- * form is printed only when what follows the kind word is a source.
+ * `install skill tdd` (palm 0.1) and a kind word where the source goes (`install rules`): with a
+ * source after the kind word, the names narrowed to that kind and the new form printed; without
+ * one, what the kind word means and how to find a repository (L5).
  */
 function withKind(kind: Kind, words: string[], ctx: GrammarContext): InstallWords {
-  const inner = interpretInstall(words.slice(1), ctx);
-  const names = inner.names.map((n) => (n.kind ? n : { kind, name: n.name }));
-  const replacement = commandLine('install', inner.source, names);
-  const legacy = inner.legacy ?? { form: `palm install ${words.join(' ')}`, replacement };
-  const known = inner.source !== undefined && isSource(inner.source, ctx);
-  return { ...inner, names, ...(known ? { legacy } : {}) };
+  const inner = words.slice(1);
+  const [next] = inner;
+  const sourced = next !== undefined && (isSource(next, ctx) || next === 'origin');
+  if (ctx.isDeclared && !sourced) throw kindWordError(kind, words, ctx);
+  const w = interpretInstall(inner, ctx);
+  const names = w.names.map((n) => (n.kind ? n : { kind, name: n.name }));
+  const replacement = commandLine('install', w.source, names, ctx.scope);
+  const legacy = w.legacy ?? { form: `palm install ${words.join(' ')}`, replacement };
+  return { ...w, names, ...(sourced ? { legacy } : {}) };
 }
 
 /**
  * The words after `palm install` (DESIGN.md §10): nothing (sync with palm.yaml), `mcp …`, or a
  * source (a declared name or alias, `owner/repo…`, a URL, a path) followed by `[kind:]name…`.
- * With `isDeclared`, a first word that is no source is the "not a repository" error; without
- * it (while commander parses) the word is kept for the command to decide.
+ * With `isDeclared`, a first word that is no source is the "not a repository" family of errors,
+ * each with a command built from palm.yaml; without it (while commander parses) the word is
+ * kept for the command to decide.
  */
 export function interpretInstall(words: string[], ctx: GrammarContext = {}): InstallWords {
   const [first, ...rest] = words;
   if (first === undefined) return { names: [] };
   if (first === 'mcp') return { mcp: true, names: rest.map((name) => ({ name })) };
-  if (first === 'origin') return legacyOrigin(rest);
-  if (isSource(first, ctx)) return { source: first, names: parseNames(rest) };
-  const legacy = legacyAlias('install', words);
-  if (legacy) return checkedAlias(legacy, ctx);
-  const kind = kindWord(words);
+  if (first === 'origin') return legacyOrigin(rest, ctx);
+  if (isSource(first, ctx))
+    return { source: first, names: sourcedNames('install', first, rest, ctx) };
+  const legacy = legacyAlias('install', words, ctx);
+  if (legacy) return legacy;
+  const kind = kindWord(words) ?? (rest.length ? undefined : parseKind(first));
   if (kind) return withKind(kind, words, ctx);
   if (!ctx.isDeclared) return { source: first, names: parseNames(rest) };
-  throw notARepository(words);
+  throw notASource(words, ctx);
 }
 
 // remove ----------------------------------------------------------------------------------------
 
 /**
- * `palm remove [source] <[kind:]name…>`: the first word is a source when it looks like one; a
- * declared source name the command recognises itself (it reads palm.yaml).
+ * `palm remove [source] <[kind:]name…>`: the first word is a source when it looks like one, or
+ * when palm.yaml declares it and names follow it.
  */
-export function interpretRemove(words: string[]): InstallWords {
+export function interpretRemove(words: string[], ctx: GrammarContext = {}): InstallWords {
   const [first, ...rest] = words;
   if (first === undefined) return { names: [] };
   if (first === 'origin')
     throw usage(
-      'a source leaves palm.yaml with its last entry; remove the entries',
-      `palm get --source ${rest[0] ?? 'obra/superpowers'}`,
+      'a source leaves palm.yaml with its last entry; remove its entries',
+      palmLine('get', ['sources'], ctx.scope),
     );
-  if (looksLikeSourceInput(first)) return { source: first, names: parseNames(rest) };
-  const legacy = legacyAlias('remove', words);
+  const declared = rest.length > 0 && Boolean(ctx.isDeclared?.(first));
+  if (declared || looksLikeSourceInput(first))
+    return { source: first, names: sourcedNames('remove', first, rest, ctx) };
+  const legacy = legacyAlias('remove', words, ctx);
   if (legacy) return legacy;
   const kind = kindWord(words);
   if (!kind) return { names: parseNames(words) };
   const names = rest.map((name) => ({ kind, name }));
-  const replacement = commandLine('remove', undefined, names);
+  const replacement = commandLine('remove', undefined, names, ctx.scope);
   return { names, legacy: { form: `palm remove ${words.join(' ')}`, replacement } };
 }
 

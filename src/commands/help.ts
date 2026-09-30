@@ -29,6 +29,7 @@ Examples:
   install: `
 Forms:
   palm install <source>                       list what the source offers; saves nothing
+  palm install <source> --grep <text>         list only what matches the text
   palm install <source> [kind:]name...        install those and record them in palm.yaml
   palm install <source> --all                 everything the source offers
   palm install                                make the disk match palm.yaml and the lock
@@ -72,6 +73,7 @@ Exit 1 when a check fails; warnings alone exit 0.
 
 Examples:
   palm check
+  palm check --quiet                          only the problems (for CI logs)
   palm check --json
   palm check -g`,
 
