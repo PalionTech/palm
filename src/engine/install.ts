@@ -88,7 +88,7 @@ function forgetEmptySource(state: ScopeState, name: string): void {
 
 async function install(
   run: Run,
-  req: InstallRequest & { as?: string },
+  req: InstallRequest,
   held: { source?: string },
 ): Promise<void> {
   const { ctx, deps, state } = run;
@@ -125,7 +125,7 @@ async function install(
  */
 export async function installFromSource(
   ctx: PalmContext,
-  req: InstallRequest & { as?: string },
+  req: InstallRequest,
   opts: InstallOptions,
   depsIn?: Partial<EngineDeps>,
 ): Promise<InstallResult> {

@@ -58,7 +58,7 @@ async function list(ctx: PalmContext, app: App, input: string, before: ScopeStat
   else printListing(app.out, listed, executable);
 }
 
-function requestOf(job: NamedInstall): InstallRequest & { as?: string } {
+function requestOf(job: NamedInstall): InstallRequest {
   const { flags } = job;
   const targets = parseTargetList(flags.targets, '--targets');
   return {

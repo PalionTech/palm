@@ -7,12 +7,13 @@ import type {
   HookSet,
   LockEntry,
   Rendered,
+  RenderInput,
   Scope,
   SourceReference,
   Target,
   TargetId,
 } from '../../src/core/types.js';
-import type { RenderRequest } from '../../src/targets/render.js';
+
 import { tmpDir, write } from '../support/sandbox.js';
 
 export {
@@ -269,7 +270,7 @@ export interface RenderCase {
   targets?: TargetId[];
 }
 
-export function renderInput(c: RenderCase, over: Partial<RenderRequest> = {}): RenderRequest {
+export function renderInput(c: RenderCase, over: Partial<RenderInput> = {}): RenderInput {
   return {
     entity: c.entity,
     absPath: c.absPath,
@@ -306,7 +307,7 @@ export function lockEntryOf(
 export async function install(
   target: Target,
   c: RenderCase,
-  over: Partial<RenderRequest> = {},
+  over: Partial<RenderInput> = {},
 ): Promise<{ rendered: Rendered; result: ApplyResult; entry: LockEntry }> {
   const rendered = await target.render(renderInput(c, over));
   const result = await target.apply({

@@ -35,11 +35,7 @@ export interface GlobalOptions {
   review?: boolean;
 }
 
-/**
- * What the CLI adds to the contract's flags and context (reported for types.ts): `review`, and
- * the command line src/exec repeats in the `review:` line of its no-terminal consent error.
- */
-type CliFlags = PalmFlags & { review?: boolean };
+/** The context of a CLI run always carries the command line (src/exec repeats it in its hints). */
 export type CliContext = PalmContext & { argv: readonly string[] };
 
 export function scopeOf(g: GlobalOptions): Scope {
@@ -80,7 +76,7 @@ function secretPolicy(value: string | undefined): SecretPolicy | undefined {
   throw usage(`--secrets takes env-ref or literal, not "${value}"`, '--secrets env-ref');
 }
 
-async function flagsOf(app: App, g: GlobalOptions): Promise<CliFlags> {
+async function flagsOf(app: App, g: GlobalOptions): Promise<PalmFlags> {
   if (g.local)
     throw usage(
       'palm.local.yaml arrives in palm 0.3',

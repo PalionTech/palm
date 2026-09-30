@@ -14,7 +14,7 @@
  */
 import path from 'node:path';
 import { PalmError } from '../core/errors.js';
-import type { ApplyInput, ApplyResult, LockMerged } from '../core/types.js';
+import type { ApplyInput, ApplyResult, LockMerged, RenderedFragment } from '../core/types.js';
 import { parseMergedRecord } from '../domain/merged-record.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
 import { isSameFile, pathExists, removeEmptyParents } from '../lib/fs.js';
@@ -29,7 +29,7 @@ import {
 } from './fs-utils.js';
 import { appendItemText, ensureKeyText, setKeyText } from './json-merge.js';
 import { upsertBlockText } from './managed-block.js';
-import type { Fragment } from './render.js';
+
 import { mergeTableText } from './toml-merge.js';
 
 type OnConflict = 'overwrite' | 'error';
@@ -107,7 +107,7 @@ async function readOrRefuse<T>(read: () => Promise<T>, shown: string): Promise<T
 /** Merge one fragment into a shared file's text; undefined when nothing changes. */
 function mergeFragment(
   text: string | undefined,
-  frag: Fragment & { abs: string },
+  frag: RenderedFragment & { abs: string },
   onConflict: OnConflict,
 ): string | undefined {
   const rec = parseMergedRecord({ ...frag, file: frag.abs });
@@ -183,13 +183,13 @@ export class Applier {
     return { ...checked, state: 'write' };
   }
 
-  private onConflict(frag: Fragment): OnConflict {
+  private onConflict(frag: RenderedFragment): OnConflict {
     const owned = this.owned.has(`${frag.file}#${frag.at}#${frag.key}`);
     return this.input.force || owned ? 'overwrite' : 'error';
   }
 
   /** The shared file `file` with each of its fragments merged in (and the modes it gets). */
-  private async planEdit(file: string, frags: readonly Fragment[]): Promise<PlannedEdit> {
+  private async planEdit(file: string, frags: readonly RenderedFragment[]): Promise<PlannedEdit> {
     const abs = this.paths.abs(file);
     await this.assertInside(abs, file);
     const before = await readOrRefuse(() => readTextOrUndefined(abs), file);
@@ -218,8 +218,8 @@ export class Applier {
   }
 
   private async planEdits(): Promise<PlannedEdit[]> {
-    const byFile = new Map<string, Fragment[]>();
-    for (const frag of this.input.rendered.fragments as Fragment[])
+    const byFile = new Map<string, RenderedFragment[]>();
+    for (const frag of this.input.rendered.fragments as RenderedFragment[])
       byFile.set(frag.file, [...(byFile.get(frag.file) ?? []), frag]);
     const out: PlannedEdit[] = [];
     for (const [file, frags] of byFile) out.push(await this.planEdit(file, frags));

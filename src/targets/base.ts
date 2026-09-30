@@ -17,6 +17,7 @@ import type {
   LockEntry,
   LockMerged,
   Rendered,
+  RenderInput,
   Scope,
   Target,
   TargetId,
@@ -30,11 +31,8 @@ import { removeFileIfExists } from './fs-utils.js';
 import { unmergeJsonFile } from './json-merge.js';
 import type { CleanupRoot, TargetLayout, TargetSpec } from './layout.js';
 import { removeManagedBlock } from './managed-block.js';
-import { RENDERERS, RenderJob, type RenderRequest } from './render.js';
+import { RENDERERS, RenderJob } from './render.js';
 import { unmergeTomlTable } from './toml-merge.js';
-
-/** An apply request: the contract's `ApplyInput`, optionally with the scope it writes to. */
-export type ApplyRequest = ApplyInput & { scope?: Scope };
 
 /** Entity names become file and directory names: refuse anything that could leave its directory. */
 function assertSafeEntityName(entity: Entity): void {
@@ -154,7 +152,7 @@ export class GenericTarget implements Target {
     return this.spec.outputDirs(this.paths(scope, scopeRoot, env));
   }
 
-  async render(input: RenderRequest): Promise<Rendered> {
+  async render(input: RenderInput): Promise<Rendered> {
     assertSafeEntityName(input.entity);
     const paths = this.paths(input.scope, input.scopeRoot, input.env);
     const target = { id: this.id, displayName: this.displayName };
@@ -163,7 +161,7 @@ export class GenericTarget implements Target {
     return job.finish();
   }
 
-  apply(input: ApplyRequest): Promise<ApplyResult> {
+  apply(input: ApplyInput): Promise<ApplyResult> {
     const scope = input.scope ?? scopeOfRender(input.rendered);
     return new Applier(this.paths(scope, input.scopeRoot, input.env), input).run();
   }

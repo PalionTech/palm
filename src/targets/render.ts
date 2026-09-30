@@ -37,37 +37,19 @@ import { renderMcp } from './mcp-config.js';
 import { redactSecrets } from './placeholder-match.js';
 import { relocateCommand, relocateMcp } from './relocate.js';
 
-/**
- * A render request: the contract's `RenderInput` plus the targets active for the entry, which
- * decide shared directories (cursor writes `.claude/skills` when claude is active).
- */
-export type RenderRequest = RenderInput & { targets?: readonly TargetId[] };
-
-/**
- * A fragment as the Applier consumes it. Beyond the contract: `mode` is set on the shared file
- * even when it exists (it now holds a literal secret), `ensure` lists top-level keys the file
- * needs (Cursor's `version: 1`), set when missing and never recorded.
- */
-export type Fragment = RenderedFragment & FragmentExtra;
-
-interface FragmentExtra {
-  mode?: number;
-  ensure?: Record<string, unknown>;
-}
-
 /** Permission bits of a file that can hold secrets. */
 const PRIVATE_MODE = 0o600;
 
 /** Collects one render; `finish()` turns it into a `Rendered`. */
 export class RenderJob {
   private readonly files = new Map<string, RenderedFile>();
-  private readonly fragments: Fragment[] = [];
+  private readonly fragments: RenderedFragment[] = [];
   private readonly exec: Rendered['exec'] = [];
   private readonly notes: string[] = [];
   private skipped = false;
 
   constructor(
-    readonly input: RenderRequest,
+    readonly input: RenderInput,
     readonly paths: ScopePaths,
     readonly layout: TargetLayout,
     readonly target: { id: TargetId; displayName: string },
@@ -101,7 +83,12 @@ export class RenderJob {
    * A fragment of the shared file `abs` at `at` (a JSON pointer, or `block:<id>`). At global
    * scope a JSON or TOML file palm creates is private (0600): it can hold secrets.
    */
-  fragment(abs: string, at: string, value: unknown, extra: FragmentExtra = {}): void {
+  fragment(
+    abs: string,
+    at: string,
+    value: unknown,
+    extra: Pick<RenderedFragment, 'mode' | 'ensure'> = {},
+  ): void {
     const file = this.lock(abs);
     const privateFile = this.input.scope === 'global' && /\.(json|toml)$/i.test(file);
     this.fragments.push({
