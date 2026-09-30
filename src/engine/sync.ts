@@ -35,7 +35,7 @@ import { protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failureOf, logMark, palmCommand } from './report.js';
 import { lockSourceOf, pinOf, type Resolved, resolveSource, rethrowCancel } from './resolve.js';
 import { applyAll, lockScope, prepareRun, settle } from './runner.js';
-import { openScope, type ScopeState } from './scope.js';
+import { openScope, type ScopeState, shownPath } from './scope.js';
 import { refuseLocal } from './targets.js';
 import { editedPaths } from './verify.js';
 
@@ -170,7 +170,7 @@ function pruneStop(run: Run, abs: string): string | undefined {
 async function dropUnappliedFile(run: Run, file: { path: string; hash: string }): Promise<void> {
   const disk = await diskHash(file.path);
   if (disk === undefined) return;
-  const shown = run.state.paths.lockForm(file.path);
+  const shown = shownPath(run.state, run.state.paths.lockForm(file.path));
   if (disk !== file.hash && !run.ctx.flags.force) {
     run.result.warnings.push(
       `kept ${shown}: you changed it since palm wrote it; delete it by hand if you no longer need it`,
@@ -248,7 +248,11 @@ async function dropUnapplied(run: Run): Promise<void> {
   if (!entries.length) return;
   if (ctx.flags.dryRun)
     for (const m of entries.flatMap((e) => e.merged ?? []))
-      logMark(ctx, '-', `would remove ${m.at} from ${m.file}: palm.lock.yaml no longer lists it`);
+      logMark(
+        ctx,
+        '-',
+        `would remove ${m.at} from ${shownPath(state, m.file)}: palm.lock.yaml no longer lists it`,
+      );
   const report = await undeploy(ctx, deps, {
     paths: state.paths,
     entries,

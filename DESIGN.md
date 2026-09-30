@@ -60,7 +60,12 @@ $PALM_HOME (default ~/.palm)
 containing `.git`, else cwd. Discovery stops at the nearest `.git`: a nested `palm.yaml` in
 another repository is another project. A project root equal to the home directory without a
 palm.yaml is `E_USAGE` ("run inside a project or use -g"; a dotfiles `.git` in home is no
-marker).
+marker). A palm.yaml that is the global manifest reached through a symlink, or one next to a
+lock of token paths, never makes a project root (J4). Project scope is `E_USAGE` inside palm
+home, inside the real directory of the global palm.yaml, and inside every harness's global
+directory (`~/.claude`, `~/.codex`, `~/.agents`, …), with the command as typed plus `-g` as the
+hint (J4, J5; `globalDirHolding`, `src/core/paths.ts`); `palm init` refuses the home directory
+and those directories too (`initRefusal`, K14).
 
 There is no `~/.palm/config.yaml`, no machine-state file in a project, no `createdDirs` and no
 `.palm/hooks/`. Where git carries the outputs, git is the record of the machine. Where it does
@@ -134,7 +139,8 @@ Rendering: a resolved reference becomes `<PROJECT>/<assetsRoot>/<rel>`, quoted, 
 `<assetsRoot>` is `.palm/assets/<source>/<entity>` for git sources and the source's own
 directory for in-repo sources (`inPlace`: nothing is copied, `"$CLAUDE_PROJECT_DIR"/agent-kit/hooks/x.sh`,
 so a script edit is live). `<source>` in the asset path is the manifest key with `/` replaced
-by `__` and a leading `./` dropped. `<rel>` is the source-relative path, so closure files keep
+by `__` and a leading `./` dropped; an entity named like that segment (a root hook named after
+its source) collapses to `.palm/assets/<source>/` (K23). `<rel>` is the source-relative path, so closure files keep
 their source-relative paths below the asset root (`.palm/assets/<source>/<entity>/<source-relative path>`,
 for example `.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/x.sh`). Global scope
 renders `"$HOME"/.palm/assets/<source>/<entity>/<rel>`, never an absolute path (`$PALM_HOME`
@@ -185,7 +191,15 @@ Enforced in targets and engine:
   directory of any active target, or `.palm/assets`), the error names both and the fix
   (`x source "kit" (./.claude) overlaps the claude output directory .claude/; move the sources
   (for example ./agent-kit) and declare that`). A local source at `.` is scanned with every
-  output directory and every lock-owned path excluded.
+  output directory and every lock-owned path excluded. A symlinked directory one level inside
+  an output directory counts on its real path (`.claude/skills -> ../skill`: `x source "./skill"
+  (skill) overlaps the claude output directory through the symlink .claude/skills -> ../skill`,
+  C1), the check runs when a source is listed too (B19), and every symlinked output directory
+  prints one line per run (`i .claude/skills is a symlink to ../shared; palm writes through it`).
+- One owner per entity and per file (E5, R5): two sources never install an entity of the same
+  kind and name into one scope, and no entry writes a file another entry lists. The clash is a
+  failure `E_CONFLICT` naming the owner, with `palm remove <owner> <kind:name>` as the hint;
+  `--force` does not apply (`src/engine/owners.ts`).
 - palm never deletes or overwrites a path whose real path is inside a declared source,
   `--force` included. Before apply, the engine checks the real path of every rendered path
   against the real paths of the declared local sources; a hit is `E_SOURCE` for that entity
@@ -254,10 +268,17 @@ Rules:
   `url:`/`path:` is a GitHub repository; a key of three or more such segments
   (`owner/repo/sub/dir`) is that GitHub repository with `root: sub/dir` stored. A key that is
   `.` or starts with `./`, `../` or `/` is a local path (project scope stores it
-  project-relative; a path outside the project is `E_SOURCE`, checked whenever the scope
+  project-relative; a path outside the project's repository is `E_SOURCE`, checked whenever the scope
   opens). Any other key needs `url:` (any form `validateSourceUrl` accepts) or `path:`. Names and aliases
   are unique, case-insensitively; a clash is `E_PARSE` naming both.
-- Entries are strings (the name) or objects `{ name, targets?, at?, only?, exclude?, render? }`.
+- A local key may name a directory anywhere in the project's git repository (`../../kit` from a
+  nested project, B9); under `-g`, anywhere in the home directory, named relative to palm home
+  (J6). Outside is `E_SOURCE`.
+- Unknown keys in an entry object, a source body or an `mcp:` server are `E_PARSE` naming the key
+  with a did-you-mean (`target` → `targets`, B4, D14); unknown top-level keys are kept.
+- Entries are strings (the name) or objects `{ name, targets?, at?, only?, exclude?, render?,
+  secrets? }`; `secrets: literal` records `--secrets literal` so a bare install keeps it (Y19;
+  also on an `mcp:` server).
   `targets` narrows the scope's set (a target outside it is `E_PARSE`). `only`/`exclude` apply
   to a plugin entry and list members as `kind:name` (`skill:tdd`, `hook:superpowers`).
   `at` is stored and shown in 0.2 and honoured in 0.3. `render` is reserved.
@@ -267,9 +288,12 @@ Rules:
   `install mcp --snippet`; keys are config names (`isSafeName`).
 - Old format detection: a top-level `origins:` list, kind lists at the top level, or `name@alias`
   strings anywhere is `E_USAGE`: `x palm.yaml is in the 0.1 format` with the hint `palm migrate`.
-- The loader keeps unknown keys and the file's comments and order (`Manifest.save` patches).
-  A section emptied by removal is dropped; a source with no entries left is dropped from
-  palm.yaml (its lock entry goes with it).
+- The loader keeps the file's comments and order (`Manifest.save` patches); `targets:` comes
+  first in a file palm creates (K24), and an entry list beyond three entries is written one
+  entry per line (B14). A section emptied by removal is dropped; `palm remove` drops a source
+  its last entry leaves (its lock entry goes with it). `save` keeps a source that lists no
+  entry but has a body (url, path, ref, layout: written by hand before its first install, K1);
+  only a source with neither is dropped.
 - Under `-g`, `~/.palm/palm.yaml` has the same shape; its `targets:` is the global set (the only
   remaining "setting"). Project sources are invisible under `-g`, and the error says so
   (`x "kit" is a project source; -g uses the sources in ~/.palm/palm.yaml`).
@@ -295,8 +319,7 @@ sources:
     layout: { skills: [skills/*] }
     descriptor: plugin-manifest
   ./agent-kit:
-    path: agent-kit
-    tree: sha256:10934f8…       # source tree hash at the last render
+    path: agent-kit             # no tree hash: each entry's content is its drift signal
     descriptor: convention
 entries:
   - kind: skill
@@ -403,20 +426,22 @@ hashes and fragments of the lock as last applied here, plus the lock's hash; a b
 `palm install -g` diffs the lock against it and the disk, so a removal that arrives through a
 pulled `~/.palm/palm.lock.yaml` reaches every machine.
 
-### Source tree hash
+### In-repo drift (no source tree hash)
 
-For a local source, `tree` is sha256 over the sorted `(relative path, mode bit, sha256 of
-content with CRLF normalised to LF)` of every file under the source root. The scan's ignore
-list does not apply (no `SCAN_IGNORE_DIRS`), so an edit anywhere in an entity moves the tree.
-Left out are only `COPY_SKIP` (`.git`, `node_modules`, `.DS_Store`, `*.zip`), install output
-directories and `.palm` at any depth, the root-level repository files (`AGENTS.md`,
-`CLAUDE.md`, …), and for a source at `.` every lock-owned path (`isTreeExcluded`,
-`src/domain/ignore.ts`). The source is the truth: a bare install re-hashes local
-trees and re-renders entries whose `content` changed, updating `tree` and the entry hashes, and
-`check` fails on drift (`x source ./agent-kit changed since palm.lock.yaml (tree 10934f8 →
-f18c42f); run palm install and commit palm.lock.yaml`). A renamed directory is `E_SOURCE` on
-every command. A local source refuses `ref` (`x a directory has no refs; use file://<path> for
-a tagged checkout`).
+The lock holds no tree hash for a local source (B3): one hash per source made every two pull
+requests that edit different rules conflict in palm.lock.yaml. The drift signal is each
+entry's `content` (`hashPath` over the entity's own files, as for a git source): a bare install
+renders local entries from the working tree and re-renders those whose content or render
+moved (`~ re-rendered`), and `check local-sources` compares per entry
+(`localDrift`, `src/engine/sources.ts`: `x skill review from ./agent-kit changed since
+palm.lock.yaml; run palm install and commit palm.lock.yaml`). For a source at `.`, an entity's
+content leaves out palm.yaml, palm.lock.yaml, palm.local.yaml, `.palm/`, the output
+directories of the active targets, every path the lock lists or merges into, and what
+`isTreeExcluded` leaves out, so a run that writes outputs never moves the content it rendered
+from (R1). The tree hash stays only as the closure hash of exec units (section 7) and as the
+cache key of a local source's index. A renamed or missing directory is `E_SOURCE` on every
+command. A local source refuses `ref` (`x a directory has no refs; use file://<path> for a
+tagged checkout`).
 
 ## 5. Sources and the index
 
@@ -430,7 +455,7 @@ an undeclared source, palm declares it in palm.yaml: GitHub shorthand under its 
 key, and a subdirectory under the full input as its name (`owner/repo/sub/dir`, with
 `root: sub/dir` stored); a URL under a name derived from the repository (`repo`, or
 `owner-repo` when taken; `--as <name>` overrides); a path under its project-relative `./dir`
-key (a path outside the project is `E_SOURCE`). `#ref` becomes the source's `ref:`. Without
+key (a path outside the project's repository is `E_SOURCE`; `../kit` from a nested project). `#ref` becomes the source's `ref:`. Without
 `#ref`, a newly declared git source gets its ref written explicitly and reported: with release
 tags, `ref: ^M.m` of the latest one (`i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit
 ref: to track main`, where `main` is the repository's default branch); without tags, the
@@ -439,7 +464,20 @@ an already declared location under a new `--as` name renames the source in palm.
 lock and prints `~ source <old> → <new> (renamed)` (`~ source acme → kit (renamed)`); another
 ref is `~ source acme: ref ^1.2 → main` and needs confirmation or `--yes`.
 
-A source with no names and no `--all` is fetched and indexed, listed, and not saved.
+`--as <name>` with another `#ref` than the declared source's declares a second source for the
+same location (per-entry pins, Z2); the rename applies only when the ref is the same, and the
+renamed body spells out the url a GitHub key implied (Z1). A git source declared by hand
+without `ref:` gets one written, and reported, on its first install (K20).
+
+Which commit a run fetches (K8): the locked sha while palm.yaml's ref (and url) equal the
+lock's, so the entries of a locked source share one commit; anything else (a listing, a first
+install, an edited ref, `update`) resolves the ref fresh against the remote (`--offline`: the
+cache). A newly declared source fetches the commit of the one resolution that chose its ref, so
+the printed tag and the installed one agree.
+
+A source with no names and no `--all` is fetched and indexed, listed, and not saved; the
+listing's next lines start with the input as typed, `#ref` kept, until the source is declared
+(D9, K9: `listSource(…).paste`).
 
 ### Refs
 
@@ -653,8 +691,23 @@ palm install <source> [[kind:]name…] [--all] [-g] [--dry-run] [--review] [--fo
 9. Replace the previous entry: undeploy only what the new entry no longer lists (files by path,
    fragments by `(file, at, key)`), after the new deploy succeeded; an edited file the new entry
    no longer lists is kept (and no longer palm's), never deleted.
-10. Save the lock and the manifest after every entity and again in `finally`; SIGINT stops after
-    the current entity (exit 130); a second Ctrl-C ends palm at once.
+10. Save the lock and the manifest after every entity once something is on disk, and at the
+    end when the run succeeded or wrote something. A run that failed and wrote nothing writes
+    nothing: no declared source, no rename, no moved ref (K1, R6, Z1; `settle`,
+    `src/engine/runner.ts`). A stop request (the CLI's first Ctrl-C, `requestInstallStop`) is
+    honoured between entities, before the first write included: before anything is written
+    the run is `E_CANCELLED`; after, the result carries `interrupted: { done, total }` and the
+    warning `cancelled after N of M; palm.lock.yaml records what was installed`, and the CLI
+    exits 130 after printing it (K16, L11). A second Ctrl-C ends palm at once (the lock holds
+    every finished entity). SIGINT in a git child is cancellation (`E_CANCELLED`), never a git
+    failure (C16). The engine installs no signal handler; the CLI owns signals.
+    A source whose commit moves (a new `#ref`, a `ref:` edited in palm.yaml, `update`) moves as a
+    unit: its entries are listed first, one line each (`~ skill tdd (changes)`, `= skill review
+    (same content)`, C12), the move needs `--yes` or a confirmation, and when one entry is
+    refused at the new commit, or the person declines the new version of a program already
+    installed, the source keeps its locked commit and nothing of it is written (V4; the
+    declined program's line: `previous version stays active (trusted <hash8>); palm remove
+    <source> hook:<name> removes it`).
 11. Print the status lines, then every failure (`x kind name from source → target: message` and
     the hint), then the warnings, then `N installed. Commit palm.yaml, palm.lock.yaml and
     <dirs> together.` (project scope, first install).
@@ -664,7 +717,8 @@ source), `~ re-rendered` (another render: a target added, a secrets policy chang
 in-repo source),
 `↺ restored` (a missing generated file put back), `= unchanged` (render equals lock and disk
 equals render on every target), `! modified (kept)` (disk differs from the render; kept;
-`palm install <source> <name> --force` restores), `! partial` (one target refused or failed;
+`palm install <source> <name> --force` restores), `! partial` (one target refused or failed,
+or kept an edit while another target moved on, with `perTarget` naming each, R8, K10;
 the lock keeps what succeeded per target; exit 1), `⊘ skipped` (a target has nothing for this
 kind, noted), `- removed`, `x failed` (nothing written). `unchanged` promises exactly what it
 says; `check` reports every other state.
@@ -693,7 +747,12 @@ cache holds every sha:
   as in "Install with names" step 8 (the disk against `L.render`, then the render at the
   locked sha; an edit, or a path neither can check, is `! modified (kept)`, exit 1), then
   apply and update L; a changed in-repo source reports `~ re-rendered`.
-- A ref in palm.yaml that the lock's `ref` no longer equals (an edited pin) is resolved fresh.
+- A ref in palm.yaml that the lock's `ref` no longer equals (an edited pin) is resolved fresh;
+  when it moves the source to another commit it is an update (V8): its entries are listed, and
+  the move needs a confirmation on a terminal or `--yes` without one (`E_NON_INTERACTIVE`).
+- Under `-g`, what applied.yaml records that the lock no longer lists is removed, and a dry run
+  names it (`- would remove ~/.claude/skills/x/SKILL.md: palm.lock.yaml no longer lists it`;
+  `pendingRemovals`, `src/engine/sync.ts`, feeds `check`, J7).
 - Exec units are replayed from `trust`; a unit whose hash is not trusted asks (or fails without
   a terminal), never silently.
 - The lock is written only when something in it changed (a new entry, a moved local tree, a
@@ -713,6 +772,10 @@ kind when ambiguous; and source when the name exists in two sources: `E_AMBIGUOU
 `(file, at, key)`; a JSON, TOML or markdown file left empty is deleted; emptied directories are
 pruned up to but never including the harness config dirs; `.palm/assets/<source>/<entity>` goes
 with the entry), update the lock and palm.yaml (a source with no entries left is dropped).
+A file another entry lists, or one inside a declared source, stays and comes back in
+`RemoveResult.kept` with the reason and owner (`kept, owned by agent helper from odu`, C3, K18).
+When an installed agent preloads a skill that leaves, one line says so (K3: `agent reviewer
+preloads skill release-notes, not installed: palm install acme release-notes`).
 Already absent: `i <name> is not installed`, exit 0. A file the user changed since palm wrote it
 (disk differs from the render): the entity stays installed and locked, `x <kind> <name>: <file>
 was modified since install` with the hint `palm remove <source> <name> --force`, exit 1. A
@@ -756,7 +819,15 @@ names the command that removes both).
    `--yes` is required, else `E_NON_INTERACTIVE` naming `palm update … --yes`. `--yes` never
    covers executables: changed and new units go through consent separately (section 7).
 4. Apply: install the changed entries as in "Install with names"; move `sources.<n>.sha` and
-   `resolved`; write the lock; print `git diff --stat` of the scope when git is present.
+   `resolved`; write the lock; print `git diff --stat` of the scope when git is present. A
+   source moves as a unit (V4, see "Install with names" step 10).
+
+The plan also says (`UpdatePlanSource`, `UpdatePlan.available`): for a tag or sha pin, the
+newest release tag (`latest`, D4) and the default branch head (`head`, C19); why a source counts
+as a change when no entry does (`reason`, `--strict`, D11); an entry whose bytes do not move
+when its source's commit does (`note: same content`, C12); a hook or stdio server the new
+version ships that nothing installs (`i new program available: hook guard from kit; see it:
+palm install kit hook:guard --dry-run`, V7); a preload a new agent version adds (K3).
 
 `update` moves the sha within intent, and re-pins entries whose content did not change, so
 `--dry-run` goes quiet after an update.
@@ -773,7 +844,7 @@ label, status, problems: [{ entity, file, message, fix }] }], warnings }`.
 |---|---|---|
 | `manifest-lock` | an entry of palm.yaml has no lock entry, a lock entry has no manifest entry, a source's `ref` differs from the lock's, a `sources` entry lacks url/sha, an `@source` or `kind:name` in `only/exclude` names nothing | `palm install` |
 | `lock-disk` | a listed file is missing or its content differs from the render (recomputed from the cache; a sha not cached is fetched, the one network access); a fragment is missing or changed | `palm install` (restore) / `palm install <source> <name> --force` (edited) |
-| `local-sources` | a local source's tree differs from `sources.<n>.tree` | `palm install` and commit palm.lock.yaml |
+| `local-sources` | an in-repo entry's content differs from its `content` in the lock (`localDrift`, one problem per entry) | `palm install` and commit palm.lock.yaml |
 | `exec-trusted` | an entry has `exec` whose hash is not in `trust`, or a merged command on disk differs from `exec.commands` | `palm install --allow-exec <key>=<hash>` |
 | `hook-scripts` | a command in `exec.commands` names a file that is missing or not executable | `palm install` |
 | `secrets` | a generated file that git tracks, or one readable by others, holds a secret-shaped literal; lists every `${VAR}` the installed servers need and whether it is set (unset: warning) | `palm install <source> <name> --force` after fixing the source, or `export VAR` |

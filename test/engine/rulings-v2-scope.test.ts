@@ -22,7 +22,7 @@ import { makeWorld, type World, writeTree } from './world.js';
 const project = { scope: 'project' as const };
 const global = { scope: 'global' as const };
 
-function contextAt(w: World, dir: string, argv?: string[]): PalmContext & { argv?: string[] } {
+function contextAt(w: World, dir: string, argv?: string[]): PalmContext {
   const ctx = makeContext({
     root: w.root,
     home: w.home,
@@ -158,7 +158,7 @@ describe('J7 a removal pulled in with the global lock', () => {
     const dry = w.context({ dryRun: true });
     await syncScope(dry, global, w.deps);
     expect(dry.log.text()).toContain(
-      'would remove <claude>/skills/x/SKILL.md: palm.lock.yaml no longer lists it',
+      'would remove ~/.claude/skills/x/SKILL.md: palm.lock.yaml no longer lists it',
     );
     const file = join(w.home, '.claude/skills/x/SKILL.md');
     expect(await readFile(file, 'utf8')).toBe('x\n');

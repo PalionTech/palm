@@ -199,6 +199,14 @@ export function allSecrets(cfg: McpServerConfig): SecretRef[];                  
 export function requiredSecretNames(cfg: McpServerConfig): Set<string>; export function optionalSecretNames(cfg: McpServerConfig): Set<string>;
 
 // source-url.ts: URL forms and `validateSourceUrl(url, where?)` (core/source-input.ts re-exports it)
+
+// Changed by the 0.2 rerun fixes (fix-engine):
+// SourceSet.add: replaces the source with the same name and location (another ref); a second name for one location is added (Z2); a rename is without(old) + add(renamed)
+// Manifest.save keeps a source with a body and no entries (K1), writes `targets` first (K24) and entry lists beyond three entries in block style (B14);
+//   the loader refuses unknown keys in entries, sources and `mcp:` servers with a did-you-mean (B4 D14); ManifestEntryObject.secrets / McpManifestEntry.secrets: 'literal' (Y19)
+// ScopePaths.assetRoot collapses `<segment>/<entity>` to `<segment>` when the entity is named like the segment (K23)
+// lib: text.ts editDistance(a, b), closestWord(word, candidates, max?); yaml.ts FlowRule may return 'block' (turns an existing flow list into block style);
+//   fs.ts writeFileAtomic/ensureDir create the target of a dangling directory link and write through it (Z4)
 ```
 
 ## src/core (owner: domain agent)
@@ -262,6 +270,15 @@ export async function hashPath(absPath: string, opts?: { boundary?: string }): P
 export async function treeHash(root: string, opts: { skip: (rel: string) => boolean; boundary?: string }): Promise<{ tree: string; files: ClosureFile[] }>; // NEW: DESIGN §4 "Source tree hash" (also the closure Merkle hash)
 export function sha256(data: string | Uint8Array): string;                                    // "sha256:<hex>" (re-exported from lib/digest.ts)
 export function short(hash: string, n?: number): string;                                      // `sha256:a7cc7911…` → `a7cc7911` (re-exported from lib/digest.ts)
+
+// Added by the 0.2 rerun fixes (fix-engine):
+// paths.ts: globalDirHolding(dir, paths, env): string | undefined (palm home, the real dir of the global palm.yaml, a harness's global dir; project scope is refused there, J4 J5);
+//   initRefusal(dir, paths, env): string | undefined (`palm init` refuses home and those dirs, K14); worktreeRoot(dir): string | undefined (nearest `.git`, B9);
+//   resolvePaths skips a palm.yaml that is the global manifest behind a symlink or sits next to a lock of token paths (J4)
+// source-input.ts: ParseSourceOptions.within (the dir local paths must lie in; `../kit` names, B9 J6)
+// git.ts: fetchSource opts.resolved (the tag of the one resolution that chose a new source's ref, K8)
+// git-exec.ts / git-call.ts: a git child ended by SIGINT (exit 130) is E_CANCELLED (C16); a missing or private repository is E_SOURCE `repository not found or private: <url>`, hint `git ls-remote <url>` (K24, L8)
+// hash.ts: hashPath opts.skip(rel) (the content of an entity of a source at `.`, R1)
 ```
 
 ## src/index (owner: index agent)
@@ -481,6 +498,29 @@ export async function loadCost(ctx: PalmContext, scope: Scope): Promise<Partial<
 // targets.ts
 export async function detectTargets(ctx: PalmContext, paths: ScopePaths, deps: EngineDeps): Promise<TargetId[]>;
 export function activeTargets(state: ScopeState, entry?: ManifestEntryObject): TargetId[];   // scope set narrowed by the entry
+
+// Added by the 0.2 rerun fixes (FINDINGS-v2.md; fix-engine):
+// declare.ts (declaring moved out of resolve.ts): declareSource(ctx, state, input, { as? }): Promise<Declared>
+//   Declared { ref: SourceRef; pin?: Pin /* the one resolution that chose a new source's ref, K8 */; added: boolean; before?: SourceRef /* before a new #ref */; paste: string /* the input as typed until declared, K9 D9 */ }
+//   `--as` + another #ref declares a second source for one location (Z2); a rename spells out the url a GitHub key implied (Z1). Nothing is written here.
+//   ensureRef(ctx, state, ref): Promise<{ ref; pin? }> (K20); reportRefs(ctx, state) (the `i ref … saved` lines, after a save); peekSource(ctx, state, input): { ref; declared; paste }; baseDirOf(state)
+// resolve.ts: Pin { sha?; resolved?; refresh? }; ResolveJob extends Pin; pinOf(state, ref): Pin (the locked sha while palm.yaml's ref equals the lock's, else refresh, K8);
+//   rethrowCancel(e) (E_CANCELLED ends a run, C16); lockSourceOf no longer writes `tree` (B3); matchError's first argument is what hints paste
+// runner.ts: requestInstallStop() (a sticky stop request, honoured between entities, K16); lockScope; prepareAll; applyAll (sets InstallResult.interrupted);
+//   RunPlan { moves?: Move[]; leaving?: ReadonlySet<string>; previous?: Record<string, ExecUnit>; confirmed?: boolean };
+//   prepareRun(run, jobs, plan?): Promise<{ prepared: Prepared[]; held: Set<string> }> (prepare, refuseConflicts, confirmMoves, consent, holdBack); runJobs(run, jobs, plan?);
+//   settle(run, failed): Promise<boolean> (palm.yaml and the lock are written when the run succeeded or touched the disk; K1 R6 Z1 V4). Run.touched, Job.policy (Y19), jobPolicy(run, job)
+// owners.ts: refuseConflicts(run, prepared, leaving?): { kept; refused } (one owner per kind+name and per file; E_CONFLICT naming the owner, E5 R5)
+// moves.ts: Move { source; before?; locked?; from; to }; moveOf(state, ref, checkout, before?); confirmMoves(run, moves, prepared) (C12 V8); holdBack(run, moves, prepared, refused?) (V4); versionLabel(ref, sha)
+// preloads.ts: PreloadGap { agent: { name; source }; missing: Array<{ kind: 'skill' | 'mcp'; name }>; command?; elsewhere? }; missingPreloads(run): Promise<PreloadGap[]> (for check, K3);
+//   preloadLine(gap); gapOf; installedNames; preloadsOf; notePreloadsLeaving(run, removed)
+// sources.ts: localDrift(state, renders): Array<{ entry; content }> (B3: `check local-sources` compares per entry)
+// sync.ts: pendingRemovals(state): Promise<{ files: string[] /* lock form */; fragments: LockMerged[] }> (J7: for check's "applied files no longer in the lock")
+// scope.ts: Overlap.link?; overlapMessage(o) (install, listing and check say the same); findOverlaps also covers symlinked dirs one level inside an output dir (C1);
+//   noteOutputLinks(ctx, state, deps); localPathOf(state, abs) (a local source's lock path; `../kit` in a nested project, B9); shownPath(state, lockPath) (`~/…` under -g)
+// remove.ts: UndeployJob.protect is a Map (path or fragment key → owner label); undeploy returns UndeployReport { failures; warnings; kept: KeptFile[] }; RemoveResult.kept (C3 K18 R5)
+// install.ts: listSource(…) also returns `paste`; it runs the overlap check with the listed source (B19)
+// update-notes.ts: describePin (UpdatePlanSource.latest/head, D4 C19), refOnlyReason (D11), newPrograms (UpdatePlan.available, V7), newPreloads (K3)
 ```
 
 ## src/cli.ts, src/commands/*, src/ui/*, src/create/* (owner: cli agent)

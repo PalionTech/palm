@@ -266,7 +266,7 @@ export async function noteOutputLinks(
 ): Promise<void> {
   for (const d of await writtenDirs(ctx, state, deps))
     if (d.link && d.target !== 'palm')
-      ctx.log.info(`${d.dir} is a symlink to ${d.link}; palm writes through it`);
+      ctx.log.info(`${shownPath(state, d.dir)} is a symlink to ${d.link}; palm writes through it`);
 }
 
 /**
@@ -317,6 +317,17 @@ export function localPathOf(state: ScopeState, abs: string): string {
     }
   };
   return toPosix(relative(real(paths.root), real(abs))) || '.';
+}
+
+/**
+ * A lock path as people read it: itself in a project, `~/…` under -g (tokens are for the lock
+ * only, J24).
+ */
+export function shownPath(state: ScopeState, lockPath: string): string {
+  const { paths } = state;
+  if (paths.scope === 'project') return lockPath;
+  const abs = paths.abs(lockPath);
+  return isWithin(abs, paths.home) ? `~/${toPosix(relative(paths.home, abs))}` : abs;
 }
 
 /** The lock's record of `name` as the scope was opened (before this run moved any sha). */
