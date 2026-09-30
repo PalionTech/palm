@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { PalmError } from '../../src/core/errors.js';
 import type { Target, TargetId } from '../../src/core/types.js';
 import { resolveEngineDeps } from '../../src/engine/deps.js';
-import { installFromSource } from '../../src/engine/install.js';
+import { installFromSource, installMcp } from '../../src/engine/install.js';
 import { requestInstallStop } from '../../src/engine/runner.js';
 import { openScope } from '../../src/engine/scope.js';
 import { syncScope } from '../../src/engine/sync.js';
@@ -159,6 +159,31 @@ describe('X13 M9 the same entity in both scopes', () => {
     const w = await both('codex');
     const state = await openScope(w.ctx, 'project', { readOnly: true });
     expect(await scopeTwins(w.ctx, state)).toEqual([]);
+  });
+});
+
+describe("Y15' a policy change re-renders every target", () => {
+  it("Y15' --secrets env-ref after literal rewrites every target's literal", async () => {
+    const w = await makeWorld({ targets: ['claude', 'opencode'] });
+    const cfg = {
+      name: 'docs',
+      transport: 'http' as const,
+      url: 'https://docs.example.com/mcp',
+      headers: { Authorization: 'Bearer ${DOCS_TOKEN}' },
+    };
+    const env = { ...w.ctx.env, DOCS_TOKEN: 'plain-test-value' };
+    const literal = { ...w.context({ secrets: 'literal' }), env };
+    await installMcp(literal, [{ config: cfg }], project, w.deps);
+    expect(await w.read('.opencode/mcp.json')).toContain('plain-test-value');
+    const back = { ...w.context({ secrets: 'env-ref' }), env };
+    const r = await installMcp(back, [{ config: cfg }], { ...project, force: true }, w.deps);
+    expect(r.failures).toEqual([]);
+    expect(r.outcomes.map((o) => o.status)).not.toContain('modified');
+    for (const file of ['.claude/mcp.json', '.opencode/mcp.json']) {
+      expect(await w.read(file)).not.toContain('plain-test-value');
+      expect(await w.read(file)).toContain('${DOCS_TOKEN}');
+    }
+    expect(await w.manifestText()).not.toContain('literal');
   });
 });
 

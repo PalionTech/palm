@@ -80,7 +80,8 @@ function jobOf(run: Run, req: McpRequest, recorded?: 'literal'): Job {
   });
   const { ref, checkout } = manifestSource(state);
   const job: Job = {
-    entity: mcpEntity(cfg),
+    // Y1': rendered from its palm.yaml form, as a bare install renders it, so both write alike.
+    entity: mcpEntity(mcpConfigOf(cfg.name, mcpManifestEntry(cfg))),
     source: ref,
     checkout,
     targets,

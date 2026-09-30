@@ -28,6 +28,7 @@ import type { ScopePaths } from '../domain/scope-paths.js';
 import type { HashForm } from '../targets/render-hash.js';
 import { type FileState, fragmentKey, readDisk } from './diff.js';
 import type { Run } from './jobs.js';
+import { valuesIn } from './literals.js';
 import type { RenderOutput } from './render.js';
 import { palmCommand } from './report.js';
 import { lockedSource } from './scope.js';
@@ -209,10 +210,30 @@ async function hashesOf(v: DiskView, c: Candidate): Promise<string[]> {
     fragments.push(g);
   }
   const { renderHash } = await import('../targets/render-hash.js');
-  return [
+  const hashes = [
     renderHash(files, fragments, { ...v.form, secretPolicy: 'env-ref', secretValues: undefined }),
     renderHash(files, fragments, { ...v.form, secretPolicy: 'literal' }),
   ];
+  const written = writtenLiterals(v, fragments);
+  if (written) hashes.push(renderHash(files, fragments, { ...v.form, ...written }));
+  return hashes;
+}
+
+/**
+ * Y15': the values a `--secrets literal` render wrote into these fragments, read against the
+ * new render's placeholders; undefined when there are none. With them the disk hashes as the
+ * literal render palm wrote, so switching the policy back is an upgrade, never an edit.
+ */
+function writtenLiterals(
+  v: DiskView,
+  fragments: readonly RenderedFragment[],
+): Pick<HashForm, 'secretPolicy' | 'secretValues'> | undefined {
+  const values: Record<string, string> = {};
+  for (const g of fragments) {
+    const now = v.written.fragments.get(fragmentKey(g));
+    if (now && !valuesIn(g.value, now.value, values)) return undefined;
+  }
+  return Object.keys(values).length ? { secretPolicy: 'literal', secretValues: values } : undefined;
 }
 
 /**

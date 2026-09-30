@@ -131,3 +131,77 @@ describe('B1 two installs started together', () => {
     expect(check.code, check.all).toBe(0);
   });
 });
+
+/** 24 distinct characters; a value built from them at runtime looks random to the scanner. */
+const RANDOM = 'Zx8kQ2mN7pL4vR9tW3yB6cF1';
+
+describe("Y15' a policy change re-renders every target", () => {
+  it("Y15' --secrets env-ref after literal rewrites the literal in every harness file", async () => {
+    const p = await m.project('app', ['.claude', '.opencode']);
+    await writeFile(join(p, 'palm.yaml'), 'targets: [claude, opencode]\n');
+    const value = RANDOM;
+    const base = ['install', 'mcp', 'docs', '--url', 'https://docs.example/mcp'];
+    const lit = await m.palm(p, ...base, '--header', `X-Api-Key=${value}`, '--secrets', 'literal');
+    expect(lit.code, lit.all).toBe(0);
+    const files = ['.mcp.json', 'opencode.json'];
+    for (const f of files) expect(await readFile(join(p, f), 'utf8')).toContain(value);
+    await commitAll(p);
+    const ref = ['--header', 'X-Api-Key=${DOCS_API_KEY}', '--secrets', 'env-ref', '--force'];
+    const back = await m.palm(p, ...base, ...ref);
+    expect(back.code, back.all).toBe(0);
+    expect(back.all).not.toContain('modified');
+    for (const f of files) {
+      const text = await readFile(join(p, f), 'utf8');
+      expect(text, f).not.toContain(value);
+      expect(text, f).toContain('DOCS_API_KEY');
+    }
+    const check = await m.palm(p, 'check');
+    expect(check.all).not.toContain('renders differently');
+  });
+
+  it("Y15' dropping secrets: literal from palm.yaml re-renders every target on a bare install", async () => {
+    const p = await m.project('app', ['.claude', '.opencode']);
+    await writeFile(join(p, 'palm.yaml'), 'targets: [claude, opencode]\n');
+    const value = RANDOM;
+    const base = ['install', 'mcp', 'docs', '--url', 'https://docs.example/mcp'];
+    const lit = await m.palm(p, ...base, '--header', `X-Api-Key=${value}`, '--secrets', 'literal');
+    expect(lit.code, lit.all).toBe(0);
+    await commitAll(p);
+    const yaml = await readFile(join(p, 'palm.yaml'), 'utf8');
+    expect(yaml).toContain('    secrets: literal\n');
+    await writeFile(join(p, 'palm.yaml'), yaml.replace('    secrets: literal\n', ''));
+    const bare = await m.palm(p, 'install');
+    expect(bare.code, bare.all).toBe(0);
+    expect(bare.all).not.toContain('modified');
+    for (const f of ['.mcp.json', 'opencode.json']) {
+      const text = await readFile(join(p, f), 'utf8');
+      expect(text, f).not.toContain(value);
+      expect(text, f).toContain('DOCS_API_KEY');
+    }
+  });
+});
+
+describe("Y1' one renderer path for typed and bare installs", () => {
+  it("Y1' a bare install after install mcp leaves OpenCode's file as it is; check passes", async () => {
+    const p = await m.project('app', ['.claude', '.opencode']);
+    await writeFile(join(p, 'palm.yaml'), 'targets: [claude, opencode]\n');
+    const add = await m.palm(
+      p,
+      'install',
+      'mcp',
+      'docs',
+      '--url',
+      'https://docs.example/mcp',
+      '--header',
+      `X-Api-Key=${RANDOM}`,
+    );
+    expect(add.code, add.all).toBe(0);
+    const typed = await readFile(join(p, 'opencode.json'), 'utf8');
+    const bare = await m.palm(p, 'install');
+    expect(bare.code, bare.all).toBe(0);
+    expect(await readFile(join(p, 'opencode.json'), 'utf8')).toBe(typed);
+    const check = await m.palm(p, 'check');
+    expect(check.all).not.toContain('renders differently');
+    expect(check.all).not.toMatch(/generated files? differs? from the lock/);
+  });
+});
