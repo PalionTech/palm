@@ -81,8 +81,35 @@ Commit them, and every teammate's next `git pull` removes the agent. No one has 
 ## Personal additions
 
 A teammate who wants an extra skill only for themselves installs it with `-g`, into their home directory.
-A committed entry cannot be switched off per person, because git tracks the file and the harness would load it anyway.
-palm 0.3 adds `palm.local.yaml` for personal targets, sources and entries in one checkout, ignored by git.
+
+```sh
+palm install mattpocock/skills tdd -g
+```
+
+palm cannot switch off a committed entry for one person, because git tracks the file.
+Use the harness's own switch instead, such as `.claude/settings.local.json` for Claude Code or a `[[skills.config]]` entry in `~/.codex/config.toml` for Codex.
+Removing the entry with `palm remove` removes it for the whole team.
+palm 0.3 adds `palm.local.yaml` for personal targets, sources and entries in one checkout, ignored by git, and per-person disable with it.
+`--local` prints that and changes nothing until then.
+
+## Protect the files that run programs
+
+The lock records that someone consented to a hook's hash, not who did.
+Make review of those files mandatory with a `CODEOWNERS` file, so a consent always passes through someone you chose.
+
+```text title=".github/CODEOWNERS"
+palm.lock.yaml            @acme/platform
+.palm/assets/**           @acme/platform
+.claude/settings.json     @acme/platform
+.codex/hooks.json         @acme/platform
+.github/hooks/            @acme/platform
+.cursor/hooks.json        @acme/platform
+.gemini/settings.json     @acme/platform
+agent-kit/                @acme/platform
+```
+
+List the hook files of your targets only, and every in-repo source, such as `agent-kit/`.
+A change to a hook's script, its command or its `trust:` hash then needs that team's approval.
 
 ## Next steps
 

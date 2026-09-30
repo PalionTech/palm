@@ -19,10 +19,25 @@ The first command installs palm for your user. The second prints the installed v
 | --- | --- |
 | Node.js 22 or later | palm declares Node 22 as its minimum in `package.json`. |
 | git | palm fetches every source with the `git` on your `PATH`. |
-| macOS or Linux | palm is tested on both. Windows is not supported yet. |
+| macOS or Linux | palm is tested on both. On Windows, run palm inside WSL. |
 
 Private repositories need the git credentials you already use, such as an SSH key or a credential helper.
 palm never prompts for a password, so a missing credential fails with a hint instead of hanging.
+
+### Run palm inside WSL
+
+palm 0.2 does not run on native Windows.
+A maintainer on Windows installs Node 22, git and palm inside WSL, and runs palm there.
+
+```sh
+wsl
+npm install -g @paliontech/palm
+```
+
+Keep the repository in the WSL file system, such as `~/src/<repo>`, so git and palm see the same line endings.
+palm writes text files with LF line endings.
+Contributors who only use the harnesses need no palm at all: the generated files are committed, and each harness reads them on Windows as it does elsewhere.
+Native Windows support stays on the list for palm 1.0.
 
 ## Other package managers
 

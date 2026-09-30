@@ -6,9 +6,10 @@ description: Declare an MCP server once, from a source, a README snippet, flags 
 import { Steps } from '@astrojs/starlight/components';
 import Capture from '../../../components/Capture.astro';
 
-Every MCP server's README shows a JSON block for `mcpServers`.
+Most MCP servers' READMEs show a JSON block for `mcpServers`.
 Six harnesses want that block in six files, with six ways to spell an environment variable.
 palm takes the block once and writes all six, with no secret in any of them.
+A README without a block, such as one that shows only `claude mcp add` commands, works through flags instead.
 
 <Capture name="b-mcp-snippet" title="~/project" />
 
@@ -18,7 +19,7 @@ palm takes the block once and writes all six, with no secret in any of them.
 | --- | --- | --- |
 | From a source | `palm install <source> mcp:<name>` | a repository or plugin ships the server in its `.mcp.json` |
 | From a README snippet | `palm install mcp --snippet -` | the server's README shows a JSON block |
-| By flags | `palm install mcp <name> --url ...` or `--command ...` | you know the URL or command |
+| By flags | `palm install mcp <name> --url ...` or `--command ...` | you know the URL or command, or the README has no JSON block |
 | By hand | an entry under `mcp:` in `palm.yaml`, then `palm install` | you prefer to edit YAML |
 
 All four end in the same entry, so `palm get mcp` lists every server with the variables it needs, and `palm describe mcp <name>` prints the block each harness received.
@@ -66,6 +67,16 @@ Paste the README block with the last one.
 | `--transport http\|sse\|stdio` | when palm cannot infer it from the other flags |
 
 Quote a value that holds `${...}`, so your shell does not expand it.
+
+Not every README has a JSON block. Some show only a harness command, such as `claude mcp add --transport http context7 https://mcp.context7.com/mcp`.
+Take the name, the URL or the command and its arguments from that line, and pass them as flags.
+
+```sh
+palm install mcp context7 --url https://mcp.context7.com/mcp
+palm install mcp context7 --command npx --arg -y --arg @upstash/context7-mcp
+```
+
+The first form is a remote server. The second starts a local program, so it asks for consent.
 
 A value you type is never stored.
 `--env BRAVE_API_KEY=<value>` writes `${BRAVE_API_KEY}` into `palm.yaml` and every harness file, and palm prints the `export` line to run before you start the harness.

@@ -85,6 +85,8 @@ palm never merges a command it could not resolve, so a clone without palm never 
 Auto-detection skips folders that hold tests, fixtures, evals, examples, templates, docs and build output.
 It also skips install outputs, such as `.claude/skills` or `.agents/skills`, because another tool committed those copies, and any output folder it reaches through a symlink.
 Root `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` guide the repository's own contributors, so palm skips them too.
+Inside a skill's folder those files are the skill's own content, and palm copies them with it.
+A skill copy leaves out tests and fixtures, harness folders and `.env` files, as the [scan rules](/palm/reference/scan-rules/#what-a-skill-copy-leaves-out) list.
 
 Only the top-most `SKILL.md` in a folder tree is a skill.
 Everything below a skill's folder is that skill's content, including a nested `references/x/SKILL.md`.

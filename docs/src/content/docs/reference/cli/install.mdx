@@ -171,7 +171,7 @@ Under `-g`, it compares the lock with `~/.palm/applied.yaml`, so a removal that 
 ## What it refuses
 
 - A file that exists and that palm did not write, when it differs from the render. `--force` replaces it. A file that matches the render is adopted: palm compares parsed frontmatter and ignores trailing whitespace.
-- A file you changed since palm wrote it. The entity stays as it was. `--force` restores the render. To keep your change instead, move it into your own source with `palm create`.
+- A file you changed since palm wrote it. The entity stays as it was. `--force` restores the render. To keep your change instead, copy the file into your own in-repo source under a new name and install it from there, as [Troubleshooting](/palm/reference/troubleshooting/#you-changed-a-generated-file) shows.
 - An entity another source already installed under the same kind and name. The message names the owner; `--force` does not apply.
 - Hidden Unicode of critical severity, an unresolvable hook reference, or a literal secret from a source. No flag overrides these.
 - A skill folder above 200 files or 5 MB, and a managed block that would push `AGENTS.md` or `GEMINI.md` past the harness's cap. `--force` overrides these.

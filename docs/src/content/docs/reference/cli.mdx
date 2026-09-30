@@ -111,7 +111,7 @@ Every command accepts these options.
 | `--offline` | Reads sources from the cache only. A commit that is not cached fails with `E_NETWORK`. |
 | `--json` | See [JSON output](#json-output). |
 | `--secrets literal` | Writes typed secret values instead of references, and records `secrets: literal` on the entry. See [secrets](/palm/concepts/secrets/). |
-| `--local` | Stops with a usage error in 0.2 that names the `palm.yaml` edit to make instead. `palm.local.yaml` arrives in 0.3. |
+| `--local` | Stops with a usage error in 0.2. `palm.local.yaml` arrives in 0.3; until then use `-g` for a personal entity, and the harness's own settings to switch off a team entity for yourself. |
 
 There is no `--verbose` and no `--no-color`. Set `PALM_DEBUG=1` for debug lines and `NO_COLOR=1` to turn colour off.
 

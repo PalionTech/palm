@@ -107,24 +107,80 @@ The session on this page ran against palm's APM test fixture, a package with `ap
    pbpaste | palm install mcp --snippet -
    ```
 
+   A README without a JSON block works through `palm install mcp <name> --url ...` or `--command ...`.
    [Add MCP servers](/palm/guides/mcp-servers/) covers snippets, flags and secrets.
 
-7. Remove APM's own files, then commit.
+7. Install your project's own `.apm/` folder, if it has one.
+
+   ```sh
+   palm install ./.apm
+   ```
+
+   The listing shows what palm finds there. Install the names you want, and `./.apm` becomes an in-repo source in `palm.yaml`.
+
+8. Remove APM's own files and hook entries, then commit.
 
    ```sh
    rm apm.yml apm.lock.yaml
    rm -r apm_modules
+   palm check
+   ```
+
+   Delete the context files `apm compile` wrote, such as a root `AGENTS.md`, unless you edit them by hand.
+   The next section lists what else APM left behind. Then commit.
+
+   ```sh
    git add -A
    git commit -m "Install agent files with palm"
    palm check
    ```
 
-   Delete the context files `apm compile` wrote, such as a root `AGENTS.md`, unless you edit them by hand.
-
 </Steps>
 
 palm does not follow `dependencies:` inside a package's own `apm.yml`.
 It lists them once as a warning, with the command for each, and installs nothing you did not name.
+
+## What APM leaves behind
+
+APM wrote copies of each package's files and its own hook entries.
+palm adopts the copies that match what it writes, and never edits what it did not write.
+
+| APM wrote | What palm does | What you do |
+| --- | --- | --- |
+| skills, agents and instructions in a harness folder, such as `.claude/skills/<n>/` or `.github/instructions/` | adopts a file that matches its render byte for byte; refuses one that differs, naming the command with `--force` | nothing for adopted files; compare and pass `--force` for the rest |
+| a hook entry in `.claude/settings.json` or `.codex/hooks.json` that runs a script under `.claude/hooks/` or `.codex/hooks/` | writes its own entry, which runs the script from `.palm/assets/`; `palm check` warns `foreign hook command` about APM's entry | delete APM's entry from the file, then its script copies |
+| hook copies in `.claude/hooks/`, `.codex/hooks/`, `.github/hooks/` and `.claude/apm-hooks.json` | nothing; the lock does not list them | delete them |
+| compiled `AGENTS.md`, `CLAUDE.md` or `GEMINI.md`, at the root or in folders such as `.claude/` or `docs/` | writes its own managed block into the root `AGENTS.md` and `GEMINI.md` | delete APM's compiled files unless you edit them by hand |
+
+A hook entry APM wrote and palm's own entry for the same hook run the same script twice.
+`palm check` names each foreign entry with its file and event, so you know which to delete.
+
+```sh
+palm check
+git status --short
+```
+
+After the deletions, `palm install` restores any file palm writes that you removed, and `palm check` passes.
+
+## Gitignored outputs
+
+APM restores its output on every install, so some projects ignore `.claude/` on purpose.
+palm commits the generated files instead, so a teammate's clone and CI work without palm.
+`palm check` fails on the `git-ignored` check while an output folder is ignored.
+`palm migrate` prints the same lines as a warning and does not fail on them.
+
+Both print the exact lines to add, for the output folders palm writes to only.
+Git cannot re-include a path whose parent folder is ignored, so a `.claude/` line becomes `.claude/*` first.
+
+```text title=".gitignore"
+.claude/*
+!.claude/skills/
+!.claude/rules/
+```
+
+Personal files such as `.claude/settings.local.json` stay ignored.
+Commit the files the new lines expose, then run `palm check`.
+A mode that keeps outputs ignored and restores them on a bare install is a candidate for palm 0.3.
 
 ## Check the result
 

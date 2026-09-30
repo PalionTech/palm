@@ -81,6 +81,21 @@ Without a terminal, `--yes` answers it. Without either, palm stops with `E_NON_I
 `--dry-run --strict` exits 1 when a source is behind its ref, and prints the reason for each source.
 A `ref:` in `palm.yaml` that differs from the lock counts too, such as `lock records v1.2.3, palm.yaml ^1.2: palm install`.
 
+`--review` shows the scripts of programs, with diffs. A changed skill or agent is marked in the plan, and you read its text in the pull request's diff. Text diffs in `--review` for skills and agents arrive in palm 0.3.
+
+## Check for updates in CI
+
+```sh
+palm update --dry-run --strict
+```
+
+Run it on a schedule, not on every pull request, since upstream moves without your changes.
+It fails for a source behind its ref: a branch with new commits, or a range such as `^1.2` with a newer matching tag.
+
+A commit sha is its own ref, so a source pinned to a sha is never behind it, and `--strict` exits 0 even when its branch moved on.
+The plan still shows the branch head beside the pin, such as `93f5a2d; main is 063bee9`.
+To have `--strict` fail on new commits, pin a branch or a range instead of a sha.
+
 ## Programs are never covered by `--yes`
 
 A changed or new hook or stdio server goes through [consent](/palm/concepts/consent/) on its own, after the plan.
