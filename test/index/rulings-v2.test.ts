@@ -247,3 +247,25 @@ describe('C21 a marketplace entry naming its own repository', () => {
     expect(r.warnings).toEqual([]);
   });
 });
+
+describe('B12 and Y3 on the index side', () => {
+  it('B12 a Claude rule is claude-md and keeps its file name; Cursor keys make it md', async () => {
+    await put('rules/React-Rules.md', '---\ndescription: React\npaths: ["src/**"]\n---\nHooks.\n');
+    await put('rules/legacy.md', '---\nglobs: src/**\nalwaysApply: false\n---\nOld.\n');
+    const r = await run();
+    expect(find(r, 'instruction', 'react-rules').def).toMatchObject({
+      instruction: { sourceFormat: 'claude-md', fileName: 'React-Rules.md', activation: 'paths' },
+    });
+    expect(find(r, 'instruction', 'legacy').def).toMatchObject({
+      instruction: { sourceFormat: 'md', activation: 'paths' },
+    });
+  });
+
+  it('Y3 the index carries the activation describe shows', async () => {
+    await put('rules/review.mdc', '---\ndescription: Use when reviewing\n---\nReview.\n');
+    const r = await run();
+    expect(find(r, 'instruction', 'review').def).toMatchObject({
+      instruction: { activation: 'on-request' },
+    });
+  });
+});

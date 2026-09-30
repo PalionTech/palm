@@ -5,7 +5,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { isPalmError } from '../../src/core/errors.js';
-import type { Entity, TargetId } from '../../src/core/types.js';
+import type { Entity, InstructionDefinition, TargetId } from '../../src/core/types.js';
 import { createTarget } from '../../src/targets/index.js';
 import { cleanupTmp, fakeEnv, mkEntity, renderInput, SKILL_MD, tmpDir, write } from './helpers.js';
 
@@ -143,5 +143,99 @@ describe('Y15 an AGENTS.md alone never marks Codex', () => {
     await write(path.join(root, 'CLAUDE.md'), '');
     const claude = createTarget('claude', env);
     expect(await claude.evidence('project', root, env)).toBe(path.join(root, 'CLAUDE.md'));
+  });
+});
+
+/** A source holding one instruction file, with the definition the index gives it. */
+async function instructionCase(rel: string, text: string, def: InstructionDefinition) {
+  const root = await tmpDir('palm-source-');
+  const abs = path.join(root, rel);
+  await write(abs, text);
+  const entity = mkEntity({ kind: 'instruction', instruction: def }, def.name, rel);
+  return { root, abs, entity };
+}
+
+async function renderInstructionFor(id: TargetId, c: Awaited<ReturnType<typeof instructionCase>>) {
+  const scopeRoot = await tmpDir();
+  const input = renderInput({
+    entity: c.entity,
+    absPath: c.abs,
+    scope: 'project',
+    scopeRoot,
+    sourceRoot: c.root,
+    targets: [id],
+  });
+  return createTarget(id, fakeEnv(scopeRoot)).render(input);
+}
+
+describe('B12 a Claude rule installed for claude is byte-identical', () => {
+  const text =
+    '---\r\ndescription: React rules\r\npaths:\r\n  - src/**/*.tsx\r\n---\r\n\r\nUse hooks.  \r\n';
+  const def: InstructionDefinition = {
+    name: 'react-rules',
+    description: 'React rules',
+    globs: ['src/**/*.tsx'],
+    alwaysApply: false,
+    activation: 'paths',
+    body: '\r\nUse hooks.  \r\n',
+    sourceFormat: 'claude-md',
+    fileName: 'React-Rules.md',
+  };
+
+  it('B12 frontmatter, line ends and file name case are kept for claude', async () => {
+    const c = await instructionCase('rules/React-Rules.md', text, def);
+    const r = await renderInstructionFor('claude', c);
+    expect(r.files.map((f) => [f.path, Buffer.from(f.data).toString('utf8')])).toEqual([
+      ['.claude/rules/React-Rules.md', text],
+    ]);
+  });
+
+  it('B12 other harnesses get the converted rule', async () => {
+    const c = await instructionCase('rules/React-Rules.md', text, def);
+    const r = await renderInstructionFor('copilot', c);
+    expect(r.files.map((f) => f.path)).toEqual([
+      '.github/instructions/react-rules.instructions.md',
+    ]);
+  });
+
+  it('B12 a rule with Cursor keys (sourceFormat md) is converted for claude too', async () => {
+    const c = await instructionCase('rules/api.md', '---\nglobs: src/**\n---\nBody\n', {
+      name: 'api',
+      globs: ['src/**'],
+      alwaysApply: false,
+      activation: 'paths',
+      body: 'Body\n',
+      sourceFormat: 'md',
+    });
+    const r = await renderInstructionFor('claude', c);
+    expect(Buffer.from(r.files[0]?.data ?? []).toString('utf8')).toBe(
+      '---\npaths:\n  - "src/**"\n---\n\nBody\n',
+    );
+  });
+});
+
+describe('Y3 a widened instruction gets a notice per harness', () => {
+  const mdc = (name: string, activation: InstructionDefinition['activation']) =>
+    instructionCase(`rules/${name}.mdc`, '---\nalwaysApply: false\n---\nx\n', {
+      name,
+      alwaysApply: activation === 'always',
+      activation,
+      body: 'x\n',
+      sourceFormat: 'mdc',
+    });
+
+  it('Y3 on-request and manual rules say where they become always-on', async () => {
+    const onRequest = await mdc('review', 'on-request');
+    for (const id of ['claude', 'codex', 'copilot', 'gemini', 'opencode'] as const) {
+      const r = await renderInstructionFor(id, onRequest);
+      expect(r.notes).toContain(
+        `instruction review: on-request in the source, always-on for ${id} until 0.3`,
+      );
+    }
+    expect((await renderInstructionFor('cursor', onRequest)).notes).toEqual([]);
+    expect((await renderInstructionFor('claude', await mdc('pick', 'manual'))).notes).toEqual([
+      'instruction pick: manual in the source, always-on for claude until 0.3',
+    ]);
+    expect((await renderInstructionFor('codex', await mdc('all', 'always'))).notes).toEqual([]);
   });
 });

@@ -189,7 +189,13 @@ export interface InstructionDefinition {
   alwaysApply: boolean;
   activation: Activation;
   body: string;
-  sourceFormat?: 'md' | 'mdc' | 'instructions-md' | 'agents-md';
+  /**
+   * `claude-md`: a `.md` rule Claude Code reads as it is (no `globs`, `applyTo` or `alwaysApply`
+   * frontmatter); installed for claude byte-identical, under its own file name (ruling B12).
+   */
+  sourceFormat?: 'md' | 'claude-md' | 'mdc' | 'instructions-md' | 'agents-md';
+  /** The source file name when a verbatim copy keeps it and it differs from `<name>.md`. */
+  fileName?: string;
 }
 
 /** A command file the index turned into a skill: the target renders SKILL.md from these. */

@@ -14,6 +14,7 @@ import path from 'node:path';
 import { isPalmError, messageOf, PalmError } from '../core/errors.js';
 import type {
   Entity,
+  InstructionDefinition,
   Kind,
   Rendered,
   RenderedFile,
@@ -257,6 +258,33 @@ function listedPath(job: RenderJob, dest: string): string {
   return isWithin(dest, home, { strict: true }) ? `~/${toPosix(path.relative(home, dest))}` : dest;
 }
 
+/** Harnesses that keep an on-request or manual instruction as it is (Cursor's `.mdc` fields). */
+const KEEPS_ACTIVATION: ReadonlySet<TargetId> = new Set(['cursor']);
+
+/**
+ * `instruction x: on-request in the source, always-on for claude until 0.3` (ruling Y3): every
+ * harness but Cursor loads the rendered instruction always.
+ */
+function noteWidened(job: RenderJob, activation: InstructionDefinition['activation']): void {
+  if (activation !== 'on-request' && activation !== 'manual') return;
+  if (KEEPS_ACTIVATION.has(job.target.id)) return;
+  job.note(
+    `instruction ${job.entity.name}: ${activation} in the source, always-on for ${job.target.id} until 0.3`,
+  );
+}
+
+/** A Claude rule for claude: the source file byte for byte, under its own name (ruling B12). */
+async function copyClaudeRule(job: RenderJob, dir: string, def: InstructionDefinition) {
+  const fileName = def.fileName ?? `${job.entity.name}.md`;
+  const bytes = await fs.readFile(job.input.absPath).catch((e: unknown) => {
+    throw new PalmError(
+      'E_IO',
+      `instruction ${job.entity.name}: cannot read ${job.input.absPath}: ${messageOf(e)}`,
+    );
+  });
+  job.file(path.join(dir, fileName), bytes);
+}
+
 async function renderInstructionKind(job: RenderJob): Promise<void> {
   const where = job.layout.instructions;
   if ('skip' in where) {
@@ -264,6 +292,9 @@ async function renderInstructionKind(job: RenderJob): Promise<void> {
     return;
   }
   const { instruction } = defOf(job.entity, 'instruction');
+  noteWidened(job, instruction.activation);
+  if (job.target.id === 'claude' && instruction.sourceFormat === 'claude-md' && 'dir' in where)
+    return copyClaudeRule(job, where.dir, instruction);
   const r = renderInstruction({ ...instruction, name: job.entity.name }, job.target.id);
   if ('managedBlock' in r) {
     if (!('blockFile' in where))

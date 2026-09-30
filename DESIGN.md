@@ -27,7 +27,9 @@ Five words, used the same way in the CLI, the files and the docs.
 Activation of an instruction is one of `always` (always-on), `on-request` (a description,
 loaded when relevant), `paths` (globs) and `manual` (`@name`). The index records it from the
 source format; 0.2 targets keep today's placement, and 0.3 maps it where a harness lacks the
-concept.
+concept. Until then an on-request or manual instruction rendered always-on gets one note per
+harness (`instruction x: on-request in the source, always-on for claude until 0.3`); Cursor keeps
+the activation.
 
 "Origin", "registry" and "capability" are not palm words. Messages, flags, files and docs
 say "source".
@@ -91,6 +93,10 @@ honours `$CODEX_HOME`; `~/.copilot` honours `$COPILOT_HOME`; `~/.gemini` honours
 | instruction | managed block in `GEMINI.md` · `<gemini>/GEMINI.md` | `.opencode/instructions/<n>.md` + item in `opencode.json#/instructions` · `<opencode>/instructions/<n>.md` + item in `<opencode>/opencode.json#/instructions` |
 | hook | merged into `.gemini/settings.json` · `<gemini>/settings.json` (Gemini event names, timeout in ms) | (no declarative hooks: skip + note) |
 | mcp | `.gemini/settings.json` · `<gemini>/settings.json` (`mcpServers`) | `opencode.json` · `<opencode>/opencode.json` (`mcp`) |
+
+A Claude rule (a `.md` instruction without `globs`, `applyTo` or `alwaysApply`, indexed as
+`claude-md`) installs for claude byte-identical under its own file name, case kept
+(`.claude/rules/React-Rules.md`); the other harnesses get the conversion.
 
 A command-as-skill renders at the skill locations: `SKILL.md` with `name`, `description` and
 the command body; `$ARGUMENTS` survives (a note says where a harness does not expand it).
