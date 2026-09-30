@@ -25,6 +25,7 @@ const IDS = [
   'foreign-servers',
   'hook-scripts',
   'secrets',
+  'variables',
   'git-ignored',
   'sources-declared',
   'links',
@@ -169,7 +170,8 @@ describe('checkScope', () => {
     const r = await check(w);
     expect(r.secrets?.status).toBe('fail');
     expect(r.secrets?.problems.map((p) => p.message).join('\n')).toContain('readable by others');
-    expect(r.secrets?.problems.map((p) => p.fix)).toContain('export DOCS_TOKEN=…');
+    expect(r.variables?.status).toBe('warn');
+    expect(r.variables?.problems.map((p) => p.fix)).toContain('export DOCS_TOKEN=…');
   });
 
   it('fails git-ignored when an output directory is ignored by git', async () => {

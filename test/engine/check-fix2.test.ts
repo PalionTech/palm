@@ -3,6 +3,7 @@
  */
 import './fakes.js';
 
+import { chmod } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import type { CheckRun } from '../../src/core/types.js';
 import { checkScope } from '../../src/engine/check.js';
@@ -128,6 +129,65 @@ describe("Sofia S2 V2' foreign programs in every harness file palm parses", () =
         'foreign hook command in .claude/settings.json (PreToolUse): "$CLAUDE_PROJECT_DIR"/.claude/hooks/present.sh',
       ].join('\n'),
     );
+  });
+});
+
+describe("S6 J16' S7 secrets by server", () => {
+  const fill = (n: number) => 'Zx8kQ2mN7pL4vR9tW3yB6cF1'.repeat(4).slice(0, n);
+
+  it("S6 J16' a literal is blamed on the server that holds it; a hand-written server is foreign", async () => {
+    const { w } = await world(['local']);
+    const token = `ghp_${fill(36)}`;
+    const servers = {
+      mcpServers: {
+        local: { command: 'node', args: ['server.js'], env: { LOCAL_API_KEY: fill(24) } },
+        handmade: { command: 'npx', args: ['gh-mcp'], env: { GITHUB_TOKEN: token } },
+      },
+    };
+    await w.write('.claude/mcp.json', JSON.stringify(servers));
+    await chmod(w.path('.claude/mcp.json'), 0o644);
+    const { r } = await check(w);
+    expect(r.secrets?.status).toBe('fail');
+    const problems = r.secrets?.problems ?? [];
+    expect(problems).toContainEqual(
+      expect.objectContaining({
+        entity: expect.objectContaining({ name: 'local' }),
+        message:
+          '.claude/mcp.json holds a literal secret (.claude/mcp.json:mcpServers.local.env.LOCAL_API_KEY), readable by others',
+      }),
+    );
+    const foreign = problems.find((p) => p.message.startsWith('foreign server handmade'));
+    expect(foreign?.entity).toBeUndefined();
+    expect(foreign?.message).toBe(
+      'foreign server handmade in .claude/mcp.json holds a literal secret (.claude/mcp.json:mcpServers.handmade.env.GITHUB_TOKEN), readable by others',
+    );
+    expect(JSON.stringify(problems)).not.toContain(token);
+  });
+
+  it("S7 J16' a source server's redacted literal is a variable it needs; the warning stays a warning", async () => {
+    const w = await makeWorld({ targets: ['claude'], interactive: true, consent: 'yes' });
+    const url = await w.remote('kit', {
+      'v1.0.0': {
+        'mcp.json': JSON.stringify({
+          remote: {
+            transport: 'http',
+            url: 'https://mcp.example/v1',
+            headers: { 'X-Api-Key': '<redacted sha256:1a2b3c4d>' },
+          },
+        }),
+      },
+    });
+    const r0 = await installFromSource(
+      w.ctx,
+      { source: url, names: [{ kind: 'mcp', name: 'remote' }] },
+      { scope: 'project' },
+      w.deps,
+    );
+    expect(r0.failures).toEqual([]);
+    const { r } = await check(w);
+    expect(r.variables?.status).toBe('warn');
+    expect(messages(r.variables)).toBe('needs REMOTE_API_KEY, which is not set');
+    expect(r.secrets?.problems.some((p) => p.message.startsWith('needs'))).toBe(false);
   });
 });
 

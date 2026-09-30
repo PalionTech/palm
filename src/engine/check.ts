@@ -18,7 +18,7 @@ import { execTrusted, foreignHooks, hookScripts } from './check-exec.js';
 import { applies, type CheckContext, renderAll } from './check-kit.js';
 import { localSources, manifestLock, preloads, sourcesDeclared } from './check-lock.js';
 import { agentNames, blockSize, doubleLoad, gitIgnored, links } from './check-repo.js';
-import { secrets } from './check-secrets.js';
+import { secrets, variables } from './check-secrets.js';
 import { foreignServers } from './check-servers.js';
 import { resolveEngineDeps } from './deps.js';
 import { runOf } from './jobs.js';
@@ -46,6 +46,7 @@ const ORDER: Array<[string, Check]> = [
   ['foreign-servers', foreignServers],
   ['hook-scripts', hookScripts],
   ['secrets', secrets],
+  ['variables', variables],
   ['git-ignored', gitIgnored],
   ['sources-declared', sourcesDeclared],
   ['links', links],
@@ -70,6 +71,7 @@ const REPORT_ORDER = [
   'foreign-servers',
   'hook-scripts',
   'secrets',
+  'variables',
   'git-ignored',
   'sources-declared',
   'links',
