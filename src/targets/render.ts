@@ -29,12 +29,13 @@ import { SKILL_MAX_BYTES, SKILL_MAX_FILES } from '../domain/skill-copy.js';
 import { isWithin, toPosix } from '../lib/fs.js';
 import { stringifyJson } from '../lib/json.js';
 import { formatPointer } from '../lib/json-pointer.js';
-import { gitMode, readClosure } from './assets.js';
+import { type ClosureEntry, gitMode, readClosure } from './assets.js';
 import { renderAgent } from './convert-agent.js';
 import { convertHooks, type Relocate } from './convert-hooks.js';
 import { renderInstruction } from './convert-instruction.js';
 import { renderCommandAsSkill } from './convert-skill.js';
 import { listSkillFiles, type SkillFiles } from './fs-utils.js';
+import { hookClosureFiles } from './hook-closure.js';
 import { sharedSkillsRoot, type TargetLayout } from './layout.js';
 import { renderMcp } from './mcp-config.js';
 import { relocateCommand, relocateMcp } from './relocate.js';
@@ -323,9 +324,13 @@ async function renderInstructionKind(job: RenderJob): Promise<void> {
 }
 
 /** Closure files below the asset root (git sources); in-place sources copy nothing. */
-async function renderClosure(job: RenderJob, closure: Closure): Promise<void> {
+async function renderClosure(
+  job: RenderJob,
+  closure: Closure,
+  keep: (files: ClosureEntry[]) => ClosureEntry[] = (files) => files,
+): Promise<void> {
   if (job.input.inPlace || closure.paths.length === 0) return;
-  for (const f of await readClosure(job.input.sourceRoot, closure)) {
+  for (const f of keep(await readClosure(job.input.sourceRoot, closure))) {
     const lockPath = path.posix.join(job.input.assetsRoot, f.rel);
     job.file(job.paths.abs(lockPath), f.data, f.mode);
   }
@@ -378,7 +383,13 @@ async function renderHook(job: RenderJob): Promise<void> {
   if ('dir' in where) job.file(file, stringifyJson(converted.hooks));
   else mergeHookEntries(job, file, events, where.versioned);
   for (const line of converted.exec) job.execLine({ ...line, file: job.lock(file) });
-  await refusing(job, () => renderClosure(job, hooks.closure ?? { paths: [] }));
+  const closure = hooks.closure ?? { paths: [] };
+  const scope = {
+    entityPath: job.entity.path,
+    targets: job.input.targets ?? [job.target.id],
+    ...(closure.reads ? { reads: closure.reads } : {}),
+  };
+  await refusing(job, () => renderClosure(job, closure, (files) => hookClosureFiles(files, scope)));
 }
 
 /** One fragment per converted hook entry, in the shared hooks file. */

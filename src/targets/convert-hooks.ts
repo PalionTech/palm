@@ -588,3 +588,29 @@ export function convertHooks(
   const events = convert(cx);
   return { hooks: wrap(target, events), exec: cx.exec, dropped: cx.dropped };
 }
+
+/** The hook dialects the targets read (OpenCode reads none). */
+export function hookDialectsOf(targets: readonly TargetId[]): Set<ToolDialect> {
+  return new Set(targets.filter((t) => t !== 'opencode').map(familyOf));
+}
+
+function isKnownEvent(name: string): boolean {
+  if (GEMINI_EVENTS[name]) return true;
+  return HOOK_EVENTS.some((e) => e.claude === name || e.cursor === name || e.copilot === name);
+}
+
+/**
+ * The dialect a hooks definition file is written in (`hooks/hooks.json` for Claude,
+ * `hooks/hooks-cursor.json` for Cursor), or undefined when `json` is no hooks file: it needs
+ * an event array under a name some harness uses.
+ */
+export function hooksFileDialect(json: unknown): ToolDialect | undefined {
+  const events = Object.keys(eventMap(json)).filter(isKnownEvent);
+  if (events.length === 0) return undefined;
+  if (events.every((e) => /^[A-Z]/.test(e)))
+    return events.some((e) => GEMINI_EVENTS[e] && GEMINI_EVENTS[e] !== e) ? 'gemini' : 'claude';
+  const entries = events.flatMap((e) => eventMap(json)[e] ?? []).filter(isRecord);
+  return entries.some((h) => 'bash' in h || 'powershell' in h || 'timeoutSec' in h)
+    ? 'copilot'
+    : 'cursor';
+}

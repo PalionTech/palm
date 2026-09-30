@@ -234,3 +234,62 @@ describe('R20′ describe shows each fragment in its file’s own language', () 
     expect(fragmentText(block)).toBe('Be strict.');
   });
 });
+
+describe('M8 S15 a hook’s asset closure holds only the definition files an active target reads', () => {
+  const claudeHooks = { hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'x' }] }] } };
+  const cursorHooks = { version: 1, hooks: { sessionStart: [{ command: 'x' }] } };
+
+  /** A superpowers-shaped plugin: hooks/ holds both dialects, the runner and a refused hook. */
+  async function pluginSource(): Promise<string> {
+    const src = await tmpDir('palm-source-');
+    await write(path.join(src, 'hooks/hooks.json'), JSON.stringify(claudeHooks));
+    await write(path.join(src, 'hooks/hooks-cursor.json'), JSON.stringify(cursorHooks));
+    await write(path.join(src, 'hooks/run-hook.cmd'), '#!/bin/sh\nexec "$@"\n', 0o755);
+    await write(path.join(src, 'hooks/session-start'), '#!/bin/sh\ncat skill.md\n', 0o755);
+    await write(path.join(src, 'hooks/ghost/hooks.json'), JSON.stringify(claudeHooks));
+    await write(path.join(src, 'hooks/ghost/notes.json'), '{"a":[1]}');
+    return src;
+  }
+
+  async function assetsFor(active: TargetId[], reads?: string[]): Promise<string[]> {
+    const src = await pluginSource();
+    const root = await tmpDir();
+    const hooks: HookSet = {
+      ...hookSet('claude', claudeHooks),
+      closure: { paths: ['hooks'], ...(reads ? { reads } : {}) },
+    };
+    const entity = mkEntity({ kind: 'hook', hooks }, 'superpowers', 'hooks/hooks.json');
+    const r = await createTarget('claude', fakeEnv(root)).render({
+      entity,
+      absPath: path.join(src, 'hooks/hooks.json'),
+      sourceRoot: src,
+      source: { name: 'obra/superpowers', type: 'git', url: 'https://github.com/o/s.git' },
+      scope: 'project',
+      scopeRoot: root,
+      assetsRoot: '.palm/assets/obra__superpowers/superpowers',
+      inPlace: false,
+      secretPolicy: 'env-ref',
+      targets: active,
+    });
+    const prefix = '.palm/assets/obra__superpowers/superpowers/';
+    return r.files.filter((f) => f.path.startsWith(prefix)).map((f) => f.path.slice(prefix.length));
+  }
+
+  it('M8 hooks-cursor.json is left out when cursor is not a target, kept when it is', async () => {
+    expect(await assetsFor(['claude', 'codex', 'copilot'])).toEqual([
+      'hooks/ghost/notes.json',
+      'hooks/hooks.json',
+      'hooks/run-hook.cmd',
+      'hooks/session-start',
+    ]);
+    expect(await assetsFor(['claude', 'cursor'])).toContain('hooks/hooks-cursor.json');
+    expect(await assetsFor(['copilot'])).not.toContain('hooks/hooks.json');
+  });
+
+  it('S15 another hook’s definition in a subfolder is never vendored; a file a script reads is', async () => {
+    expect(await assetsFor(['claude'])).not.toContain('hooks/ghost/hooks.json');
+    expect(await assetsFor(['claude'], ['hooks/ghost/hooks.json'])).toContain(
+      'hooks/ghost/hooks.json',
+    );
+  });
+});

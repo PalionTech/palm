@@ -1163,11 +1163,6 @@ prettier --write "$1"
       },
       {
         "mode": "644",
-        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
-        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
-      },
-      {
-        "mode": "644",
         "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/lib/util.sh",
         "text": "x=1
 ",
@@ -1437,11 +1432,6 @@ prettier --write "$1"
       },
       {
         "mode": "644",
-        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
-        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
-      },
-      {
-        "mode": "644",
         "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/lib/util.sh",
         "text": "x=1
 ",
@@ -1668,11 +1658,6 @@ Review $ARGUMENTS
         "text": "#!/bin/sh
 prettier --write "$1"
 ",
-      },
-      {
-        "mode": "644",
-        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
-        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
       },
       {
         "mode": "644",
@@ -1926,11 +1911,6 @@ Review $ARGUMENTS
         "text": "#!/bin/sh
 prettier --write "$1"
 ",
-      },
-      {
-        "mode": "644",
-        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
-        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
       },
       {
         "mode": "644",
@@ -2194,11 +2174,6 @@ Review $ARGUMENTS
         "text": "#!/bin/sh
 prettier --write "$1"
 ",
-      },
-      {
-        "mode": "644",
-        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
-        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
       },
       {
         "mode": "644",
@@ -2469,11 +2444,6 @@ Review $ARGUMENTS
         "text": "#!/bin/sh
 prettier --write "$1"
 ",
-      },
-      {
-        "mode": "644",
-        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
-        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
       },
       {
         "mode": "644",
