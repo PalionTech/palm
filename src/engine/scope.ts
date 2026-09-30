@@ -9,7 +9,12 @@ import { readdir, readlink, stat } from 'node:fs/promises';
 import { dirname, relative } from 'node:path';
 import { PalmError } from '../core/errors.js';
 import { contentHash, diskContentHash } from '../core/hash.js';
-import { globalDirHolding, isHomeAsProject, worktreeRoot } from '../core/paths.js';
+import {
+  globalDirHolding,
+  globalManifestInside,
+  isHomeAsProject,
+  worktreeRoot,
+} from '../core/paths.js';
 import type {
   EngineDeps,
   LockSource,
@@ -67,7 +72,8 @@ function withGlobal(ctx: PalmContext): string {
 /**
  * The scope guards (DESIGN §2): project scope is never the home directory without a palm.yaml,
  * never inside palm home (or the directory the global palm.yaml really lives in) and never
- * inside a harness's global directory (J4, J5); the fix is `-g`.
+ * inside a harness's global directory (J4, J5), nor a directory holding the global palm.yaml
+ * (J7', a dotfiles repository); the fix is `-g`.
  */
 export function assertScope(ctx: PalmContext, scope: Scope): void {
   if (scope !== 'project') return;
@@ -87,6 +93,13 @@ export function assertScope(ctx: PalmContext, scope: Scope): void {
         withGlobal(ctx),
       );
   }
+  const manifest = globalManifestInside(projectRoot, ctx.paths);
+  if (manifest)
+    throw new PalmError(
+      'E_USAGE',
+      `${projectRoot} holds the global palm.yaml (${manifest}), not a project; your own setup takes -g`,
+      withGlobal(ctx),
+    );
 }
 
 /** Where palm.yaml sits, for E_PARSE messages. */

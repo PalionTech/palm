@@ -9,10 +9,11 @@ import { readdir, rename, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { SourceRef } from '../domain/source.js';
 import { comparableUrl } from '../domain/source-url.js';
-import { readJsonFile, writeJsonFile } from '../lib/fs.js';
+import { readJsonFile, walkFiles, writeJsonFile } from '../lib/fs.js';
 import { isRecord } from '../lib/object.js';
-import { PalmError } from './errors.js';
+import { deniedError, PalmError } from './errors.js';
 import { git, isFinal, local, remote, toPalmError } from './git-call.js';
+import { GitFailure, isGitTimeout } from './git-exec.js';
 import { withLock } from './lock-file.js';
 import type { PalmContext } from './types.js';
 
@@ -121,16 +122,55 @@ async function fetchByName(url: string, dir: string, name: string, sha: string):
   }
 }
 
-/** Fetches `sha` shallowly; servers that refuse unadvertised shas get a full fetch. */
+/**
+ * A commit the remote does not have: git.ts names it as gone from the remote (a locked sha,
+ * V4') or as a ref not found in the source (a typed one, R9'), never with git's own words.
+ */
+export class CommitMissing extends PalmError {
+  constructor(
+    readonly sha: string,
+    readonly url: string,
+  ) {
+    super('E_SOURCE', `commit ${sha.slice(0, 7)} is not in ${url}`, `git ls-remote ${url}`);
+  }
+}
+
+/** The full sha `sha` (full or abbreviated) names in the repository at `dir`, if it has it. */
+async function commitIn(url: string, dir: string, sha: string): Promise<string | undefined> {
+  try {
+    const out = await git(['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], local(url, dir));
+    return out.trim().toLowerCase() || undefined;
+  } catch (e) {
+    if (isFinal(e)) throw e;
+    return undefined;
+  }
+}
+
+/**
+ * Checks out `sha` in the repository at `dir`; CommitMissing when it is not there. The step
+ * talks to the remote: a partial clone fetches the commit's files on checkout.
+ */
+async function checkoutCommit(url: string, dir: string, sha: string): Promise<string> {
+  const full = await commitIn(url, dir, sha);
+  if (!full) throw new CommitMissing(sha, url);
+  await git([...DETACHED, full], remote(url, dir));
+  return full;
+}
+
+/**
+ * Fetches `sha` alone (`git fetch --depth 1 origin <sha>`, T3); only a server that refuses an
+ * unadvertised commit gets a full fetch, after which a commit still missing is CommitMissing.
+ */
 async function fetchSha(url: string, dir: string, sha: string): Promise<void> {
   try {
     await git(['fetch', '--quiet', '--depth', '1', 'origin', '--', sha], remote(url, dir));
-    await git([...DETACHED, 'FETCH_HEAD'], local(url, dir));
   } catch (e) {
     if (isFinal(e)) throw e;
     await git(['fetch', '--quiet', '--tags', 'origin'], remote(url, dir));
-    await git([...DETACHED, sha], local(url, dir));
+    await checkoutCommit(url, dir, sha);
+    return;
   }
+  await git([...DETACHED, 'FETCH_HEAD'], local(url, dir));
 }
 
 /** A fresh repository at `tmp` holding the commit `sha` (by name first, when one is known). */
@@ -145,11 +185,15 @@ async function fetchCommitInto(
   if (!(name && (await fetchByName(url, tmp, name, sha)))) await fetchSha(url, tmp, sha);
 }
 
-/** A full clone at `tmp` checked out at the abbreviated `short`; returns the full sha. */
+/**
+ * A clone at `tmp` checked out at the abbreviated `short`; returns the full sha. Only git can
+ * expand an abbreviation, so the history comes along, but without file contents
+ * (`--filter=blob:none`, T3): the checkout fetches the files of that one commit.
+ */
 async function cloneShort(url: string, tmp: string, short: string): Promise<string> {
-  await git(['clone', '--quiet', '--', url, tmp], remote(url, dirname(tmp)));
-  await git([...DETACHED, short], local(url, tmp));
-  return (await git(['rev-parse', 'HEAD'], local(url, tmp))).trim();
+  const clone = ['clone', '--quiet', '--no-checkout', '--filter=blob:none', '--', url, tmp];
+  await git(clone, remote(url, dirname(tmp)));
+  return checkoutCommit(url, tmp, short);
 }
 
 /** Moves the finished `tmp` into place as the checkout of `sha` and writes its record. */
@@ -175,14 +219,54 @@ function tmpDirFor(job: CheckoutJob): string {
   return join(job.cache, job.ref.id, `tmp-${randomBytes(6).toString('hex')}`);
 }
 
+/** Bytes of the files below `dir` (0 when it is gone). */
+async function bytesBelow(dir: string): Promise<number> {
+  const { files } = await walkFiles(dir).catch(() => ({ files: [] as Array<{ size: number }> }));
+  return files.reduce((n, f) => n + f.size, 0);
+}
+
+/** `412 MB`, `1.2 GB`: a download size as people read it. */
+function megabytes(bytes: number): string {
+  const mb = bytes / 1024 / 1024;
+  if (mb >= 1024) return `${Math.round((mb / 1024) * 10) / 10} GB`;
+  return mb >= 10 ? `${Math.round(mb)} MB` : `${Math.round(mb * 10) / 10} MB`;
+}
+
+const GIT_DENIED = /permission denied|read-only file system|operation not permitted/i;
+
+/** B6: git could not write the cache (a read-only PALM_HOME): E_IO naming the cache directory. */
+function cacheDenied(job: CheckoutJob, e: unknown): PalmError | undefined {
+  const hint = `set PALM_HOME to a writable directory, or check the permissions: ls -ld ${job.cache}`;
+  const denied = deniedError(e, job.cache, hint);
+  if (denied || !(e instanceof GitFailure) || !GIT_DENIED.test(e.detail)) return denied;
+  return new PalmError('E_IO', `cannot write the palm cache ${job.cache}: ${e.detail}`, hint);
+}
+
+/**
+ * The error a failed fetch ends with: a refused write as E_IO (B6), a timeout with how much
+ * arrived before it (T3: a large repository), else git's failure in palm's words.
+ */
+export function fetchError(job: CheckoutJob, e: unknown, received: number): PalmError {
+  const denied = cacheDenied(job, e);
+  if (denied) return denied;
+  const err = toPalmError(e, `cannot fetch source "${job.ref.name}" from`, job.url);
+  if (!received) return err;
+  return new PalmError(
+    err.code,
+    `${err.message} (${megabytes(received)} received: a large repository)`,
+    `a tag or a full 40-character commit fetches that commit alone; pin one (#v1.2.0), or check the network and run it again`,
+  );
+}
+
 /** Runs a fetch into a temporary directory, removing it on failure and naming the source. */
 async function fetching<T>(job: CheckoutJob, fn: (tmp: string) => Promise<T>): Promise<T> {
   const tmp = tmpDirFor(job);
   try {
     return await fn(tmp);
   } catch (e) {
+    const received = isGitTimeout(e) ? await bytesBelow(tmp) : 0;
     await rm(tmp, { recursive: true, force: true });
-    throw toPalmError(e, `cannot fetch source "${job.ref.name}" from`, job.url);
+    throw fetchError(job, e, received);
   }
 }
 

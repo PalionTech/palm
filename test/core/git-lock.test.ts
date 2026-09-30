@@ -202,7 +202,10 @@ describe('checkouts per commit', () => {
     const ctx = await makeContext(sb);
     const src: Source = { name: 'r', type: 'git', url: remote.bare };
     const missing = 'f'.repeat(40);
-    await expect(fetchSource(ctx, src, { sha: missing })).rejects.toMatchObject({ code: 'E_GIT' });
+    await expect(fetchSource(ctx, src, { sha: missing })).rejects.toMatchObject({
+      code: 'E_SOURCE',
+      message: `commit fffffff is gone from ${remote.bare} (history rewritten?)`,
+    });
     const dir = join(sb.palmHome, 'cache', new SourceRef(src).id);
     expect(await readdir(dir)).toEqual([]);
   });

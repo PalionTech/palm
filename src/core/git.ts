@@ -25,6 +25,7 @@ import { cacheDir, ensureCacheDir } from './cache.js';
 import {
   type CheckoutJob,
   type CheckoutRecord,
+  CommitMissing,
   cachedIntent,
   cachedSha,
   commitDir,
@@ -32,7 +33,7 @@ import {
   FULL_SHA,
   SHORT_SHA,
 } from './checkout.js';
-import { PalmError } from './errors.js';
+import { deniedError, PalmError } from './errors.js';
 import { git, remote, toPalmError } from './git-call.js';
 import { treeHash } from './hash.js';
 import type { PalmContext, Source, SourceCheckout } from './types.js';
@@ -266,8 +267,39 @@ function notCached(job: CheckoutJob, what: string): PalmError {
 }
 
 /**
- * A locked sha: from the cache, else fetched (never re-resolved). `resolved` is the tag or
- * branch a fresh resolution just found for it (the one resolution of a new source, K8).
+ * V4': the locked commit is gone from the remote (history rewritten, a force push). Moving the
+ * source to what its ref names now is the way on.
+ */
+function goneError(job: CheckoutJob, sha: string): PalmError {
+  return new PalmError(
+    'E_SOURCE',
+    `commit ${sha.slice(0, 7)} is gone from ${job.url} (history rewritten?)`,
+    `palm update ${job.ref.name}`,
+  );
+}
+
+/** R9': a ref (a sha or its abbreviation) the source does not have, in palm's words. */
+function refNotFound(job: CheckoutJob, ref: string): PalmError {
+  return new PalmError(
+    'E_SOURCE',
+    `ref ${ref} not found in ${job.ref.name}`,
+    `git ls-remote --tags --heads ${job.url}`,
+  );
+}
+
+/** `fn`, with a missing commit reported by `name(sha)` instead. */
+async function namingMissing<T>(fn: () => Promise<T>, name: (sha: string) => PalmError) {
+  try {
+    return await fn();
+  } catch (e) {
+    throw e instanceof CommitMissing ? name(e.sha) : e;
+  }
+}
+
+/**
+ * A locked sha: from the cache, else fetched (never re-resolved); a commit the remote no longer
+ * has is named as gone (V4'). `resolved` is the tag or branch a fresh resolution just found for
+ * it (the one resolution of a new source, K8).
  */
 async function checkoutSha(
   ctx: PalmContext,
@@ -282,7 +314,8 @@ async function checkoutSha(
     return checkoutOf(job, await ensureCommit(ctx, job, cached.sha, intent), resolved);
   if (cached) return checkoutOf(job, cached, requested && cached.refs[requested]?.resolved);
   if (ctx.flags.offline) throw notCached(job, ` at ${sha.slice(0, 7)}`);
-  return checkoutOf(job, await ensureCommit(ctx, job, sha, intent), resolved);
+  const fetch = () => ensureCommit(ctx, job, sha, intent);
+  return checkoutOf(job, await namingMissing(fetch, () => goneError(job, sha)), resolved);
 }
 
 /** The ref intent: a cache hit (no network) unless `refresh`, else resolved and fetched. */
@@ -296,7 +329,8 @@ async function checkoutIntent(
   if (cached) return checkoutOf(job, cached.record, cached.resolved);
   if (ctx.flags.offline) throw notCached(job, requested ? ` at ${requested}` : '');
   const r = await resolveRef(job.url, requested);
-  const rec = await ensureCommit(ctx, job, r.sha, { requested, resolved: r.resolved });
+  const fetch = () => ensureCommit(ctx, job, r.sha, { requested, resolved: r.resolved });
+  const rec = await namingMissing(fetch, (sha) => refNotFound(job, requested ?? sha));
   return checkoutOf(job, rec, r.resolved);
 }
 
@@ -317,6 +351,26 @@ async function localCheckout(
   const root = await realpath(dir);
   const { tree } = await treeHash(root, { skip: (rel) => isTreeExcluded(rel) || exclude.has(rel) });
   return { source, sourceId: ref.id, root, repoDir: await realpath(base), tree };
+}
+
+/**
+ * A git source's checkout: the locked sha, else the ref intent. A write the filesystem refuses
+ * (a read-only PALM_HOME, an unwritable cache) is E_IO naming the path (B6).
+ */
+async function gitCheckout(
+  ctx: PalmContext,
+  job: CheckoutJob,
+  opts: { sha?: string; resolved?: string; refresh?: boolean },
+): Promise<SourceCheckout> {
+  try {
+    await ensureCacheDir(job.cache);
+    if (!opts.sha) return await checkoutIntent(ctx, job, !!opts.refresh);
+    const pin = { sha: opts.sha, ...(opts.resolved ? { resolved: opts.resolved } : {}) };
+    return await checkoutSha(ctx, job, pin);
+  } catch (e) {
+    const hint = `set PALM_HOME to a writable directory, or check the permissions: ls -ld ${job.cache}`;
+    throw deniedError(e, job.cache, hint) ?? e;
+  }
 }
 
 /**
@@ -341,15 +395,8 @@ export async function fetchSource(
       `source "${source.name}" has no url`,
       `add url: under sources."${source.name}" in palm.yaml`,
     );
-  const cache = cacheDir(ctx.paths);
-  await ensureCacheDir(cache);
-  const job: CheckoutJob = { ref, url: source.url, cache };
-  const result = opts.sha
-    ? await checkoutSha(ctx, job, {
-        sha: opts.sha,
-        ...(opts.resolved ? { resolved: opts.resolved } : {}),
-      })
-    : await checkoutIntent(ctx, job, !!opts.refresh);
+  const job: CheckoutJob = { ref, url: source.url, cache: cacheDir(ctx.paths) };
+  const result = await gitCheckout(ctx, job, opts);
   if (source.root && !existsSync(result.root)) {
     throw new PalmError(
       'E_SOURCE',
