@@ -6,6 +6,7 @@
  */
 import { isPalmError } from '../core/errors.js';
 import {
+  type ApplyResult,
   type InstallOutcome,
   type LockEntry,
   type LockMerged,
@@ -193,6 +194,18 @@ function insideSourceFailure(run: Run, p: Prepared, id: TargetId, lockPath: stri
   run.result.failures.push(failure(subjectOf(p), 'E_SOURCE', { message, hint }, id));
 }
 
+/**
+ * X20 O11: what one target's write said: a hook already there adopted, a literal's file mode,
+ * and the files palm found already there with its own content (`adopted`, never `merged`).
+ */
+function applyNotes(applied: ApplyResult): string[] {
+  const adopted = applied.adopted ?? [];
+  const [only] = adopted;
+  const files = adopted.length === 1 ? only : `${adopted.length} files`;
+  const line = adopted.length ? [`adopted ${files} already there (the same content)`] : [];
+  return [...(applied.notes ?? []), ...line];
+}
+
 /** One target's write; the keys of the fragments whose shared file it created, or undefined when it failed. */
 async function writeTarget(
   run: Run,
@@ -214,6 +227,7 @@ async function writeTarget(
       noteWritten(state, rendered);
       run.touched = true;
     }
+    p.applied = [...new Set([...(p.applied ?? []), ...applyNotes(applied)])];
     return (applied.merged ?? []).filter((m) => m.created).map(fragmentKey);
   } catch (e) {
     throwIfCancelled(e);
@@ -399,7 +413,7 @@ async function settled(
   if (kept && (status === 'modified' || status === 'partial')) modifiedFailure(run, p);
   await record(run, p, entry, status);
   if (status !== 'unchanged') run.result.warnings.push(...(p.job.notices ?? []));
-  const notes = [...(entry.notes ?? [])];
+  const notes = [...new Set([...(entry.notes ?? []), ...(p.applied ?? [])])];
   if (kept && p.unchecked) notes.push(uncheckedNote(p.unchecked));
   const stray = await strayFiles(run, entry);
   if (stray) notes.push(stray);

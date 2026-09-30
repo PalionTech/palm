@@ -183,6 +183,21 @@ describe('O2 a project that ignores its output folders on purpose', () => {
   });
 });
 
+describe('X20 O11 what the write found already there', () => {
+  it('X20 a file already there with the same content is adopted, and the row says so', async () => {
+    const url = await m.source('kit', { 'v1.0.0': skill('tdd') });
+    const p = await m.project('app');
+    await writeFiles(p, {
+      '.claude/skills/tdd/SKILL.md': skill('tdd')['skills/tdd/SKILL.md'] as string,
+    });
+    const run = await m.palm(p, 'install', url, 'tdd', '--as', 'kit');
+    expect(run.code, run.all).toBe(0);
+    expect(run.stdout).toContain(
+      'adopted .claude/skills/tdd/SKILL.md already there (the same content)',
+    );
+  });
+});
+
 describe("J8' create writes into the in-repo source the scope declares", () => {
   it("J8' with one in-repo source declared, create uses it, not ./agent-kit", async () => {
     const p = await m.project('app');

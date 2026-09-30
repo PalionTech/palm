@@ -99,6 +99,8 @@ export interface Prepared {
   consent: ConsentState;
   /** Set when the kept paths are ones palm could not check (the locked version is unavailable). */
   unchecked?: Unchecked;
+  /** X20 O11: what the targets' writes said (a file or hook already there adopted), for the outcome. */
+  applied?: string[];
 }
 
 export function runOf(
