@@ -21,6 +21,7 @@ Alias: `palm new`.
 | `palm create hook format` | Write `agent-kit/hooks/format/hooks.json` and an example script, then ask for consent. |
 | `palm create skill triage --in tools/agents` | Use another in-repo folder as the source. |
 | `palm create skill style -g` | Write into `~/.palm/kit` and install into your home directory. |
+| `palm create skill style -g --in ~/dotfiles/palm/kit` | Write into another folder under your home, such as a dotfiles checkout. |
 
 <Capture name="c-create" title="~/project" />
 
@@ -53,19 +54,26 @@ The [global options](/palm/reference/cli/#global-options) also apply.
 | `instruction` | `<dir>/instructions/<name>.md` |
 | `hook` | `<dir>/hooks/<name>/hooks.json`, with an example script beside it |
 
+When the source has a `layout:` for that kind, palm places the template by its first glob instead, so the new file is one the source indexes.
 Each template has `name` and `description` frontmatter where the kind uses it, and a short body to replace.
 `command` is not a kind. Asking for one stops with a usage error that names `palm create skill`.
 
 ## Behavior
 
-1. palm writes the template into `<dir>`, `./agent-kit` by default. An existing file stops it with `E_CONFLICT`, and nothing is written.
-2. When `palm.yaml` does not declare `<dir>` yet, palm adds it and prints `+ source ./agent-kit → palm.yaml`.
-3. palm installs the entity as `palm install ./agent-kit <name>` would. A hook shows its command and script and asks for consent. Without a terminal it stops with `E_UNTRUSTED_EXEC`, and the template stays for a later `palm install`.
+1. palm checks everything before it writes: the targets, the `--in` folder, and the name. A name the source already indexes, or one another source installed for this kind, stops it with `E_CONFLICT`, and nothing is written.
+2. palm writes the template into `<dir>`, `./agent-kit` by default. An existing file stops it with `E_CONFLICT`.
+3. When `palm.yaml` does not declare `<dir>` yet, palm adds it and prints `+ source ./agent-kit → palm.yaml`.
+4. palm installs the entity as `palm install ./agent-kit <name>` would. A hook shows its command and script and asks for consent.
+
+When the install fails or you decline, `palm.yaml` and the lock stay as they were, and a declined hook exits 130.
+Without a terminal a hook stops with `E_UNTRUSTED_EXEC`; the template stays, and the printed `then:` line installs it.
 
 palm asks no questions and opens no editor. Open the file yourself, and run `palm install` after each edit.
 The in-repo source is the truth, so `palm check` fails until the harness copies match it.
 
 Under `-g`, the default folder is `~/.palm/kit`, declared as `./kit` in `~/.palm/palm.yaml`.
+`--in` may name any folder under your home, and palm stores it relative to `~/.palm` or your home.
+A dry run and the real run check the folder the same way.
 
 ## Reads and writes
 
@@ -73,7 +81,7 @@ Under `-g`, the default folder is `~/.palm/kit`, declared as `./kit` in `~/.palm
 | --- | --- |
 | `<dir>/<kind folder>/<name>...` | the template |
 | `palm.yaml` | the in-repo source, on first use, and the entry |
-| `palm.lock.yaml` | the entry, with the source's tree hash |
+| `palm.lock.yaml` | the entry, with its content hash |
 | harness files | the rendered entity for every target |
 
 ## Exit codes
@@ -81,7 +89,7 @@ Under `-g`, the default folder is `~/.palm/kit`, declared as `./kit` in `~/.palm
 | Code | When |
 | --- | --- |
 | `0` | The template was written and installed. |
-| `1` | The file exists, the install failed, or a hook needs consent without a terminal. |
+| `1` | The file or the name exists, the install failed, or a hook needs consent without a terminal. |
 | `2` | A missing or unknown kind, `command` as the kind, or an invalid name. |
 | `130` | You declined consent for a hook, or pressed Ctrl-C. |
 

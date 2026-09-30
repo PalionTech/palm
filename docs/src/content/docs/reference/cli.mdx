@@ -104,20 +104,21 @@ Every command accepts these options.
 | Option | Detail |
 | --- | --- |
 | `-g` | Works with every verb. The global scope has its own `~/.palm/palm.yaml`, lock and sources. See [scopes](/palm/concepts/scopes/). |
-| `--dry-run` | Resolves and renders everything, prints `would install` and `would restore` lines, and writes nothing in the scope. palm may still fetch into its cache. |
-| `--force` | Replaces a file palm did not write or you changed since palm wrote it. Never overrides hidden Unicode, an unresolvable hook reference, or a literal secret from a source. |
+| `--dry-run` | Resolves and renders everything, prints `would install`, `would restore` and `would remove` lines, and writes nothing in the scope. palm may still fetch into its cache. |
+| `--force` | Replaces a file palm did not write or you changed since palm wrote it. Never overrides hidden Unicode, an unresolvable hook reference, a literal secret from a source, the git worktree guard for literal secrets, or another source's ownership of an entity. |
 | `--yes` | Accepts pickers and plan confirmations, such as `Apply 2 changes?`. It never consents to a program. |
 | `--allow-exec` | Consents to programs by exact hash, as printed by the consent error. `all` works only on a terminal. See [consent](/palm/concepts/consent/). |
 | `--offline` | Reads sources from the cache only. A commit that is not cached fails with `E_NETWORK`. |
 | `--json` | See [JSON output](#json-output). |
-| `--secrets literal` | Writes typed secret values instead of references. See [secrets](/palm/concepts/secrets/). |
-| `--local` | Stops with a usage error in 0.2: `palm.local.yaml` arrives in 0.3. |
+| `--secrets literal` | Writes typed secret values instead of references, and records `secrets: literal` on the entry. See [secrets](/palm/concepts/secrets/). |
+| `--local` | Stops with a usage error in 0.2 that names the `palm.yaml` edit to make instead. `palm.local.yaml` arrives in 0.3. |
 
 There is no `--verbose` and no `--no-color`. Set `PALM_DEBUG=1` for debug lines and `NO_COLOR=1` to turn colour off.
 
 ## Prompts
 
 palm prompts only on a terminal, and every prompt has a flag.
+Every yes or no question uses the same `[y/N]` text prompt, and Enter answers no.
 
 | Prompt | Default | Without a terminal |
 | --- | --- | --- |
@@ -126,8 +127,11 @@ palm prompts only on a terminal, and every prompt has a flag.
 | Change a declared source's ref | no | `E_NON_INTERACTIVE`, naming `--yes` |
 | Clean the cache | no | `E_NON_INTERACTIVE`, naming `--yes` |
 | A secret value under `--secrets literal` | none | `E_NON_INTERACTIVE`, naming `--secrets env-ref` |
+| Which kind a name means, when a source offers it as two | none | `E_AMBIGUOUS`, listing the `kind:name` forms |
+| The detected targets, in `palm init` without `--target` | the detected set | the detected set is written |
 
-palm never asks which targets or which source to use. Those come from `palm.yaml` and the command line.
+palm never asks which source to use; that comes from the command line and `palm.yaml`.
+It asks about targets only in `palm init` and in a global install that detects no harness.
 
 ## Output
 
@@ -139,15 +143,17 @@ Data goes to stdout. Each status line starts with a symbol.
 | `-` | removed |
 | `~` | updated or re-rendered |
 | `↺` | restored: a missing generated file written again |
-| `=` | unchanged: the render equals the lock and the disk equals the render, on every target |
-| `⊘` | skipped for one target, with the reason |
+| `=` | unchanged: the render equals the lock and the disk equals the render, on every target; reports print these as one count line |
+| `⊘` | skipped for one target, with the reason; an in-repo source that `palm update` skips gets one line for the whole source |
 | `x` | error or failed |
 | `!` | warning, a modified file palm kept, or a partial install |
 | `i` | information |
 
-Warnings are collected and printed once at the end, on stderr, under a `Warnings` heading.
+Warnings are collected and printed once at the end, on stderr, under a `Warnings` heading. A note that applies to many rows prints once.
 An error comes last, as an `x` line with the message and then a hint that is a command you can paste.
-When the same command with another flag fixes the error, the hint repeats your command with that flag.
+When the same command with another flag fixes the error, the hint repeats your command with that flag, and names every flag that must go together.
+Hints name sources as you declared them in `palm.yaml`, carry `-g` in the global scope, and write `kind:name` when a name is ambiguous.
+In the global scope, paths print as `~/...`.
 
 Colour appears only when stdout is a terminal. `NO_COLOR=1` turns it off.
 
@@ -156,6 +162,7 @@ Colour appears only when stdout is a terminal. `NO_COLOR=1` turns it off.
 With `--json`, stdout holds exactly one JSON document and every other line goes to stderr.
 A list comes as `{ "items": [...] }`, and every document has a `warnings` array.
 An error is `{ "error": { "code", "message", "hint" }, "warnings": [] }`, and the exit code still reports it.
+A dry run reports statuses such as `would-install` and `would-remove`, and a version is an object `{ "ref", "sha" }`.
 
 <Capture name="c-json" />
 
@@ -166,7 +173,7 @@ An error is `{ "error": { "code", "message", "hint" }, "warnings": [] }`, and th
 | `0` | Success, including `--help`, `--version` and a bare `palm`. Warnings never change it. |
 | `1` | Failure: a refusal, a failed or partial install, a modified file palm kept, or a failed check |
 | `2` | Usage error: an unknown command, option or argument, a removed 0.1 command, or a 0.1 `palm.yaml` |
-| `130` | Cancelled: Esc or Ctrl-C at a prompt, or a declined plan |
+| `130` | Cancelled: Ctrl-C, Esc at a prompt, a declined source ref change, or a declined program you named |
 
 [Exit codes and errors](/palm/reference/exit-codes/) lists every error code with its fix.
 
@@ -176,9 +183,11 @@ The palm 0.1 grammar works for one release as hidden aliases.
 
 <Capture name="c-legacy" title="~/project" />
 
-The 0.1 form `install skill tdd@mattpocock` resolves the alias `mattpocock` through `palm.yaml` and runs.
+The 0.1 form `install skill tdd@mattpocock` resolves the alias `mattpocock` against the declared sources, so `mattpocock/skills` matches, and runs.
+When no declared source matches, the hint is the `palm install <source> <name>` form, never `palm migrate`.
 The removed commands `doctor`, `audit`, `outdated`, `why`, `find`, `search` and `config` print one line naming the replacement and exit 2.
-[Migrate from palm 0.1](/palm/guides/migrate-from-0-1/#old-commands) maps each one.
+Removed 0.1 flags print their replacement: `--frozen` prints `palm check` and runs it.
+[Migrate from palm 0.1](/palm/guides/migrate-from-0-1/#old-commands-and-flags) maps each one.
 
 ## Related
 

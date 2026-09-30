@@ -17,8 +17,8 @@ Alias: `palm up`.
 | --- | --- |
 | `palm update` | Plan and apply updates for every git source in `palm.yaml`. |
 | `palm update mattpocock/skills` | Only this source. |
-| `palm update --dry-run` | Print the plan and write nothing. This is the outdated report. |
-| `palm update --dry-run --strict` | The same, and exit 1 when a source is behind its ref. |
+| `palm update --dry-run` | Print the plan and write nothing. This is the outdated report, with the latest tag for pinned sources. |
+| `palm update --dry-run --strict` | The same, and exit 1 when a source is behind its ref, with a line that says why. |
 | `palm update acme-kit --to ^2` | Move the ref in `palm.yaml` to a new range, then update. |
 | `palm update --review` | Print script diffs of changed programs before the question. |
 | `palm update --yes` | Apply without the plan question. Programs still need consent. |
@@ -62,28 +62,43 @@ mattpocock/skills   ^1.2   v1.2.0 (3f2a1c9) → v1.2.3 (8be01d4)
 | Line | Meaning |
 | --- | --- |
 | `<source>  <ref>  <old> → <new>` | the source, its ref, and the move from the locked tag and commit to the new ones |
+| `latest <tag>` | for a source pinned to a tag or a commit: the newest release tag, and for a commit pin the default branch head too, such as `93f5a2d; main is 063bee9` |
 | `~ updated` | the entity's content changed |
 | `+ added`, `- removed` | a plugin member the new version declares or dropped |
-| `= unchanged` | same content; palm re-pins it to the new commit silently |
+| `= unchanged`, `same content` | the source moved and this entry's files did not change; palm re-pins it to the new commit |
 | `x failed` | the source is unreachable, or no longer has the entity |
-| `⊘ skipped` | an in-repo source; `palm update` never touches those, a bare `palm install` does |
+| `⊘ skipped` | an in-repo source, one line per source; `palm update` never touches those, a bare `palm install` does |
 | `! hook ...` | a new or changed program, with its old and new hash |
+| `i new program available` | a hook or stdio server that a plugin you installed now ships; the line names the command that installs it |
 | `! you changed these files` | generated files you edited; palm keeps them unless you pass `--force` |
 
-Then palm asks `Apply N changes? [y/N]`. The default is no, and no changes nothing.
+When a source's ref moves, the plan lists every entry of that source, so review sees each one that is re-pinned.
+The report after applying prints unchanged entries as one count line.
+
+Then palm asks `Apply N changes? [y/N]`. The default is no, and no changes nothing: palm prints `Nothing changed.` and exits 0.
 Without a terminal, `--yes` answers it. Without either, palm stops with `E_NON_INTERACTIVE` and names the command with `--yes`.
+
+`--dry-run --strict` exits 1 when a source is behind its ref, and prints the reason for each source.
+A `ref:` in `palm.yaml` that differs from the lock counts too, such as `lock records v1.2.3, palm.yaml ^1.2: palm install`.
 
 ## Programs are never covered by `--yes`
 
 A changed or new hook or stdio server goes through [consent](/palm/concepts/consent/) on its own, after the plan.
 On a terminal, `d` pages a unified diff of each changed script against the version you trusted, and `v` pages the full scripts.
+palm fetches the trusted commit for the diff when the cache no longer holds it.
 `--review` prints those diffs before the question, paged on a terminal.
 Without a terminal, a changed program stops with `E_UNTRUSTED_EXEC` and the `--allow-exec` line to consent to its new hash.
+
+A refused or declined program leaves the lock as it was, source commit included.
+The previous version stays active, and palm prints its trusted hash and the `palm remove` command that takes it out.
 
 ## Applying
 
 palm installs the changed entries as [palm install](/palm/reference/cli/install/#install-from-a-source) does, moves each source's commit and resolved tag in the lock, and writes the lock.
 Entries whose content did not change are re-pinned to the new commit, so a second `--dry-run` reports nothing behind.
+When the targets of one entry end differently, the entry reports `! partial` and palm exits 1.
+An example is a Claude Code copy kept as modified while the Codex copy could move.
+A source argument that is not in `palm.yaml` fails with a hint that installs it at the ref you asked for, such as `palm install mattpocock/skills#v1.2.3 tdd`.
 When git is present, palm prints `git diff --stat` of the scope, so you see what to commit.
 
 `--to <ref>` moves the range itself. palm writes the new `ref:` to `palm.yaml` for the named sources, then plans against it.
@@ -102,8 +117,8 @@ When git is present, palm prints `git diff --stat` of the scope, so you see what
 | Code | When |
 | --- | --- |
 | `0` | The plan was applied, declined, or printed with `--dry-run`. |
-| `1` | A source failed, an entry failed, a program needs consent without a terminal, the plan needs `--yes` without a terminal, or `--dry-run --strict` found a source behind its ref. |
-| `2` | An unknown option or source argument. |
+| `1` | A source failed, an entry failed or is partial, a source argument is not in `palm.yaml`, a program needs consent without a terminal, the plan needs `--yes` without a terminal, or `--dry-run --strict` found a source behind its ref. |
+| `2` | An unknown option. |
 | `130` | You pressed Esc or Ctrl-C at a prompt. |
 
 ## Related

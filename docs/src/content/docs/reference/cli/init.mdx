@@ -9,14 +9,16 @@ import Capture from '../../../../components/Capture.astro';
 
 ```sh
 palm init [--target <ids>] [--here]
+palm init -g --target <ids>
 ```
 
 | Command | What it does |
 | --- | --- |
-| `palm init` | Detect the harnesses from folders such as `.claude/` and `.cursor/`, and write them as `targets:`. |
+| `palm init` | Detect the harnesses from folders such as `.claude/` and `.cursor/`, print the evidence for each, and write them as `targets:`. |
 | `palm init --target claude,codex` | Write exactly these targets. |
 | `palm init --target claude,codex,copilot,cursor,gemini,opencode` | All six. |
 | `palm init --here` | Start a separate project in a folder that sits inside another project. |
+| `palm init -g --target claude,codex` | Write the global targets into `~/.palm/palm.yaml`. |
 
 <Capture name="c-init" title="~/project" />
 
@@ -34,7 +36,7 @@ The [global options](/palm/reference/cli/#global-options) also apply.
 {/* /cli-reference */}
 
 `--target` is singular here because it sets the project's whole list.
-On `palm install`, `--targets` narrows one entry.
+On `palm install`, `--targets` narrows one entry. Each command accepts the other spelling too.
 
 ## Behavior
 
@@ -42,11 +44,19 @@ palm writes `targets:` to `palm.yaml` in the current folder and prints the path 
 It adds `.palm/local/` and `palm.local.yaml` to `.gitignore`, creating the file when there is none.
 Those are the only palm paths you do not commit.
 
+Without `--target`, palm prints each detected target with the file or folder that gave it away, such as `cursor (.cursor/)`.
+An `AGENTS.md` alone marks no target, because several harnesses read it.
+On a terminal, palm shows the detected set and lets you change it before it writes.
+When the folder holds a `skills-lock.json` or an `apm.yml`, palm adds one line: an import command for them arrives in 0.3.
+
 Running `palm init` again with another `--target` rewrites `targets:`.
 The next bare `palm install` writes files for an added target and removes the files of a dropped one.
 
 `palm init` never writes outside the current folder.
 Without `--target` and with no harness folder to detect, it stops with `E_TARGET` and names `palm init --target`.
+It refuses your home directory, `~/.palm` and every harness home, such as `~/.claude`, and names `palm init -g --target` instead.
+
+With `-g`, `palm init` writes `targets:` into `~/.palm/palm.yaml` and touches no `.gitignore`.
 
 ## Inside another project
 
@@ -71,7 +81,7 @@ For one root setup with per-package placement, see [Monorepos](/palm/guides/mono
 | --- | --- |
 | `0` | `palm.yaml` was written or updated. |
 | `1` | No target given and none detected. |
-| `2` | An unknown target, or a folder inside another project without `--here`. |
+| `2` | An unknown target, a folder inside another project without `--here`, or your home directory, `~/.palm` or a harness home without `-g`. |
 
 ## Related
 

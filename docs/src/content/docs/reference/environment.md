@@ -21,7 +21,7 @@ CODEX_HOME=~/codex-work palm install mattpocock/skills tdd -g
 | `GEMINI_CLI_HOME` | Replaces the home Gemini CLI resolves `.gemini` against, so `~/.gemini` becomes `$GEMINI_CLI_HOME/.gemini`, and global skills go to `$GEMINI_CLI_HOME/.gemini/skills/`. |
 | `XDG_CONFIG_HOME` | `~/.config/opencode` becomes `$XDG_CONFIG_HOME/opencode`. git also reads it for its global config. |
 | `OPENCODE_DISABLE_EXTERNAL_SKILLS` | Set to `1` or `true`: skills for OpenCode go to `.opencode/skills/` and `~/.config/opencode/skills/` instead of `.agents/skills/`. |
-| `PALM_DEBUG` | Set to `1`: debug lines on stderr. There is no `--verbose`. |
+| `PALM_DEBUG` | Set to `1`: debug lines on stderr, git's own error text, and every index warning in full. There is no `--verbose`. |
 | `NO_COLOR` | Set to any value: no colour. |
 | `PAGER` | The pager for script bodies and diffs at the consent prompt, and for `palm update --review`. |
 | `GIT_SSH_COMMAND`, `GIT_SSH` | The ssh program git uses. See [git](#git). |
@@ -39,12 +39,14 @@ CODEX_HOME=~/codex-work palm install mattpocock/skills tdd -g
 | `lock` | An advisory lock while a global command runs. |
 
 A project has its own advisory lock at `.palm/lock` while palm runs, so two palm processes on one scope wait for each other.
+palm removes the lock file when it exits, also after Ctrl-C.
 There is no `~/.palm/config.yaml` in palm 0.2.
 
 ## Harness homes
 
 The overrides apply to the global scope only. Project files always go under the project root.
 palm treats each override as a boundary, and never writes or deletes outside your home, `PALM_HOME` and the harness homes.
+The reverse holds too: `PALM_HOME` and every harness home refuse project scope, and the error names the command with `-g`.
 Each home has a token in the global lock, such as `<claude>` or `<codex>`, so the lock stays portable.
 `palm describe target <target> -g` prints the paths with every override applied.
 
@@ -79,7 +81,8 @@ Inside a project, palm runs only read-only git commands: `git ls-files`, `git ch
 ## MCP secrets
 
 Each `${NAME}` in an MCP server's `env`, headers, URL or arguments is a reference.
-palm writes the reference in each harness's syntax and lists the variables to export. `palm check` warns for each one that is not set.
+palm writes the reference in each harness's syntax and lists the variables to export. `palm check` prints one warning line per server whose variables are not set.
+A value you type with `--env K=V` is written as `${K}` too, and palm prints the `export` line instead of storing the value.
 Under `--secrets literal`, palm reads `NAME` from the environment, and asks for it with a masked prompt only on a terminal.
 See [Secrets](/palm/concepts/secrets/).
 

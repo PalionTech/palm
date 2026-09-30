@@ -29,9 +29,12 @@ The lock is deterministic. Saving the same lock twice gives the same bytes, and 
 | `resolved` | the tag a range resolved to |
 | `sha` | the resolved commit, the one a bare install uses |
 | `path` | an in-repo source's project-relative path |
-| `tree` | an in-repo source's tree hash at the last render |
 | `layout` | the layout in effect, so another machine rebuilds the same index from the commit alone |
 | `descriptor` | the scan rule that produced the index: `descriptor`, `apm`, `marketplace`, `plugin-manifest` or `convention` |
+
+An in-repo source has no commit and no source-wide hash.
+Each of its entries carries a `content` hash over that entry's own files, and `palm check` compares entry by entry.
+Two pull requests that change two different skills therefore touch two different lock lines.
 
 ## Entries
 
@@ -41,13 +44,13 @@ The lock is deterministic. Saving the same lock twice gives the same bytes, and 
 | `source` | the source name, or `manifest` for an MCP server declared in `palm.yaml` |
 | `path` | where the entity lives in the source |
 | `via` | `plugin:<name>` when a plugin selected it |
-| `content` | sha256 of the entity's content in the source |
+| `content` | sha256 of the entity's content in the source; for an in-repo source, the signal that its files changed |
 | `render` | one render hash per target: sha256 over the path, mode and content hash of every file the target writes, plus every fragment it merges |
 | `files` | every path palm wrote for the entry, sorted, closure files included |
 | `merged` | the fragments merged into shared files, as `{ file, at, id, key }` |
-| `exec`, `trust`, `declined` | the entry's programs and your consent; see below |
+| `exec`, `trust` | the entry's programs and your consent; see below |
 | `notes` | what install printed once: dropped fields, skipped targets, shared folders; `palm describe` shows them |
-| `targets` | only when the entry is narrowed below the scope's set |
+| `targets` | only when `palm.yaml` narrows the entry below the scope's set; a refused target never narrows it |
 | `at` | the placement root from `palm.yaml`, stored for 0.3 |
 | `deps` | plugin entries only: the members the plugin declared |
 
@@ -82,12 +85,13 @@ An entry with a hook or a stdio MCP server carries its programs.
 | Key | Meaning |
 | --- | --- |
 | `exec.commands` | one line per command a harness runs: `<event>//<matcher or ->` for hooks, `stdio` for a server |
-| `exec.closure` | the asset folder, its file count and tree hash; absent for an in-repo source, whose scripts run in place |
+| `exec.closure` | the scripts the commands run and the files they read, with their count and tree hash; for an in-repo source, hashed where they sit, since they run in place |
 | `exec.hash` | the program hash over the canonical commands, events, matchers, environment keys, working directory and the closure tree |
 | `trust` | the hashes a person consented to; palm installs silently while `exec.hash` is among them |
-| `declined` | `true` when you declined a plugin's hook; bare installs stay quiet, and naming the hook asks again |
 
 The lock diff is the team's consent record, with readable commands and one hash line reviewed together.
+An entry with a program and no `trust:`, or with an empty `render:`, fails `palm check`.
+A hook you declined is not in the lock. It is an `exclude:` on the plugin entry in `palm.yaml`, where review sees it.
 
 ## What the lock never holds
 

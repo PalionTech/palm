@@ -8,13 +8,14 @@ import Capture from '../../../../components/Capture.astro';
 `palm check` proves that `palm.yaml`, the lock, the generated files and the in-repo sources agree. It never writes, never prompts and never fetches for an in-repo source.
 
 ```sh
-palm check [--json]
+palm check [--quiet] [--json]
 ```
 
 | Command | What it does |
 | --- | --- |
-| `palm check` | Run every check and print one line per check, then one line per problem. |
-| `palm check --json` | The same, as one JSON document. |
+| `palm check` | Run every check and print one line per check, then the problems grouped by entity. |
+| `palm check --quiet` | Print only the checks that failed or warned, with their problems. Nothing at all when everything passes. |
+| `palm check --json` | The same, as one JSON document, with every problem file by file. |
 | `palm check -g` | Check the global scope against `~/.palm/applied.yaml` and the harness homes. |
 
 <Capture name="c-check" title="~/project" />
@@ -29,25 +30,36 @@ No options of its own. The [global options](/palm/reference/cli/#global-options)
 
 ## The checks
 
-palm runs every check in this order and prints one line each, `✓` or `x`.
+palm runs every check in this order and prints one line each: `✓` passed, `x` failed, `!` warned, or `skipped` with the reason.
+A skipped check never shows `✓`.
+Problems follow, one line per entity with a file count, so five missing skills print five lines, not one per file.
 It prints `no problems` only when nothing failed and nothing warned.
 
 | Id | Fails when | Fix |
 | --- | --- | --- |
-| `manifest-lock` | an entry of `palm.yaml` has no lock entry, or the reverse; a source's `ref:` differs from the lock's; a lock source lacks its URL or commit; a plugin's `only:` or `exclude:` names nothing | `palm install` |
-| `lock-disk` | a listed file is missing or differs from the render; a merged entry is missing or changed | `palm install` to restore, `palm install <source> <name> --force` for an edited file |
-| `local-sources` | an in-repo source's tree differs from the lock | `palm install`, then commit `palm.lock.yaml` |
-| `exec-trusted` | an entry's program hash is not in its `trust:`, or a merged command on disk differs from the lock | `palm install --allow-exec <key>=<hash>` |
+| `manifest-lock` | an entry of `palm.yaml` has no lock entry, or the reverse; a source's `ref:` differs from the lock's; a lock source lacks its URL or commit; a plugin's `only:` or `exclude:` names nothing; an entry is `partial` or has an empty render | `palm install` |
+| `lock-disk` | a listed file is missing or differs from the render; a merged entry is missing or changed; a file inside an entity folder palm owns is not in the lock | `palm install` to restore, `palm install <source> <name> --force` for an edited file or a stray one |
+| `local-sources` | an entry of an in-repo source has files that differ from its lock `content` hash, or the source folder is missing | `palm install`, then commit `palm.lock.yaml` and the files it re-rendered |
+| `exec-trusted` | an entry has a program and no `trust:`, its program hash is not in its `trust:`, or a merged command on disk differs from the lock | `palm install --allow-exec <key>=<hash>` |
 | `hook-scripts` | a hook command names a file that is missing or not executable | `palm install` |
-| `secrets` | a generated file that git tracks, or others can read, holds a secret-shaped literal | `palm install <source> <name> --force` after fixing the source, or `export VAR` |
-| `git-ignored` | an output directory or `.palm/assets` is ignored by git | edit `.gitignore` |
+| `secrets` | a generated file, or a harness config palm merges into, holds a secret-shaped literal or a literal `env` or header value, and git tracks it or others can read it | `palm install <source> <name> --force` after fixing the source, or `export VAR` |
+| `git-ignored` | a file the lock lists, a file palm merged into, or a file in `.palm/assets` is ignored by git | edit `.gitignore` |
 | `sources-declared` | a lock source is not in `palm.yaml`, or an in-repo source is missing on disk | `palm install`, or restore the directory |
-| `links` | an output path resolves outside the scope, a link under an output directory dangles, or a source overlaps an output directory | move the source |
+| `links` | an output path resolves outside the scope; a link under an output directory dangles or leaves the scope; a lock-owned path lies inside a declared source; a source overlaps an output directory, also through a symlink | move the source, or remove the link |
 | `hidden-unicode` | a generated file holds a bidi override, a tag character or a rare variation selector; zero-width characters only warn | fix the source, then `palm install --force` |
-| `double-load` | warning only: a harness would load one entity twice | the 0.3 carrier rule |
-| `block-size` | warning when the managed blocks of a root `AGENTS.md` or `GEMINI.md` pass 24 KiB; failure above the harness's documented cap | move entries with `at:` in 0.3 |
+| `double-load` | warning only: a harness would load one entity twice, such as an instruction in both `AGENTS.md` and `.cursor/rules`; copies palm chose, such as a skill Cursor reads once from `.claude/skills`, never warn | narrow the entry with `targets:` until 0.3 |
+| `block-size` | warning when the managed blocks of a root `AGENTS.md` or `GEMINI.md` pass 24 KiB; failure above the harness's documented cap | narrow the entry with `targets:` until `at:` works in 0.3 |
 
-The `secrets` check also lists every variable the installed MCP servers need, and warns for each one that is not set.
+Some findings are warnings under these checks and never fail the run.
+
+- A variable an installed MCP server needs is not set: one line per server, naming every missing variable.
+- A generated file is not ignored but not yet in git: the line names `git add`.
+- A command in a hook array palm manages that no lock entry explains, such as `foreign hook command in .claude/settings.json (SessionStart)`.
+- An agent preloads a skill that is not installed, with the `palm install` line for it.
+- Two agent files in one harness folder carry the same name.
+- Under `-g`, applied files that the lock no longer lists, which the next `palm install -g` removes.
+
+When a `skills-lock.json` or `apm.yml` sits in a project with no entries yet, `palm check` prints one hint: palm 0.3 adds an import command for those files.
 Checks that need git run only inside a repository. Elsewhere they print `skipped (not a git repository)`.
 
 ## Network
@@ -55,6 +67,7 @@ Checks that need git run only inside a repository. Elsewhere they print `skipped
 `lock-disk` recomputes each render from the cache.
 A locked commit that is not in the cache is fetched once, which is the only network access `palm check` makes.
 Cache `~/.palm/cache` between CI runs, and `palm check` runs offline.
+With `--offline` and a commit missing from the cache, the checks that need the render print `skipped (cache empty; run palm install)`, never a false failure.
 
 ## JSON
 

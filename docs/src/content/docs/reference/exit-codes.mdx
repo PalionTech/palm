@@ -16,11 +16,24 @@ palm check --json || echo "palm failed with $?"
 | `0` | Success, including `--help`, `--version` and a bare `palm`. Warnings never change it. |
 | `1` | Failure: any error except a usage error or a cancel; an install with a failed, partial or modified outcome; a failed check; an internal error. |
 | `2` | Usage error: an unknown command or option, a missing argument, a removed 0.1 command, a first word that is not a source, or a 0.1 `palm.yaml`. |
-| `130` | Cancelled: Esc or Ctrl-C at a prompt, or a declined plan. palm prints nothing more. |
+| `130` | Cancelled: Ctrl-C, Esc at a prompt, a declined source ref change, or a declined program you named. |
 
 <Capture name="c-errors" title="~/project" />
 
 Every error prints `x` and the message, then a hint that is a command you can paste.
+
+## Declines and interrupts
+
+| What happened | Exit | What palm wrote |
+| --- | --- | --- |
+| You declined a program you named, such as `palm install <source> hook:<name>` | `130` | nothing |
+| You declined a hook that came with a plugin | `0` | the rest of the plugin, and `exclude: [hook:<name>]` in `palm.yaml`; the report shows `⊘ skipped` |
+| `--all` left a program out | `0` | everything else; the report prints the command that installs the program |
+| You declined the update plan | `0` | nothing; palm prints `Nothing changed.` |
+| You declined a source ref change | `130` | nothing |
+| You pressed Ctrl-C during an install | `130` | the entities finished so far, including the one in progress, with `palm.yaml` and the lock saved; the report says how many of how many installed |
+| You pressed Ctrl-C a second time | `130` | the lock for the entities that finished; palm stops without waiting for the current one |
+| Ctrl-C stopped a git fetch | `130` | nothing from that entity; no git error is printed |
 
 ## Reports that exit 1
 
@@ -30,28 +43,29 @@ Some commands finish their report and then exit 1 without an error line.
 | --- | --- |
 | `palm install` | Any entity failed, installed only partly, or was kept as modified. The lock records what succeeded. |
 | `palm remove` | A file was modified since install, or could not be removed. |
-| `palm update` | A source or an entry failed. With `--dry-run --strict`, a source is behind its ref. |
+| `palm update` | A source or an entry failed, or a source argument is not in `palm.yaml`. With `--dry-run --strict`, a source is behind its ref, and a line says which and why. |
 | `palm check` | A check failed. Warnings alone exit 0. |
+| `palm migrate` | The conversion or the `palm check` it runs at the end failed. |
 
 ## Error codes
 
 | Code | Exit | Cause | Fix |
 | --- | --- | --- | --- |
-| `E_USAGE` | 2 | An unknown option or kind word; a first word that is not a source; a 0.1 `palm.yaml`; `--local` in 0.2; `--allow-exec all` without a terminal; project scope in your home directory. | Follow the hint. For a 0.1 file, run `palm migrate`. |
-| `E_NOT_FOUND` | 1 | The source has no entity by that name; the entity is not installed; no entity wrote the path. | The hint names the closest match as a command, or `palm install <source>` to list. |
-| `E_AMBIGUOUS` | 1 | One name means two kinds in a source, or exists in two sources. | Write `kind:name`, or put the source first. |
-| `E_CONFLICT` | 1 | A file palm did not write is in the way; `palm create` found an existing file; an MCP server name exists. | Review the file, then pass `--force`. |
-| `E_SOURCE` | 1 | The source spec or URL is refused; a local path is missing or outside the project; no tag matches the range; a source overlaps an output directory. | Check the spec. `git ls-remote --tags <url>` lists the refs. |
+| `E_USAGE` | 2 | An unknown option or kind word; a first word that is not a source; a 0.1 `palm.yaml`; `--local` in 0.2; `--targets` on a bare install; `--allow-exec all` without a terminal; project scope in your home directory, in `~/.palm` or in a harness home. | Follow the hint. For a 0.1 file, run `palm migrate`. |
+| `E_NOT_FOUND` | 1 | The source has no entity by that name; the entity is not installed; no entity wrote the path; a `--source` filter names no declared source. | The hint names the closest match as a command, or `palm install <source>` to list. |
+| `E_AMBIGUOUS` | 1 | One name means two kinds in a source, or exists in two sources, and there is no terminal to ask. | Write `kind:name`, or put the source first. |
+| `E_CONFLICT` | 1 | A file palm did not write is in the way; another source already installed an entity of that kind and name; `palm create` found an existing file or name; an MCP server name exists. | For a file, review it, then pass `--force`. For another source's entity, run the `palm remove` line the message prints. |
+| `E_SOURCE` | 1 | The source spec or URL is refused; a local path is missing or outside the git worktree; no tag matches the range; a source overlaps an output directory, also through a symlink. | Check the spec. `git ls-remote --tags <url>` lists the refs. |
 | `E_GIT` | 1 | git is not on `PATH`, or a local git step took more than 30 seconds. | Install git, or run `palm cache clean`. |
 | `E_NETWORK` | 1 | A remote did not answer within 120 seconds, or a commit is not cached under `--offline`. | Check the network, VPN or proxy, or run once without `--offline`. |
-| `E_PARSE` | 1 | `palm.yaml`, the lock or a source's manifest is invalid; two sources share a name or alias; an entry names a target outside the scope's set. | Fix the named file, or restore it from git. |
+| `E_PARSE` | 1 | `palm.yaml`, the lock or a source's manifest is invalid; two sources share a name or alias; an entry names a target outside the scope's set; a source, entry or server has an unknown key. | Fix the named file, or restore it from git. The message suggests the nearest key. |
 | `E_TARGET` | 1 | No targets are declared and none are detected. | `palm init --target claude,codex` |
 | `E_IO` | 1 | palm cannot read or write a file, or a path resolves outside the scope. | Check permissions and symlinks. |
 | `E_NON_INTERACTIVE` | 1 | palm needs an answer that is not consent, and there is no terminal. | Pass `--yes`, or `--secrets env-ref` for a secret. |
 | `E_UNTRUSTED_EXEC` | 1 | A hook or stdio MCP server has no trusted hash, and there is no terminal. | Review it on a terminal, or pass the printed `--allow-exec` line. |
-| `E_SECRET` | 1 | A literal secret would land in a tracked file, or a secret value is missing under `--secrets literal`. | Write `${NAME}` and export the variable. |
+| `E_SECRET` | 1 | A literal secret would land in a file inside a git worktree under `-g`, or a secret value is missing under `--secrets literal`. | Write `${NAME}` and export the variable. |
 | `E_CHECK` | 1 | `palm check` found a failure. | Run the fix line each problem prints. |
-| `E_CANCELLED` | 130 | You declined, pressed Esc, or pressed Ctrl-C. During an install, palm finishes the current entity and saves both files first. | Run the command again. |
+| `E_CANCELLED` | 130 | You declined a program you named or a ref change, pressed Esc, or pressed Ctrl-C. During an install, palm finishes the current entity and saves both files first. | Run the command again. |
 | `E_INTERNAL` | 1 | An unexpected exception: a bug in palm. palm prints `this is a palm bug; report it with --json output`. | [Report it](/palm/reference/troubleshooting/#report-a-bug). |
 
 ## JSON errors
