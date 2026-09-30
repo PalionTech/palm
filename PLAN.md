@@ -417,32 +417,34 @@ Registry naming goes with the registry. The manifest's `headers:` and `env:` tak
 ### 4.9 Onboarding
 
 Nora, Claude Code only, an empty project with `.claude/`. Command 1 fails and its first
-line is the fix; command 2 succeeds.
+line is the fix; command 2 lists what the source offers and saves nothing; command 3 installs
+everything but the program, which it names with the two commands that show and install it.
 
 ```
 $ palm install superpowers
 x "superpowers" is not a repository. palm installs from git repositories:
     palm install <owner/repo> [names...]      for example  palm install obra/superpowers
   Not sure which repository? https://github.com/search?q=superpowers+SKILL.md&type=code
-
 $ palm install obra/superpowers
-obra/superpowers  v4.0.3 (a1b2c3d)   15 skills, 1 hook
-  skill  brainstorming             Explore requirements before writing code
-  skill  test-driven-development   Write the failing test first
-  ...
-  hook   session-start             claude: SessionStart -> hooks/run-hook.cmd   (a program; asks before installing)
+obra/superpowers  v4.0.3 (083545e)   3 skills, 1 hook
+  skill  brainstorming             Use before any creative work: explore intent, requirements and design.
+  skill  test-driven-development   Use when implementing any feature or bugfix, before writing implement…
+  skill  writing-skills            Use when creating or editing skills.
+  hook   superpowers               claude: SessionStart -> hooks/run-hook.cmd   (a program; asks before installing)
 Nothing written. Install some:
     palm install obra/superpowers brainstorming test-driven-development
     palm install obra/superpowers --all
-
 $ palm install obra/superpowers --all
+i .gitignore: added .palm/local/ and palm.local.yaml
+i ref ^4.0 saved to palm.yaml (latest tag v4.0.3); edit ref: to track main
 targets: claude   (detected from .claude/; change targets: in palm.yaml)
-+ skill  brainstorming             .claude/skills/brainstorming/   3 files
-  ... 14 more
-! hook   session-start             runs a program on your machine; not installed
-    see it:      palm install obra/superpowers session-start --dry-run
-    install it:  palm install obra/superpowers session-start
-15 installed. Commit palm.yaml, palm.lock.yaml and .claude/ together.
++ skill  brainstorming             .claude/skills/brainstorming/   1 file
++ skill  test-driven-development   .claude/skills/test-driven-development/   3 files
++ skill  writing-skills            .claude/skills/writing-skills/   2 files
+! hook   superpowers               runs a program on your machine; not installed
+    see it:      palm install obra/superpowers hook:superpowers --dry-run
+    install it:  palm install obra/superpowers hook:superpowers
+3 installed. Commit palm.yaml, palm.lock.yaml and .claude/ together.
 ```
 
 Lena, Cursor only, typed a skill name first:
@@ -451,15 +453,18 @@ Lena, Cursor only, typed a skill name first:
 $ palm install tdd
 x "tdd" is not a repository. palm installs from git repositories:
     palm install <owner/repo> tdd             for example  palm install mattpocock/skills tdd
-
 $ palm install mattpocock/skills tdd
+i .gitignore: added .palm/local/ and palm.local.yaml
+i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
 targets: cursor   (detected from .cursor/; change targets: in palm.yaml)
-+ skill  tdd   .agents/skills/tdd/   1 file   from mattpocock/skills v1.2.3   (Cursor reads .agents/skills)
++ skill  tdd   .agents/skills/tdd/   3 files   from mattpocock/skills v1.2.3   (cursor reads .agents/skills)
 1 installed. Commit palm.yaml, palm.lock.yaml and .agents/ together.
 ```
 
-The word "origin" appears nowhere. No registry is consulted, so nothing times out (F089)
-and no unrelated MCP server appears (F003).
+Both transcripts are the real output of `palm`, recorded by `docs/scripts/capture.mjs` from
+fixture repositories (`a-onboarding-nora`, `a-onboarding-lena`); a test keeps them equal to the
+captures. The word "origin" appears nowhere. No registry is consulted, so nothing times out
+(F089) and no unrelated MCP server appears (F003).
 
 ### 4.10 Global scope and the personal overlay
 

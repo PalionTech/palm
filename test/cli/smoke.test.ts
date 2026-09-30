@@ -1,153 +1,112 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+/**
+ * The built binary (`node dist/cli.js`) as a person meets it: help, version, usage errors with
+ * the fix on line one, the hidden 0.1 forms, a dry run that writes nothing, one JSON document,
+ * and the PLAN.md 4.9 onboarding transcripts, which must equal the docs captures byte for byte.
+ */
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { runPalm } from '../support/cli.js';
+import { Machine, writeFiles } from './world.js';
 
 const repo = resolve(import.meta.dirname, '../..');
-let home: string;
-
-function palm(...args: string[]) {
-  return runPalm(args, {
-    cwd: repo,
-    env: { HOME: home, PALM_HOME: join(home, '.palm'), NO_COLOR: '1', CI: '1' },
-  });
-}
+let m: Machine;
+let project: string;
 
 beforeAll(async () => {
-  home = await mkdtemp(join(tmpdir(), 'palm-cli-smoke-'));
+  m = await Machine.create();
+  project = await m.project('app');
 });
 
 afterAll(async () => {
-  await rm(home, { recursive: true, force: true });
+  await m.dispose();
 });
 
 describe('palm CLI smoke', () => {
-  it('palm --help lists the verbs, then the utilities, then the options', async () => {
-    const r = await palm('--help');
-    expect(r.exitCode).toBe(0);
-    for (const cmd of [
+  it('--help lists the verbs, the utilities and the kinds, and no exit codes', async () => {
+    const r = await m.palm(project, '--help');
+    expect(r.code).toBe(0);
+    for (const verb of [
+      'init',
       'install (add, i)',
-      'uninstall (remove, rm, delete)',
+      'remove (uninstall, rm)',
+      'update (up)',
+      'check',
       'get (list, ls)',
       'describe (info)',
-      'update (up)',
       'create (new)',
-      'search',
-      'init',
-      'doctor',
-      'config',
-      'completion <shell>',
-      'cache',
-    ]) {
-      expect(r.stdout).toContain(cmd);
-    }
+    ])
+      expect(r.stdout).toContain(verb);
     const at = (s: string) => r.stdout.indexOf(s);
     expect(at('Verbs:')).toBeLessThan(at('Utilities:'));
     expect(at('Utilities:')).toBeLessThan(at('Options:'));
-    // the old grammar still works but is not advertised
-    expect(r.stdout).not.toMatch(/^ {2}origin\s{2,}/m);
-    expect(r.stdout).not.toMatch(/^ {2}targets\s{2,}/m);
-    for (const opt of [
-      '--global',
-      '--target <ids>',
-      '--dry-run',
-      '--force',
-      '--yes',
-      '--offline',
-      '--verbose',
-      '--json',
-    ]) {
-      expect(r.stdout).toContain(opt);
-    }
+    expect(r.stdout).toContain('Kinds:');
+    expect(r.stdout).not.toContain('origin');
+    expect(r.stdout).not.toMatch(/exit code/i);
   });
 
-  it('palm install --help shows install options and examples', async () => {
-    const r = await palm('install', '--help');
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout).toContain('Usage: palm install|add [options] [kind] [names...]');
-    for (const opt of [
-      '--from <origin>',
-      '--save-origin',
-      '--secrets <policy>',
-      '--prune',
-      '--url <url>',
-      '--header <K=V>',
-      '--env <K=V>',
-      '--transport <t>',
-    ]) {
-      expect(r.stdout).toContain(opt);
-    }
-    expect(r.stdout).toContain(
-      'palm install mcp fs -- npx -y @modelcontextprotocol/server-filesystem .',
-    );
+  it('--version prints the package version', async () => {
+    const pkg = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8')) as { version: string };
+    const r = await m.palm(project, '--version');
+    expect(r.stdout.trim()).toBe(pkg.version);
   });
 
-  it('palm --version prints the package version', async () => {
-    const r = await palm('--version');
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
+  it('install --help shows the forms, --all, --review and --snippet', async () => {
+    const r = await m.palm(project, 'install', '--help');
+    expect(r.code).toBe(0);
+    for (const s of ['--all', '--review', '--snippet', 'palm install mcp --snippet <file or ->'])
+      expect(r.stdout).toContain(s);
   });
 
-  it('usage errors exit 2 with message and a runnable hint on stderr', async () => {
-    const r = await palm('install', 'skill');
-    expect(r.exitCode).toBe(2);
+  it('a word that is no repository exits 2 with the fix on line one (PLAN.md 4.9)', async () => {
+    const r = await m.palm(project, 'install', 'tdd');
+    expect(r.code).toBe(2);
     expect(r.stdout).toBe('');
-    expect(r.stderr).toContain('x name the skill to install');
-    expect(r.stderr).toContain('palm install skill <name>');
+    expect(r.stderr.split('\n')[0]).toBe(
+      'x "tdd" is not a repository. palm installs from git repositories:',
+    );
+    expect(r.stderr).toContain('palm install mattpocock/skills tdd');
   });
 
-  it('unknown commands exit 2', async () => {
-    const r = await palm('frobnicate');
-    expect(r.exitCode).toBe(2);
-    expect(r.stderr).toContain("unknown command 'frobnicate'");
+  it('an unknown option is a usage error (2); a removed verb names its replacement', async () => {
+    expect((await m.palm(project, 'install', '--frozen')).code).toBe(2);
+    const doctor = await m.palm(project, 'doctor');
+    expect(doctor.code).toBe(2);
+    expect(doctor.stderr).toContain('palm doctor is now: palm check');
   });
 
-  it('bare palm prints the help and exits 0', async () => {
-    const r = await palm();
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout).toContain('Verbs:');
+  it('--dry-run writes nothing: no palm.yaml, no lock, no harness file', async () => {
+    await writeFiles(project, {
+      'kit/skills/review/SKILL.md': '---\nname: review\n---\nReview.\n',
+    });
+    const r = await m.palm(project, 'install', './kit', 'review', '--dry-run');
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain('would install');
+    for (const f of ['palm.yaml', 'palm.lock.yaml', '.claude/skills', '.palm'])
+      expect(existsSync(join(project, f))).toBe(false);
+  });
+
+  it('--json prints one JSON document on stdout', async () => {
+    const r = await m.palm(project, 'get', '--json');
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.stdout)).toMatchObject({ items: [], warnings: [] });
   });
 });
 
-describe('palm --dry-run writes nothing (CLI)', () => {
-  it('install --from … --save-origin --dry-run registers no origin and deploys no file', async () => {
-    const project = join(home, 'dry-project');
-    const { mkdir } = await import('node:fs/promises');
-    const { existsSync, readdirSync } = await import('node:fs');
-    await mkdir(join(project, '.git'), { recursive: true });
-    const fixture = join(repo, 'test', 'fixtures', 'mattpocock-like');
-    const r = await runPalm(
-      [
-        'install',
-        'skill',
-        'tdd',
-        '--from',
-        fixture,
-        '--save-origin',
-        '--dry-run',
-        '--target',
-        'claude',
-      ],
-      {
-        cwd: project,
-        env: {
-          HOME: home,
-          PALM_HOME: join(home, '.palm'),
-          NO_COLOR: '1',
-          CI: '1',
-          PATH: process.env.PATH,
-        },
-      },
-    );
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout + r.stderr).toContain('would register origin');
-    expect(r.stdout).toContain('dry run: no harness files, lockfile or manifest were changed');
-    // the table says what would happen, not what did
-    expect(r.stdout).toMatch(/\+ would install\s+skill\s+tdd/);
-    expect(r.stdout).not.toMatch(/\+ installed\b/);
-    expect(r.stdout).toContain('1 would install');
-    expect(existsSync(join(home, '.palm', 'config.yaml'))).toBe(false);
-    expect(readdirSync(project).sort()).toEqual(['.git']);
+describe('PLAN.md 4.9 onboarding transcripts', () => {
+  /** The fenced block of PLAN.md section 4.9 that starts with `first`. */
+  function planBlock(first: string): string {
+    const plan = readFileSync(join(repo, 'PLAN.md'), 'utf8');
+    const section = plan.slice(plan.indexOf('### 4.9 Onboarding'), plan.indexOf('### 4.10'));
+    const start = section.indexOf(`\`\`\`\n${first}`);
+    const body = section.slice(start + 4);
+    return `${body.slice(0, body.indexOf('\n```'))}\n`;
+  }
+
+  it.each([
+    ['a-onboarding-nora', '$ palm install superpowers'],
+    ['a-onboarding-lena', '$ palm install tdd'],
+  ])('%s is the real output of palm, byte for byte', (capture, first) => {
+    const text = readFileSync(join(repo, 'docs/src/captures', `${capture}.txt`), 'utf8');
+    expect(planBlock(first)).toBe(text);
   });
 });
