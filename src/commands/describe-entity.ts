@@ -28,14 +28,16 @@ function printBlocks(out: Output, blocks: NonNullable<EntityInfo['blocks']>): vo
     }
 }
 
-function printFiles(out: Output, info: EntityInfo): void {
+/** M12: a file gone from the disk reads `(missing)` beside it. */
+function printFiles(out: Output, info: EntityInfo, missing: readonly string[]): void {
   if (info.blocks) {
     printBlocks(out, info.blocks);
     return;
   }
+  const shown = (f: string) => `${displayLockPath(f)}${missing.includes(f) ? ' (missing)' : ''}`;
   for (const t of TARGET_IDS) {
     const files = info.files[t];
-    if (files?.length) field(out, t, files.map(displayLockPath).join(', '));
+    if (files?.length) field(out, t, files.map(shown).join(', '));
   }
   for (const m of info.entry.merged ?? [])
     field(out, 'merged', `${displayLockPath(m.file)} ${m.at}`);
@@ -46,7 +48,7 @@ function printExec(out: Output, info: EntityInfo, scope: Scope): void {
   for (const c of info.exec.commands) field(out, 'runs', `${c.id}  ${c.command}`);
   const hash = `sha256:${shortHash(info.exec.hash, 8)}`;
   const e = info.entry;
-  const key = `${e.kind}:${e.name}@${e.source}=${info.exec.hash}`;
+  const key = `${e.kind}:${e.name}@${sourceLabel(e.source)}=${info.exec.hash}`;
   const allow = palmLine('install', ['--allow-exec', key], scope);
   field(out, 'trust', info.exec.trusted ? `trusted (${hash})` : `not trusted; allow it: ${allow}`);
 }
@@ -61,7 +63,12 @@ function activationOf(e: Entity | undefined): string | undefined {
   return 'always';
 }
 
-export function printEntity(out: Output, info: EntityInfo, scope: Scope): void {
+export function printEntity(
+  out: Output,
+  info: EntityInfo,
+  view: { scope: Scope; missing?: readonly string[] },
+): void {
+  const { scope, missing = [] } = view;
   const e = info.entry;
   out.out(`${out.colors.bold(`${e.kind} ${e.name}`)}  (installed, ${scope} scope)`);
   if (info.entity?.description) out.out(`  ${info.entity.description}`);
@@ -74,7 +81,13 @@ export function printEntity(out: Output, info: EntityInfo, scope: Scope): void {
   field(out, 'selected by', info.selectedBy === 'manifest' ? 'palm.yaml' : info.selectedBy);
   field(out, 'members', e.deps?.map((d) => `${d.kind} ${d.name}`).join(', '));
   field(out, 'activation', activationOf(info.entity));
-  printFiles(out, info);
+  printFiles(out, info, missing);
+  if (missing.length)
+    field(
+      out,
+      'missing',
+      `${missing.length} of ${e.files.length} files; restore them: ${palmLine('install', [], scope)}`,
+    );
   for (const note of info.notes) field(out, 'note', note);
   printExec(out, info, scope);
   field(out, 'variables', info.secrets?.map(setWord).join(', '));

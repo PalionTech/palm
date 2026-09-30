@@ -5,7 +5,15 @@
  */
 import type { InstallOutcome, LockEntry, LockSource, Scope } from '../core/types.js';
 import { plural } from '../lib/text.js';
-import { displayLockPath, type Mark, STATUS_MARK, shortHash, statusWord } from './format.js';
+import {
+  displayLockPath,
+  type Mark,
+  STATUS_MARK,
+  shortHash,
+  shortRef,
+  sourceLabel,
+  statusWord,
+} from './format.js';
 
 export interface RowOptions {
   scope: Scope;
@@ -14,6 +22,23 @@ export interface RowOptions {
   from?: Record<string, LockSource>;
   /** The source as a pasteable command names it (K9): the key once declared, else as typed. */
   sourceWord?: (source: string) => string;
+  /** Y18': the run had --force: a restored edit reads `overwritten`. */
+  forced?: boolean;
+  /** Y16': the entry as the lock held it before the run (its targets). */
+  before?: (e: LockEntry) => LockEntry | undefined;
+  /** E5': an in-repo source's directory as a person types it; undefined for a git source. */
+  localSource?: (source: string) => string | undefined;
+  /** Q12: sources this run moved to an older version. */
+  downgraded?: (source: string) => boolean;
+}
+
+/** The word an outcome reads with: `overwritten` under --force (Y18'), `downgraded` (Q12). */
+export function wordOf(o: InstallOutcome, opts: RowOptions): string {
+  if (opts.forced && o.status === 'restored')
+    return opts.dryRun ? 'would overwrite' : 'overwritten';
+  if (o.status === 'updated' && opts.downgraded?.(o.entry.source))
+    return opts.dryRun ? 'would downgrade' : 'downgraded';
+  return statusWord(o.status, opts.dryRun);
 }
 
 export interface Row {
@@ -60,19 +85,29 @@ function countCell(e: LockEntry): string {
 function fromCell(e: LockEntry, from: RowOptions['from']): string {
   const s = from?.[e.source];
   if (!from || !s) return '';
-  const version = s.resolved ?? s.ref ?? (s.tree ? `tree ${shortHash(s.tree)}` : '');
-  return `from ${e.source}${version ? ` ${version}` : ''}`;
+  const version = shortRef(s.resolved ?? s.ref) ?? (s.tree ? `tree ${shortHash(s.tree)}` : '');
+  return `from ${sourceLabel(e.source)}${version ? ` ${version}` : ''}`;
 }
 
 /** Notes that fit in the row's last cell: `(cursor reads .agents/skills)`. */
 const INLINE_NOTE = 60;
+
+/** Y16': `removed from claude, opencode` when the run narrowed the entry's targets. */
+function narrowed(o: InstallOutcome, opts: RowOptions): string[] {
+  const was = opts.before?.(o.entry);
+  if (!was || o.status === 'removed') return [];
+  const gone = Object.keys(was.render).filter((t) => !(t in o.entry.render));
+  const verb = opts.dryRun ? 'would be removed from' : 'removed from';
+  return gone.length ? [`${verb} ${gone.join(', ')}`] : [];
+}
 
 /** The row's notes not printed on an earlier row; per-target words say `would …` in a dry run. */
 function notesOf(o: InstallOutcome, opts: RowOptions, said: Set<string>): string[] {
   const perTarget = Object.entries(o.perTarget ?? {}).map(
     ([t, s]) => `${t}: ${statusWord(s, opts.dryRun)}`,
   );
-  const fresh = [...new Set([...perTarget, ...o.notes])].filter((n) => !said.has(n));
+  const notes = [...perTarget, ...narrowed(o, opts), ...o.notes];
+  const fresh = [...new Set(notes)].filter((n) => !said.has(n));
   for (const n of fresh) if (!perTarget.includes(n)) said.add(n);
   return fresh;
 }
@@ -90,7 +125,7 @@ export function programLeftOut(o: InstallOutcome): boolean {
 /** J10: a server declared in palm.yaml installs with a bare install, not from a source named `manifest`. */
 function programHints(e: LockEntry, opts: RowOptions): string[] {
   const g = opts.scope === 'global' ? ' -g' : '';
-  if (e.source === 'manifest')
+  if (sourceLabel(e.source) === 'palm.yaml')
     return [
       `    see it:      palm install --dry-run --review${g}`,
       `    install it:  palm install${g}`,
@@ -100,10 +135,23 @@ function programHints(e: LockEntry, opts: RowOptions): string[] {
   return [`    see it:      ${cmd} --dry-run${g}`, `    install it:  ${cmd}${g}`];
 }
 
-/** L10: after --force, the way to keep an edit. */
-function keepItLine(e: LockEntry, scope: Scope): string {
-  const g = scope === 'global' ? ' -g' : '';
-  return `    to keep your change, move it into your own source: palm create ${e.kind} ${e.name}${g}`;
+/**
+ * O17, R2', E5': how to keep a kept edit for good. From an in-repo source: make it in the
+ * source file; from any other source: copy it into your own source under a new name. The
+ * failure's `--force` line discards it.
+ */
+function keepItLine(e: LockEntry, opts: RowOptions): string {
+  const dir = opts.localSource?.(e.source);
+  const g = opts.scope === 'global' ? ' -g' : '';
+  if (dir)
+    return `    to keep your change, make it in ${dir}/${e.path}, then run: palm install${g}`;
+  const where = locationOf(e).split(', ')[0];
+  return `    to keep your change, copy ${where} into your own source under a new name; --force discards it`;
+}
+
+/** X18: a note the lock keeps for the entry, on a row the run left unchanged: said at install. */
+function repeated(o: InstallOutcome, note: string): boolean {
+  return o.status === 'unchanged' && (o.entry.notes ?? []).includes(note);
 }
 
 export function outcomeRow(o: InstallOutcome, opts: RowOptions, said: Set<string>): Row {
@@ -111,13 +159,13 @@ export function outcomeRow(o: InstallOutcome, opts: RowOptions, said: Set<string
   const base = { kind: e.kind, name: e.name, after: [] as string[] };
   if (programLeftOut(o))
     return { ...base, mark: '!', word: LEFT_OUT, cells: [DECLINED], after: programHints(e, opts) };
-  const word = statusWord(o.status, opts.dryRun);
+  const word = wordOf(o, opts);
   if (o.status === 'failed') return { ...base, mark: 'x', word, cells: [] };
-  const notes = notesOf(o, opts, said);
+  const notes = notesOf(o, opts, said).filter((n) => !repeated(o, n));
   const joined = notes.join('; ');
   const inline = joined && joined.length <= INLINE_NOTE ? `(${joined})` : '';
   const below = inline ? [] : notes.map((n) => `    ${n}`);
-  const keep = o.status === 'modified' ? [keepItLine(e, opts.scope)] : [];
+  const keep = o.status === 'modified' ? [keepItLine(e, opts)] : [];
   const cells = [locationOf(e), countCell(e), fromCell(e, opts.from), inline].filter(Boolean);
   return { ...base, mark: STATUS_MARK[o.status], word, cells, after: [...below, ...keep] };
 }
@@ -127,5 +175,6 @@ export function skippedRow(source: string, group: InstallOutcome[], said: Set<st
   const notes = [...new Set(group.flatMap((o) => o.notes))].filter((n) => !said.has(n));
   for (const n of notes) said.add(n);
   const cells = [`${group.length} ${group.length === 1 ? 'entry' : 'entries'}`, ...notes];
-  return { mark: '⊘', word: statusWord('skipped'), kind: 'source', name: source, cells, after: [] };
+  const name = sourceLabel(source);
+  return { mark: '⊘', word: statusWord('skipped'), kind: 'source', name, cells, after: [] };
 }

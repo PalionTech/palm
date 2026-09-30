@@ -32,8 +32,9 @@ Claude Code does not read `.agents/skills`. Cursor reads both folders and remove
 With `$GEMINI_CLI_HOME` set, global skills for Gemini CLI go to `$GEMINI_CLI_HOME/.gemini/skills/<n>/`.
 With `OPENCODE_DISABLE_EXTERNAL_SKILLS` set to `1` or `true`, skills for OpenCode go to `.opencode/skills/<n>/` and `~/.config/opencode/skills/<n>/`.
 
-palm copies a skill's whole folder, except harness folders such as `.claude` or `.cursor`, `.git`, `node_modules` and palm's own files.
-Every copied file goes through the secret scan. A skill above 200 files or 5 MB needs `--force`, and the message gives the count.
+palm copies a skill's whole folder, including an `AGENTS.md`, `CLAUDE.md` or `GEMINI.md` the skill keeps in it.
+The copy leaves out harness folders (`.claude/`, `.cursor/`, `.codex/`, `.github/`, `.vscode/`, `.gemini/`, `.opencode/`), palm's own files, `.git`, `node_modules`, `.env*`, and tests: `tests/`, `test/`, `fixtures/`, `__tests__/` and `*.test.*` files.
+Every copied file goes through the secret scan, and a finding in a file the copy leaves out never refuses the skill. A skill above 200 files or 5 MB needs `--force`, and the message gives the count.
 `agents/openai.yaml` is Codex metadata, so palm copies it into `.agents/skills` only, never into `.claude/skills`.
 
 A command found in a source installs at these paths as a skill, with `name`, `description` and the command body in `SKILL.md`.

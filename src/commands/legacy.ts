@@ -21,6 +21,7 @@ import {
   palmLine,
   shellWord,
   sourceFor,
+  VALUE_OPTIONS,
 } from './hints.js';
 
 function usage(message: string, hint?: string): PalmError {
@@ -71,6 +72,12 @@ function pinned(source: string, ref: string, ctx: GrammarContext): string {
   return /^[./~]/.test(input) ? input : `${input}#${ref}`;
 }
 
+/** The fixed example of a form line: never the typed names or ref after a source that lacks them (X22, Q3). */
+function fixedExample(ctx: GrammarContext, ref?: string): string {
+  const source = ref ? 'mattpocock/skills#v1.0.0' : 'mattpocock/skills';
+  return palmLine('install', [source, 'tdd'], ctx.scope);
+}
+
 /** C23, D10: `tdd@alias#ref`: the ref goes with the source, as the source's location. */
 function pinnedName(alias: string, ref: string, names: EntityRefSpec[], ctx: GrammarContext) {
   const source = sourceFor(alias, ctx) ?? knownRepo(alias);
@@ -78,8 +85,17 @@ function pinnedName(alias: string, ref: string, names: EntityRefSpec[], ctx: Gra
   const message = 'a version belongs to the source, not to a name';
   if (source)
     return usage(message, `  ${palmLine('install', [pinned(source, ref, ctx), shown], ctx.scope)}`);
-  const example = palmLine('install', [`mattpocock/skills#${ref}`, shown], ctx.scope);
-  return usage(message, exampleLine(`palm install <owner/repo>#${ref} ${shown}`, example));
+  return usage(
+    message,
+    exampleLine(`palm install <owner/repo>#${ref} ${shown}`, fixedExample(ctx, ref)),
+  );
+}
+
+/** Q3: the declared source that offers every one of `names` (an entry installed from it). */
+function offering(names: readonly EntityRefSpec[], ctx: GrammarContext): string | undefined {
+  const has = (source: string, n: EntityRefSpec) =>
+    ctx.entries?.some((e) => e.source === source && e.name.toLowerCase() === n.name.toLowerCase());
+  return ctx.sources?.find((s) => names.every((n) => has(s.name, n)))?.name;
 }
 
 /** E16: an alias nothing resolves: the 0.2 form, with the well-known repository when there is one. */
@@ -92,8 +108,8 @@ function unknownAlias(alias: string, names: EntityRefSpec[], ctx: GrammarContext
       `${message}; did you mean ${known}?`,
       `  ${palmLine('install', [known, shown], ctx.scope)}`,
     );
-  const declared = ctx.sources?.[0]?.name ?? 'mattpocock/skills';
-  const example = palmLine('install', [declared, shown], ctx.scope);
+  const declared = offering(names, ctx);
+  const example = declared ? palmLine('install', [declared, shown], ctx.scope) : fixedExample(ctx);
   return usage(
     `${message}. Name its repository:`,
     exampleLine(`palm install <owner/repo> ${shown}`, example),
@@ -108,10 +124,7 @@ function perSource(verb: string, items: Tagged[], kind: Kind | undefined, ctx: G
     const source = sourceFor(alias, ctx) ?? knownRepo(alias);
     if (source) return `  ${commandLine(verb, source, names, ctx.scope)}`;
     const shown = names.map(formatName).join(' ');
-    return exampleLine(
-      `palm ${verb} <owner/repo> ${shown}`,
-      commandLine(verb, 'mattpocock/skills', names, ctx.scope),
-    );
+    return exampleLine(`palm ${verb} <owner/repo> ${shown}`, fixedExample(ctx));
   });
   return usage(
     `these names come from ${aliases.length} sources; palm ${verb} takes one at a time:`,
@@ -199,20 +212,6 @@ export interface RemovedFlags {
   project?: boolean;
 }
 
-/** Options whose value is the next word, for rebuilding a command line. */
-const VALUE_OPTIONS = new Set([
-  '--as',
-  '--targets',
-  '--target',
-  '--at',
-  '--allow-exec',
-  '--secrets',
-  '--from',
-  '--ref',
-  '--alias',
-  '--grep',
-]);
-
 const DROPPED = new Set(['--from', '--ref', '--alias', '--project', '--frozen']);
 
 /** The flags of `argv` (the command line), without the removed ones and their values. */
@@ -229,13 +228,21 @@ function keptFlags(argv: readonly string[]): string[] {
   return kept.filter(Boolean).map(shellWord);
 }
 
-/** `--ref r`: the ref goes after the source's location. */
-function refLine(words: string[], ref: string, flags: string[], ctx: GrammarContext): string {
-  const [first = '', ...rest] = words;
+/**
+ * O15: `--ref r` goes after the source's location, built from the words as typed (a 0.1
+ * `origin` word dropped); with no source among them, the form and a fixed example.
+ */
+function refError(words: string[], ref: string, flags: string[], ctx: GrammarContext): PalmError {
+  const typed = words[0] === 'origin' ? words.slice(1) : words;
+  const [first = '', ...rest] = typed;
+  const message = '--ref is now #ref after the source';
   if (ctx.isDeclared?.(first) || looksLikeSourceInput(first))
-    return palmLine('install', [pinned(first, ref, ctx), ...rest, ...flags]);
-  const names = kindNames(words).map(formatName);
-  return palmLine('install', [`mattpocock/skills#${ref}`, ...names, ...flags]);
+    return usage(
+      `${message}: ${palmLine('install', [pinned(first, ref, ctx), ...rest, ...flags], ctx.scope)}`,
+    );
+  const names = kindNames(typed).map(formatName).join(' ');
+  const form = `palm install <owner/repo>#${ref}${names ? ` ${names}` : ''}`;
+  return usage(message, exampleLine(form, fixedExample(ctx, ref)));
 }
 
 /**
@@ -254,8 +261,7 @@ export function removedFlagError(
     const line = palmLine('install', [flags.from, ...names, ...kept]);
     return usage(`--from is now the first word: ${line}`);
   }
-  if (flags.ref !== undefined)
-    return usage(`--ref is now #ref after the source: ${refLine(words, flags.ref, kept, ctx)}`);
+  if (flags.ref !== undefined) return refError(words, flags.ref, kept, ctx);
   const line = palmLine('install', [...words.map(shellWord), ...kept]);
   if (flags.alias !== undefined)
     return usage(`--alias is now --as: ${line} --as ${shellWord(flags.alias)}`);

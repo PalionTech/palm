@@ -82,7 +82,7 @@ describe('palm install mcp --snippet', () => {
       [
         '+ mcp  context7   .mcp.json   merged',
         '+ mcp  docs       .mcp.json   merged',
-        '2 installed.',
+        '2 installed. Commit palm.yaml, palm.lock.yaml and .mcp.json together.',
         '',
       ].join('\n'),
     );

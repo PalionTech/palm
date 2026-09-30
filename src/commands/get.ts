@@ -13,8 +13,9 @@ import type { InstalledRow, ScopeState } from '../create/engine.js';
 import { displayLockPath, shortHash } from '../ui/format.js';
 import type { App } from './app.js';
 import { formatName, type Invocation } from './grammar.js';
-import { nearest, palmLine } from './hints.js';
+import { manifestFile, nearest, palmLine } from './hints.js';
 import {
+  missingFiles,
   refCell,
   SOURCE_HEADER,
   scopeRoot,
@@ -25,7 +26,14 @@ import {
   targetRows,
   targetViews,
 } from './scope-view.js';
-import { engine, engineDeps, type GlobalOptions, makeContext, scopeOf } from './shared.js';
+import {
+  engine,
+  engineDeps,
+  type GlobalOptions,
+  makeContext,
+  otherScopeHint,
+  scopeOf,
+} from './shared.js';
 
 interface GetFlags extends GlobalOptions {
   source?: string;
@@ -39,9 +47,13 @@ function targetsOf(row: InstalledRow): string {
   return TARGET_IDS.filter((t) => row.entry.render[t] !== undefined).join(',');
 }
 
-function installedRow(row: InstalledRow, withAt: boolean): string[] {
+/** M12: the files of each row that are gone from the disk. */
+type Missing = (row: InstalledRow) => string[];
+
+function installedRow(row: InstalledRow, withAt: boolean, missing: Missing): string[] {
   const e = row.entry;
   const merged = e.merged?.length ? ` +${e.merged.length} merged` : '';
+  const gone = missing(row).length;
   const cells = [
     e.kind,
     e.via ? `${e.name} (${e.via})` : e.name,
@@ -49,13 +61,14 @@ function installedRow(row: InstalledRow, withAt: boolean): string[] {
     refCell(row.source),
     shortHash(row.source.sha),
     targetsOf(row),
-    `${e.files.length}${merged}`,
+    `${e.files.length}${merged}${gone ? ` (${gone} missing)` : ''}`,
   ];
   return withAt ? [...cells, e.at ?? ''] : cells;
 }
 
-function installedJson(row: InstalledRow) {
+function installedJson(row: InstalledRow, missing: Missing) {
   const e = row.entry;
+  const gone = missing(row);
   return {
     kind: e.kind,
     name: e.name,
@@ -69,7 +82,7 @@ function installedJson(row: InstalledRow) {
     files: e.files,
     merged: (e.merged ?? []).map((m) => m.file),
     ...(e.at ? { at: e.at } : {}),
-    layer: row.layer,
+    ...(gone.length ? { missing: gone } : {}),
   };
 }
 
@@ -101,7 +114,7 @@ async function sourceFilter(ctx: PalmContext, app: App, flags: GetFlags) {
   const near = nearest(query, names);
   throw new PalmError(
     'E_NOT_FOUND',
-    `no source "${query}" in ${scope === 'global' ? '~/.palm/palm.yaml' : 'palm.yaml'}${near ? `; did you mean ${near}?` : ''}`,
+    `no source "${query}" in ${manifestFile(scope)}${near ? `; did you mean ${near}?` : ''}`,
     near ? palmLine('get', ['--source', near], scope) : palmLine('get', ['sources'], scope),
   );
 }
@@ -116,14 +129,16 @@ async function installed(ctx: PalmContext, app: App, inv: Invocation, flags: Get
     ...(names.length ? { names } : {}),
     ...(source ? { source } : {}),
   };
-  const rows = await engine(app).listInstalled(ctx, scopeOf(flags), q);
-  if (names.length && !rows.length)
-    throw new PalmError(
-      'E_NOT_FOUND',
-      `nothing named ${inv.names.map(formatName).join(', ')} is installed`,
-      palmLine('get', [], scopeOf(flags)),
-    );
-  return rows;
+  const scope = scopeOf(flags);
+  const rows = await engine(app).listInstalled(ctx, scope, q);
+  if (!names.length || rows.length) return rows;
+  const words = [...(kind ? [kind] : []), ...names];
+  const other = await otherScopeHint(ctx, app, scope, { verb: 'get', words, names: inv.names });
+  throw new PalmError(
+    'E_NOT_FOUND',
+    `nothing named ${inv.names.map(formatName).join(', ')} is installed`,
+    other ?? palmLine('get', [], scope),
+  );
 }
 
 /** An MCP server's variables and whether each is set (describe computes them). */
@@ -145,22 +160,34 @@ async function printVariables(ctx: PalmContext, app: App, rows: InstalledRow[], 
 
 /** Y26: `get mcp --json` carries each server's variables. */
 async function installedDocs(ctx: PalmContext, app: App, rows: InstalledRow[], scope: Scope) {
+  const missing = await missingOf(ctx, app, scope);
   const docs = [];
   for (const row of rows) {
-    const doc = installedJson(row);
+    const doc = installedJson(row, missing);
     if (row.entry.kind !== 'mcp') docs.push(doc);
     else docs.push({ ...doc, variables: await variablesOf(ctx, app, row, scope) });
   }
   return docs;
 }
 
-function printInstalled(app: App, rows: InstalledRow[]): void {
+/** M12: which files of a row are gone, read against the scope's paths. */
+async function missingOf(ctx: PalmContext, app: App, scope: Scope): Promise<Missing> {
+  const state = await engine(app)
+    .openScope(ctx, scope, { readOnly: true })
+    .catch(() => undefined);
+  return (row) => (state ? missingFiles(state, row.entry) : []);
+}
+
+async function printInstalled(ctx: PalmContext, app: App, rows: InstalledRow[], scope: Scope) {
   const withAt = rows.some((r) => r.entry.at);
   const header = withAt ? [...INSTALLED_HEADER, 'at'] : INSTALLED_HEADER;
+  const missing = await missingOf(ctx, app, scope);
   app.out.table(
-    rows.map((r) => installedRow(r, withAt)),
+    rows.map((r) => installedRow(r, withAt, missing)),
     header,
   );
+  const gone = rows.filter((r) => missing(r).length);
+  if (gone.length) app.out.hint(`restore missing files: ${palmLine('install', [], scope)}`);
 }
 
 async function getInstalled(ctx: PalmContext, app: App, inv: Invocation, flags: GetFlags) {
@@ -179,7 +206,7 @@ async function getInstalled(ctx: PalmContext, app: App, inv: Invocation, flags: 
     const line = palmLine('install', ['mattpocock/skills'], scope);
     return out.hint(`see what a source offers, for example: ${line}`);
   }
-  printInstalled(app, rows);
+  await printInstalled(ctx, app, rows, scope);
   if (kind === 'mcp') await printVariables(ctx, app, rows, scope);
 }
 
@@ -214,7 +241,7 @@ async function getAll(ctx: PalmContext, app: App, state: ScopeState, flags: GetF
   }
   const out = app.out;
   out.out(out.colors.bold('Installed'));
-  if (rows.length) printInstalled(app, rows);
+  if (rows.length) await printInstalled(ctx, app, rows, scope);
   else out.hint(`Nothing installed in the ${scope} scope.`);
   out.out(`\n${out.colors.bold('Sources')}`);
   out.table(sourceRows(sources), SOURCE_HEADER);

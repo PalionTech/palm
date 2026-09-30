@@ -28,15 +28,45 @@ function firstSkill(text: string): string[] | undefined {
   return undefined;
 }
 
-/** `apm.yml`: `dependencies: { apm: ["owner/repo#ref", …] }`, installed whole (programs left out). */
+/** APM's virtual file packages: the file suffix and the kind palm installs it as. */
+const VIRTUAL_FILES: ReadonlyArray<[suffix: string, kind: string]> = [
+  ['.instructions.md', 'instruction'],
+  ['.agent.md', 'agent'],
+  ['.chatmode.md', 'agent'],
+  ['.prompt.md', 'skill'],
+];
+
+/**
+ * O5: an APM dependency as `palm install` words. A virtual file path
+ * (`owner/repo/instructions/golang.instructions.md#ref`) is its repository and the entity
+ * (`owner/repo#ref instruction:golang`); another file lists the repository; a directory or a
+ * repository installs whole (programs left out).
+ */
+export function apmInstallWords(dep: string): string[] {
+  const [path = '', ref] = dep.split('#');
+  const parts = path.split('/');
+  const repo = `${parts.slice(0, 2).join('/')}${ref ? `#${ref}` : ''}`;
+  const file = parts.length > 2 ? (parts[parts.length - 1] ?? '') : '';
+  const virtual = VIRTUAL_FILES.find(([suffix]) => file.endsWith(suffix));
+  if (virtual) return [repo, `${virtual[1]}:${file.slice(0, -virtual[0].length)}`];
+  if (/\.[a-z]+$/i.test(file)) return [repo];
+  return [dep, '--all'];
+}
+
+/** `apm.yml`: `dependencies: { apm: ["owner/repo#ref", …] }`: the first one as install words. */
 function firstPackage(text: string): string[] | undefined {
   const data: unknown = YAML.parse(text);
   const deps = isRecord(data) && isRecord(data.dependencies) ? data.dependencies.apm : undefined;
   const first = Array.isArray(deps)
     ? deps.find((d) => typeof d === 'string' && d.trim())
     : undefined;
-  return typeof first === 'string' ? [first.trim(), '--all'] : undefined;
+  return typeof first === 'string' ? apmInstallWords(first.trim()) : undefined;
 }
+
+/** X11: what an example from each file installs, when that differs from what the file pinned. */
+const AT: Readonly<Record<string, string>> = {
+  'skills-lock.json': ' at the current branch (the locked commit needs palm 0.3)',
+};
 
 async function example(file: string, pick: (text: string) => string[] | undefined) {
   try {
@@ -65,7 +95,8 @@ export async function importHint(
   ];
   for (const [name, pick] of found) {
     const words = await example(join(root, name), pick);
-    if (words) lines.push(`  from ${name}, for example: ${palmLine('install', words, scope)}`);
+    const at = AT[name] ?? '';
+    if (words) lines.push(`  from ${name}${at}, for example: ${palmLine('install', words, scope)}`);
   }
   return lines;
 }

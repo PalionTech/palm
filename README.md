@@ -210,7 +210,8 @@ script with its mode, size and hash. `v` pages the script bodies, and on update 
 
 ## What palm does not do
 
-- palm does not support Windows. macOS and Linux are supported.
+- palm does not run on native Windows. macOS and Linux are supported; on Windows, run palm inside
+  WSL. Contributors who only use the harnesses need no palm, since the generated files are committed.
 - palm sends no telemetry and checks for no updates. It talks to the git hosts of the sources you
   declare and nothing else.
 - palm has no registry and no search. You name the repository, and `palm install tdd` fails with

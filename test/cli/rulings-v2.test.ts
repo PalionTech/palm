@@ -126,7 +126,7 @@ describe('B17, E15, L6, K15: a first word that is no source is looked up in palm
     expect(r.stderr).toContain('    palm install ./.agents-kit reviewer\n');
   });
 
-  it('L6: a bare owner is the declared source it owns; examples come from palm.yaml', async () => {
+  it('L6, Q3, N11: a bare owner is its declared source; an example never pastes the typed word', async () => {
     const deps = fakeEngine({ scopes: [scope({ sources: [MP] })] });
     const owner = await palm(sb, ['install', 'mattpocock', 'tdd'], { deps });
     expect(owner.stderr).toBe(
@@ -135,15 +135,16 @@ describe('B17, E15, L6, K15: a first word that is no source is looked up in palm
     const other = await palm(sb, ['install', 'frobnicate'], {
       deps: fakeEngine({ scopes: [scope({ sources: [MP] })] }),
     });
-    expect(other.stderr).toContain('for example  palm install mattpocock/skills frobnicate');
+    expect(other.stderr).toContain('for example  palm install mattpocock/skills tdd');
+    expect(other.stderr).not.toContain('mattpocock/skills frobnicate');
   });
 
-  it('K15: under -g, a source of this project is named as one, with its repository', async () => {
+  it('K15, N7: under -g, a source of this project is named as one, with its repository and name', async () => {
     const project = scope({ sources: [{ name: 'acme', url: 'https://github.com/acme/kit.git' }] });
     const deps = fakeEngine({ scopes: [scope({ scope: 'global' }), project] });
     const r = await palm(sb, ['install', 'acme', 'review', '-g'], { deps });
     expect(r.stderr).toBe(
-      'x "acme" is a source of this project; -g uses the sources in ~/.palm/palm.yaml only\n  install it for yourself from its repository: palm install acme/kit review -g\n',
+      'x "acme" is a source of this project; -g uses the sources in ~/.palm/palm.yaml only\n  install it for yourself from its repository: palm install acme/kit review --as acme -g\n',
     );
   });
 
@@ -333,7 +334,9 @@ describe('E20, K24, L17, J25: a line said twice prints once', () => {
       removeEntities: async () => ({ removed: [], failures: [], warnings: [] }),
     });
     const r = await palm(sb, ['remove', 'gril'], { deps });
-    expect(r.stdout).toBe('i gril is not installed\n  did you mean grill? palm remove grill\n');
+    expect(r.stdout).toBe(
+      'i gril is not installed\n  did you mean grill? palm remove ./.ai/agent-kit skill:grill\n',
+    );
   });
 
   it('an entity installed in the other scope says so with -g', async () => {

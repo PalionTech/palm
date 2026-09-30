@@ -61,7 +61,7 @@ None of the other tools was run for this page.
 
 ## What palm does not do
 
-- It does not run on Windows.
+- It does not run on native Windows. A maintainer on Windows runs it inside WSL; contributors need no palm.
 - It needs Node 22. There is no single binary or Homebrew formula.
 - It has no registry, no search and no install counts. Discovery happens on GitHub or in a README.
 - It does not follow dependencies. An agent's skills and an APM package's `dependencies:` are listed with the command that installs them, never installed on their own.
@@ -72,7 +72,7 @@ None of the other tools was run for this page.
 
 ## When the others fit better
 
-Choose APM when you need a harness palm does not cover, Windows, or packages that ship binaries.
+Choose APM when you need a harness palm does not cover, native Windows, or packages that ship binaries.
 APM also fits organizations that approve and block packages by policy, or that compile instructions into `AGENTS.md` files.
 It installs through Homebrew, WinGet and Scoop.
 

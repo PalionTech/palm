@@ -5,6 +5,7 @@
  */
 import { PalmError } from '../core/errors.js';
 import { pluralize } from '../core/kinds.js';
+import { looksLikeSourceInput } from '../core/source-input.js';
 import {
   KINDS,
   type LayoutDescriptor,
@@ -17,7 +18,7 @@ import { displayLockPath, shortHash } from '../ui/format.js';
 import type { App } from './app.js';
 import { field } from './describe-entity.js';
 import { usage } from './grammar.js';
-import { nearest, palmLine } from './hints.js';
+import { manifestFile, nearest, palmLine } from './hints.js';
 import { activeTargets, scopeRoot, sourceView, targetViews } from './scope-view.js';
 import { displayPath, engine, engineDeps } from './shared.js';
 
@@ -48,20 +49,49 @@ function layoutLines(layout: LayoutDescriptor | undefined): string[] {
   return Object.entries(layout ?? {}).map(([k, v]) => `${k}: [${[v].flat().join(', ')}]`);
 }
 
-function unknownSource(state: ScopeState, name: string): PalmError {
+function unknownSource(state: ScopeState, name: string, near: string | undefined): PalmError {
   const scope = state.paths.scope;
-  const near = nearest(name, state.sources.names());
-  const manifest = scope === 'global' ? '~/.palm/palm.yaml' : 'palm.yaml';
   return new PalmError(
     'E_NOT_FOUND',
-    `${manifest} declares no source "${name}"${near ? `; did you mean ${near}?` : ''}`,
+    `${manifestFile(scope)} declares no source "${name}"${near ? `; did you mean ${near}?` : ''}`,
     near ? palmLine('describe', ['source', near], scope) : palmLine('get', ['sources'], scope),
   );
 }
 
+/**
+ * Q18: a source palm.yaml does not declare, described from its listing (what it offers and the
+ * notes from indexing it): the one place the listing's note line points to.
+ */
+async function describeUndeclared(ctx: PalmContext, app: App, state: ScopeState, input: string) {
+  const scope = state.paths.scope;
+  const listed = await engine(app).listSource(ctx, input, { scope }, engineDeps(app));
+  const { checkout, index } = listed;
+  for (const w of index.warnings) app.out.warn(`${input}: ${w}`);
+  const detected = index.detected;
+  if (app.out.jsonMode)
+    return app.out.json({
+      name: input,
+      declared: false,
+      ...checkout,
+      detected,
+      offers: offers(listed),
+    });
+  const out = app.out;
+  out.out(out.colors.bold(`source ${input}`));
+  field(out, 'declared', `no; an install from it declares it in ${manifestFile(scope)}`);
+  field(out, 'ref', checkout.ref);
+  field(out, checkout.sha ? 'sha' : 'tree', shortHash(checkout.sha ?? checkout.tree));
+  field(out, 'detected', detected);
+  field(out, 'offers', offers(listed));
+}
+
 export async function describeSource(ctx: PalmContext, app: App, state: ScopeState, name: string) {
   const ref = state.sources.byName(name);
-  if (!ref) throw unknownSource(state, name);
+  if (!ref) {
+    const near = nearest(name, state.sources.names());
+    if (!near && looksLikeSourceInput(name)) return describeUndeclared(ctx, app, state, name);
+    throw unknownSource(state, name, near);
+  }
   const view = sourceView(state, ref);
   const scope = state.paths.scope;
   const listed = await engine(app)
@@ -111,7 +141,7 @@ export async function describeTarget(ctx: PalmContext, app: App, state: ScopeSta
   if (app.out.jsonMode) return app.out.json({ ...view, root: state.paths.root, outputDirs: dirs });
   const out = app.out;
   out.out(`${out.colors.bold(`target ${view.id}`)}  (${view.name})`);
-  const manifest = state.paths.scope === 'global' ? '~/.palm/palm.yaml' : 'palm.yaml';
+  const manifest = manifestFile(state.paths.scope);
   field(out, 'active', view.active ? 'yes' : `no (add it to targets: in ${manifest})`);
   field(out, 'root', root);
   field(out, 'config dir', view.configDir);

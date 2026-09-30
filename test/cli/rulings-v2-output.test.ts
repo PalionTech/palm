@@ -152,7 +152,7 @@ describe('D4 C19 D11 L11: the plan says how far a pin is behind and why a source
 });
 
 describe('L10, J10, Y6, R7: the lines under a row are commands that run', () => {
-  it('L10: a kept edit names the way to keep it next to --force', async () => {
+  it('L10, O17, R2: a kept edit names the way to keep it: a copy under a new name', async () => {
     const deps = fakeEngine({
       scopes: [scope({ scope: 'global' })],
       syncScope: async () => result([outcome(skill('tdd', 'mattpocock/skills'), 'modified')]),
@@ -160,7 +160,7 @@ describe('L10, J10, Y6, R7: the lines under a row are commands that run', () => 
     const r = await palm(sb, ['install', '-g'], { deps });
     expect(r.code).toBe(1);
     expect(r.stdout).toContain(
-      '    to keep your change, move it into your own source: palm create skill tdd -g\n',
+      '    to keep your change, copy .claude/skills/tdd/ into your own source under a new name; --force discards it\n',
     );
   });
 
@@ -208,7 +208,7 @@ describe('L12, L15: --grep filters a listing; index notes are one line', () => {
     expect(r.stdout).toContain('    palm install cursor/rules react-hooks react-query\n');
     expect(r.stdout).not.toContain('--all');
     expect(r.stdout).toContain(
-      'i 2 notes from indexing cursor/rules (see: PALM_DEBUG=1 palm install cursor/rules)\n',
+      'i 2 notes from indexing cursor/rules (see: palm describe source cursor/rules)\n',
     );
     expect(r.stderr).toBe('');
   });
@@ -504,7 +504,7 @@ describe('E18, K18, C3, V11: remove says what it kept and repeats the flags that
       }),
     });
     const r = await palm(sb, ['remove', 'team', 'pr-helper', '--exclude'], { deps });
-    expect(r.stderr).toContain('  palm remove team pr-helper --force --exclude\n');
+    expect(r.stderr).toContain('  palm remove team skill:pr-helper --force --exclude\n');
   });
 });
 

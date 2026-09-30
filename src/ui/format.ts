@@ -118,6 +118,16 @@ export function listJoin(items: readonly string[]): string {
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
+/** O22, R19': a ref as a table shows it: a full commit sha as its first 7 characters. */
+export function shortRef(ref: string | undefined): string | undefined {
+  return ref && /^[0-9a-f]{40}$/.test(ref) ? ref.slice(0, 7) : ref;
+}
+
+/** J10, N13: the source of an entry palm.yaml itself declares (an MCP server) reads `palm.yaml`. */
+export function sourceLabel(source: string): string {
+  return source === 'manifest' ? 'palm.yaml' : source;
+}
+
 /** `sha256:a7cc7911…` or a git sha → the first `n` hex characters. */
 export function shortHash(hash: string | undefined, n = 7): string {
   return (hash ?? '').replace(/^sha256:/, '').slice(0, n);
@@ -153,4 +163,35 @@ export function formatBytes(n: number): string {
     i++;
   }
   return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+}
+
+/** `palm install|remove <source> <names…>` in a hint: the source word, then the names after it. */
+const HINT_COMMAND = /palm (install|remove) ((?!-)\S+)((?: (?!-)[^\s;,)]+)*)/g;
+
+/**
+ * O3, R4': a hint's command names its entity with the kind (`skill:golang`), so a name that
+ * means two kinds in the source still pastes and a remove hint never loops back. The other names
+ * and every option stay; `palm install mcp …` has no source word.
+ */
+export function withKind(hint: string, subject: { kind: string; name: string }): string {
+  if (subject.kind === 'source') return publicHint(hint);
+  const form = `${subject.kind}:${subject.name}`;
+  return publicHint(hint).replace(
+    HINT_COMMAND,
+    (all, verb: string, source: string, names: string) => {
+      if (source === 'mcp') return all;
+      const words = names.split(' ').map((w) => (w === subject.name ? form : w));
+      return `palm ${verb} ${source}${words.join(' ')}`;
+    },
+  );
+}
+
+/**
+ * J10, R16': a server palm.yaml declares by hand has no source to name: its hints are
+ * `palm install mcp <name>` and `palm remove mcp:<name>`, never the word `manifest`.
+ */
+export function publicHint(hint: string): string {
+  return hint
+    .replace(/palm install manifest ((?:mcp:)?)(\S+)/g, 'palm install mcp $2')
+    .replace(/palm remove manifest (?:mcp:)?(\S+)/g, 'palm remove mcp:$1');
 }

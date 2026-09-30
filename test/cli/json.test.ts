@@ -36,7 +36,7 @@ async function json(argv: string[], deps: ReturnType<typeof fakeEngine>) {
 }
 
 describe('--json', () => {
-  it('get: { items, warnings } with the source, ref, sha, targets, files and layer', async () => {
+  it('get, N13 Q14: { items, warnings } with the source, ref, sha, targets and files; no layer', async () => {
     const deps = fakeEngine({
       listInstalled: async () => [{ entry: tdd, source: mpSource, layer: 'team' as const }],
     });
@@ -54,14 +54,13 @@ describe('--json', () => {
           targets: ['claude', 'cursor'],
           files: ['.claude/skills/tdd/SKILL.md'],
           merged: [],
-          layer: 'team',
         },
       ],
       warnings: [],
     });
   });
 
-  it('describe: the entity info and warnings', async () => {
+  it('describe, J10 K-manifest: the entity info and warnings; palm.yaml, never manifest', async () => {
     const info: EntityInfo = {
       entry: tdd,
       source: mpSource,
@@ -74,7 +73,7 @@ describe('--json', () => {
       describeEntity: async () => info,
     });
     const r = await json(['describe', 'tdd'], deps);
-    expect(r.doc).toEqual({ ...info, warnings: [] });
+    expect(r.doc).toEqual({ ...info, selectedBy: 'palm.yaml', warnings: [] });
     expect(deps.calls.describeEntity?.[0]?.[0]).toEqual({
       kind: 'skill',
       name: 'tdd',
@@ -136,7 +135,7 @@ describe('--json', () => {
       error: {
         code: 'E_USAGE',
         message: '"tdd" is not a repository. palm installs from git repositories:',
-        hint: '  palm install <owner/repo> tdd             for example  palm install mattpocock/skills tdd',
+        hint: 'palm install <owner/repo> tdd             for example  palm install mattpocock/skills tdd',
       },
       warnings: [],
     });

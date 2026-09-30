@@ -50,7 +50,7 @@ A refusal, a failed fetch or a declined consent leaves every file as it was, so 
 8. palm writes the new `palm.yaml` with your comments kept, and the new lock.
 9. `.palm/hooks/<name>/` is re-copied from the locked commit into `.palm/assets/<source>/<name>/`, then `.palm/hooks/` is removed. A hook from an in-repo source is not copied; it runs in place. The `.palm/` line in `.gitignore` becomes `.palm/local/` and `palm.local.yaml`.
 10. A bare install adopts every file that already matches, and every merged entry by its key. palm never deletes or unlinks a harness file, and writes through symlinks.
-11. palm runs `palm check`, prints its result, and lists every file it changed and every output folder to commit.
+11. palm runs `palm check`, prints its result, and lists every file it changed and every output folder to commit. An output folder `.gitignore` hides is a warning here, not a failure, with the exact lines that re-include it, as [Gitignored outputs](/palm/guides/migrate-from-apm/#gitignored-outputs) shows.
 
 A source that came from `~/.palm/config.yaml` prints `~ palm.yaml: source <name> added from ~/.palm/config.yaml, needed by <n> entries; commit it`.
 
@@ -80,7 +80,7 @@ Every other palm command stops on the old files with `x palm.yaml is in the 0.1 
 | Code | When |
 | --- | --- |
 | `0` | The scope was migrated and `palm check` passed, or `--dry-run` printed the plan. |
-| `1` | A repository could not be fetched, a program needs consent without a terminal, a file could not be adopted, or the final `palm check` failed. |
+| `1` | A repository could not be fetched, a program needs consent without a terminal, a file could not be adopted, or the final `palm check` failed on anything but ignored output folders. |
 | `2` | An unknown option. |
 | `130` | You declined consent or pressed Ctrl-C. palm wrote nothing. |
 

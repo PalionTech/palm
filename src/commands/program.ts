@@ -119,14 +119,19 @@ function withLegacy(inv: Invocation, legacy: Invocation['legacy']): Invocation {
 }
 
 /** install and remove read palm.yaml, interpret the words again and print a 0.1 form themselves. */
+/** J6': the scope of a command line, for the hints the grammar prints while commander parses. */
+const scopeCtx = (opts: Opts) => ({
+  scope: opts.global ? ('global' as const) : ('project' as const),
+});
+
 function installInvocation(words: string[], opts: Opts): Invocation {
-  const w = interpretInstall(words);
+  const w = interpretInstall(words, scopeCtx(opts));
   const command = w.mcp ? 'install mcp' : 'install';
   return { command, source: w.source, names: w.names, opts, words };
 }
 
 function removeInvocation(words: string[], opts: Opts): Invocation {
-  const w = interpretRemove(words);
+  const w = interpretRemove(words, scopeCtx(opts));
   return { command: 'remove', source: w.source, names: w.names, opts, words };
 }
 
@@ -211,7 +216,10 @@ const VERB_SETUP: Readonly<Record<Verb, VerbSetup>> = {
   },
   remove: {
     args: [['<names...>', 'an optional source, then [kind:]name of what to remove']],
-    options: (c) => c.option('--exclude', 'a plugin member: exclude it for the team in palm.yaml'),
+    options: (c) =>
+      c
+        .option('--exclude', 'a plugin member: exclude it for the team in palm.yaml')
+        .option('--all', 'every entry of the source, after a question'),
     invocation: removeInvocation,
   },
   update: {
@@ -252,7 +260,8 @@ const VERB_SETUP: Readonly<Record<Verb, VerbSetup>> = {
     options: (c) =>
       c
         .option('--in <dir>', 'the source directory (default ./agent-kit; ~/.palm/kit with -g)')
-        .option('--description <text>', 'the description in the template'),
+        .option('--description <text>', 'the description in the template')
+        .option('--review', 'print the scripts of a hook first; with --dry-run, only print'),
     invocation: createInvocation,
   },
 };

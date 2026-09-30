@@ -142,6 +142,8 @@ Options:
   --in <dir>            the source directory (default ./agent-kit; ~/.palm/kit
                         with -g)
   --description <text>  the description in the template
+  --review              print the scripts of a hook first; with --dry-run, only
+                        print
   -h, --help            display help for command
 
 Global Options:
@@ -371,6 +373,7 @@ Arguments:
 
 Options:
   --exclude            a plugin member: exclude it for the team in palm.yaml
+  --all                every entry of the source, after a question
   -h, --help           display help for command
 
 Global Options:

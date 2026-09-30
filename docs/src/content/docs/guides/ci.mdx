@@ -41,16 +41,35 @@ When you finish, CI passes on a clean branch and fails on an edited file, with t
    ```
 
    Pin the exact version, as for any tool in CI, and move it in a pull request. A newer palm may render an entity differently, and the pin keeps that change out of unrelated pull requests.
+   Without a global install, `npx @paliontech/palm@0.2.0 check` runs the same pinned version.
    A `palm:` key in `palm.yaml` that names the minimum version is planned for 0.3.
    `palm check` exits 1 when any check fails. Warnings alone exit 0.
 
-2. Read the report when it fails.
+   In a repository without `palm.yaml`, `palm check` exits 1 with `x no palm.yaml here`, so a missing file never passes as clean.
+   Guard the step only when the workflow is shared with repositories that do not use palm.
+
+   ```yaml title=".github/workflows/agents.yml"
+         - run: '[ ! -f palm.yaml ] || palm check'
+   ```
+
+2. Make warnings fail, if you want them to.
+
+   ```sh
+   palm check --strict
+   ```
+
+   `--strict` exits 1 on a warning or a skipped check too.
+   It fails on a hook command or stdio MCP server that someone added to a harness file by hand, since no lock entry explains it.
+   It fails when `--offline` meets an empty cache and `lock-disk` is skipped, so cache `~/.palm/cache` between runs or leave the network on.
+   Acknowledge a warning you accept in the `ignore:` list of `palm.yaml`, as [palm check](/palm/reference/cli/check/#acknowledge-a-warning) shows.
+
+3. Read the report when it fails.
 
    Each check prints one line: `✓`, `x`, `!` or `skipped` with the reason. Then come the problems, one line per entity, each ending in the command that fixes it.
    Run that command on your machine, review the diff, and commit.
-   `palm check --quiet` prints only the problems, so a passing run prints nothing.
+   `palm check --quiet` prints only the problems and the skipped checks, so a passing run prints nothing.
 
-3. Use JSON for anything that parses the result.
+4. Use JSON for anything that parses the result.
 
    ```sh
    palm check --json
@@ -66,9 +85,14 @@ Replace the line with `palm check`.
 
 ## What palm check covers
 
+`palm check` reads `palm.yaml`, the lock, the files palm wrote, the in-repo sources, and the harness files palm merges into or parses, such as `.claude/settings.json` and `.mcp.json`.
+In those harness files it reports every hook command and stdio MCP server that no lock entry explains, in every event array, as a warning that `--strict` turns into a failure.
+It reads nothing else, so a script or agent file added by hand outside palm's folders is for code review, not for `palm check`.
+
 | Check | Fails when | Fix |
 | --- | --- | --- |
 | `manifest-lock` | an entry of `palm.yaml` has no lock entry, or the reverse; a `ref:` differs from the lock; a plugin filter names nothing | `palm install` |
+| `targets` | `targets:` in `palm.yaml` differs from the targets the lock rendered | `palm install --dry-run` lists what goes, then `palm install` |
 | `render`, `partial` | an entry is installed for no target, or for only some of its targets | `palm install` |
 | `lock-disk` | a generated file is missing or differs from the render; a merged entry is missing or changed | `palm install`, or `palm install <source> <name> --force` for an edited file |
 | `orphans` | a stray file sits in an entity folder palm owns | `palm install <source> <name> --force` |
@@ -77,16 +101,18 @@ Replace the line with `palm check`.
 | `exec-trusted` | a hook or stdio server has no trusted hash, or a merged command was changed on disk | `palm install --allow-exec <key>=<hash>` |
 | `hook-scripts` | a hook command names a script that is missing or not executable | `palm install` |
 | `secrets` | a tracked or world-readable generated file, or a harness config palm merges into, holds a literal secret | fix the source, then `palm install <source> <name> --force` |
-| `git-ignored` | a generated file, a file palm merged into, or `.palm/assets` is ignored by git, so teammates never get it | edit `.gitignore` |
+| `git-ignored` | a generated file, a file palm merged into, or `.palm/assets` is ignored by git, so teammates never get it | add the re-include lines the fix names to `.gitignore` |
 | `sources-declared` | a lock source is missing from `palm.yaml`, or an in-repo source is missing on disk | `palm install`, or restore the directory |
 | `links` | an output path resolves outside the project, a link under an output folder dangles, or a source overlaps an output directory | move the source, or remove the link |
 | `hidden-unicode` | a generated file holds a bidi override, a tag character or a rare variation selector | fix the source, then `palm install --force` |
 | `block-size` | above the harness's cap of `AGENTS.md` blocks (a warning above 24 KiB) | narrow the entry with `targets:` until `at:` works in 0.3 |
 
-`palm check` also warns, without failing, about MCP variables that are not set, generated files not yet added to git (`git-ignored`), hook commands palm did not write (`foreign-hooks`), entities a harness loads twice (`double-load`), two agents with one name (`agent-names`) and preloaded skills nothing installs (`preloads`).
+`palm check` also warns, without failing, about MCP variables that are not set, generated files not yet added to git (`git-ignored`), hook commands and stdio servers palm did not write (`foreign-hooks`), entities a harness loads twice (`double-load`), two agents with one name (`agent-names`) and preloaded skills nothing installs (`preloads`).
+Under `--strict` each of those warnings fails the run.
 [palm check](/palm/reference/cli/check/#the-checks) lists every warning.
 Checks that need git are listed as `skipped (not a git repository)` outside a repository.
 Its only network access is fetching a locked commit that is not in the cache, so a cache between runs makes it offline.
+`palm check` compares with the lock, not with upstream. A source pinned to a commit sha passes when its branch moves on, and `--strict` does not change that.
 
 ## Programs in CI
 
@@ -111,6 +137,7 @@ From then on CI replays it silently, and any later change fails CI again until s
 `--yes` accepts every prompt except consent.
 With `--json`, stdout holds exactly one JSON document, and an error is `{ "error": { "code", "message", "hint" }, "warnings": [] }`.
 `palm update --dry-run --strict` exits 1 when a source is behind its ref, and prints why, which makes it a scheduled outdated check.
+A sha pin is never behind its ref, so that check passes when the branch moves. Read the `main is <sha>` column of `palm update --dry-run`, or pin a branch or a range instead, as [palm update](/palm/reference/cli/update/#check-for-updates-in-ci) explains.
 [Exit codes and errors](/palm/reference/exit-codes/) lists every code.
 
 ## Next steps

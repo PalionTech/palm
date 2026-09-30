@@ -3,13 +3,13 @@
  * summary (or the JSON document), the targets line on the run that wrote `targets:` to
  * palm.yaml, and exit 1 when anything failed, 130 after a Ctrl-C.
  */
-import type { EntityRefSpec, InstallResult, PalmContext } from '../core/types.js';
+import type { EntityRefSpec, InstallResult, LockEntry, PalmContext } from '../core/types.js';
 import type { ScopeState } from '../create/engine.js';
 import { failureCount, printInstallSummary } from '../ui/output.js';
 import type { App } from './app.js';
 import { ExitSignal } from './grammar.js';
 import { EXIT } from './main.js';
-import { engine, targetDirs } from './shared.js';
+import { displayPath, engine, targetDirs } from './shared.js';
 
 export interface InstallReport {
   /** The scope as it was before the run (palm.yaml targets, lock size). */
@@ -28,6 +28,8 @@ export interface InstallReport {
   sourceWord?: (source: string) => string;
   /** Y22, E20: the entities the person named; one of them declined at the prompt exits 130. */
   explicit?: readonly EntityRefSpec[];
+  /** Q12: sources this run moved to an older version (update). */
+  downgraded?: (source: string) => boolean;
 }
 
 /** A program the person named and then declined at the consent prompt. */
@@ -62,17 +64,46 @@ async function detected(app: App, ctx: PalmContext, r: InstallReport): Promise<s
   return targetDirs(app, ctx, r.after);
 }
 
+/** Q11: the top-level paths (`.claude/`, `.mcp.json`) the lock held before the run. */
+function knownTops(state: ScopeState): Set<string> {
+  const files = state.lock.entries.flatMap((e) => [
+    ...e.files,
+    ...(e.merged ?? []).map((m) => m.file),
+  ]);
+  return new Set(files.map((f) => (f.includes('/') ? f.slice(0, f.indexOf('/') + 1) : f)));
+}
+
+/** E5': an in-repo source's directory as a person types it (`.agents-kit`). */
+function localDirOf(ctx: PalmContext, state: ScopeState) {
+  return (source: string): string | undefined => {
+    const ref = state.sources.byName(source);
+    if (!ref?.isLocal || !ref.source.path) return undefined;
+    return displayPath(ctx, ref.source.path, state.paths.scope);
+  };
+}
+
+/** Y16': the entry as the lock held it before the run. */
+function beforeOf(state: ScopeState) {
+  return (e: LockEntry) =>
+    state.lock.entries.find((b) => b.kind === e.kind && b.name === e.name && b.source === e.source);
+}
+
 async function summaryOptions(ctx: PalmContext, app: App, r: InstallReport) {
   return {
     scope: r.after.paths.scope,
     targets: r.after.targets,
     dryRun: ctx.flags.dryRun,
     first: r.before.lock.size === 0,
+    known: knownTops(r.before),
     detected: await detected(app, ctx, r),
+    forced: ctx.flags.force,
+    before: beforeOf(r.before),
+    localSource: localDirOf(ctx, r.after),
     ...(r.from ? { from: r.after.lock.sources } : {}),
     ...(r.alsoCommit ? { alsoCommit: r.alsoCommit } : {}),
     ...(r.named ? { named: true } : {}),
     ...(r.sourceWord ? { sourceWord: r.sourceWord } : {}),
+    ...(r.downgraded ? { downgraded: r.downgraded } : {}),
   };
 }
 

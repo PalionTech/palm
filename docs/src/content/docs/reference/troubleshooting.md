@@ -67,7 +67,7 @@ You see `x agent comment-sicko from cursor/plugins → cursor: .cursor/agents/co
 
 The file exists, the lock does not list it, and its content differs. An identical file would have been adopted silently.
 
-Compare the file with the source. Keep your change in your own in-repo source, or repeat the command with `--force` to replace the file. See [Adopt files you copied by hand](/palm/guides/adopt-existing-files/).
+Compare the file with the source. Keep your change by copying the file into your own in-repo source under a new name, or repeat the command with `--force` to replace the file. See [Adopt files you copied by hand](/palm/guides/adopt-existing-files/).
 
 ## Two sources, one name
 
@@ -83,8 +83,17 @@ You see `! modified (kept)` in an install, `x skill tdd: .claude/skills/tdd/SKIL
 
 The file differs from the render the lock records.
 
-To keep the edit, move it into your own source with `palm create <kind> <name> --in <dir>`, and edit it there.
-To drop it, repeat the command the message prints, with `--force`.
+To keep the edit, copy the file into your own in-repo source under a new name, since one scope holds one entity per kind and name.
+
+```sh
+mkdir -p agent-kit/skills
+cp -R .claude/skills/tdd agent-kit/skills/tdd-team
+palm install ./agent-kit tdd-team
+```
+
+Set `name: tdd-team` in the copy's frontmatter first. Then restore the original with the `--force` command the message prints, or remove it.
+To drop the edit instead, run that `--force` command alone.
+A `palm create <kind> <name> --from-installed` that does the copy is a candidate for palm 0.3.
 
 ## An in-repo source changed
 
@@ -102,7 +111,11 @@ A `.gitignore` line, often `.palm/` from palm 0.1 or a blanket `.claude/`, keeps
 palm tests each file the lock lists, and each file palm merged into, not only the folders.
 
 Remove the line. palm needs only `.palm/local/` and `palm.local.yaml` ignored.
-A file that is not ignored but not yet added is a warning that names `git add`.
+When you ignore `.claude/` on purpose, for personal files such as `.claude/settings.local.json`, keep the rule and re-include palm's output folders only.
+The fix line names them, such as `!.claude/skills/` and `!.claude/rules/`.
+Git cannot re-include a path under an ignored folder, so write `.claude/*` in place of `.claude/` first.
+See [Gitignored outputs](/palm/guides/migrate-from-apm/#gitignored-outputs).
+A file that is not ignored but not yet added is a warning that names the exact paths to `git add`.
 
 ## A source is unreachable
 
@@ -157,8 +170,10 @@ Export it before you start the harness. It is a warning, so `palm check` still e
 - An agent's `skills:` and `mcpServers:` are not installed with it. palm prints the command for them.
 - Remote marketplace entries are not fetched. palm prints the command that declares each as a source.
 - palm rewrites a JSON file it merges into with two-space indentation. Minimal edits are planned for 0.3.
-- Per-person additions (`palm.local.yaml`) and per-package placement (`at:`) arrive in palm 0.3.
-- Windows is not supported.
+- Per-person additions and disables (`palm.local.yaml`) and per-package placement (`at:`) arrive in palm 0.3. Until then, install a personal skill with `-g`, and switch off a team skill for yourself in the harness's own settings, such as `.claude/settings.local.json`.
+- `--review` shows diffs of scripts only. A changed skill or agent is marked in the update plan, and you read its text in the pull request. Text diffs arrive in palm 0.3.
+- `palm get` does not show how much context an entity costs. Load cost arrives in palm 0.3.
+- palm 0.2 does not run on native Windows. Run it inside WSL, as [Installation](/palm/getting-started/install/#run-palm-inside-wsl) shows. Contributors who only use the harnesses need no palm.
 
 ## Report a bug
 

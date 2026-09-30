@@ -45,8 +45,8 @@ Some commands finish their report and then exit 1 without an error line.
 | `palm install` | Any entity failed, installed only partly, or was kept as modified. The lock records what succeeded. |
 | `palm remove` | A file was modified since install, or could not be removed. |
 | `palm update` | A source or an entry failed, or a source argument is not in `palm.yaml`. With `--dry-run --strict`, a source is behind its ref, and a line says which and why. |
-| `palm check` | A check failed. Warnings alone exit 0. |
-| `palm migrate` | The conversion or the `palm check` it runs at the end failed. |
+| `palm check` | A check failed, or there is no `palm.yaml` here. Warnings alone exit 0; with `--strict`, a warning or a skipped check exits 1. |
+| `palm migrate` | The conversion or the `palm check` it runs at the end failed. Output folders that `.gitignore` hides only warn. |
 
 ## Error codes
 

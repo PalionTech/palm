@@ -64,6 +64,11 @@ When you finish, a teammate in another project installs your skill from its tag:
 
    A `.claude-plugin/plugin.json` is optional. It lets people select your members as one plugin.
 
+   A root `hooks/hooks.json` takes its name from the key the person installing gives your source, such as `hook:agent-kit`, or `hook:acme` after `--as acme`.
+   For a name you control, use `hooks/<name>/hooks.json` or a plugin manifest.
+   A relative `./script.sh` in a command is read from the source root, so name scripts as `${CLAUDE_PLUGIN_ROOT}/hooks/<file>`.
+   The [scan rules](/palm/reference/scan-rules/#hook-names) list every case.
+
 4. Copy the folder into its own repository and tag it.
 
    ```sh
@@ -105,7 +110,7 @@ Each project then runs `palm update acme/agent-kit`, reviews the plan and commit
 
 - A hook command that names a script the repository does not have. Keep scripts inside the repository and reference them relative to the hook file or `${CLAUDE_PLUGIN_ROOT}`.
 - Hidden Unicode such as bidi overrides or tag characters, in any file of an entity.
-- A literal secret in an MCP config or hook command. Write `${NAME}` instead. A skill that carries one in any of its files is refused.
+- A literal secret in an MCP config or hook command. Write `${NAME}` instead. A skill that carries a known token shape in a file it copies is refused. A high-entropy value in code only warns, and test folders such as `tests/` and `fixtures/` are not copied, so a fake key there never refuses.
 - A skill folder above 200 files or 5 MB, unless the person installing passes `--force`. A root `SKILL.md` makes the whole repository the skill, so keep skills in `skills/<name>/`.
 - A symlink that leaves the repository.
 

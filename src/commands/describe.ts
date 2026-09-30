@@ -9,14 +9,22 @@
 import { PalmError } from '../core/errors.js';
 import { looksLikeSourceInput } from '../core/source-input.js';
 import type { EntityRefSpec, Kind, PalmContext, Scope } from '../core/types.js';
-import type { InstalledRow } from '../create/engine.js';
+import type { InstalledRow, ScopeState } from '../create/engine.js';
 import { displayLockPath } from '../ui/format.js';
 import type { App } from './app.js';
 import { describeAvailable, printEntity } from './describe-entity.js';
 import { describeSource, describeTarget } from './describe-scope.js';
 import { formatName, type Invocation, usage } from './grammar.js';
 import { palmLine } from './hints.js';
-import { engine, engineDeps, type GlobalOptions, makeContext, scopeOf } from './shared.js';
+import { missingFiles } from './scope-view.js';
+import {
+  engine,
+  engineDeps,
+  type GlobalOptions,
+  makeContext,
+  otherScopeHint,
+  scopeOf,
+} from './shared.js';
 
 interface DescribeFlags extends GlobalOptions {
   source?: string;
@@ -65,16 +73,37 @@ async function pathOfFileName(ctx: PalmContext, app: App, name: string, scope: S
   );
 }
 
-/** Not installed: where to look (J21: `describe <source> <name>` reads a source's index). */
+/** Q3: the one declared source, when its index offers `ref` (a fetch palm may skip offline). */
+async function offeringSource(ctx: PalmContext, app: App, state: ScopeState, ref: EntityRefSpec) {
+  const [only, second] = state.sources.names();
+  if (!only || second) return undefined;
+  const scope = state.paths.scope;
+  const listed = await engine(app)
+    .listSource(ctx, only, { scope }, engineDeps(app))
+    .catch(() => undefined);
+  const lower = ref.name.toLowerCase();
+  const offers = listed?.index.entities.some(
+    (e) => e.name.toLowerCase() === lower && (!ref.kind || e.kind === ref.kind),
+  );
+  return offers ? only : undefined;
+}
+
+/**
+ * Not installed: where it is (Q16: the other scope, as remove says), or where to look (J21:
+ * `describe <source> <name>` reads a source's index, when that source offers the name).
+ */
 async function notInstalled(ctx: PalmContext, app: App, ref: EntityRefSpec, scope: Scope) {
   const state = await engine(app).openScope(ctx, scope, { readOnly: true });
-  const names = state.sources.names();
   const where = scope === 'global' ? 'globally' : 'in this project';
-  const hint =
-    names.length === 1
-      ? `describe it from its source: ${palmLine('describe', [names[0] as string, formatName(ref)], scope)}`
-      : `list what is installed: ${palmLine('get', [], scope)}`;
-  return new PalmError('E_NOT_FOUND', `${formatName(ref)} is not installed ${where}`, hint);
+  const message = `${formatName(ref)} is not installed ${where}`;
+  const words = [formatName(ref)];
+  const other = await otherScopeHint(ctx, app, scope, { verb: 'describe', words, names: [ref] });
+  if (other) return new PalmError('E_NOT_FOUND', message, other);
+  const source = await offeringSource(ctx, app, state, ref);
+  const hint = source
+    ? `describe it from its source: ${palmLine('describe', [source, formatName(ref)], scope)}`
+    : `list what is installed: ${palmLine('get', [], scope)}`;
+  return new PalmError('E_NOT_FOUND', message, hint);
 }
 
 async function describeName(ctx: PalmContext, app: App, ref: EntityRefSpec, flags: DescribeFlags) {
@@ -88,8 +117,12 @@ async function describeName(ctx: PalmContext, app: App, ref: EntityRefSpec, flag
   const e = row.entry;
   const q = { kind: e.kind, name: e.name, source: e.source };
   const info = await engine(app).describeEntity(ctx, q, { scope }, engineDeps(app));
-  if (app.out.jsonMode) return app.out.json(info);
-  printEntity(app.out, info, scope);
+  const state = await engine(app)
+    .openScope(ctx, scope, { readOnly: true })
+    .catch(() => undefined);
+  const missing = state ? missingFiles(state, e) : [];
+  if (app.out.jsonMode) return app.out.json(missing.length ? { ...info, missing } : info);
+  printEntity(app.out, info, { scope, missing });
 }
 
 async function describePath(ctx: PalmContext, app: App, path: string, flags: DescribeFlags) {

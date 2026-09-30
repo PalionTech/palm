@@ -3,7 +3,8 @@
  * them. Everything comes from palm.yaml and the lock (`openScope`); nothing is fetched.
  */
 
-import type { PalmContext } from '../core/types.js';
+import { existsSync } from 'node:fs';
+import type { LockEntry, PalmContext } from '../core/types.js';
 import { type LockSource, TARGET_IDS, type TargetId } from '../core/types.js';
 import {
   engineDepsOf,
@@ -12,13 +13,21 @@ import {
   type SourceRef,
   targetOf,
 } from '../create/engine.js';
-import { shortHash } from '../ui/format.js';
+import { shortHash, shortRef, sourceLabel } from '../ui/format.js';
 import type { App } from './app.js';
 import { displayPath, homePath } from './shared.js';
 
-/** J10: a server declared in palm.yaml, whose lock source is `manifest`, reads as `palm.yaml`. */
-export function sourceLabel(source: string): string {
-  return source === 'manifest' ? 'palm.yaml' : source;
+export { sourceLabel };
+
+/** M12: the files of an entry that are gone from the disk (lock form), in lock order. */
+export function missingFiles(state: ScopeState, entry: LockEntry): string[] {
+  return entry.files.filter((f) => {
+    try {
+      return !existsSync(state.paths.abs(f));
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** B16: the directory the scope's paths resolve against, as a person reads it. */
@@ -29,8 +38,9 @@ export function scopeRoot(ctx: PalmContext, state: ScopeState): string {
 /** `v1.2.3`, `^1.2 → v1.2.3`, `tree 10934f8`. */
 export function refCell(s: Partial<LockSource>): string {
   if (s.tree) return `tree ${shortHash(s.tree)}`;
-  if (s.ref && s.resolved && s.ref !== s.resolved) return `${s.ref} → ${s.resolved}`;
-  return s.ref ?? s.resolved ?? '';
+  const ref = shortRef(s.ref);
+  if (ref && s.resolved && s.ref !== s.resolved) return `${ref} → ${s.resolved}`;
+  return ref ?? s.resolved ?? '';
 }
 
 export interface SourceView {

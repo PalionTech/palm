@@ -48,6 +48,10 @@ It lists every script with its mode, size and hash.
 
 [Consent and executable content](/palm/concepts/consent/) shows the prompt and the lock record.
 
+The lock records that someone consented, not who.
+Put `palm.lock.yaml`, `.palm/assets/**`, the harness hook files, such as `.claude/settings.json` and `.codex/hooks.json`, and your in-repo sources under `CODEOWNERS`, so every consent passes a reviewer you chose.
+[Share a team baseline](/palm/guides/team-baseline/#protect-the-files-that-run-programs) has the file.
+
 ## Scripts are committed
 
 palm copies what a hook runs into `.palm/assets/<source>/<entity>/`, and you commit it.
@@ -69,8 +73,8 @@ palm does not mark the folder as generated for GitHub's diff view, because revie
 | Two owners for one name | A second source cannot install an entity whose kind and name another source already installed, `--force` included. |
 | Unresolvable commands | A hook or server command that names a script not in the source is refused, with the line. palm never merges a command it could not resolve. |
 | Hidden Unicode | Bidirectional overrides and isolates, tag characters and rare variation selectors refuse the entity, including in a hook's scripts. There is no override. |
-| Secrets from a source | A literal secret that arrives from a source is never written. palm writes `${NAME}` instead, and `--force` does not change that. A skill whose files hold one is refused. |
-| Oversized skills | A skill copy leaves out harness folders, `.git` and `node_modules`, and one above 200 files or 5 MB needs `--force`. |
+| Secrets from a source | A literal secret that arrives from a source is never written. palm writes `${NAME}` instead, and `--force` does not change that. A skill whose copied files hold a known token shape, or a high-entropy value in a configuration file, is refused. A high-entropy value in code warns. |
+| Oversized skills | A skill copy leaves out harness folders, `.git`, `node_modules`, `.env*` and test folders, and one above 200 files or 5 MB needs `--force`. |
 | Unsafe git transports | `ext::`, `fd::` and every other `<x>::` transport, a leading `-` and control characters in URLs. `http://` and `git://` warn. |
 | Files it does not own | A file palm did not write that differs from the render stops the install until you pass `--force`. |
 | Files you changed | palm compares each file with the lock's render hash before it overwrites or deletes it. |

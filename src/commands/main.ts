@@ -4,11 +4,14 @@
  * exits; tests call it in process with string sinks, a fake UI and fake engine deps.
  */
 
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { CommanderError } from 'commander';
-import { isPalmError, messageOf, type PalmError, retryHint } from '../core/errors.js';
+import { isPalmError, messageOf, PalmError, retryHint } from '../core/errors.js';
 import type { UI } from '../core/types.js';
 import type { CliDeps } from '../create/engine.js';
 import { redactTypedArgs } from '../secrets/typed.js';
+import { publicHint } from '../ui/format.js';
 import { createOutput, type Output, type Sink } from '../ui/output.js';
 import type { App } from './app.js';
 import { runInvocation } from './dispatch.js';
@@ -21,6 +24,7 @@ import {
   usage,
   VERBS,
 } from './grammar.js';
+import { shellWord } from './hints.js';
 import { buildProgram, LEGACY_COMMAND_NAMES } from './program.js';
 
 export const EXIT = { ok: 0, failure: 1, usage: 2, cancelled: 130 } as const;
@@ -60,6 +64,9 @@ export function exitCodeFor(e: unknown): number {
 interface RunLine {
   args: readonly string[];
   passthrough: readonly string[];
+  /** Where it ran, to find the palm.yaml an error names (M13). */
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
 }
 
 const COMMAND_WORDS = new Set([
@@ -78,12 +85,87 @@ function fromCommander(e: CommanderError, args: readonly string[]): PalmError {
   return usage(first, [...rest.filter(Boolean), `see: ${help}`].join('\n'));
 }
 
+/**
+ * J6': a hint that repeats a typed word holding a space or a shell character (`--description
+ * "Summarise a standup"`, `--layout 'skills=packages/*'`) repeats it quoted, as the shell needs it.
+ */
+function requoted(hint: string, args: readonly string[]): string {
+  let out = hint;
+  for (const word of new Set(args)) {
+    const quoted = shellWord(word);
+    if (quoted === word || out.includes(quoted)) continue;
+    const bare = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`(?<= )${bare}(?= |$)`, 'gm'), () => quoted);
+  }
+  return out;
+}
+
 function errorDoc(e: unknown, run: RunLine): { code: string; message: string; hint?: string } {
   if (!isPalmError(e)) return { code: 'E_INTERNAL', message: messageOf(e), hint: BUG_HINT };
   // J11: a repeated command line never carries a value the person typed for a secret.
   const safe = { args: redactTypedArgs(run.args), passthrough: run.passthrough };
-  const hint = retryHint(e, safe) ?? (e.code === 'E_INTERNAL' ? BUG_HINT : undefined);
+  const raw = globalMigrate(
+    retryHint(e, safe) ?? (e.code === 'E_INTERNAL' ? BUG_HINT : undefined),
+    run.args,
+  );
+  const hint = raw === undefined ? undefined : publicHint(requoted(raw, safe.args));
   return hint ? { code: e.code, message: e.message, hint } : { code: e.code, message: e.message };
+}
+
+/** J6': a 0.1 palm.yaml met under -g is migrated under -g. */
+function globalMigrate(hint: string | undefined, args: readonly string[]): string | undefined {
+  const global = args.includes('-g') || args.includes('--global');
+  return global && hint === 'palm migrate' ? 'palm migrate -g' : hint;
+}
+
+/** Q14: a JSON error's hint without the indentation the terminal gives it. */
+function jsonDoc(doc: ReturnType<typeof errorDoc>) {
+  if (!doc.hint) return doc;
+  const hint = doc.hint
+    .split('\n')
+    .map((l) => l.trim())
+    .join('\n');
+  return { ...doc, hint };
+}
+
+const MARKER = /^(<{7}|={7}|>{7})( |$)/;
+
+/** The first line of `file` that is a merge-conflict marker (1-based), if any. */
+function markerLine(file: string): number | undefined {
+  try {
+    const i = readFileSync(file, 'utf8')
+      .split(/\r?\n/)
+      .findIndex((l) => MARKER.test(l));
+    return i < 0 ? undefined : i + 1;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The palm.yaml an E_PARSE names: `~/.palm/palm.yaml` under -g, else the nearest one up from cwd. */
+function manifestNamed(message: string, run: RunLine): string | undefined {
+  if (!/palm\.yaml/.test(message)) return undefined;
+  const env = run.env ?? process.env;
+  const home = env.PALM_HOME ?? join(env.HOME ?? '', '.palm');
+  if (message.includes('~/.palm/palm.yaml')) return join(home, 'palm.yaml');
+  for (let dir = run.cwd ?? process.cwd(); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, 'palm.yaml'))) return join(dir, 'palm.yaml');
+    if (dirname(dir) === dir) return undefined;
+  }
+}
+
+/** M13: a palm.yaml parse error caused by merge-conflict markers says so, with the line. */
+function conflictMarkers(e: unknown, run: RunLine): unknown {
+  if (!isPalmError(e) || e.code !== 'E_PARSE') return e;
+  const file = manifestNamed(e.message, run);
+  const line = file ? markerLine(file) : undefined;
+  if (!file || line === undefined) return e;
+  const shown = e.message.includes('~/.palm/palm.yaml') ? '~/.palm/palm.yaml' : 'palm.yaml';
+  return new PalmError(
+    'E_PARSE',
+    `${shown} has merge conflict markers at line ${line}; resolve them`,
+    `keep one side of each conflict in ${shown}, then run: palm check`,
+  );
 }
 
 /** Commander printed help itself (`--help`, or a command group without its subcommand). */
@@ -110,10 +192,10 @@ function report(e: unknown, out: Output, run: RunLine): void {
     return;
   }
   if (helpShown(e)) return;
-  const err = e instanceof CommanderError ? fromCommander(e, run.args) : e;
+  const err = conflictMarkers(e instanceof CommanderError ? fromCommander(e, run.args) : e, run);
   const doc = errorDoc(err, run);
   if (out.jsonMode) {
-    out.json({ error: doc });
+    out.json({ error: jsonDoc(doc) });
     return;
   }
   out.finish();
@@ -180,7 +262,7 @@ export async function runCli(argv: string[], opts: CliOptions = {}): Promise<num
     else await program.parseAsync(args, { from: 'user' });
   } catch (e) {
     code = exitCodeFor(e);
-    report(e, app.out, { args, passthrough });
+    report(e, app.out, { args, passthrough, cwd: opts.cwd, env: opts.env });
   } finally {
     unwatch();
   }

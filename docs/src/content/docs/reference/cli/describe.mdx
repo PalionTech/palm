@@ -83,6 +83,10 @@ A path no entity wrote prints so and exits 1.
 ## A source or a target
 
 `palm describe source <name>` shows the URL or path, ref, commit, root, layout as YAML, the scan rule that matched, the counts per kind and the index warnings. [Scanning](/palm/concepts/scanning/) shows an example.
+For a source `palm.yaml` does not declare, such as `palm describe source mattpocock/skills` before any install, palm fetches it and shows the ref, commit, scan rule, counts and index warnings.
+
+An installed entity whose files are gone shows `(missing)` beside each one, and `palm get` counts them in the files column.
+A name installed only in the other scope gets the same hint as `palm remove`: the command with or without `-g`.
 For a source pinned to a tag or a commit, it also prints the latest release tag.
 
 `palm describe target <target>` prints the project root, then renders a sample entity of every kind for that harness in the current scope, so the paths include any home-directory override you set.

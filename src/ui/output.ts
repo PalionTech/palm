@@ -88,6 +88,18 @@ export function jsonEnvelope(value: unknown, warnings: string[]): Record<string,
   return { ...base, warnings: [...new Set([...own, ...warnings])] };
 }
 
+/** Fields whose value `manifest` means an entry palm.yaml declares by hand. */
+const SOURCE_FIELDS: ReadonlySet<string> = new Set(['source', 'selectedBy', 'type']);
+
+/**
+ * J10, N13, Q14: what a JSON document says to people and scripts: the source palm.yaml itself
+ * is `palm.yaml` (never `manifest`), and `layer` waits for palm.local.yaml in 0.3.
+ */
+function publicField(key: string, value: unknown): unknown {
+  if (key === 'layer') return undefined;
+  return value === 'manifest' && SOURCE_FIELDS.has(key) ? 'palm.yaml' : value;
+}
+
 /** Run `pager` with `text` on its stdin; false when it could not start. */
 function runPager(pager: string, text: string): Promise<boolean> {
   return new Promise((resolve) => {
@@ -191,7 +203,7 @@ class Writer implements Output {
     const warnings = this.collected;
     if (this.jsonMode) {
       const doc = jsonEnvelope(this.doc?.value, warnings);
-      this.stdout.write(`${JSON.stringify(doc, null, 2)}\n`);
+      this.stdout.write(`${JSON.stringify(doc, publicField, 2)}\n`);
       return;
     }
     if (!warnings.length) return;
