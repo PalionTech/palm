@@ -210,9 +210,10 @@ describe('convertHooks from Claude', () => {
             matcher: 'edit|create',
           },
         ],
-        sessionStart: [{ type: 'command', bash: 'echo hi' }],
-        userPromptSubmitted: [{ type: 'command', bash: 'guard' }],
-        agentStop: [{ type: 'command', bash: 'done', timeoutSec: 5 }],
+        // a program both shells run the same way also gets its powershell line (O11)
+        sessionStart: [{ type: 'command', bash: 'echo hi', powershell: 'echo hi' }],
+        userPromptSubmitted: [{ type: 'command', bash: 'guard', powershell: 'guard' }],
+        agentStop: [{ type: 'command', bash: 'done', powershell: 'done', timeoutSec: 5 }],
       },
     });
     expect(r.dropped).toEqual([]);
@@ -300,16 +301,16 @@ describe('convertHooks into Claude', () => {
       },
     });
     expect(r.dropped).toEqual([
-      'userPromptSubmitted: cwd/env of "log"',
       'errorOccurred: no equivalent event',
+      'userPromptSubmitted: cwd/env of "log"',
     ]);
   });
 
   it('cursor → copilot and copilot → cursor go through the canonical form', () => {
-    const cur = hookSet('cursor', { version: 1, hooks: { stop: [{ command: 's' }] } });
+    const cur = hookSet('cursor', { version: 1, hooks: { stop: [{ command: './s.sh' }] } });
     expect(convertHooks(cur, 'copilot', asIs).hooks).toEqual({
       version: 1,
-      hooks: { agentStop: [{ type: 'command', bash: 's' }] },
+      hooks: { agentStop: [{ type: 'command', bash: './s.sh' }] },
     });
     const cop = hookSet('copilot', {
       version: 1,
