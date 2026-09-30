@@ -1,12 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ExitSignal } from '../../src/commands/grammar.js';
 import { BUG_HINT, EXIT, exitCodeFor, runCli } from '../../src/commands/main.js';
 import { PalmError } from '../../src/core/errors.js';
 import type { InstallResult } from '../../src/core/types.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 import { fakeEngine, fakeScope, fakeUI, lockEntry, outcome, palm } from './fakes.js';
-
-vi.mock('../../src/commands/ports.js', () => import('./contract.js'));
 
 let sb: Sandbox;
 beforeEach(async () => {

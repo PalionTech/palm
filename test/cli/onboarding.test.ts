@@ -5,13 +5,11 @@
  */
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { Entity, LockEntry, SourceCheckout, SourceIndex } from '../../src/core/types.js';
 import type { SourceListing } from '../../src/create/engine.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 import { fakeEngine, fakeScope, fakeSourceRef, lockEntry, outcome, palm } from './fakes.js';
-
-vi.mock('../../src/commands/ports.js', () => import('./contract.js'));
 
 /** Match `actual` against a transcript where a line `  ...` stands for one or more lines. */
 function expectTranscript(actual: string, golden: string): void {

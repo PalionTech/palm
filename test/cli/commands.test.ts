@@ -1,7 +1,7 @@
 /** The other verbs and utilities over the fake engine: what they ask the engine and what they print. */
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
   CheckReport,
   ExecUnit,
@@ -15,8 +15,6 @@ import type { Manifest } from '../../src/domain/manifest.js';
 import type { ScopePaths } from '../../src/domain/scope-paths.js';
 import { exists, read, removeDir, type Sandbox, sandbox, write } from '../support/sandbox.js';
 import { fakeEngine, fakeScope, fakeUI, lockEntry, outcome, palm } from './fakes.js';
-
-vi.mock('../../src/commands/ports.js', () => import('./contract.js'));
 
 let sb: Sandbox;
 beforeEach(async () => {

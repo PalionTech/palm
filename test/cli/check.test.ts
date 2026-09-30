@@ -1,10 +1,8 @@
 /** `palm check` (DESIGN.md §6 "Check"): every check it ran, then the problems, then the verdict. */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CheckReport, CheckRun } from '../../src/core/types.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 import { fakeEngine, palm } from './fakes.js';
-
-vi.mock('../../src/commands/ports.js', () => import('./contract.js'));
 
 let sb: Sandbox;
 beforeEach(async () => {

@@ -5,6 +5,8 @@
  * `describe target <t>`.
  */
 import { PalmError } from '../core/errors.js';
+import { pluralize } from '../core/kinds.js';
+import { looksLikeSourceInput } from '../core/source-input.js';
 import {
   type EntityRefSpec,
   KINDS,
@@ -22,7 +24,6 @@ import { displayLockPath, shortHash } from '../ui/format.js';
 import type { Output } from '../ui/output.js';
 import type { App } from './app.js';
 import { formatName, type Invocation, usage } from './grammar.js';
-import { looksLikeSourceInput, pluralize } from './ports.js';
 import { refCell, sourceView, targetViews } from './scope-view.js';
 import { engine, engineDeps, type GlobalOptions, makeContext, scopeOf } from './shared.js';
 

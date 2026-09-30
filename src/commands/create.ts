@@ -2,6 +2,8 @@
  * `palm create <kind> <name> [--in dir] [--description text]` (alias `new`): write a template
  * into the project's own source and install it (src/create/templates.ts). No prompts.
  */
+
+import { isCommandWord } from '../core/kinds.js';
 import type { PalmContext } from '../core/types.js';
 import {
   CREATABLE,
@@ -11,7 +13,6 @@ import {
 } from '../create/templates.js';
 import type { App } from './app.js';
 import { type Invocation, usage } from './grammar.js';
-import { isCommandWord } from './ports.js';
 import { reportInstall } from './report.js';
 import { displayPath, type GlobalOptions, makeContext, scopeOf } from './shared.js';
 

@@ -4,12 +4,12 @@
  * file with `--files`, and `get sources`, `get targets`, `get all`.
  */
 import { PalmError } from '../core/errors.js';
+import { pluralize } from '../core/kinds.js';
 import { type Kind, type PalmContext, type Scope, TARGET_IDS } from '../core/types.js';
 import type { InstalledRow, ScopeState } from '../create/engine.js';
 import { displayLockPath, shortHash } from '../ui/format.js';
 import type { App } from './app.js';
 import { formatName, type Invocation } from './grammar.js';
-import { pluralize } from './ports.js';
 import {
   refCell,
   SOURCE_HEADER,

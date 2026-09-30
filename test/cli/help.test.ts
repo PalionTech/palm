@@ -1,8 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { VERBS } from '../../src/commands/grammar.js';
 import { runCli } from '../../src/commands/main.js';
-
-vi.mock('../../src/commands/ports.js', () => import('./contract.js'));
 
 async function help(...argv: string[]): Promise<string> {
   let stdout = '';

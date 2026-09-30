@@ -4,11 +4,11 @@
  */
 import type { Command, Option } from 'commander';
 import { PalmError } from '../core/errors.js';
+import { type Resource, resourceWords } from '../core/kinds.js';
 import { KINDS, TARGET_IDS } from '../core/types.js';
 import { CREATABLE } from '../create/templates.js';
 import type { App } from './app.js';
 import { type Invocation, usage } from './grammar.js';
-import { type Resource, resourceWords } from './ports.js';
 
 export const SHELLS = ['bash', 'zsh', 'fish'] as const;
 export type Shell = (typeof SHELLS)[number];

@@ -1,5 +1,5 @@
 import { PassThrough } from 'node:stream';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { InstallOutcome, InstallResult } from '../../src/core/types.js';
 import { displayLockPath, formatBytes, listJoin, truncate } from '../../src/ui/format.js';
 import {
@@ -13,8 +13,6 @@ import {
 } from '../../src/ui/output.js';
 import { consentKey, createClackUI, createNonInteractiveUI } from '../../src/ui/prompts.js';
 import { lockEntry, outcome } from './fakes.js';
-
-vi.mock('../../src/commands/ports.js', () => import('./contract.js'));
 
 function captured(opts: { json?: boolean; isTTY?: boolean } = {}): {
   out: Output;

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   applyPassthrough,
   interpretInstall,
@@ -8,8 +8,6 @@ import {
 } from '../../src/commands/grammar.js';
 import { parseArgv } from '../../src/commands/program.js';
 import { PalmError } from '../../src/core/errors.js';
-
-vi.mock('../../src/commands/ports.js', () => import('./contract.js'));
 
 const declared =
   (...names: string[]) =>

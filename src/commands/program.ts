@@ -5,6 +5,7 @@
  * `palm --help` loads commander and picocolors and nothing else.
  */
 import { Command, Help, Option } from 'commander';
+import { parseResource } from '../core/kinds.js';
 import {
   applyPassthrough,
   type Dispatch,
@@ -26,7 +27,6 @@ import {
   ROOT_HELP,
   VERB_HELP,
 } from './help.js';
-import { parseResource } from './ports.js';
 
 export interface ProgramOptions {
   version?: string;

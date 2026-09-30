@@ -5,15 +5,10 @@
  * light: `palm --help` loads this module.
  */
 import { PalmError } from '../core/errors.js';
+import { isCommandWord, parseKind, parseResource, type Resource } from '../core/kinds.js';
+import { looksLikeSourceInput } from '../core/source-input.js';
 import type { EntityRefSpec, Kind } from '../core/types.js';
-import {
-  isCommandWord,
-  looksLikeSourceInput,
-  parseEntityRef,
-  parseKind,
-  parseResource,
-  type Resource,
-} from './ports.js';
+import { parseEntityRef } from '../domain/entity-ref.js';
 
 export type Verb =
   | 'init'

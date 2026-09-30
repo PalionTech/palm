@@ -2,13 +2,11 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseAdhocMcp } from '../../src/commands/adhoc.js';
 import type { McpRequest, McpServerConfig } from '../../src/core/types.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 import { fakeEngine, fakeScope, lockEntry, outcome, palm } from './fakes.js';
-
-vi.mock('../../src/commands/ports.js', () => import('./contract.js'));
 
 let sb: Sandbox;
 beforeEach(async () => {

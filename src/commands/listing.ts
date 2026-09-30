@@ -9,12 +9,14 @@
  *       palm install obra/superpowers brainstorming test-driven-development
  *       palm install obra/superpowers --all
  */
+
+import { pluralize } from '../core/kinds.js';
 import { type Entity, KINDS, type SourceCheckout } from '../core/types.js';
 import type { SourceListing } from '../create/engine.js';
+import { PLUGIN_ROOT_TOKENS } from '../domain/ignore.js';
 import { isRecord } from '../lib/object.js';
 import { padVisible, shortHash, truncate } from '../ui/format.js';
 import type { Output } from '../ui/output.js';
-import { PLUGIN_ROOT_TOKENS, pluralize } from './ports.js';
 
 const PROGRAM = '(a program; asks before installing)';
 const INTERPRETERS = new Set(['bash', 'sh', 'zsh', 'node', 'python', 'python3', 'deno', 'bun']);

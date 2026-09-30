@@ -2,13 +2,11 @@
  * `--json` (DESIGN.md §10 "Output contract"): stdout holds exactly one JSON document, lists are
  * `{ items }`, every document has `warnings`, an error is `{ error: { code, message, hint } }`.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CheckReport } from '../../src/core/types.js';
 import type { EntityInfo } from '../../src/create/engine.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 import { fakeEngine, fakeScope, lockEntry, outcome, palm } from './fakes.js';
-
-vi.mock('../../src/commands/ports.js', () => import('./contract.js'));
 
 let sb: Sandbox;
 beforeEach(async () => {

@@ -1,14 +1,12 @@
 /** `palm create` as a template writer (DESIGN.md §10): no prompts, never overwrites. */
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { InstallRequest, PalmContext } from '../../src/core/types.js';
 import { createEntity, templateFor } from '../../src/create/templates.js';
 import { createOutput } from '../../src/ui/output.js';
 import { exists, read, removeDir, type Sandbox, sandbox, write } from '../support/sandbox.js';
 import { fakeEngine, fakeScope, fakeUI, lockEntry, outcome, palm } from './fakes.js';
-
-vi.mock('../../src/commands/ports.js', () => import('./contract.js'));
 
 let sb: Sandbox;
 beforeEach(async () => {

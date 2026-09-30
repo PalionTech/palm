@@ -5,6 +5,7 @@
  * `--dry-run` is the outdated report; with `--strict` it exits 1 when a source is behind.
  */
 import { PalmError } from '../core/errors.js';
+import { parseKind } from '../core/kinds.js';
 import type {
   ExecUnit,
   PalmContext,
@@ -18,7 +19,6 @@ import type { Output } from '../ui/output.js';
 import { printFailures } from '../ui/summary.js';
 import type { App } from './app.js';
 import { ExitSignal, type Invocation, usage } from './grammar.js';
-import { parseKind } from './ports.js';
 import { interruptible, reportInstall } from './report.js';
 import {
   engine,
