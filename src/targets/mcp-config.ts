@@ -34,6 +34,7 @@
 
 import { PalmError } from '../core/errors.js';
 import type { McpServerConfig, Scope, SecretPolicy, TargetId } from '../core/types.js';
+import { optionalSecretNames } from '../domain/secret-refs.js';
 import { withoutUndefined } from '../lib/object.js';
 import {
   envRef,
@@ -52,34 +53,6 @@ export interface RenderedMcp {
 }
 
 export const OAUTH_NOTE = 'HTTP MCP servers authenticate via OAuth on first connect';
-
-/** Every string field a secret placeholder can sit in. */
-function secretFields(cfg: McpServerConfig): string[] {
-  return [
-    ...Object.values(cfg.env ?? {}),
-    ...Object.values(cfg.headers ?? {}),
-    cfg.url ?? '',
-    ...(cfg.args ?? []),
-  ];
-}
-
-/**
- * Names of the optional secrets of `cfg`: declared `required: false`, or (undeclared) only ever
- * written with a default (`${VAR:-}`). Declared secrets are authoritative. The same rule as
- * src/secrets `optionalSecretNames`, which targets may not import (layering).
- */
-function optionalSecrets(cfg: McpServerConfig): Set<string> {
-  const declared = new Map((cfg.secrets ?? []).map((s) => [s.name, s.required]));
-  const required = new Set<string>();
-  const optional = new Set<string>();
-  for (const p of secretFields(cfg).flatMap(findPlaceholders)) {
-    if (isRuntimeVar(p.name) || declared.has(p.name)) continue;
-    (p.default === undefined ? required : optional).add(p.name);
-  }
-  const out = new Set([...declared].filter(([, req]) => !req).map(([name]) => name));
-  for (const name of optional) if (!required.has(name)) out.add(name);
-  return out;
-}
 
 function tokensOf(s: string): string[] {
   return findPlaceholders(s)
@@ -509,7 +482,7 @@ export function renderMcp(
   policy: SecretPolicy,
   opts: RenderMcpOptions = {},
 ): RenderedMcp {
-  const st = new RenderState(cfg.name, policy, opts.values ?? {}, optionalSecrets(cfg));
+  const st = new RenderState(cfg.name, policy, opts.values ?? {}, optionalSecretNames(cfg));
   const entry =
     target === 'codex'
       ? renderCodexTable(cfg, st)
