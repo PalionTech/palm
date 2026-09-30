@@ -78,7 +78,7 @@ function createRootProgram(opts: Omit<ProgramOptions, 'dispatch'>): Command {
     .option('--dry-run', 'show what would change; write nothing')
     .option('--force', 'replace files you changed or that palm does not own')
     .option('-y, --yes', 'accept plan confirmations (never consents to programs)')
-    .option('--allow-exec <list>', 'allow programs: hook:name@source=sha256:hash,... or all')
+    .option('--allow-exec <list>', 'allow programs: hook:x@source=sha256:hash,... or all')
     .option('--offline', 'use the cache only; no network')
     .option('--json', 'one JSON document on stdout; everything else on stderr')
     .option('--secrets <policy>', 'env-ref (default) or literal, for secrets you type')

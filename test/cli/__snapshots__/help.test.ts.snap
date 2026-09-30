@@ -1,0 +1,423 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`palm --help > bare palm prints the root help 1`] = `
+"Usage: palm <verb> [arguments] [options]
+
+palm installs agent configuration from git repositories into Claude Code, Codex,
+GitHub Copilot, Cursor, Gemini CLI and OpenCode.
+
+Verbs:
+  init                    write palm.yaml with the targets found here
+  install (add, i)        install from a source; bare, sync with palm.yaml
+  remove (uninstall, rm)  delete exactly what palm wrote for some entities
+  update (up)             move sources to newer commits within their refs
+  check                   verify palm.yaml, the lock and the files (CI gate)
+  get (list, ls)          list what is installed, the sources or the targets
+  describe (info)         show one entity, source, target or file
+  create (new)            write a template into your own source and install it
+
+Utilities:
+  migrate                 convert a palm 0.1 project to the palm 0.2 files
+  completion <shell>      print a shell completion script
+  cache clean             delete the cache of checkouts and indexes
+  help [command]          show help for a verb or utility
+
+Options:
+  -g, --global            use ~/.palm/palm.yaml and the harness home directories
+  --dry-run               show what would change; write nothing
+  --force                 replace files you changed or that palm does not own
+  -y, --yes               accept plan confirmations (never consents to programs)
+  --allow-exec <list>     allow programs: hook:x@source=sha256:hash,... or all
+  --offline               use the cache only; no network
+  --json                  one JSON document on stdout; everything else on stderr
+  --secrets <policy>      env-ref (default) or literal, for secrets you type
+  -V, --version           print the palm version
+  -h, --help              display help for command
+
+Examples:
+  palm install obra/superpowers               list what a source offers
+  palm install mattpocock/skills tdd          install one skill and record it in palm.yaml
+  palm install                                make the disk match palm.yaml (a clone, CI)
+  palm check                                  fail when the files drift from the lock
+"
+`;
+
+exports[`palm --help > palm cache --help 1`] = `
+"Usage: palm cache [options] [command]
+
+Manage the cache under ~/.palm/cache.
+
+Options:
+  -h, --help           display help for command
+
+Global Options:
+  -g, --global         use ~/.palm/palm.yaml and the harness home directories
+  --dry-run            show what would change; write nothing
+  --force              replace files you changed or that palm does not own
+  -y, --yes            accept plan confirmations (never consents to programs)
+  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
+  --offline            use the cache only; no network
+  --json               one JSON document on stdout; everything else on stderr
+  --secrets <policy>   env-ref (default) or literal, for secrets you type
+  -V, --version        print the palm version
+
+Commands:
+  clean                Delete every checkout and index (sources stay declared).
+  help [command]       display help for command
+"
+`;
+
+exports[`palm --help > palm check --help 1`] = `
+"Usage: palm check [options]
+
+Verify palm.yaml, the lock and the files (CI gate).
+
+Options:
+  -h, --help           display help for command
+
+Global Options:
+  -g, --global         use ~/.palm/palm.yaml and the harness home directories
+  --dry-run            show what would change; write nothing
+  --force              replace files you changed or that palm does not own
+  -y, --yes            accept plan confirmations (never consents to programs)
+  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
+  --offline            use the cache only; no network
+  --json               one JSON document on stdout; everything else on stderr
+  --secrets <policy>   env-ref (default) or literal, for secrets you type
+  -V, --version        print the palm version
+
+Prints every check it ran, then one line per problem with the command that fixes it.
+Exit 1 when a check fails; warnings alone exit 0.
+
+Examples:
+  palm check
+  palm check --json
+  palm check -g
+"
+`;
+
+exports[`palm --help > palm completion --help 1`] = `
+"Usage: palm completion [options] <shell>
+
+Print a completion script for bash, zsh or fish.
+
+Arguments:
+  shell                bash, zsh or fish
+
+Options:
+  -h, --help           display help for command
+
+Global Options:
+  -g, --global         use ~/.palm/palm.yaml and the harness home directories
+  --dry-run            show what would change; write nothing
+  --force              replace files you changed or that palm does not own
+  -y, --yes            accept plan confirmations (never consents to programs)
+  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
+  --offline            use the cache only; no network
+  --json               one JSON document on stdout; everything else on stderr
+  --secrets <policy>   env-ref (default) or literal, for secrets you type
+  -V, --version        print the palm version
+
+Install:
+  bash   echo 'source <(palm completion bash)' >> ~/.bashrc
+  zsh    echo 'source <(palm completion zsh)' >> ~/.zshrc     (after compinit)
+  fish   palm completion fish > ~/.config/fish/completions/palm.fish
+"
+`;
+
+exports[`palm --help > palm create --help 1`] = `
+"Usage: palm create|new <kind> <name> [options]
+
+Write a template into your own source and install it.
+
+Arguments:
+  kind                  skill, agent, instruction or hook
+  name                  the new entity
+
+Options:
+  --in <dir>            the source directory (default ./agent-kit; ~/.palm/kit
+                        with -g)
+  --description <text>  the description in the template
+  -h, --help            display help for command
+
+Global Options:
+  -g, --global          use ~/.palm/palm.yaml and the harness home directories
+  --dry-run             show what would change; write nothing
+  --force               replace files you changed or that palm does not own
+  -y, --yes             accept plan confirmations (never consents to programs)
+  --allow-exec <list>   allow programs: hook:x@source=sha256:hash,... or all
+  --offline             use the cache only; no network
+  --json                one JSON document on stdout; everything else on stderr
+  --secrets <policy>    env-ref (default) or literal, for secrets you type
+  -V, --version         print the palm version
+
+Kinds: skill, agent, instruction, hook. The template goes into ./agent-kit (~/.palm/kit
+under -g), which is declared in palm.yaml on first use, and is installed at once.
+
+Examples:
+  palm create skill release-notes
+  palm create agent reviewer --description "Reviews diffs before a merge"
+  palm create hook session-log --in tools/agent-kit
+  palm create instruction db-conventions -g
+"
+`;
+
+exports[`palm --help > palm describe --help 1`] = `
+"Usage: palm describe|info <name or path> [options]
+
+Show one entity, source, target or file.
+
+Arguments:
+  what                   [kind:]name, a path, source <name> or target <id>
+
+Options:
+  -s, --source <source>  the entity from this source
+  -h, --help             display help for command
+
+Global Options:
+  -g, --global           use ~/.palm/palm.yaml and the harness home directories
+  --dry-run              show what would change; write nothing
+  --force                replace files you changed or that palm does not own
+  -y, --yes              accept plan confirmations (never consents to programs)
+  --allow-exec <list>    allow programs: hook:x@source=sha256:hash,... or all
+  --offline              use the cache only; no network
+  --json                 one JSON document on stdout; everything else on stderr
+  --secrets <policy>     env-ref (default) or literal, for secrets you type
+  -V, --version          print the palm version
+
+Examples:
+  palm describe tdd
+  palm describe mcp:docs
+  palm describe .claude/skills/tdd/SKILL.md   the entity that wrote a file
+  palm describe source mattpocock/skills
+  palm describe target cursor
+"
+`;
+
+exports[`palm --help > palm get --help 1`] = `
+"Usage: palm get|list [kind] [names...] [options]
+
+List what is installed, the sources or the targets.
+
+Arguments:
+  kind                   skill, agent, instruction, hook, mcp, plugin; source,
+                         target or all
+  names                  only these names
+
+Options:
+  -s, --source <source>  only what came from this source
+  --files                every file palm wrote, with its entry
+  -h, --help             display help for command
+
+Global Options:
+  -g, --global           use ~/.palm/palm.yaml and the harness home directories
+  --dry-run              show what would change; write nothing
+  --force                replace files you changed or that palm does not own
+  -y, --yes              accept plan confirmations (never consents to programs)
+  --allow-exec <list>    allow programs: hook:x@source=sha256:hash,... or all
+  --offline              use the cache only; no network
+  --json                 one JSON document on stdout; everything else on stderr
+  --secrets <policy>     env-ref (default) or literal, for secrets you type
+  -V, --version          print the palm version
+
+Kinds: skill (sk), agent (ag), instruction (ins), hook (hk), mcp, plugin (pl); also
+source (src), target (tg) and all. Plurals work too.
+
+Examples:
+  palm get
+  palm get skills
+  palm get --source mattpocock/skills --files
+  palm get sources
+  palm get targets -g
+"
+`;
+
+exports[`palm --help > palm init --help 1`] = `
+"Usage: palm init [options]
+
+Write palm.yaml with the targets found here.
+
+Options:
+  --target <ids>       comma-separated: claude, codex, copilot, cursor, gemini,
+                       opencode
+  --here               start a separate project in this directory
+  -h, --help           display help for command
+
+Global Options:
+  -g, --global         use ~/.palm/palm.yaml and the harness home directories
+  --dry-run            show what would change; write nothing
+  --force              replace files you changed or that palm does not own
+  -y, --yes            accept plan confirmations (never consents to programs)
+  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
+  --offline            use the cache only; no network
+  --json               one JSON document on stdout; everything else on stderr
+  --secrets <policy>   env-ref (default) or literal, for secrets you type
+  -V, --version        print the palm version
+
+Refuses inside a directory that has a palm.yaml above it in the same repository, unless --here.
+
+Examples:
+  palm init                                   targets found here (.claude/, .cursor/, ...)
+  palm init --target claude,cursor            these targets
+  palm init --here                            a separate project inside a larger one
+"
+`;
+
+exports[`palm --help > palm install --help 1`] = `
+"Usage: palm install|add [source] [[kind:]name...] [options]
+
+Install from a source; bare, sync with palm.yaml.
+
+Arguments:
+  source               owner/repo, a git URL, a directory, or a source in
+                       palm.yaml
+  names                [kind:]name of what to install
+
+Options:
+  --all                everything the source offers
+  --as <name>          the name a URL source gets in palm.yaml
+  --targets <ids>      only these targets for these entries (recorded per entry)
+  --at <dir>           placement directory for these entries (recorded; honoured
+                       in 0.3)
+  -h, --help           display help for command
+
+MCP servers (palm install mcp):
+  --url <url>          a remote server
+  --header <K=V>       an HTTP header (repeatable)
+  --command <cmd>      a local (stdio) server: the program
+  --arg <arg>          an argument for --command (repeatable)
+  --env <K=V>          an environment variable (repeatable)
+  --transport <t>      stdio, http or sse, when palm cannot tell
+  --cwd <dir>          working directory for --command
+
+Global Options:
+  -g, --global         use ~/.palm/palm.yaml and the harness home directories
+  --dry-run            show what would change; write nothing
+  --force              replace files you changed or that palm does not own
+  -y, --yes            accept plan confirmations (never consents to programs)
+  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
+  --offline            use the cache only; no network
+  --json               one JSON document on stdout; everything else on stderr
+  --secrets <policy>   env-ref (default) or literal, for secrets you type
+  -V, --version        print the palm version
+
+Forms:
+  palm install <source>                       list what the source offers; saves nothing
+  palm install <source> [kind:]name...        install those and record them in palm.yaml
+  palm install <source> --all                 everything the source offers
+  palm install                                make the disk match palm.yaml and the lock
+  palm install mcp <name> --url <url> [--header K=V]...
+  palm install mcp <name> --command <cmd> [--arg a]... [--env K=V]...
+  palm install mcp --json <file or ->         the mcpServers block from a README
+
+A source is owner/repo, owner/repo/sub/dir, a git URL (#ref pins it), a directory in this
+project, or the name or alias of a source in palm.yaml.
+
+Examples:
+  palm install obra/superpowers
+  palm install mattpocock/skills tdd handoff
+  palm install obra/superpowers --all -g
+  palm install mcp docs --url https://example.com/mcp --header 'Authorization=Bearer \${DOCS_TOKEN}'
+  pbpaste | palm install mcp --json -
+"
+`;
+
+exports[`palm --help > palm migrate --help 1`] = `
+"Usage: palm migrate [options]
+
+Convert palm 0.1 files (palm.yaml, palm.lock.yaml, ~/.palm/config.yaml).
+
+Options:
+  -h, --help           display help for command
+
+Global Options:
+  -g, --global         use ~/.palm/palm.yaml and the harness home directories
+  --dry-run            show what would change; write nothing
+  --force              replace files you changed or that palm does not own
+  -y, --yes            accept plan confirmations (never consents to programs)
+  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
+  --offline            use the cache only; no network
+  --json               one JSON document on stdout; everything else on stderr
+  --secrets <policy>   env-ref (default) or literal, for secrets you type
+  -V, --version        print the palm version
+
+Reads the palm 0.1 palm.yaml, palm.lock.yaml and ~/.palm/config.yaml and writes the new
+format. --dry-run prints the new palm.yaml and writes nothing.
+
+Examples:
+  palm migrate --dry-run
+  palm migrate
+  palm migrate -g
+"
+`;
+
+exports[`palm --help > palm remove --help 1`] = `
+"Usage: palm remove|uninstall [source] <[kind:]name...> [options]
+
+Delete exactly what palm wrote for some entities.
+
+Arguments:
+  names                an optional source, then [kind:]name of what to remove
+
+Options:
+  --exclude            a plugin member: exclude it for the team in palm.yaml
+  -h, --help           display help for command
+
+Global Options:
+  -g, --global         use ~/.palm/palm.yaml and the harness home directories
+  --dry-run            show what would change; write nothing
+  --force              replace files you changed or that palm does not own
+  -y, --yes            accept plan confirmations (never consents to programs)
+  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
+  --offline            use the cache only; no network
+  --json               one JSON document on stdout; everything else on stderr
+  --secrets <policy>   env-ref (default) or literal, for secrets you type
+  -V, --version        print the palm version
+
+A file you changed since palm wrote it keeps the entity installed (exit 1); --force removes it.
+Removing something that is not installed is not an error.
+
+Examples:
+  palm remove tdd
+  palm remove mattpocock/skills tdd handoff
+  palm remove obra/superpowers brainstorming --exclude
+  palm rm mcp:docs -g
+"
+`;
+
+exports[`palm --help > palm update --help 1`] = `
+"Usage: palm update|up [sources...] [options]
+
+Move sources to newer commits within their refs.
+
+Arguments:
+  sources              sources to update (default: all)
+
+Options:
+  --to <ref>           move the ref in palm.yaml (a tag, branch, sha or range
+                       such as ^2)
+  --review             print changed scripts and entities as diffs before asking
+  --strict             with --dry-run: exit 1 when a source is behind its ref
+  -h, --help           display help for command
+
+Global Options:
+  -g, --global         use ~/.palm/palm.yaml and the harness home directories
+  --dry-run            show what would change; write nothing
+  --force              replace files you changed or that palm does not own
+  -y, --yes            accept plan confirmations (never consents to programs)
+  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
+  --offline            use the cache only; no network
+  --json               one JSON document on stdout; everything else on stderr
+  --secrets <policy>   env-ref (default) or literal, for secrets you type
+  -V, --version        print the palm version
+
+Prints the plan, every new or changed program, and the files you changed, then asks
+(default no). Without a terminal it needs --yes; --yes never consents to programs.
+
+Examples:
+  palm update
+  palm update mattpocock/skills
+  palm update acme-kit --to ^2
+  palm update --dry-run --strict              exit 1 when a source is behind its ref
+"
+`;

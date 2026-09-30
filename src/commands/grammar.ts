@@ -44,7 +44,7 @@ export const VERBS: readonly VerbSpec[] = [
   {
     name: 'install',
     aliases: ['add', 'i'],
-    summary: 'install from a source; bare, make the disk match palm.yaml',
+    summary: 'install from a source; bare, sync with palm.yaml',
     arguments: '[source] [[kind:]name...]',
   },
   {
@@ -62,7 +62,7 @@ export const VERBS: readonly VerbSpec[] = [
   {
     name: 'check',
     aliases: [],
-    summary: 'verify palm.yaml, the lock and the files (read-only, for CI)',
+    summary: 'verify palm.yaml, the lock and the files (CI gate)',
     arguments: '',
   },
   {
@@ -74,13 +74,13 @@ export const VERBS: readonly VerbSpec[] = [
   {
     name: 'describe',
     aliases: ['info'],
-    summary: 'show one entity, source or target, or what wrote a file',
+    summary: 'show one entity, source, target or file',
     arguments: '<name or path>',
   },
   {
     name: 'create',
     aliases: ['new'],
-    summary: "write a template into the project's own source and install it",
+    summary: 'write a template into your own source and install it',
     arguments: '<kind> <name>',
   },
 ];
@@ -380,11 +380,33 @@ function rewriteMcpJson(args: string[]): string[] {
   return [...args.slice(0, i), '--mcp-json', ...args.slice(i + 1)];
 }
 
+/** Options whose value may start with a dash (`--arg -y`). */
+const DASH_VALUES = new Set(['--arg', '--env', '--header', '--command', '--description']);
+
+/**
+ * `--arg -y` as `--arg=-y`: commander would read `-y` as the global `--yes` and leave `--arg`
+ * without its value.
+ */
+function attachDashValues(args: string[]): string[] {
+  const joined: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] as string;
+    const next = args[i + 1];
+    const dashed = next !== undefined && next.startsWith('-') && next !== '-';
+    if (DASH_VALUES.has(a) && dashed) {
+      joined.push(`${a}=${next}`);
+      i++;
+    } else joined.push(a);
+  }
+  return joined;
+}
+
 /** Split argv at the first `--` and read `install mcp --json <file>` as the snippet flag. */
 export function prepareArgv(argv: string[]): { args: string[]; passthrough: string[] } {
   const cut = argv.indexOf('--');
   const args = cut < 0 ? argv : argv.slice(0, cut);
-  return { args: rewriteMcpJson(args), passthrough: cut < 0 ? [] : argv.slice(cut + 1) };
+  const passthrough = cut < 0 ? [] : argv.slice(cut + 1);
+  return { args: rewriteMcpJson(attachDashValues(args)), passthrough };
 }
 
 /** palm 0.1 `install mcp <name> -- <command> [args...]`: now `--command` and `--arg`. */
