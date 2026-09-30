@@ -217,18 +217,17 @@ function isArrayAt(at: string): boolean {
   return /^\/hooks\/[^/]+$/.test(at) || at === '/instructions';
 }
 
-function identityOf(value: unknown): string {
-  if (typeof value === 'string') return value;
-  const out: string[] = [];
-  const walk = (v: unknown, key?: string): void => {
-    if (typeof v === 'string' && key && ['matcher', 'command', 'bash', 'powershell'].includes(key))
-      out.push(`${key}=${v}`);
-    else if (Array.isArray(v)) for (const x of v) walk(x, key);
-    else if (v && typeof v === 'object')
-      for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, k);
-  };
-  walk(value);
-  return out.join('\n');
+/** A hook item's identity: its matcher and command (or prompt) strings, sorted; a string is itself. */
+function identityOf(value: unknown): unknown {
+  if (typeof value === 'string' || value === null || typeof value !== 'object') return value;
+  const o = value as Record<string, unknown>;
+  const items = Array.isArray(o.hooks) ? (o.hooks as unknown[]) : [o];
+  const commands = items.flatMap((h) => {
+    const r = (h ?? {}) as Record<string, unknown>;
+    const text = typeof r.command === 'string' ? r.command : r.prompt;
+    return typeof text === 'string' ? [text] : [];
+  });
+  return { matcher: typeof o.matcher === 'string' ? o.matcher : '', commands: commands.sort() };
 }
 
 function unescapePointer(seg: string): string {
@@ -237,7 +236,8 @@ function unescapePointer(seg: string): string {
 
 export function fakeFragmentKey(at: string, value: unknown): string {
   if (at.startsWith('block:')) return at.slice('block:'.length);
-  if (isArrayAt(at)) return fakeSha256(identityOf(value)).slice(0, 'sha256:'.length + 8);
+  if (isArrayAt(at))
+    return fakeSha256(canonicalJson(identityOf(value))).slice(0, 'sha256:'.length + 8);
   return unescapePointer(at.split('/').at(-1) ?? '');
 }
 

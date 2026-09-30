@@ -87,7 +87,7 @@ prettier --write "$1"
         "createMode": 384,
         "file": "<claude>/settings.json",
         "id": "palm:hook:fmt:0",
-        "key": "sha256:f4a719dc",
+        "key": "sha256:ef6f6c6a",
         "value": {
           "hooks": [
             {
@@ -104,7 +104,7 @@ prettier --write "$1"
         "createMode": 384,
         "file": "<claude>/settings.json",
         "id": "palm:hook:fmt:1",
-        "key": "sha256:753907e1",
+        "key": "sha256:dd93af0e",
         "value": {
           "hooks": [
             {
@@ -359,7 +359,7 @@ prettier --write "$1"
         "at": "/hooks/PostToolUse",
         "file": ".claude/settings.json",
         "id": "palm:hook:fmt:0",
-        "key": "sha256:fba2ef66",
+        "key": "sha256:4de679c9",
         "value": {
           "hooks": [
             {
@@ -375,7 +375,7 @@ prettier --write "$1"
         "at": "/hooks/SessionStart",
         "file": ".claude/settings.json",
         "id": "palm:hook:fmt:1",
-        "key": "sha256:753907e1",
+        "key": "sha256:dd93af0e",
         "value": {
           "hooks": [
             {
@@ -624,7 +624,7 @@ prettier --write "$1"
         "createMode": 384,
         "file": "<codex>/hooks.json",
         "id": "palm:hook:fmt:0",
-        "key": "sha256:f4a719dc",
+        "key": "sha256:ef6f6c6a",
         "value": {
           "hooks": [
             {
@@ -641,7 +641,7 @@ prettier --write "$1"
         "createMode": 384,
         "file": "<codex>/hooks.json",
         "id": "palm:hook:fmt:1",
-        "key": "sha256:753907e1",
+        "key": "sha256:dd93af0e",
         "value": {
           "hooks": [
             {
@@ -888,7 +888,7 @@ prettier --write "$1"
         "at": "/hooks/PostToolUse",
         "file": ".codex/hooks.json",
         "id": "palm:hook:fmt:0",
-        "key": "sha256:bf785c83",
+        "key": "sha256:c5c03f30",
         "value": {
           "hooks": [
             {
@@ -904,7 +904,7 @@ prettier --write "$1"
         "at": "/hooks/SessionStart",
         "file": ".codex/hooks.json",
         "id": "palm:hook:fmt:1",
-        "key": "sha256:753907e1",
+        "key": "sha256:dd93af0e",
         "value": {
           "hooks": [
             {
@@ -1687,7 +1687,7 @@ prettier --write "$1"
         },
         "file": "<cursor>/hooks.json",
         "id": "palm:hook:fmt:0",
-        "key": "sha256:b96925c5",
+        "key": "sha256:dd451797",
         "value": {
           "command": "CURSOR_PLUGIN_ROOT="$HOME"/.palm/assets/acme__kit/fmt/plugins/fmt CLAUDE_PLUGIN_ROOT="$HOME"/.palm/assets/acme__kit/fmt/plugins/fmt "$HOME/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
           "matcher": "Write",
@@ -1702,7 +1702,7 @@ prettier --write "$1"
         },
         "file": "<cursor>/hooks.json",
         "id": "palm:hook:fmt:1",
-        "key": "sha256:753907e1",
+        "key": "sha256:dd93af0e",
         "value": {
           "command": "echo hi",
         },
@@ -1941,7 +1941,7 @@ prettier --write "$1"
         },
         "file": ".cursor/hooks.json",
         "id": "palm:hook:fmt:0",
-        "key": "sha256:0bd3aa2b",
+        "key": "sha256:fc6d8e34",
         "value": {
           "command": "CURSOR_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/acme__kit/fmt/plugins/fmt CLAUDE_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/acme__kit/fmt/plugins/fmt "$CURSOR_PROJECT_DIR/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
           "matcher": "Write",
@@ -1955,7 +1955,7 @@ prettier --write "$1"
         },
         "file": ".cursor/hooks.json",
         "id": "palm:hook:fmt:1",
-        "key": "sha256:753907e1",
+        "key": "sha256:dd93af0e",
         "value": {
           "command": "echo hi",
         },
@@ -2205,7 +2205,7 @@ prettier --write "$1"
         "createMode": 384,
         "file": "<gemini>/settings.json",
         "id": "palm:hook:fmt:0",
-        "key": "sha256:896a9edb",
+        "key": "sha256:ae364636",
         "value": {
           "hooks": [
             {
@@ -2222,7 +2222,7 @@ prettier --write "$1"
         "createMode": 384,
         "file": "<gemini>/settings.json",
         "id": "palm:hook:fmt:1",
-        "key": "sha256:753907e1",
+        "key": "sha256:dd93af0e",
         "value": {
           "hooks": [
             {
@@ -2479,7 +2479,7 @@ prettier --write "$1"
         "at": "/hooks/AfterTool",
         "file": ".gemini/settings.json",
         "id": "palm:hook:fmt:0",
-        "key": "sha256:63880ad8",
+        "key": "sha256:cb530ec1",
         "value": {
           "hooks": [
             {
@@ -2495,7 +2495,7 @@ prettier --write "$1"
         "at": "/hooks/SessionStart",
         "file": ".gemini/settings.json",
         "id": "palm:hook:fmt:1",
-        "key": "sha256:753907e1",
+        "key": "sha256:dd93af0e",
         "value": {
           "hooks": [
             {
@@ -2733,7 +2733,7 @@ Strict.
         "createMode": 384,
         "file": "<opencode>/opencode.json",
         "id": "palm:instruction:demo:0",
-        "key": "sha256:b604db1b",
+        "key": "sha256:a4001b60",
         "value": "~/.config/opencode/instructions/demo.md",
       },
     ],
@@ -2956,7 +2956,7 @@ Strict.
         "at": "/instructions",
         "file": "opencode.json",
         "id": "palm:instruction:demo:0",
-        "key": "sha256:a1f683ef",
+        "key": "sha256:0bc66ffb",
         "value": ".opencode/instructions/demo.md",
       },
     ],
