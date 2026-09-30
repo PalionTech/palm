@@ -24,7 +24,7 @@ The first command installs palm for your user. The second prints the installed v
 Private repositories need the git credentials you already use, such as an SSH key or a credential helper.
 palm never prompts for a password, so a missing credential fails with a hint instead of hanging.
 
-### On Windows
+### Run palm inside WSL
 
 palm 0.2 does not run on native Windows.
 A maintainer on Windows installs Node 22, git and palm inside WSL, and runs palm there.

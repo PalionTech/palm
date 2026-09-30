@@ -84,7 +84,8 @@ A `SKILL.md` under an ignored folder name is listed as skipped, with the layout 
 | Root files | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` |
 
 Install outputs are copies another installer committed. The real sources sit elsewhere in the repository.
-Root files guide the repository's own contributors, not its users.
+Root files guide the repository's own contributors, not its users, so palm never indexes them as instructions.
+Inside a skill's folder they are skill content, and the copy keeps them, as [What a skill copy leaves out](#what-a-skill-copy-leaves-out) says.
 palm includes other dot folders, so `skills/.curated` in `openai/skills` is found.
 
 ## Names and versions
@@ -96,12 +97,31 @@ palm includes other dot folders, so `skills/.curated` in `openai/skills` is foun
 | agent | the file name without `.md` or `.agent.md`; a `name` with spaces becomes the display name |
 | plugin | the manifest `name`, else the marketplace entry name, else the folder name |
 | mcp | the server's key in the config file |
+| hook | see [Hook names](#hook-names) |
 
 A skill `name` that is not a valid slug is replaced by the slugified folder name, with a warning.
 When `name` differs from the folder name, palm keeps `name` and warns.
 When a skill and a command in one source share a name, the skill wins and the command is dropped with a warning.
 
 palm takes the version from the first of frontmatter `metadata.version`, frontmatter `version`, the manifest `version` and the git tag.
+
+### Hook names
+
+A hook set is named after the folder that holds it, so the name of a hook at the source root depends on the person who installs it.
+
+| Hook file | Name |
+| --- | --- |
+| `hooks/<name>/hooks.json` | `<name>` |
+| `<dir>/hooks/hooks.json` | `<dir>` |
+| a plugin's `hooks/hooks.json` or inline `hooks` | the plugin's name |
+| `hooks/hooks.json` at the source root | the last segment of the source's name in `palm.yaml` |
+| any other `<stem>.json` a layout lists | `<stem>` |
+
+A root hook of `acme/agent-kit` is `hook:agent-kit`. Installed with `--as acme`, the same hook is `hook:acme`.
+Give the hook a name you control by putting it in `hooks/<name>/hooks.json`, or by shipping a plugin manifest.
+
+A relative path in a hook command, such as `./context.sh`, is read from the source root, not from the folder of `hooks.json`.
+Name a script next to the hook file as `${CLAUDE_PLUGIN_ROOT}/hooks/<file>` for a root hook, or by its path from the source root.
 
 ## Activation of instructions
 
@@ -128,16 +148,33 @@ palm 0.3 turns an on-request or manual rule into a skill where a harness lacks t
 | zero-width and other invisible format characters | warning | installed, with a warning |
 | a hook or MCP reference that resolves to nothing in the source | critical | the entity is refused, with the offending line |
 | a secret-shaped literal in an MCP value or hook command | critical | never written; palm writes `${NAME}` |
-| a secret-shaped literal in a file a skill copies | critical | the skill is refused |
+| a known token prefix, a bearer token, a private key block, or a high-entropy value in a configuration file such as `.json`, `.yaml`, `.toml` or `.env`, in a file a skill, agent or instruction copies | critical | the entity is refused |
+| a high-entropy value in code or prose that a skill copies | warning | installed, with a warning |
 | a secret-shaped literal inside a hook or server script | warning | installed, with a warning |
 | a skill folder above 200 files or 5 MB | limit | installed only with `--force`; the message gives the count |
 
 palm checks a skill's whole folder, the file of an agent, instruction, MCP config or hook set, and every file a hook or server runs or reads.
-A skill copy leaves out harness folders such as `.cursor`, `.git`, `node_modules` and palm's own files, so a root `SKILL.md` never copies the repository's own agent setup.
 Binary files and files over 1 MB are skipped. The index stores `<redacted sha256:8>` in place of a secret value.
 
 A value counts as secret-shaped under a key only when the key holds a whole word such as `key`, `api_key`, `token`, `secret`, `password` or `authorization`.
 `x-api-key` counts, `keywords` does not.
+Code is not a value: an identifier or expression such as `process.env.API_KEY`, `queryKey()`, `React.useContext(TokenContext)` or `token || null` is never a finding.
+
+### What a skill copy leaves out
+
+A skill is its folder, so palm copies the folder's own files, including an `AGENTS.md`, `CLAUDE.md` or `GEMINI.md` inside it.
+A copy leaves out these paths, wherever they sit in the folder.
+
+| Group | Paths |
+| --- | --- |
+| Harness folders | `.claude/`, `.cursor/`, `.codex/`, `.github/`, `.vscode/`, `.gemini/`, `.opencode/` |
+| palm's files | `palm.yaml`, `palm.lock.yaml`, `palm.local.yaml`, `.palm/` |
+| Repository internals | `.git`, `node_modules`, `.env` and `.env.*` |
+| Tests | `tests/`, `test/`, `fixtures/`, `__tests__/`, and files named `*.test.*` |
+
+A finding in a file the copy leaves out never refuses the skill, since that file never reaches a harness.
+So a fake key in a test fixture installs, and the same key in the skill's own code refuses it.
+The rule for a hook's files is separate: palm copies what the hook runs and reads, as [Consent](/palm/concepts/consent/) describes.
 
 ## Related
 
