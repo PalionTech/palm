@@ -13,6 +13,7 @@ import type {
   UpdatePlan,
   UpdatePlanItem,
 } from '../core/types.js';
+import { gitDiffStat } from '../lib/git-query.js';
 import { plural } from '../lib/text.js';
 import { formatColumns, listJoin, type Mark, shortHash } from '../ui/format.js';
 import type { Output } from '../ui/output.js';
@@ -147,5 +148,12 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const before = await api.openScope(ctx, opts.scope, { readOnly: true });
   const result = await interruptible(app, () => api.applyUpdate(ctx, plan, opts, engineDeps(app)));
   const after = await api.openScope(ctx, opts.scope, { readOnly: true });
-  await reportInstall(ctx, app, result, { before, after, json: { plan, ...result } });
+  try {
+    await reportInstall(ctx, app, result, { before, after, json: { plan, ...result } });
+  } finally {
+    // What the update changed, as the review of the commit will show it (DESIGN §6).
+    const show = !app.out.jsonMode && opts.scope === 'project';
+    const stat = show ? await gitDiffStat(after.paths.root) : undefined;
+    if (stat) app.out.out(stat);
+  }
 }

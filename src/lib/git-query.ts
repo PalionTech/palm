@@ -61,6 +61,17 @@ export async function isGitIgnored(abs: string, cwd: string): Promise<boolean | 
   return (await run(['check-ignore', '-q', '--', abs], dir)) !== undefined;
 }
 
+/**
+ * `git diff --stat` of the working tree below `dir` (what an update changed, DESIGN §6);
+ * undefined outside a repository, without git, or when nothing differs.
+ */
+export async function gitDiffStat(dir: string): Promise<string | undefined> {
+  const cwd = await existingDir(dir);
+  if (!(await gitToplevel(cwd))) return undefined;
+  const out = await run(['diff', '--stat', '--', '.'], cwd);
+  return out?.trimEnd() || undefined;
+}
+
 /** True when git tracks `abs` (a file, or any file below a directory); undefined outside a repository. */
 export async function isGitTracked(abs: string, cwd: string): Promise<boolean | undefined> {
   const dir = await existingDir(cwd);

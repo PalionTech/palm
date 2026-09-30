@@ -495,7 +495,8 @@ sha the lock names is the only network access a bare install needs. `palm cache 
   characters are refused.
 - `git` runs with `cwd` inside the cache only; palm never runs git inside the project except
   read-only `git ls-files`, `git check-ignore` and `git rev-parse --show-toplevel` for the checks
-  in sections 6 and 8, each with the clean environment and a 30 s timeout, and each optional
+  in sections 6 and 8, and `git diff --stat` after an update, each with the clean environment
+  and a 30 s timeout, and each optional
   (no git, no repository: the check is skipped with a note).
 
 ### Index

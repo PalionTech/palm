@@ -34,7 +34,8 @@ function reference(variable: string): string {
   return `\${${variable}}`;
 }
 
-type Scan = (value: string, where: string) => boolean;
+/** Whether `value`, under the key `key` (the key-name heuristics apply), is a secret. */
+type Scan = (value: string, key: string, where: string) => boolean;
 
 /** Env values that are literal secrets become `${KEY}`. */
 function envReferences(
@@ -44,7 +45,7 @@ function envReferences(
 ): Record<string, string> {
   const out = { ...env };
   for (const [k, v] of Object.entries(env)) {
-    if (!scan(v, `env.${k}`)) continue;
+    if (!scan(v, k, `env.${k}`)) continue;
     literals.push({ where: `env.${k}`, variable: k, value: v });
     out[k] = reference(k);
   }
@@ -59,7 +60,7 @@ function headerReferences(
 ): Record<string, string> {
   const out = { ...cfg.headers };
   for (const [h, v] of Object.entries(cfg.headers ?? {})) {
-    if (!scan(v, `headers.${h}`)) continue;
+    if (!scan(v, h, `headers.${h}`)) continue;
     const variable = headerVariable(cfg.name, h);
     const bearer = /^Bearer\s+(.+)$/i.exec(v);
     literals.push({ where: `headers.${h}`, variable, value: bearer?.[1] ?? v });
@@ -74,7 +75,8 @@ function withReferences(
   cfg: McpServerConfig,
 ): { cfg: McpServerConfig; literals: Literal[] } {
   const literals: Literal[] = [];
-  const scan: Scan = (value, where) => run.deps.scanSecrets(value, where).length > 0;
+  const scan: Scan = (value, key, where) =>
+    run.deps.scanSecrets({ [key]: value }, where).length > 0;
   const out: McpServerConfig = { ...cfg };
   if (cfg.env) out.env = envReferences(cfg.env, scan, literals);
   if (cfg.headers) out.headers = headerReferences(cfg, scan, literals);
