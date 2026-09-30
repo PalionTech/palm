@@ -8,7 +8,7 @@ import type { SecretFinding, SecretShape } from '../core/types.js';
 import { isFillInValue } from '../lib/placeholders.js';
 import { entropyBitsPerChar } from '../lib/text.js';
 
-/** Known token prefixes; `-----BEGIN` opens a private key block. */
+/** Known token prefixes; `-----BEGIN` opens a key block (a secret only when it says PRIVATE KEY). */
 export const SECRET_PREFIXES: readonly string[] = [
   'sk-',
   'ghp_',
@@ -38,6 +38,8 @@ export function isSecretKey(name: string): boolean {
 }
 
 const PRIVATE_KEY = '-----BEGIN';
+/** A private key block's armour line; a certificate or a public key is no secret. */
+const PRIVATE_KEY_RE = /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/;
 /** Characters a prefixed token needs after its prefix (`sk-abc` is not a key). */
 const MIN_PREFIX_BODY = 16;
 const MIN_BEARER_TOKEN = 16;
@@ -64,6 +66,27 @@ interface Match {
   key?: string;
 }
 
+const FILL_IN: readonly RegExp[] = [
+  /^$/,
+  /^<[^<>]*>$/,
+  /^your[-_ .]/i,
+  /^x{3,}(?:[-_.]?x+)*$/i,
+  /^(?:change|replace)[-_ ]?me$/i,
+  /^\*{3,}$/,
+];
+
+/** True for text that means "fill me in": empty, `<your key>`, `YOUR_API_KEY`, `xxxx`, `changeme`. */
+export function isFillIn(text: string): boolean {
+  const t = text.trim();
+  return FILL_IN.some((re) => re.test(t));
+}
+
+/** A prefixed token whose body is a fill-in (`ghp_xxxxxxxxxxxxxxxxxxxx`, `sk-your-key-goes-here`). */
+function isFillInToken(token: string): boolean {
+  const prefix = SECRET_PREFIXES.find((p) => token.startsWith(p)) ?? '';
+  return isFillIn(token.slice(prefix.length));
+}
+
 /** A literal worth testing: no `${VAR}`, `$VAR` or `{env:VAR}` reference, no "fill me in" text. */
 function isLiteral(text: string): boolean {
   return !text.includes('$') && !text.includes('{') && !isFillInValue(text);
@@ -81,9 +104,9 @@ function inUrl(text: string): Match | undefined {
 
 /** Shapes that need no key: a private key block, a known prefix, a Bearer token, a URL secret. */
 function inText(text: string): Match | undefined {
-  if (text.includes(PRIVATE_KEY)) return { shape: 'private-key', secret: text };
+  if (PRIVATE_KEY_RE.test(text)) return { shape: 'private-key', secret: text };
   const prefixed = PREFIX_RE.exec(text)?.[0];
-  if (prefixed) return { shape: 'prefix', secret: prefixed };
+  if (prefixed && !isFillInToken(prefixed)) return { shape: 'prefix', secret: prefixed };
   const bearer = BEARER_RE.exec(text)?.[1];
   if (bearer && bearer.length >= MIN_BEARER_TOKEN && isLiteral(bearer))
     return { shape: 'bearer', secret: bearer };

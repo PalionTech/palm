@@ -14,7 +14,7 @@ import { requiredSecretNames } from '../domain/secret-refs.js';
 import { isGitTracked } from '../lib/fs.js';
 import { isRecord } from '../lib/object.js';
 import { isSecretKey } from '../secrets/scan.js';
-import { isFillIn } from '../secrets/typed.js';
+import { isFillIn } from '../secrets/scan.js';
 import { type CheckContext, checkRun, count, entityOf, type Found, found } from './check-kit.js';
 import { palmCommand } from './report.js';
 import { readConfig } from './rotate.js';

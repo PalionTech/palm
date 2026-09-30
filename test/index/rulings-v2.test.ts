@@ -73,7 +73,7 @@ describe('Y2 a root SKILL.md never copies harness configs and keys', () => {
     expect(find(r, 'instruction', 'keys').issues?.[0]?.code).toBe('secret-literal');
   });
 
-  it('Y2 a random value refuses in a config file, and is a warning in code or prose', async () => {
+  it('Y2 a random value refuses in a config file, and is a warning in code or prose; a certificate is neither', async () => {
     const random = `${FILL}Bq3Wc5Yh${FILL}`;
     await put('skills/cfg/SKILL.md', skillMd('cfg'));
     await put('skills/cfg/config.json', { api_key: random });
@@ -83,7 +83,7 @@ describe('Y2 a root SKILL.md never copies harness configs and keys', () => {
     const r = await run();
     expect(find(r, 'skill', 'cfg').issues?.map((i) => i.severity)).toEqual(['critical']);
     expect(find(r, 'skill', 'code').issues?.map((i) => i.severity)).toEqual(['warning']);
-    expect(find(r, 'skill', 'pem').issues?.map((i) => i.severity)).toEqual(['warning']);
+    expect(find(r, 'skill', 'pem').issues ?? []).toEqual([]);
   });
 });
 

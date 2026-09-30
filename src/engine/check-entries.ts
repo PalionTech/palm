@@ -22,6 +22,7 @@ import {
   skipped,
 } from './check-kit.js';
 import { palmCommand } from './report.js';
+import { pendingRemovals } from './sync.js';
 
 function install(c: CheckContext, words: string[] = [], extra?: string): string {
   return palmCommand('install', words, c.run.state.paths.scope, extra);
@@ -119,14 +120,14 @@ export async function orphansCheck(c: CheckContext): Promise<CheckRun> {
 }
 
 /** J7: under -g, files this machine holds that the pulled lock no longer lists. */
-export function pendingCheck(c: CheckContext): CheckRun {
-  const { applied, lock, paths } = c.run.state;
-  if (paths.scope !== 'global' || !applied)
+export async function pendingCheck(c: CheckContext): Promise<CheckRun> {
+  const { state } = c.run;
+  if (state.paths.scope !== 'global' || !state.applied)
     return skipped('pending', 'applied files outside the lock', 'global scope only');
   const f = found();
-  const listed = new Set(lock.entries.flatMap((e) => e.files.map((p) => paths.abs(p))));
-  const left = applied.record.files.filter((x) => !listed.has(x.path) && existsSync(x.path));
-  const shown = left.slice(0, 3).map((x) => paths.lockForm(x.path));
+  const { files, fragments } = await pendingRemovals(state);
+  const left = [...files, ...fragments.map((m) => `${m.at} in ${m.file}`)];
+  const shown = left.slice(0, 3);
   if (left.length)
     f.fail.push({
       message: `applied files no longer in the lock: ${left.length} (${shown.join(', ')}${left.length > 3 ? ', …' : ''})`,

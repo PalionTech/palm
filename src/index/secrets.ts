@@ -132,8 +132,8 @@ function definitionIssues(e: Entity, scanner: SecretScanner): EntityIssue[] {
   return r.issues;
 }
 
-/** How bad one finding in a file is; `text` is the file's text. */
-type Severity = (f: SecretFinding, file: string, text: string) => EntityIssue['severity'];
+/** How bad one finding in a file is. */
+type Severity = (f: SecretFinding, file: string) => EntityIssue['severity'];
 
 async function fileIssues(
   file: SourceFile,
@@ -142,30 +142,21 @@ async function fileIssues(
 ): Promise<EntityIssue[]> {
   const text = await readScannable(file.abs);
   if (text === undefined) return [];
-  return scanner
-    .scanText(text, file.rel)
-    .map((f) => issueOf(f, file.rel, severity(f, file.rel, text)));
+  return scanner.scanText(text, file.rel).map((f) => issueOf(f, file.rel, severity(f, file.rel)));
 }
 
 /** Files whose `name = value` lines are configuration, where a random value is a credential. */
 const DATA_FILE = /(^|\/)\.env(\.[^/]*)?$|\.(json|jsonc|toml|ya?ml|ini|cfg|conf|properties)$/i;
 
-/** The line a `<file>:<line>` finding points at. */
-function lineOf(f: SecretFinding, text: string): string {
-  const n = Number(/:(\d+)$/.exec(f.where)?.[1] ?? 0);
-  return text.split(/\r?\n/)[n - 1] ?? '';
-}
-
 /**
  * A copied file's finding refuses the entity when it is a credential beyond doubt: a known token
  * prefix, a Bearer token, a secret in a URL, a private key block, or a random value in a
- * configuration file. A random value in code or prose (`apiKey = hash(input)`) and a certificate
- * or public key block are warnings: palm cannot tell them from a secret, so it says so and copies.
+ * configuration file. A random value in code or prose (`apiKey = hash(input)`) is a warning:
+ * palm cannot tell it from a secret, so it says so and copies. A certificate or a public key
+ * block is no secret shape at all (secrets/scan.ts).
  */
-const copiedSeverity: Severity = (f, file, text) => {
+const copiedSeverity: Severity = (f, file) => {
   if (f.shape === 'high-entropy') return DATA_FILE.test(file) ? 'critical' : 'warning';
-  if (f.shape === 'private-key')
-    return lineOf(f, text).includes('PRIVATE KEY') ? 'critical' : 'warning';
   return 'critical';
 };
 

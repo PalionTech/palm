@@ -5,9 +5,8 @@
 import { describe, expect, it } from 'vitest';
 import type { McpServerConfig } from '../../src/core/types.js';
 import { decideSecret, type GitProbe } from '../../src/secrets/policy.js';
-import { isSecretKey, scanSecrets } from '../../src/secrets/scan.js';
+import { isFillIn, isSecretKey, looksLikeSecret, scanSecrets } from '../../src/secrets/scan.js';
 import {
-  isFillIn,
   redactTypedArgs,
   referenceTyped,
   typedLine,
@@ -225,6 +224,24 @@ describe('D7 VS Code inputs become references', () => {
     ]);
     expect(typedLine('github', references[0]!, ['VS Code'])).toBe(
       'github: ${input:github_mcp_pat} is a VS Code input; written as ${GITHUB_MCP_PAT}; export GITHUB_MCP_PAT=… before starting VS Code',
+    );
+  });
+});
+
+describe('secret shapes a fill-in or a certificate never match (integration of Y2 and L3)', () => {
+  it('a -----BEGIN block is a private key only when it says PRIVATE KEY', () => {
+    const armour = (what: string) => `-----BEGIN ${what}-----\nMIIBszCCARygAwIBAgIJAK`;
+    expect(looksLikeSecret(armour(`RSA PRIVATE ${'KEY'}`))).toBe('private-key');
+    expect(looksLikeSecret(armour(`PRIVATE ${'KEY'}`))).toBe('private-key');
+    expect(looksLikeSecret(armour('CERTIFICATE'))).toBeUndefined();
+    expect(looksLikeSecret(armour('PUBLIC KEY'))).toBeUndefined();
+  });
+
+  it('a known prefix followed by a fill-in is no secret', () => {
+    expect(looksLikeSecret(`ghp_${'x'.repeat(36)}`)).toBeUndefined();
+    expect(looksLikeSecret(`sk-your-key-goes-here-${'x'.repeat(8)}`)).toBeUndefined();
+    expect(looksLikeSecret(`ghp_${'Zx8kQ2mN7pL4vR9tW3yB6cF1'.repeat(2).slice(0, 36)}`)).toBe(
+      'prefix',
     );
   });
 });

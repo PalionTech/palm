@@ -9,7 +9,6 @@ import { existsSync } from 'node:fs';
 import { lstat, readdir, stat } from 'node:fs/promises';
 import { basename, dirname, join, posix } from 'node:path';
 import type { CheckProblem, CheckRun, LockEntry } from '../core/types.js';
-import { readFrontmatterFile } from '../lib/frontmatter.js';
 import { isGitIgnored, isGitTracked, walkFiles } from '../lib/fs.js';
 import {
   type CheckContext,
@@ -20,7 +19,7 @@ import {
   found,
   skipped,
 } from './check-kit.js';
-import { findOverlaps } from './scope.js';
+import { findOverlaps, overlapMessage } from './scope.js';
 
 /** git questions asked at once. */
 const CONCURRENCY = 8;
@@ -202,7 +201,7 @@ export async function links(c: CheckContext): Promise<CheckRun> {
   await outputLinks(c, f, reported);
   for (const o of await findOverlaps(c.run.ctx, c.run.state, c.run.deps))
     f.fail.push({
-      message: `source "${o.source}" (${o.sourceRel}) overlaps the ${o.target === 'palm' ? 'palm asset' : o.target} directory ${o.dir}/`,
+      message: overlapMessage(o),
       fix: 'move the source files to a directory of their own (for example ./agent-kit) and declare that in palm.yaml',
     });
   return checkRun(
@@ -239,41 +238,48 @@ function instructionsTwice(c: CheckContext, f: Found): void {
   }
 }
 
-async function agentName(abs: string): Promise<string> {
-  const fm = await readFrontmatterFile(abs).catch(() => undefined);
-  const name = fm?.data.name;
-  return typeof name === 'string' && name.trim() ? name.trim() : basename(abs, '.md');
+/** `a and b`, `a, b and c`. */
+function andList(items: readonly string[]): string {
+  return items.length < 2
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 }
 
-/** Other agent files beside `abs` that carry the same name. */
-async function sameNamed(abs: string): Promise<{ name: string; others: string[] }> {
-  const name = await agentName(abs);
-  const siblings = (await readdir(dirname(abs)).catch(() => [] as string[])).filter(
-    (n) => n.endsWith('.md') && n !== basename(abs),
-  );
-  const others: string[] = [];
-  for (const other of siblings)
-    if ((await agentName(join(dirname(abs), other))) === name) others.push(other);
-  return { name, others };
+/** The lock entry that owns `file`, when palm wrote it. */
+function ownerOf(c: CheckContext, file: string): LockEntry | undefined {
+  return c.run.state.lock.entries.find((e) => e.kind === 'agent' && e.files.includes(file));
 }
 
-/** Y14: two agent files with one name in a harness's agents directory (the harness keeps one). */
+/**
+ * Y14: agent files with one name in a harness's agents directory (the harness keeps one), as the
+ * target reads names (`Target.agentNameClashes`: frontmatter, TOML or file stem). palm's own
+ * files come first and carry their entry.
+ */
 async function agentsTwice(c: CheckContext, f: Found): Promise<void> {
-  const { paths, lock } = c.run.state;
-  const files = lock.entries
-    .filter((e) => e.kind === 'agent')
-    .flatMap((e) => e.files.filter((p) => p.endsWith('.md')).map((file) => ({ e, file })));
-  for (const { e, file } of files) {
-    if (!existsSync(paths.abs(file))) continue;
-    const dir = posix.dirname(file);
-    const { name, others } = await sameNamed(paths.abs(file));
-    for (const other of others)
+  const { ctx, deps, state } = c.run;
+  const seen = new Set<string>();
+  for (const t of state.targets) {
+    const clashes = await deps
+      .getTarget(t)
+      .agentNameClashes?.(state.paths.scope, state.paths.root, ctx.env);
+    for (const clash of clashes ?? []) {
+      const key = clash.files.join('\0');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const files = [...clash.files].sort(
+        (x, y) => Number(!ownerOf(c, x)) - Number(!ownerOf(c, y)),
+      );
+      const [first = '', ...rest] = files;
+      const owner = ownerOf(c, first);
+      const dir = posix.dirname(first);
+      const two = files.length === 2 ? 'two' : `${files.length}`;
       f.warn.push({
-        entity: entityOf(e),
-        file,
-        message: `${dir}/ holds two agents named ${name}: ${file} and ${dir}/${other}`,
-        fix: `rename or remove ${dir}/${other}, or narrow the entry with targets: in palm.yaml`,
+        ...(owner ? { entity: entityOf(owner) } : {}),
+        file: first,
+        message: `${dir}/ holds ${two} agents named ${clash.name}: ${andList(files)}`,
+        fix: `rename or remove ${andList(rest)}, or narrow the entry with targets: in palm.yaml`,
       });
+    }
   }
 }
 

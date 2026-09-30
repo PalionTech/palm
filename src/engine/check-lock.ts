@@ -6,10 +6,10 @@ import { existsSync } from 'node:fs';
 import { short } from '../core/hash.js';
 import type { CheckProblem, CheckRun, LockEntry, LockSource } from '../core/types.js';
 import { lockId, Via } from '../domain/entity-key.js';
-import { sameName } from '../domain/entity-ref.js';
 import { type CheckContext, checkRun, count, entityOf, type Found, found } from './check-kit.js';
+import { missingPreloads, preloadLine } from './preloads.js';
 import { palmCommand } from './report.js';
-import { MANIFEST_SOURCE } from './sources.js';
+import { localDrift, MANIFEST_SOURCE } from './sources.js';
 
 function install(c: CheckContext, extra?: string): string {
   return palmCommand('install', [], c.run.state.paths.scope, extra);
@@ -106,32 +106,23 @@ function sourceSide(c: CheckContext, f: Found): void {
 }
 
 /**
- * K3: an installed agent that preloads a skill (`skills:` in its frontmatter) nobody installed
- * gets a warning naming the install command; palm installs nothing on its own (PLAN §6).
+ * K3: an installed agent that preloads a skill or server (`skills:`, `mcpServers:` in its
+ * frontmatter) nobody installed gets a warning naming the install command; palm installs nothing
+ * on its own (PLAN §6). The agents are read at their locked commit (preloads.ts).
  */
-export function preloads(c: CheckContext): CheckRun {
+export async function preloads(c: CheckContext): Promise<CheckRun> {
   const f = found();
-  const { lock, paths } = c.run.state;
-  const has = (name: string) =>
-    lock.entries.some((x) => x.kind === 'skill' && !x.declined && sameName(x.name, name));
-  for (const e of lock.entries) {
-    const entity = e.kind === 'agent' ? c.renders.get(lockId(e))?.entity : undefined;
-    if (entity?.def.kind !== 'agent') continue;
-    for (const skill of entity.def.agent.skills ?? [])
-      if (!has(skill))
-        f.warn.push(
-          problem(
-            `agent ${e.name} preloads skill ${skill}, not installed`,
-            palmCommand('install', [e.source, skill], paths.scope),
-            e,
-          ),
-        );
+  for (const gap of await missingPreloads(c.run)) {
+    const { command, ...rest } = gap;
+    f.warn.push(
+      command ? { message: preloadLine(rest), fix: command } : { message: preloadLine(rest) },
+    );
   }
   return checkRun(
     'preloads',
     {
       ok: 'every skill an agent preloads is installed',
-      bad: (n) => `${count(n, 'preloaded skill')} not installed`,
+      bad: (n) => `${count(n, 'agent')} preload${n === 1 ? 's' : ''} what is not installed`,
     },
     f,
   );
@@ -159,19 +150,10 @@ export function manifestLock(c: CheckContext): CheckRun {
  */
 export function localSources(c: CheckContext): CheckRun {
   const f = found();
-  const { state } = c.run;
-  const local = new Set(
-    state.sources
-      .all()
-      .filter((s) => s.isLocal)
-      .map((s) => s.name),
-  );
-  for (const e of state.lock.entries) {
-    if (!local.has(e.source) || e.declined || e.kind === 'plugin') continue;
-    const out = c.renders.get(lockId(e));
-    if (!out || out.content === e.content) continue;
+  for (const { entry: e, content } of localDrift(c.run.state, c.renders)) {
+    if (e.kind === 'plugin') continue;
     c.drifted.add(lockId(e));
-    const moved = `content ${short(e.content, 7)} → ${short(out.content, 7)}`;
+    const moved = `content ${short(e.content, 7)} → ${short(content, 7)}`;
     f.fail.push(
       problem(
         `${e.kind} ${e.name} in source ${e.source} changed since palm.lock.yaml (${moved})`,

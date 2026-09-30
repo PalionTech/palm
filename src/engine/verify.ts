@@ -8,6 +8,7 @@ import { sha256 } from '../core/hash.js';
 import type { Entity, LockEntry, TargetId } from '../core/types.js';
 import { sameName } from '../domain/entity-ref.js';
 import { fileStates, fragmentStates } from './diff.js';
+import { recordedPolicy } from './entries.js';
 import type { Run } from './jobs.js';
 import { type RenderOutput, renderEntity } from './render.js';
 import { resolveSource } from './resolve.js';
@@ -58,6 +59,14 @@ async function locate(run: Run, entry: LockEntry) {
 }
 
 /**
+ * The secret policy the entry was rendered with (`secrets: literal` recorded on the entry, Y19),
+ * so a literal entry hashes as it was written; this run's `--secrets` does not change the past.
+ */
+function lockedPolicy(run: Run, entry: LockEntry) {
+  return recordedPolicy(run.state, entry) ?? 'env-ref';
+}
+
+/**
  * As `renderLocked`, but a source palm cannot reach rejects with its error (`E_NETWORK` when
  * the commit is not cached and `--offline` is set), so `check` can tell an empty cache from a
  * difference (E13). Undefined when the entity is gone from the source.
@@ -74,7 +83,7 @@ export async function renderLockedOrThrow(
     source: found.ref,
     checkout: found.checkout,
     targets,
-    policy: run.policy,
+    policy: lockedPolicy(run, entry),
   });
   return { ...out, entity: found.entity };
 }

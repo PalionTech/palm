@@ -20,6 +20,7 @@ import { basename, dirname, join, relative } from 'node:path';
 import semver from 'semver';
 import { vi } from 'vitest';
 import { PalmError } from '../../src/core/errors.js';
+import { agentNameClashes } from '../../src/targets/agent-names.js';
 import {
   type AllowExec,
   type ConsentOutcome,
@@ -669,6 +670,11 @@ function fakeTarget(id: TargetId, o: FakeTargetOptions, calls: TargetCalls): Tar
     detect: async () => o.detect?.includes(id) ?? false,
     configDir: (_s, root) => join(root, `.${id}`),
     outputDirs: (scope) => [scope === 'global' ? `<${id}>` : `.${id}`],
+    async agentNameClashes(scope, root) {
+      if (scope !== 'project') return [];
+      const clashes = await agentNameClashes(join(root, `.${id}`, 'agents'));
+      return clashes.map((c) => ({ name: c.name, files: c.files.map((f) => relative(root, f)) }));
+    },
     async render(input) {
       calls.render.push({ id, entity: input.entity.name });
       return renderFor(id, input, o.hash);

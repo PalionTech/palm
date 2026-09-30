@@ -24,7 +24,7 @@ import {
   serverVariable,
 } from '../domain/secret-refs.js';
 import { orList } from './policy.js';
-import { isSecretKey, redact, secretPart } from './scan.js';
+import { isFillIn, isSecretKey, redact, secretPart } from './scan.js';
 
 /** Why a typed value became a reference. */
 type TypedWhy = 'typed' | 'secret' | 'fill-in' | 'input';
@@ -44,14 +44,6 @@ export interface TypedReference {
 const SCHEME = /^((?:Bearer|Basic|Token)\s+)(.*)$/i;
 const INPUT_RE = /\$\{input:([A-Za-z_][A-Za-z0-9_.-]*)\}/g;
 const REFERENCE_RE = /\$\{[^}]+\}|\{env:[^}]+\}/;
-const FILL_IN: readonly RegExp[] = [
-  /^$/,
-  /^<[^<>]*>$/,
-  /^your[-_ .]/i,
-  /^x{3,}(?:[-_.]?x+)*$/i,
-  /^(?:change|replace)[-_ ]?me$/i,
-  /^\*{3,}$/,
-];
 
 function reference(variable: string): string {
   return `\${${variable}}`;
@@ -59,12 +51,6 @@ function reference(variable: string): string {
 
 function hasReference(value: string): boolean {
   return REFERENCE_RE.test(value);
-}
-
-/** True for text that means "fill me in": empty, `<your key>`, `YOUR_API_KEY`, `xxxx`, `changeme`. */
-export function isFillIn(text: string): boolean {
-  const t = text.trim();
-  return FILL_IN.some((re) => re.test(t));
 }
 
 /** The name a fill-in placeholder spells (`YOUR_API_KEY` → `API_KEY`, `<your-token>` → `token`). */

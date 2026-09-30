@@ -24,6 +24,7 @@ const HOOKS = {
 
 const KIT = {
   'skills/tdd/SKILL.md': 'Test first.\n',
+  'skills/incident/SKILL.md': 'Handle incidents.\n',
   'hooks/guard/hooks.json': JSON.stringify(HOOKS),
   'hooks/guard/run.sh': { text: 'echo guard\n', mode: 0o755 },
   'agents/reviewer.md': 'Reviews code.\nskills: incident\n',
