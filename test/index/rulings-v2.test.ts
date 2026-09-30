@@ -269,3 +269,22 @@ describe('B12 and Y3 on the index side', () => {
     });
   });
 });
+
+describe('Y11 commands installed as skills', () => {
+  it('Y11 a command without a description gets its first body line', async () => {
+    await put('commands/inbound.md', '\n# Check the inbound queue\n\nRun $ARGUMENTS.\n');
+    await put('commands/deploy.toml', 'prompt = """\nDeploy the app.\nThen verify."""\n');
+    await put('commands/long.md', `${'word '.repeat(60)}\n`);
+    const r = await run();
+    expect(find(r, 'skill', 'inbound')).toMatchObject({
+      description: 'Check the inbound queue',
+      notes: [
+        'from command inbound.md: installed as a skill, which a harness may also load on its own when it looks relevant',
+      ],
+    });
+    expect(find(r, 'skill', 'deploy').description).toBe('Deploy the app.');
+    const long = find(r, 'skill', 'long').description ?? '';
+    expect(long.length).toBe(200);
+    expect(long.endsWith('…')).toBe(true);
+  });
+});

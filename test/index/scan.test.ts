@@ -510,7 +510,9 @@ describe('scanSource definitions', () => {
     const r = await scan('claude-plugins-official-like');
     expect(find(r, 'skill', 'new-sdk-app')).toMatchObject({
       path: 'plugins/agent-sdk-dev/commands/new-sdk-app.md',
-      notes: ['from command new-sdk-app.md'],
+      notes: [
+        'from command new-sdk-app.md: installed as a skill, which a harness may also load on its own when it looks relevant',
+      ],
     });
     expect(find(r, 'skill', 'new-sdk-app').def).toEqual({
       kind: 'skill',
@@ -627,7 +629,9 @@ describe('scanSource definitions', () => {
       instruction: { globs: ['**/*.ts'], activation: 'paths' },
     });
     expect(find(r, 'skill', 'release')).toMatchObject({
-      notes: ['from command release.prompt.md'],
+      notes: [
+        'from command release.prompt.md: installed as a skill, which a harness may also load on its own when it looks relevant',
+      ],
       def: { skill: { fromCommand: { sourceFormat: 'prompt-md' } } },
     });
   });

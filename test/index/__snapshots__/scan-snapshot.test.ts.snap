@@ -195,7 +195,7 @@ exports[`scanSource snapshot per fixture > apm-like 1`] = `
       "kind": "skill",
       "name": "release",
       "notes": [
-        "from command release.prompt.md",
+        "from command release.prompt.md: installed as a skill, which a harness may also load on its own when it looks relevant",
       ],
       "path": ".apm/prompts/release.prompt.md",
       "plugin": "my-apm-pkg",
@@ -593,7 +593,7 @@ exports[`scanSource snapshot per fixture > caveman-like 1`] = `
       "kind": "skill",
       "name": "caveman-init",
       "notes": [
-        "from command caveman-init.md",
+        "from command caveman-init.md: installed as a skill, which a harness may also load on its own when it looks relevant",
       ],
       "path": "commands/caveman-init.md",
       "plugin": "caveman",
@@ -769,7 +769,7 @@ exports[`scanSource snapshot per fixture > claude-plugins-official-like 1`] = `
       "kind": "skill",
       "name": "new-sdk-app",
       "notes": [
-        "from command new-sdk-app.md",
+        "from command new-sdk-app.md: installed as a skill, which a harness may also load on its own when it looks relevant",
       ],
       "path": "plugins/agent-sdk-dev/commands/new-sdk-app.md",
       "plugin": "agent-sdk-dev",
@@ -1086,7 +1086,7 @@ Prioritize correctness, security, behavior regressions.
       "kind": "skill",
       "name": "review",
       "notes": [
-        "from command review.toml",
+        "from command review.toml: installed as a skill, which a harness may also load on its own when it looks relevant",
       ],
       "path": "commands/review.toml",
       "source": "codex-agent",
@@ -1109,7 +1109,7 @@ Prioritize correctness, security, behavior regressions.
       "kind": "skill",
       "name": "ship",
       "notes": [
-        "from command ship.md",
+        "from command ship.md: installed as a skill, which a harness may also load on its own when it looks relevant",
       ],
       "path": "commands/ship.md",
       "source": "codex-agent",
@@ -1182,7 +1182,7 @@ Prioritize correctness, security, behavior regressions.
       "kind": "skill",
       "name": "explain",
       "notes": [
-        "from command explain.prompt.md",
+        "from command explain.prompt.md: installed as a skill, which a harness may also load on its own when it looks relevant",
       ],
       "path": "prompts/explain.prompt.md",
       "source": "codex-agent",
@@ -1961,7 +1961,7 @@ exports[`scanSource snapshot per fixture > nested-plugins-like 1`] = `
       "kind": "skill",
       "name": "go",
       "notes": [
-        "from command go.md",
+        "from command go.md: installed as a skill, which a harness may also load on its own when it looks relevant",
       ],
       "path": "plugins/alpha/commands/go.md",
       "plugin": "alpha",
@@ -2005,7 +2005,7 @@ exports[`scanSource snapshot per fixture > nested-plugins-like 1`] = `
       "kind": "skill",
       "name": "hello",
       "notes": [
-        "from command hello.toml",
+        "from command hello.toml: installed as a skill, which a harness may also load on its own when it looks relevant",
       ],
       "path": "plugins/beta/commands/hello.toml",
       "plugin": "beta",
