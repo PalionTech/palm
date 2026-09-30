@@ -55,7 +55,17 @@ const PREFIX_RE = new RegExp(
 const BEARER_RE = /\bBearer\s+([A-Za-z0-9._~+/-]+=*)/i;
 const USERINFO_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s/?#@:]*:([^\s/?#@]+)@/i;
 const URL_PARAM_RE = /[?&#]([A-Za-z0-9_.-]+)=([^&#\s"'`]+)/g;
-const ASSIGNMENT_RE = /([A-Za-z_][A-Za-z0-9_.-]*)["']?\s*[:=]\s*["']?([^\s"',;]+)/g;
+const ASSIGNMENT_RE = /([A-Za-z_][A-Za-z0-9_.-]*)["']?\s*[:=]\s*(["'`]?)([^\s"'`,;]+)/g;
+/**
+ * S12 X7 T13 Q2 B10 Y5': code, never a value: a call or an index (`React.useContext(Ctx)`,
+ * `z.string()`, `os.environ["X"]`), a non-null assertion (`process.env.X!`), or a member
+ * chain from a short word (`process.env.X`, `crpc.http.list`); a JWT's first segment is longer.
+ */
+const CODE_EXPRESSION = /[()[\]{}]|=>|!$|^[A-Za-z_$][A-Za-z_$]{0,15}(?:\??\.[A-Za-z_$][\w$]*)+/;
+/** Source files where an unquoted word on the right-hand side is an identifier, not a literal. */
+const CODE_FILE = /\.(?:[cm]?[jt]sx?|py|go|rb|java|kts?|rs|swift|php|cs|scala|dart)$/i;
+/** An identifier as code names one (`TokenContext`, `DEFAULT_API_KEY`); random tokens carry digits. */
+const IDENTIFIER = /^[A-Za-z_$][A-Za-z_$]*$/;
 /** A command-line flag without a value (`--api-key`), whose next argument is its value. */
 const FLAG_RE = /^--?([A-Za-z][A-Za-z0-9_.-]*)$/;
 
@@ -102,6 +112,19 @@ function inUrl(text: string): Match | undefined {
   return undefined;
 }
 
+/**
+ * S10: the secret part of a URL (a password, a `key=` or `token=` parameter) and the parameter
+ * it sits under, so a reference can replace that part alone and the host stays readable.
+ */
+export function urlSecret(url: string): { secret: string; param?: string } | undefined {
+  const found = inUrl(url);
+  const secret = found?.secret ?? findSecret(url)?.secret;
+  if (secret === undefined) return undefined;
+  const param =
+    found?.key ?? [...url.matchAll(URL_PARAM_RE)].find(([, , value]) => value === secret)?.[1];
+  return param === undefined ? { secret } : { secret, param };
+}
+
 /** Shapes that need no key: a private key block, a known prefix, a Bearer token, a URL secret. */
 function inText(text: string): Match | undefined {
   if (PRIVATE_KEY_RE.test(text)) return { shape: 'private-key', secret: text };
@@ -122,6 +145,7 @@ function highEntropyToken(value: string): string | undefined {
         t.length >= MIN_ENTROPY_LENGTH &&
         !t.includes('://') &&
         isLiteral(t) &&
+        !CODE_EXPRESSION.test(t) &&
         entropyBitsPerChar(t) > ENTROPY_THRESHOLD,
     );
 }
@@ -134,8 +158,9 @@ function findSecret(value: string, key?: string): Match | undefined {
 }
 
 /** `name=value` / `name: value` pairs anywhere in `text` whose name says "secret". */
-function inAssignments(text: string): Match | undefined {
-  for (const [, name = '', value = ''] of text.matchAll(ASSIGNMENT_RE)) {
+function inAssignments(text: string, code = false): Match | undefined {
+  for (const [, name = '', quote = '', value = ''] of text.matchAll(ASSIGNMENT_RE)) {
+    if (code && quote === '' && IDENTIFIER.test(value)) continue;
     const found = isSecretKey(name) ? findSecret(value, name) : undefined;
     if (found) return { ...found, key: found.key ?? name };
   }
@@ -220,8 +245,9 @@ export function scanSecrets(value: unknown, where: string): SecretFinding[] {
 /** Secret-shaped text in a file (closure scripts, rendered files): one finding per line, `where:<line>`. */
 export function scanText(text: string, where: string): SecretFinding[] {
   const out: SecretFinding[] = [];
+  const code = CODE_FILE.test(where);
   text.split(/\r?\n/).forEach((line, i) => {
-    const found = inAssignments(line) ?? inText(line);
+    const found = inAssignments(line, code) ?? inText(line);
     if (found) out.push(finding(`${where}:${i + 1}`, found, redact(found.secret)));
   });
   return out;

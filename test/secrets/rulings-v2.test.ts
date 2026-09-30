@@ -81,7 +81,7 @@ describe('J1 typed values are references under env-ref', () => {
       command: 'node',
       env: { TOKEN: '${TOKEN}', HOME_DIR: '${HOME}/x' },
     });
-    expect(referenceTyped(input)).toEqual({ cfg: input, references: [] });
+    expect(referenceTyped(input)).toEqual({ cfg: input, references: [], plain: [] });
   });
 
   it('J1 a snippet keeps a plain setting and references a literal under a secret key', () => {
@@ -156,7 +156,7 @@ describe('J11 hints that repeat the command redact typed values', () => {
       'BRAVE_API_KEY=${BRAVE_API_KEY}',
       '--header=X-Api-Key=${BRAVE_SEARCH_API_KEY}',
       '--arg',
-      expect.stringMatching(/^--token=<redacted sha256:[0-9a-f]{8}>$/),
+      '--token=${BRAVE_SEARCH_TOKEN}',
       '-g',
     ]);
     expect(out.join(' ')).not.toContain(SHORT_KEY);
