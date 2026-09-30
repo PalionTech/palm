@@ -178,7 +178,7 @@ describe('Manifest.save', () => {
     expect(await read(file)).toBe('targets: [claude]\n');
   });
 
-  it('writes a fresh file with flow targets and flow entry objects', async () => {
+  it('writes a fresh file with flow targets, flow name lists and flow entry objects', async () => {
     const file = join(await tmpDir(), 'palm.yaml');
     const m = Manifest.of()
       .setTargets(['claude'])
@@ -187,7 +187,7 @@ describe('Manifest.save', () => {
       .addEntry('acme', 'plugin', { name: 'kit', exclude: ['skill:x'] });
     await m.save(file);
     expect(await read(file)).toBe(
-      'targets: [claude]\nsources:\n  acme:\n    url: https://h/acme.git\n    ref: ^1\n    skills:\n      - tdd\n    plugins:\n      - {name: kit, exclude: [skill:x]}\n',
+      'targets: [claude]\nsources:\n  acme:\n    url: https://h/acme.git\n    ref: ^1\n    skills: [tdd]\n    plugins:\n      - {name: kit, exclude: [skill:x]}\n',
     );
   });
 });

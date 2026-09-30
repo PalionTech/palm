@@ -17,7 +17,7 @@ import type {
 } from '../core/types.js';
 import { KINDS } from '../core/types.js';
 import { isRecord, withoutUndefined } from '../lib/object.js';
-import { writeYamlFile, type YamlPath } from '../lib/yaml.js';
+import { stringifyYaml, writeYamlFile, type YamlPath } from '../lib/yaml.js';
 import { parseEntityRef, sameName } from './entity-ref.js';
 import { checkedManifest, ENTRY_KEYS } from './manifest-check.js';
 import { SourceSet, toManifestSource } from './source.js';
@@ -43,10 +43,15 @@ function entryName(entry: ManifestEntry): string {
   return typeof entry === 'string' ? entry : entry.name;
 }
 
-/** The collections palm writes in flow style when it creates them (targets, entry objects, small maps). */
-function isFlow(p: YamlPath): boolean {
+/**
+ * The collections palm writes in flow style when it creates them (DESIGN §3): `targets`, entry
+ * lists of names (`skills: [tdd, handoff]`), entry objects, layouts and a server's small maps.
+ */
+function isFlow(p: YamlPath, value: unknown): boolean {
   const [top, , key, index] = p;
   if (top === 'targets') return p.length === 1;
+  const names = Array.isArray(value) && value.every((v) => typeof v === 'string');
+  if (top === 'sources' && p.length === 3 && names && key !== 'layout') return true;
   if (top === 'sources')
     return (p.length === 4 && typeof index === 'number') || (p.length === 3 && key === 'layout');
   return (
@@ -104,6 +109,11 @@ export class Manifest {
    * Writes palm.yaml by patching the file, so comments, key order and a flow `targets:` survive.
    * Empty entry lists, sources without entries and empty `sources:`/`mcp:` sections are dropped.
    */
+  /** The text a fresh palm.yaml for this manifest holds (what `save` writes when no file exists). */
+  text(): string {
+    return stringifyYaml(this.written(), { flow: isFlow });
+  }
+
   async save(file: string): Promise<void> {
     await writeYamlFile(file, this.written(), { flow: isFlow });
   }

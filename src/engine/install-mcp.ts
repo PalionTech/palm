@@ -20,6 +20,7 @@ import { resolveEngineDeps } from './deps.js';
 import { type Job, type Run, runOf } from './jobs.js';
 import { lockScope, runJobs } from './runner.js';
 import { openScope, type ScopeState, saveScope } from './scope.js';
+import { headerVariable, referencedLine } from './source-secrets.js';
 import { manifestSource, mcpConfigOf, mcpEntity, mcpManifestEntry } from './sources.js';
 import { activeTargets, narrowedTargets, refuseLocal, requestTargets } from './targets.js';
 
@@ -29,16 +30,8 @@ interface Literal {
   value: string;
 }
 
-const upperSnake = (s: string): string => s.replace(/[^A-Za-z0-9]+/g, '_').toUpperCase();
-
 function reference(variable: string): string {
   return `\${${variable}}`;
-}
-
-/** The environment variable a header's literal becomes: `DOCS_TOKEN` for Authorization. */
-function headerVariable(server: string, header: string): string {
-  const suffix = /^authorization$/i.test(header) ? 'TOKEN' : upperSnake(header);
-  return `${upperSnake(server)}_${suffix}`;
 }
 
 type Scan = (value: string, where: string) => boolean;
@@ -111,11 +104,12 @@ function assertNew(ctx: PalmContext, state: ScopeState, reqs: McpRequest[], forc
 function jobOf(run: Run, req: McpRequest): Job {
   const { state } = run;
   const { cfg, literals } = withReferences(run, req.config);
-  for (const l of literals)
-    if (run.policy !== 'literal')
-      run.result.warnings.push(
-        `${cfg.name}: ${l.where} held a literal value; written as ${reference(l.variable)}; export ${l.variable} before starting the harness`,
-      );
+  const harnesses = activeTargets(state, {
+    name: cfg.name,
+    ...(req.targets ? { targets: req.targets } : {}),
+  }).map((t) => run.deps.getTarget(t).displayName);
+  if (run.policy !== 'literal')
+    for (const l of literals) run.result.warnings.push(referencedLine(cfg.name, l, harnesses, ''));
   const entry: McpManifestEntry = {
     ...mcpManifestEntry(cfg),
     ...(req.targets?.length ? { targets: req.targets } : {}),

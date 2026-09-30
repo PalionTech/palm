@@ -17,13 +17,25 @@ export interface ReferencedSecret {
   variable: string;
 }
 
-/** `docs`, `Authorization` → `DOCS_AUTHORIZATION`: an environment variable name. */
+/** `docs`, `api-key` → `DOCS_API_KEY`: an environment variable name. */
 function envName(...parts: string[]): string {
   return parts
     .join('_')
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
+}
+
+/**
+ * The variable a secret header of `server` becomes (DESIGN §8): `Authorization` → `DOCS_TOKEN`;
+ * another header without its `x-` prefix, named after the server unless it already is
+ * (`x-inbound-api-key` of inbound → `INBOUND_API_KEY`, `x-api-key` of docs → `DOCS_API_KEY`).
+ */
+export function headerVariable(server: string, header: string): string {
+  if (/^authorization$/i.test(header)) return envName(server, 'token');
+  const name = envName(header.replace(/^x-/i, ''));
+  const prefix = envName(server);
+  return name.startsWith(`${prefix}_`) ? name : `${prefix}_${name}`;
 }
 
 function hasRedaction(value: string): boolean {
@@ -60,9 +72,7 @@ function referenceMcp(cfg: McpServerConfig, r: Referencer): McpServerConfig {
   const where = `mcp:${server}`;
   if (cfg.env) out.env = r.map(cfg.env, `${where}.env`, (k) => envName(k));
   if (cfg.headers)
-    out.headers = r.map(cfg.headers, `${where}.headers`, (h) =>
-      /^authorization$/i.test(h) ? envName(server, 'token') : envName(server, h),
-    );
+    out.headers = r.map(cfg.headers, `${where}.headers`, (h) => headerVariable(server, h));
   if (cfg.args)
     out.args = cfg.args.map((a, i) =>
       r.replace(a, `${where}.args[${i}]`, argName(server, cfg.args ?? [], i)),
@@ -113,9 +123,17 @@ export function referenceSecrets(entity: Entity): { entity: Entity; replaced: Re
   return { entity: out, replaced: r.found };
 }
 
-/** The summary line for one replaced literal (DESIGN §8). */
-export function referencedLine(name: string, s: ReferencedSecret, harnesses: string[]): string {
+/**
+ * The line for one replaced literal (DESIGN §8): `docs: headers.Authorization held a literal
+ * secret in the source; written as ${DOCS_TOKEN}; export it before starting Claude Code`.
+ */
+export function referencedLine(
+  name: string,
+  s: ReferencedSecret,
+  harnesses: string[],
+  where = ' in the source',
+): string {
   const field = s.where.replace(/^(mcp|hook):[^.]+\./, '');
   const who = harnesses.length ? harnesses.join(' or ') : 'your agent';
-  return `${name}: ${field} held a literal secret in the source; written as \${${s.variable}}; export it before starting ${who}`;
+  return `${name}: ${field} held a literal secret${where}; written as \${${s.variable}}; export it before starting ${who}`;
 }

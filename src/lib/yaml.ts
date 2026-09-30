@@ -33,9 +33,12 @@ export function parseYaml<T = unknown>(text: string, source?: string): T | undef
 /** Where a node sits in a document: the keys and indexes from the root. */
 export type YamlPath = ReadonlyArray<string | number>;
 
+/** Whether the collection at `path`, holding `value`, is written in flow style (`[a, b]`, `{ a: 1 }`). */
+export type FlowRule = (path: YamlPath, value: unknown) => boolean;
+
 export interface StringifyYamlOptions {
-  /** Collections at the paths this returns true for are written in flow style (`[a, b]`, `{ a: 1 }`). */
-  flow?: (path: YamlPath) => boolean;
+  /** Collections this accepts are written in flow style. */
+  flow?: FlowRule;
   /** Comment (one or more lines, without `#`) placed above the document. */
   comment?: string;
 }
@@ -65,7 +68,7 @@ function flowTest(opts: WriteYamlOptions, onlyNew: boolean): FlowTest {
     if (onlyNew && node.range) return false;
     const key = p.length === 1 ? String(p[0]) : undefined;
     if (key !== undefined && isSeq(node) && opts.flowKeys?.includes(key)) return true;
-    return !!opts.flow?.(p);
+    return !!opts.flow?.(p, node.toJSON());
   };
 }
 
@@ -85,7 +88,7 @@ export function stringifyYaml(value: unknown, opts: StringifyYamlOptions = {}): 
   if (!opts.flow && opts.comment === undefined) return stringify(value, TO_STRING);
   const doc = new Document(value);
   const { flow } = opts;
-  if (flow) markFlow(doc.contents, [], (p) => flow(p));
+  if (flow) markFlow(doc.contents, [], (p, node) => flow(p, node.toJSON()));
   if (opts.comment !== undefined) {
     if (doc.contents) doc.contents.commentBefore = commentText(opts.comment);
     else doc.commentBefore = commentText(opts.comment);
@@ -109,8 +112,8 @@ export interface WriteYamlOptions {
   preserveFrom?: string | false;
   /** Top-level keys whose lists are written in flow style (`[a, b]`) when the write creates them. */
   flowKeys?: readonly string[];
-  /** Collections at the paths this accepts are written in flow style when the write creates them. */
-  flow?: (path: YamlPath) => boolean;
+  /** Collections this accepts are written in flow style when the write creates them. */
+  flow?: FlowRule;
   /** Comment (one or more lines, without `#`) placed above a fresh document. */
   comment?: string;
   /** Permission bits for the file (see `writeFileAtomic`). */

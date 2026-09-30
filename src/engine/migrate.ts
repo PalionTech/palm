@@ -246,7 +246,7 @@ export async function migrateScope(
   const manifest = manifestOf(paths, m);
   const lock = await lockOf(paths, m);
   const report: MigrateReport = {
-    manifest: stringifyYaml(manifest.toJSON()),
+    manifest: manifest.text(),
     lock: stringifyYaml(lock.toJSON()),
     sourcesAdded: [],
     movedAssets: [],

@@ -24,7 +24,7 @@ describe('installMcp (hand-declared servers)', () => {
       w.deps,
     );
     expect(r.failures).toEqual([]);
-    expect(r.warnings.join('\n')).toContain('export DOCS_TOKEN');
+    expect(r.warnings.join('\n')).toContain('written as ${DOCS_TOKEN}; export it');
     expect(await w.manifestText()).not.toContain('sk-abcdefghijklmnop');
     expect(await w.manifest()).toMatchObject({
       mcp: {
