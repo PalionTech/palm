@@ -6,7 +6,6 @@
  */
 
 import { getIndex } from '../core/cache.js';
-import { isPalmError } from '../core/errors.js';
 import { fetchSource, isSemverRange } from '../core/git.js';
 import type {
   EngineDeps,
@@ -143,11 +142,6 @@ export function pinOf(state: ScopeState, ref: SourceRef): Pin {
   const sameUrl = !ls?.url || !ref.source.url || ls.url === ref.source.url;
   if (ls?.sha && ls.ref === ref.source.ref && sameUrl) return { sha: ls.sha };
   return { refresh: true };
-}
-
-/** Rethrows a cancellation (Ctrl-C during a fetch, C16): it ends the run, it is no failure. */
-export function rethrowCancel(e: unknown): void {
-  if (isPalmError(e) && e.code === 'E_CANCELLED') throw e;
 }
 
 /** The index entities a plugin declares (a member found through this plugin wins). */

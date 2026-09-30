@@ -33,8 +33,8 @@ import { manifestMcpJob } from './install-mcp.js';
 import { type Job, type Run, runOf } from './jobs.js';
 import { type Move, moveOf } from './moves.js';
 import { noteRemovals, protectedPaths, sourceRoots, undeploy, withoutEdits } from './remove.js';
-import { failureOf, logMark } from './report.js';
-import { lockSourceOf, pinOf, type Resolved, resolveSource, rethrowCancel } from './resolve.js';
+import { failureOf, logMark, throwIfCancelled } from './report.js';
+import { lockSourceOf, pinOf, type Resolved, resolveSource } from './resolve.js';
 import { applyRun, prepareRun, settle, withLockedScope } from './runner.js';
 import { type ScopeState, shownPath } from './scope.js';
 import { refuseLocal } from './targets.js';
@@ -65,7 +65,7 @@ async function resolveDeclared(
     if (!deepEqual(state.lock.source(ref.name), fresh)) state.lock.setSource(ref.name, fresh);
     return r;
   } catch (e) {
-    rethrowCancel(e);
+    throwIfCancelled(e);
     run.result.failures.push(
       failureOf({ kind: 'source', name: declared.name, source: declared.name }, e),
     );

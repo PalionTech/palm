@@ -30,8 +30,8 @@ import { manifestJobs } from './entries.js';
 import { type Job, type Prepared, prepareJob, type Run, runOf } from './jobs.js';
 import { type Move, moveOf, versionLabel } from './moves.js';
 import { noteRemovals, protectedPaths, sourceRoots, undeploy } from './remove.js';
-import { failureOf, palmCommand } from './report.js';
-import { lockSourceOf, type Resolved, resolveSource, rethrowCancel } from './resolve.js';
+import { failureOf, palmCommand, throwIfCancelled } from './report.js';
+import { lockSourceOf, type Resolved, resolveSource } from './resolve.js';
 import { applyRun, prepareRun, settle, withLockedScope } from './runner.js';
 import { openScope, type ScopeState } from './scope.js';
 import { describePin, newPreloads, newPrograms, refOnlyReason } from './update-notes.js';
@@ -106,7 +106,7 @@ async function indexAt(run: Run, ref: SourceRef, sha: string): Promise<Resolved 
     const { ctx, deps, state } = run;
     return await resolveSource({ ctx, deps, state, ref, sha });
   } catch (e) {
-    rethrowCancel(e);
+    throwIfCancelled(e);
     return undefined;
   }
 }
@@ -168,7 +168,7 @@ async function resolveIntent(
     const { ctx, deps, state } = run;
     return await resolveSource({ ctx, deps, state, ref: target, refresh: true });
   } catch (e) {
-    rethrowCancel(e);
+    throwIfCancelled(e);
     plan.failures.push(failureOf({ kind: 'source', name: target.name, source: target.name }, e));
     return undefined;
   }
