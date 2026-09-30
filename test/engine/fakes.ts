@@ -217,7 +217,10 @@ async function importOr(
 
 vi.mock('../../src/core/git.js', async (orig) => gitModule(await importOr(() => orig())));
 
-vi.mock('../../src/targets/merged-state.js', () => ({ mergedRecordState: fakeRecordState }));
+vi.mock('../../src/targets/merged-state.js', () => ({
+  mergedRecordState: fakeRecordState,
+  mergedRecordValue: fakeRecordValue,
+}));
 
 // ---------------------------------------------------------------------------
 // Context, UI and logger
@@ -726,20 +729,32 @@ export function fakeTargets(o: FakeTargetOptions): {
   return { getTarget: (id) => targets[id], calls };
 }
 
-/** targets/merged-state `mergedRecordState` over the fake store. */
-export async function fakeRecordState(rec: {
+interface FakeRecord {
   type: string;
   file: string;
   path?: string[];
   key: string;
   value?: unknown;
   content?: string;
-}): Promise<'held' | 'missing' | 'changed'> {
+}
+
+/** The fake store's slot of a record: `<at>#<key>`. */
+function slotOf(rec: FakeRecord): string {
   const at = rec.type === 'md-block' ? `block:${rec.key}` : `/${(rec.path ?? []).join('/')}`;
+  return `${at}#${rec.key}`;
+}
+
+/** targets/merged-state `mergedRecordState` over the fake store. */
+export async function fakeRecordState(rec: FakeRecord): Promise<'held' | 'missing' | 'changed'> {
   const store = await readStore(rec.file);
-  const slot = `${at}#${rec.key}`;
+  const slot = slotOf(rec);
   if (!(slot in store)) return 'missing';
   return canonical(store[slot]) === canonical(rec.value ?? rec.content) ? 'held' : 'changed';
+}
+
+/** targets/merged-state `mergedRecordValue` over the fake store. */
+export async function fakeRecordValue(rec: FakeRecord): Promise<unknown> {
+  return (await readStore(rec.file))[slotOf(rec)];
 }
 
 // ---------------------------------------------------------------------------

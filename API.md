@@ -400,6 +400,9 @@ export function renderMcp(cfg: McpServerConfig, target: TargetId, policy: Secret
 // json-merge.ts, toml-merge.ts, managed-block.ts: pure text transforms as 0.1, keyed by (path, key): setKeyText, appendItemText (no-op when an item with the same key exists and deep-equals), ensureKeyText, mergeTableText, upsertBlockText, and the unmerge/record-state functions
 export function jsonRecordState(text: string | undefined, rec: MergedRecord): RecordState; export function tomlRecordState(...): RecordState; export function blockState(...): RecordState;
 // merged-state.ts: mergedRecordState(rec: MergedRecord /* file absolute */): Promise<RecordState> (held when the fragment found by key deep-equals what palm would write, `${VAR}` matching any text; changed otherwise; missing when the key is absent)
+//   mergedRecordValue(rec): Promise<unknown> (what the file holds under the key, a block ending with the newlines of rec.content; undefined when absent or unparseable)
+// render-hash.ts: renderHash(files, fragments, form: HashForm { scope; paths; secretPolicy?; secretValues? }): string, the render hash RenderJob records
+//   and the engine recomputes over the disk (tokens under -g, secret values as ${VAR} plus the literal-policy marker)
 ```
 
 ## src/engine (owner: engine agent)
@@ -438,7 +441,14 @@ export function fragmentKey(f: { file: string; at: string; key: string }): strin
 export async function fragmentStates(paths: ScopePaths, rendered: Rendered, deps?: EngineDeps): Promise<Map<string /* file#at#key */, RecordState>>;
 export function outcomeStatus(input: OutcomeInput): { status: OutcomeStatus; toWrite: TargetId[]; kept: string[] }; // pure
 //   OutcomeInput { previous?: LockEntry; renders; files: Map<string, FileState>; fragments: Map<string, RecordState>; force: boolean;
-//   content?: string /* now: another is `updated`, the same `re-rendered` */; edited?: Set<string> /* paths and fragment keys found edited against the lock's render hash (DESIGN §6 step 8): kept */ }
+//   content?: string /* now: another is `updated`, the same `re-rendered` */; edited?: Set<string> /* paths and fragment keys found edited against the lock's render hash (DESIGN §6 step 8): kept; an edited file the render no longer writes is kept too */ }
+// edits.ts: what the person changed when the render moved away from the lock (DESIGN §6 step 8, PLAN.md invariant 7)
+export async function knownEdits(run: Run, input: EditInput): Promise<EditCheck | undefined>; // undefined: the render did not move, or --force
+//   EditInput { previous; out: RenderOutput; files; fragments /* disk vs the new render */; values? /* literal secret values */ }
+//   EditCheck { edited: Set<string>; unchecked?: { reason: string; command: string } }: at risk are owned paths the new render overwrites or drops;
+//   1. offline: per target, the disk (files as renderHashOf hashes them, fragments read by key with mergedRecordValue) hashed with renderHash
+//   against render.<target>; 2. the render at the locked sha, per file; 3. neither decides: every path at risk kept, `unchecked` names why
+export function uncheckedNote(u: Unchecked): string; // `locked commit <sha7> unavailable; palm install <source> <kind:name> --force overwrites`
 // install.ts
 export async function installFromSource(ctx: PalmContext, req: InstallRequest, opts: InstallOptions, deps?: Partial<EngineDeps>): Promise<InstallResult>; // DESIGN §6 "Install with names" (InstallRequest.as: `--as`); the CLI calls listSource instead when the request has no names and no `all`
 //   programs left out by `all` or declined come back as outcomes whose entry has `declined: true`; the engine prints nothing itself (the CLI prints)

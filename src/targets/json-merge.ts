@@ -211,6 +211,16 @@ export function jsonRecordState(text: string | undefined, rec: JsonRecord): Reco
   return matchesRendered(found, rec.value) ? 'held' : 'changed';
 }
 
+/** What `text` holds for the fragment `rec` names; undefined when missing or unparseable. */
+export function jsonRecordValue(text: string | undefined, rec: JsonRecord): unknown {
+  if (text === undefined) return undefined;
+  try {
+    return foundValue(parseJsonObject(text, rec.file), rec);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Remove the fragment `record` names, by key: the array item with its key (`json-item`) or the
  * object key (`json-key`). Containers left empty by the removal (`"SessionStart": []`,

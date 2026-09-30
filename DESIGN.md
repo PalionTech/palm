@@ -637,13 +637,22 @@ palm install <source> [[kind:]name…] [--all] [-g] [--dry-run] [--review] [--fo
 8. Apply per (entity, target) through `Target.apply` (transaction per target; a failed target
    leaves the others, status `partial`, exit 1). The closure files are part of the render
    (`Rendered.files`, with their modes), so the asset directory is written in the same
-   transaction. Before overwriting a re-rendered or updated entity, hash the entry's files on
-   disk per target the way `renderHashOf` hashes a render's `files` (lock path, mode, sha256 of
-   the content, tokenised as in section 4) and compare with the lock's `render.<target>`: a
-   mismatch means a file changed since palm wrote it, so that target is `! modified (kept)` and
-   a failure (`palm install <source> <name> --force` overwrites it).
+   transaction. Before overwriting a re-rendered or updated entity, find what the person
+   changed since palm wrote it (`src/engine/edits.ts`). At risk is only what the entry owns and
+   the new render would overwrite or drop. First, offline: per target, hash the entry's files on
+   disk the way `renderHashOf` hashes a render's `files` (lock path, mode, sha256 of the
+   content, tokenised as in section 4), with its fragments read by key from their shared files
+   and hashed as a render's fragments, and compare with the lock's `render.<target>`: equal
+   means nothing there is an edit. Else compare file by file with the render at the locked sha
+   (from the cache); a file that differs is `! modified (kept)` and a failure
+   (`palm install <source> <name> --force` overwrites it). When neither decides (the locked
+   commit is not cached and the remote no longer has it; an in-repo source moved on), every
+   path at risk is kept: `! modified (kept)` with the note `locked commit <sha7> unavailable;
+   palm install <source> <kind:name> --force overwrites`, exit 1. palm never overwrites a path
+   it could not check.
 9. Replace the previous entry: undeploy only what the new entry no longer lists (files by path,
-   fragments by `(file, at, key)`), after the new deploy succeeded.
+   fragments by `(file, at, key)`), after the new deploy succeeded; an edited file the new entry
+   no longer lists is kept (and no longer palm's), never deleted.
 10. Save the lock and the manifest after every entity and again in `finally`; SIGINT stops after
     the current entity (exit 130); a second Ctrl-C ends palm at once.
 11. Print the status lines, then every failure (`x kind name from source → target: message` and
@@ -680,10 +689,10 @@ cache holds every sha:
   Render equals `L.render` and every file equals the render: `= unchanged`. A file missing:
   `↺ restored`. A file differing from the render: `! modified (kept)`, exit 1. A fragment
   missing: restored; changed: `! modified (kept)`. Render differs from `L.render` (a changed
-  local source, a palm upgrade that renders differently): first hash the entry's files on disk
-  and compare with `L.render` as in "Install with names" step 8 (a mismatch is
-  `! modified (kept)`, exit 1), then apply and update L; a changed in-repo source reports
-  `~ re-rendered`.
+  local source, an edited pin, a palm upgrade that renders differently): first find the edits
+  as in "Install with names" step 8 (the disk against `L.render`, then the render at the
+  locked sha; an edit, or a path neither can check, is `! modified (kept)`, exit 1), then
+  apply and update L; a changed in-repo source reports `~ re-rendered`.
 - A ref in palm.yaml that the lock's `ref` no longer equals (an edited pin) is resolved fresh.
 - Exec units are replayed from `trust`; a unit whose hash is not trusted asks (or fails without
   a terminal), never silently.

@@ -31,9 +31,9 @@ import {
   type OutcomeDecision,
   outcomeStatus,
 } from './diff.js';
+import { knownEdits, type Unchecked } from './edits.js';
 import { type RenderOutput, renderEntity } from './render.js';
 import type { ScopeState } from './scope.js';
-import { editedPaths } from './verify.js';
 
 /** One run of the engine over a scope: collaborators and the result being filled. */
 export interface Run {
@@ -80,6 +80,8 @@ export interface Prepared {
   out: RenderOutput;
   decision: OutcomeDecision;
   consent: ConsentState;
+  /** Set when the kept paths are ones palm could not check (the locked version is unavailable). */
+  unchecked?: Unchecked;
 }
 
 export function runOf(
@@ -119,24 +121,6 @@ function consentOf(job: Job, previous: LockEntry | undefined, unit?: ExecUnit): 
   return needsConsent(previous, unit) ? 'ask' : 'trusted';
 }
 
-/**
- * When the render moved away from the lock (a new sha, a changed ref), the files the person
- * edited since palm wrote them: found against the render at the locked sha (project) or the
- * applied record (-g). `--force` skips the question.
- */
-async function knownEdits(
-  run: Run,
-  previous: LockEntry | undefined,
-  out: RenderOutput,
-): Promise<Set<string> | undefined> {
-  if (!previous || run.ctx.flags.force) return undefined;
-  const moved = Object.entries(out.renders).some(
-    ([t, r]) => r && previous.render[t as TargetId] !== r.hash,
-  );
-  if (!moved) return undefined;
-  return new Set((await editedPaths(run, previous).catch(() => undefined)) ?? []);
-}
-
 /** Renders and diffs one job; nothing is written. */
 export async function prepareJob(run: Run, job: Job): Promise<Prepared> {
   const previous = run.state.lock.find(job.entity, job.source.name);
@@ -151,9 +135,9 @@ export async function prepareJob(run: Run, job: Job): Promise<Prepared> {
     ...(values ? { values } : {}),
   });
   const { files, fragments } = await diskStates(run, out);
-  const edited = await knownEdits(run, previous, out);
+  const check = await knownEdits(run, { previous, out, files, fragments, values });
   const decision = outcomeStatus({
-    ...(edited ? { edited } : {}),
+    ...(check ? { edited: check.edited } : {}),
     ...(previous && !previous.declined ? { previous } : {}),
     renders: out.renders,
     files,
@@ -162,12 +146,14 @@ export async function prepareJob(run: Run, job: Job): Promise<Prepared> {
     content: out.content,
     local: job.source.isLocal,
   });
+  const unchecked = check?.unchecked && decision.kept.length ? check.unchecked : undefined;
   return {
     job,
     ...(previous ? { previous } : {}),
     out,
     decision,
     consent: consentOf(job, previous, out.unit),
+    ...(unchecked ? { unchecked } : {}),
   };
 }
 

@@ -91,6 +91,16 @@ export function blockState(text: string | undefined, id: string, content: string
 }
 
 /**
+ * The content of block `id` as palm wrote it: the text between the markers, ending with the
+ * newlines `like` (the rendered content) ends with, since the block drops them. Undefined when
+ * there is no such block.
+ */
+export function blockValue(text: string | undefined, id: string, like = ''): string | undefined {
+  const found = text === undefined ? undefined : findManagedBlock(text, id);
+  return found ? `${found.content}${/\n*$/.exec(like)?.[0] ?? ''}` : undefined;
+}
+
+/**
  * Remove the block (and the blank line that separated it from preceding text).
  * A file left empty is deleted. Missing file/block is a no-op.
  */

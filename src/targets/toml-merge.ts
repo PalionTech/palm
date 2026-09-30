@@ -228,6 +228,16 @@ export function tomlRecordState(text: string | undefined, rec: TomlTableRecord):
   return matchesRendered(current, rec.value) ? 'held' : 'changed';
 }
 
+/** The table `rec` names in `text`; undefined when absent or unparseable. */
+export function tomlRecordValue(text: string | undefined, rec: TomlTableRecord): unknown {
+  if (text === undefined) return undefined;
+  try {
+    return getPath(parseToml(text, rec.file), rec.path);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Remove the table `record` names (`['mcp_servers', name]`); a file left empty is deleted.
  * Missing file/table is a no-op.

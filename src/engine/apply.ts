@@ -18,6 +18,7 @@ import { withDeclined, withTrust } from '../exec/trust.js';
 import { isWithin } from '../lib/fs.js';
 import { deepEqual } from '../lib/object.js';
 import { fragmentKey } from './diff.js';
+import { uncheckedNote } from './edits.js';
 import type { Prepared, Run } from './jobs.js';
 import { protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failure, failureOf, installCommand, type Subject } from './report.js';
@@ -194,18 +195,22 @@ async function writeTargets(run: Run, p: Prepared, failed: Set<TargetId>): Promi
   }
 }
 
-/** Undeploys what `previous` listed and `entry` no longer does (files by path, fragments by key). */
+/**
+ * Undeploys what `previous` listed and `entry` no longer does (files by path, fragments by key),
+ * except what the person edited (`kept`): that stays on disk, no longer palm's.
+ */
 async function replacePrevious(
   run: Run,
   previous: LockEntry | undefined,
   entry: LockEntry,
+  kept: readonly string[],
 ): Promise<void> {
   if (!previous) return;
-  const files = new Set(entry.files);
-  const fragments = new Set((entry.merged ?? []).map(fragmentKey));
+  const stays = new Set([...entry.files, ...kept]);
+  const fragments = new Set([...(entry.merged ?? []).map(fragmentKey), ...kept]);
   const stale: LockEntry = {
     ...previous,
-    files: previous.files.filter((f) => !files.has(f)),
+    files: previous.files.filter((f) => !stays.has(f)),
     merged: (previous.merged ?? []).filter((m) => !fragments.has(fragmentKey(m))),
   };
   if (!stale.files.length && !stale.merged?.length) return;
@@ -221,12 +226,16 @@ async function replacePrevious(
 function modifiedFailure(run: Run, p: Prepared): void {
   const kept = p.decision.kept;
   const them = kept.length === 1 ? 'it' : 'them';
-  run.result.failures.push(
-    failure(subjectOf(p), 'E_CONFLICT', {
-      message: `${kept.join(', ')} changed since palm wrote ${them}; kept`,
-      hint: installCommand(subjectOf(p), run.state.paths.scope, '--force'),
-    }),
-  );
+  const text = p.unchecked
+    ? {
+        message: `${kept.join(', ')} may have changed since palm wrote ${them}; kept (${p.unchecked.reason})`,
+        hint: p.unchecked.command,
+      }
+    : {
+        message: `${kept.join(', ')} changed since palm wrote ${them}; kept`,
+        hint: installCommand(subjectOf(p), run.state.paths.scope, '--force'),
+      };
+  run.result.failures.push(failure(subjectOf(p), 'E_CONFLICT', text));
 }
 
 function statusOf(p: Prepared, failed: Set<TargetId>): OutcomeStatus {
@@ -263,7 +272,7 @@ async function record(
   status: OutcomeStatus,
 ): Promise<void> {
   const { state } = run;
-  await replacePrevious(run, p.previous, entry);
+  await replacePrevious(run, p.previous, entry, p.decision.kept);
   if (!sameEntry(p.previous, entry)) state.lock.upsert(entry);
   const rec = p.job.record;
   if (rec && 'mcp' in rec) state.manifest.setMcp(p.job.entity.name, rec.mcp);
@@ -297,7 +306,9 @@ export async function applyPrepared(run: Run, p: Prepared): Promise<InstallOutco
   if (status === 'failed') return { entry: p.previous ?? entry, status, notes: entry.notes ?? [] };
   if (status === 'modified') modifiedFailure(run, p);
   await record(run, p, entry, status);
-  const outcome: InstallOutcome = { entry, status, notes: entry.notes ?? [] };
+  const notes = [...(entry.notes ?? [])];
+  if (status === 'modified' && p.unchecked) notes.push(uncheckedNote(p.unchecked));
+  const outcome: InstallOutcome = { entry, status, notes };
   if (status === 'partial') outcome.perTarget = perTarget(p, failed);
   return outcome;
 }

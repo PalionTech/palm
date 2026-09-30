@@ -29,7 +29,8 @@ export type FileState = 'same' | 'missing' | 'modified' | 'foreign' | 'stale';
 
 const EXEC_BITS = 0o111;
 
-async function readDisk(abs: string): Promise<{ data: Buffer; mode: number } | undefined> {
+/** A file's bytes and permission bits; undefined when it cannot be read. */
+export async function readDisk(abs: string): Promise<{ data: Buffer; mode: number } | undefined> {
   try {
     const data = await readFile(abs);
     return { data, mode: (await stat(abs)).mode & 0o777 };
@@ -104,8 +105,9 @@ export interface OutcomeInput {
   content?: string;
   local?: boolean;
   /**
-   * Lock paths and fragment keys known to be edited even though the render changed (found
-   * against the render at the locked sha, or the applied record under -g): kept, not replaced.
+   * Lock paths and fragment keys known to be edited even though the render changed (edits.ts:
+   * the disk against the lock's render hash, the render at the locked sha, the applied record
+   * under -g; or paths palm could not check): kept, neither replaced nor deleted.
    */
   edited?: Set<string>;
 }
@@ -203,12 +205,22 @@ function overall(input: OutcomeInput, verdicts: TargetVerdict[], dropped: boolea
   return verdicts.includes('restore') ? 'restored' : 'unchanged';
 }
 
+/** Owned files the render no longer writes that are known edits: kept, never deleted. */
+function keptDropped(input: OutcomeInput): string[] {
+  const { edited, previous } = input;
+  if (input.force || !edited?.size || !previous) return [];
+  const written = new Set(
+    Object.values(input.renders).flatMap((r) => (r?.files ?? []).map((f) => f.path)),
+  );
+  return previous.files.filter((f) => edited.has(f) && !written.has(f));
+}
+
 /**
  * The outcome of one entity (DESIGN §6): per target, a render equal to the lock's with the disk
  * equal to the render is unchanged; missing files or fragments are restored; a file or fragment
- * the user changed is kept (`modified`, unless `force`); a render that differs from the lock is
- * applied (`updated` with new content, else `re-rendered`). Targets the lock has and the render
- * lacks count as a change.
+ * the user changed is kept (`modified`, unless `force`), and so is an edited file the render no
+ * longer writes; a render that differs from the lock is applied (`updated` with new content,
+ * else `re-rendered`). Targets the lock has and the render lacks count as a change.
  */
 export function outcomeStatus(input: OutcomeInput): OutcomeDecision {
   const kept: string[] = [];
@@ -220,6 +232,11 @@ export function outcomeStatus(input: OutcomeInput): OutcomeDecision {
     const { verdict, write } = verdictFor(input, id, rendered, kept);
     verdicts.push(verdict);
     if (write) toWrite.push(id);
+  }
+  const orphans = keptDropped(input);
+  if (orphans.length) {
+    kept.push(...orphans);
+    verdicts.push('kept');
   }
   const rendered = new Set(Object.keys(input.renders));
   const dropped = Object.keys(input.previous?.render ?? {}).some((t) => !rendered.has(t));
