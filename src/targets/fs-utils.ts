@@ -1,8 +1,10 @@
 import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import { messageOf, PalmError } from '../core/errors.js';
 import { isSkillCopySkipped, skillLeftOutReason } from '../domain/skill-copy.js';
 import {
   isEnoent,
+  isWithin,
   resolveWriteTarget,
   type WalkResult,
   walkFiles,
@@ -108,5 +110,25 @@ export async function listSkillFiles(
     return true;
   };
   const walk = await walkFiles(root, { boundary: opts.boundary, skip });
-  return { ...walk, leftOut, testsLeftOut };
+  const dangling = await danglingOutside(root, opts.boundary ?? root, walk);
+  const symlinksOutside = [...walk.symlinksOutside, ...dangling].sort();
+  return { ...walk, symlinksOutside, leftOut, testsLeftOut };
+}
+
+/**
+ * Skipped links whose target, read as text, lies outside `boundary`: a fetched source keeps a link
+ * to `../../outside.txt` that dangles in the checkout, and it is a link leaving the source all
+ * the same (ruling S5).
+ */
+async function danglingOutside(root: string, boundary: string, walk: WalkResult) {
+  const realBoundary = await fs.realpath(boundary).catch(() => path.resolve(boundary));
+  const out: string[] = [];
+  for (const rel of walk.skipped.filter((r) => !walk.symlinksOutside.includes(r))) {
+    const abs = path.join(root, ...rel.split('/'));
+    const text = await fs.readlink(abs).catch(() => undefined);
+    if (text === undefined) continue;
+    const parent = await fs.realpath(path.dirname(abs)).catch(() => path.dirname(abs));
+    if (!isWithin(path.resolve(parent, text), realBoundary)) out.push(rel);
+  }
+  return out;
 }

@@ -9,8 +9,8 @@
  */
 
 import { realpathSync, statSync } from 'node:fs';
-import { realpath, stat } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { readlink, realpath, stat } from 'node:fs/promises';
+import { join, relative, resolve } from 'node:path';
 import fg from 'fast-glob';
 import { INSTALL_OUTPUT_DIRS, isScanIgnoredRel } from '../domain/ignore.js';
 import { isWithin, toPosix } from '../lib/fs.js';
@@ -72,6 +72,8 @@ export class FileIndex {
   /** Relative posix paths, sorted. */
   readonly files: string[] = [];
   readonly warnings: string[] = [];
+  /** Links whose target lies outside the source, dangling ones included (ruling S5). */
+  readonly linksLeaving: string[] = [];
   private readonly fileSet = new Set<string>();
   /** Every ancestor directory of a listed file ('' excluded). */
   private readonly dirSet = new Set<string>();
@@ -274,6 +276,7 @@ export async function buildFileIndex(rootAbs: string, opts: FileIndexOptions): P
   const frame = { absDir: rootAbs, prefix: '', realDir: realRoot, realRel: '', deep: opts.deep };
   await walkTree({ index, opts }, { ...frame, chain: new Set([realRoot]) });
   index.finish();
+  if (index.linksLeaving.length) index.warnings.push(linksLeavingNote(index.linksLeaving.sort()));
   return index;
 }
 
@@ -310,6 +313,23 @@ function reachesOutput(w: Walk, realRel: string): boolean {
   return INSTALL_OUTPUT_DIRS.some((d) => padded.includes(`/${d}/`));
 }
 
+/**
+ * True when the dangling link `linkAbs` names a path outside the source: a fetched source keeps a
+ * link to `../../outside.txt` whose target exists only on the author's machine (ruling S5).
+ */
+async function danglingLeaves(w: Walk, linkAbs: string, realParent: string): Promise<boolean> {
+  const text = await readlink(linkAbs).catch(() => undefined);
+  return text !== undefined && !isWithin(resolve(realParent, text), w.index.realRoot);
+}
+
+/** One note for the links a scan did not follow out of the source (ruling S5, the copy's wording). */
+function linksLeavingNote(rels: readonly string[]): string {
+  const shown = rels.slice(0, 3).join(', ');
+  const more = rels.length > 3 ? ` +${rels.length - 3}` : '';
+  const what = rels.length === 1 ? 'a link leaving the source' : 'links leaving the source';
+  return `not copied (${what}): ${shown}${more}`;
+}
+
 async function realpathOrUndefined(p: string): Promise<string | undefined> {
   try {
     return await realpath(p);
@@ -331,12 +351,14 @@ async function statKind(p: string): Promise<'file' | 'dir' | undefined> {
 /** Index a symlink found by the walk: a file link directly, a directory link by walking it. */
 async function followLink(w: Walk, frame: WalkFrame, linkPath: string): Promise<void> {
   const rel = joinPrefix(frame.prefix, linkPath);
-  const target = await realpathOrUndefined(join(frame.absDir, linkPath));
-  if (target === undefined) return;
-  if (!isWithin(target, w.index.realRoot)) {
-    w.index.warnings.push(`skipped symlink ${rel}: points outside the source`);
-    return;
-  }
+  const linkAbs = join(frame.absDir, linkPath);
+  const target = await realpathOrUndefined(linkAbs);
+  const leaves =
+    target === undefined
+      ? await danglingLeaves(w, linkAbs, join(frame.realDir, dirOf(linkPath)))
+      : !isWithin(target, w.index.realRoot);
+  if (leaves) w.index.linksLeaving.push(rel);
+  if (target === undefined || leaves) return;
   const realRel = toPosix(relative(w.index.realRoot, target));
   if (reachesOutput(w, realRel)) return;
   const kind = await statKind(target);
