@@ -13,6 +13,7 @@ import { EntityRegistry } from './entity-registry.js';
 import { buildFileIndex, type FileIndex } from './files.js';
 import { globIndex } from './glob.js';
 import { defaultIgnoreGlobs, minimalIgnoreGlobs } from './ignore.js';
+import { lockOwnedPaths } from './lock-owned.js';
 import type { PluginManifestFormat } from './plugin-manifest.js';
 import type { ParsedSkill } from './skills.js';
 import type { SourceFile } from './source-files.js';
@@ -52,6 +53,7 @@ export class ScanContext {
   private readonly textCache = new Map<string, Promise<string | undefined>>();
   /** Ignored directories already brought into the index by `ensureIndexed`. */
   private readonly indexedRoots = new Set<string>();
+  private owned: Promise<ReadonlySet<string>> | undefined;
 
   constructor(root: string, source: Source) {
     this.rootAbs = resolve(root);
@@ -126,6 +128,12 @@ export class ScanContext {
       suppressErrors: true,
     });
     return matches.map((m) => joinRel(baseRel, m)).sort();
+  }
+
+  /** Files palm's own lock owns inside the source, read once (ruling R18'). */
+  lockOwned(): Promise<ReadonlySet<string>> {
+    this.owned ??= lockOwnedPaths(this.rootAbs);
+    return this.owned;
   }
 
   /** Bring a plugin directory that lives in an ignored area (e.g. `examples/x`) into the index. */
