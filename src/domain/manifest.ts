@@ -43,15 +43,21 @@ function entryName(entry: ManifestEntry): string {
   return typeof entry === 'string' ? entry : entry.name;
 }
 
+/** Entry lists longer than this are written one entry per line (B14). */
+const FLOW_LIST_MAX = 3;
+
 /**
  * The collections palm writes in flow style when it creates them (DESIGN §3): `targets`, entry
- * lists of names (`skills: [tdd, handoff]`), entry objects, layouts and a server's small maps.
+ * lists of up to three names (`skills: [tdd, handoff]`), entry objects, layouts and a server's
+ * small maps. A longer entry list is written in block style, one entry per line, even where the
+ * file had it on one line.
  */
-function isFlow(p: YamlPath, value: unknown): boolean {
+function isFlow(p: YamlPath, value: unknown): boolean | 'block' {
   const [top, , key, index] = p;
   if (top === 'targets') return p.length === 1;
   const names = Array.isArray(value) && value.every((v) => typeof v === 'string');
-  if (top === 'sources' && p.length === 3 && names && key !== 'layout') return true;
+  if (top === 'sources' && p.length === 3 && Array.isArray(value) && key !== 'layout')
+    return value.length > FLOW_LIST_MAX ? 'block' : names;
   if (top === 'sources')
     return (p.length === 4 && typeof index === 'number') || (p.length === 3 && key === 'layout');
   return (
@@ -64,6 +70,17 @@ function hasEntries(body: Body | undefined): boolean {
   return (
     !!body && ENTRY_KEYS.some((k) => Array.isArray(body[k]) && (body[k] as unknown[]).length > 0)
   );
+}
+
+/**
+ * True when a source stays in palm.yaml: it lists an entry, or its body says something (url,
+ * path, ref, layout, …). Only a source with neither is dropped on save (K1); `removeEntry`
+ * drops the source its last entry leaves.
+ */
+function keepsSource(body: Body | undefined): boolean {
+  if (!isRecord(body)) return false;
+  if (hasEntries(body)) return true;
+  return Object.entries(body).some(([k, v]) => !ENTRY_KEYS.includes(k) && v !== undefined);
 }
 
 /** `body` without empty entry lists. */
@@ -105,26 +122,29 @@ export class Manifest {
     return new Manifest(checkedManifest(file, await loadYaml(file)));
   }
 
-  /**
-   * Writes palm.yaml by patching the file, so comments, key order and a flow `targets:` survive.
-   * Empty entry lists, sources without entries and empty `sources:`/`mcp:` sections are dropped.
-   */
   /** The text a fresh palm.yaml for this manifest holds (what `save` writes when no file exists). */
   text(): string {
     return stringifyYaml(this.written(), { flow: isFlow });
   }
 
+  /**
+   * Writes palm.yaml by patching the file, so comments, key order and a flow `targets:` survive.
+   * Empty entry lists, sources with neither entries nor a body, and empty `sources:`/`mcp:`
+   * sections are dropped.
+   */
   async save(file: string): Promise<void> {
     await writeYamlFile(file, this.written(), { flow: isFlow });
   }
 
-  /** The document `save` writes. */
+  /** The document `save` writes: `targets` first, then the rest in the file's order (K24). */
   private written(): Record<string, unknown> {
     const sources = Object.entries(this.data.sources ?? {})
-      .filter(([, body]) => hasEntries(body as Body))
+      .filter(([, body]) => keepsSource(body as Body))
       .map(([name, body]) => [name, withoutEmptyLists(body as Body)] as const);
+    const { targets, ...rest } = this.data;
     return withoutUndefined({
-      ...this.data,
+      targets,
+      ...rest,
       sources: sources.length ? Object.fromEntries(sources) : undefined,
       mcp: Object.keys(this.data.mcp ?? {}).length ? this.data.mcp : undefined,
     });

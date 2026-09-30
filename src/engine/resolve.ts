@@ -21,6 +21,7 @@ import type {
 import { entityId } from '../domain/entity-key.js';
 import { formatEntityRef, sameName } from '../domain/entity-ref.js';
 import { SourceRef } from '../domain/source.js';
+import { closestWord } from '../lib/text.js';
 import { logMark, palmCommand } from './report.js';
 import type { ScopeState } from './scope.js';
 
@@ -401,31 +402,10 @@ function dedupe(entities: Entity[]): Entity[] {
   return entities.filter((e) => !seen.has(entityId(e)) && seen.add(entityId(e)));
 }
 
-function distance(a: string, b: string): number {
-  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    let diag = prev[0] ?? 0;
-    prev[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const tmp = prev[j] ?? 0;
-      prev[j] = Math.min(tmp + 1, (prev[j - 1] ?? 0) + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
-      diag = tmp;
-    }
-  }
-  return prev[b.length] ?? 0;
-}
-
 /** The index name closest to `spec` (edit distance up to 3, or a substring), if any. */
 export function closestName(index: SourceIndex, spec: EntityRefSpec): string | undefined {
-  const q = spec.name.toLowerCase();
-  let best: { name: string; d: number } | undefined;
-  for (const e of index.entities) {
-    if (spec.kind && e.kind !== spec.kind) continue;
-    const n = e.name.toLowerCase();
-    const d = n.includes(q) || q.includes(n) ? Math.min(distance(q, n), 1) : distance(q, n);
-    if (d <= 3 && (!best || d < best.d)) best = { name: e.name, d };
-  }
-  return best?.name;
+  const names = index.entities.filter((e) => !spec.kind || e.kind === spec.kind).map((e) => e.name);
+  return closestWord(spec.name, names, 3);
 }
 
 /** E_NOT_FOUND for names the source lacks; E_AMBIGUOUS for names meaning two kinds. */

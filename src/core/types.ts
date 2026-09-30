@@ -332,6 +332,8 @@ export interface ManifestEntryObject {
   only?: string[];
   exclude?: string[];
   render?: Record<string, unknown>;
+  /** `--secrets literal` recorded for the entry, so a bare install keeps the policy (Y19). */
+  secrets?: 'literal';
 }
 
 export type ManifestEntry = string | ManifestEntryObject;
@@ -362,6 +364,8 @@ export interface McpManifestEntry {
   url?: string;
   headers?: Record<string, string>;
   targets?: TargetId[];
+  /** `--secrets literal` recorded for the server, so a bare install keeps the policy (Y19). */
+  secrets?: 'literal';
 }
 
 export interface Manifest {
