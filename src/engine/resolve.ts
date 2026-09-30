@@ -6,12 +6,14 @@
  */
 
 import { getIndex } from '../core/cache.js';
+import { isPalmError, PalmError } from '../core/errors.js';
 import { fetchSource, isSemverRange } from '../core/git.js';
 import type {
   EngineDeps,
   Entity,
   LockSource,
   PalmContext,
+  Scope,
   Source,
   SourceCheckout,
   SourceIndex,
@@ -57,7 +59,12 @@ export async function resolveSource(job: ResolveJob): Promise<Resolved> {
   const key = `${ref.name}\0${opts.sha ?? ref.source.ref ?? ''}\0${opts.refresh ? 1 : 0}`;
   let pending = memo.get(key);
   if (!pending) {
-    pending = fetchAndIndex(ctx, deps, ref, { ...opts, exclude: await ownedInside(state, ref) });
+    pending = fetchAndIndex(ctx, deps, ref, {
+      ...opts,
+      exclude: await ownedInside(state, ref),
+    }).catch((e: unknown) => {
+      throw scopedHint(e, state.paths.scope);
+    });
     memo.set(key, pending);
     pending.catch(() => memo.delete(key));
   }
@@ -77,6 +84,13 @@ async function ownedInside(state: ScopeState, ref: SourceRef): Promise<Set<strin
   ]);
   if (src.real !== root.real) return undefined;
   return new Set(state.lock.entries.flatMap((e) => e.files));
+}
+
+/** V4': the `palm update <source>` hint core builds without the scope gets `-g` under -g. */
+function scopedHint(e: unknown, scope: Scope): unknown {
+  if (scope !== 'global' || !isPalmError(e) || !e.hint?.startsWith('palm update ')) return e;
+  if (e.hint.split(' ').includes('-g')) return e;
+  return new PalmError(e.code, e.message, `${e.hint} -g`);
 }
 
 async function fetchAndIndex(
