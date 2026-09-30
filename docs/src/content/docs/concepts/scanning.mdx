@@ -22,7 +22,8 @@ The first command lists the index and saves nothing. The second shows how palm r
 
 `detected` names the rule that matched, here `marketplace`.
 The index warnings list what the scan found and will not install, each with the reason or the command that installs it from its own repository.
-A listing shows them as one count line. `palm describe source` and `PALM_DEBUG=1` print them in full.
+A listing prints the notes you act on in full, such as a file the layout misses, and counts the rest in one line.
+`palm describe source <source>` prints them all, for a source `palm.yaml` declares or one you only typed.
 
 ## Detection order
 

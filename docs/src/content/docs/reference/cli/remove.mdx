@@ -9,6 +9,7 @@ import Capture from '../../../../components/Capture.astro';
 
 ```sh
 palm remove [source] <[kind:]name...> [--exclude]
+palm remove <source> [--all]
 ```
 
 Aliases: `palm uninstall`, `palm rm`.
@@ -20,6 +21,7 @@ Aliases: `palm uninstall`, `palm rm`.
 | `palm remove obra/superpowers brainstorming --exclude` | Drop one plugin member for the whole team. |
 | `palm remove obra/superpowers plugin:superpowers` | Remove a plugin and every member no other plugin declares. |
 | `palm remove mcp:docs` | Remove a hand-declared MCP server. |
+| `palm remove mattpocock/skills` | Remove every entry of the source, and the source, after a yes. |
 | `palm remove handoff -g` | Remove from your home directory. |
 
 <Capture name="c-remove" title="~/project" />
@@ -43,6 +45,7 @@ The [global options](/palm/reference/cli/#global-options) also apply.
 ## Behavior
 
 palm selects each entity by name, by kind when a name means two kinds, and by source when a name exists in two sources.
+When a name matches two entries, the error prints one command per entry, each with its source and `kind:name`.
 It then undoes exactly what the lock lists.
 
 - Files by path. Folders palm emptied are removed, up to but never including the harness folders such as `.claude` or `.github`.
@@ -71,7 +74,15 @@ x brainstorming belongs to plugin superpowers: exclude it for the team (palm rem
 
 `--exclude` adds `skill:brainstorming` to the plugin entry's `exclude:` list and removes the member.
 Removing a plugin removes its members, except a member another installed plugin still declares. That member stays, and a warning names the command that removes both.
-When a plugin member was also edited, the hint names both flags at once, as in `palm remove obra/superpowers brainstorming --exclude --force`.
+When a plugin member was also edited, the hint names both flags at once, as in `palm remove obra/superpowers skill:brainstorming --exclude --force`.
+When you remove the plugin and one of its members was edited, the hint removes the plugin again with `--force`: `palm remove obra/superpowers plugin:superpowers --force`.
+
+## A whole source
+
+`palm remove <source>` alone, or with `--all`, removes every entry installed from that source, and the source leaves `palm.yaml`.
+palm asks first, and the default is no.
+Without a terminal, `--yes` answers the question.
+A no removes nothing and exits 130.
 
 ## Reads and writes
 
@@ -88,8 +99,10 @@ A file you changed since palm wrote it stops the removal, and the entity stays i
 
 ```text
 x skill tdd: .claude/skills/tdd/SKILL.md was modified since install
-    palm remove mattpocock/skills tdd --force
+    palm remove mattpocock/skills skill:tdd --force
 ```
+
+Every command palm prints names the entity as `kind:name`, so it still runs when the source offers the name in two kinds.
 
 `--force` deletes the changed file too. To keep your change, first copy the file into your own in-repo source under a new name and install it from there, as [Troubleshooting](/palm/reference/troubleshooting/#you-changed-a-generated-file) shows.
 palm never deletes a path whose real path is inside a declared source, `--force` included.
@@ -103,7 +116,7 @@ Removing something that is not installed prints `i <name> is not installed` and 
 | `0` | Every named entity is removed, or was not installed. |
 | `1` | A file was modified since install, a plugin member was named without `--exclude`, a name exists in two sources, or a file could not be removed. |
 | `2` | No name, an unknown option, or `--local`. |
-| `130` | You pressed Esc or Ctrl-C at a prompt. |
+| `130` | You pressed Esc or Ctrl-C at a prompt, or answered no to removing a whole source. |
 
 ## Related
 

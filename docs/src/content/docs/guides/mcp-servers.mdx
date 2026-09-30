@@ -50,7 +50,8 @@ A literal secret in the snippet becomes `${NAME}`, with a notice.
 So does a value to fill in, such as `Bearer YOUR_API_KEY`, and VS Code's `${input:name}`, whose `inputs` array palm drops.
 A server name that already exists stops with `E_CONFLICT` unless you pass `--force`.
 
-`palm install mcp <name>` with no flags and no snippet stops with a hint that shows `--url`, `--command` and `--snippet -`.
+`palm install mcp <name>` with no flags and no snippet renders the server `palm.yaml` declares under that name again. After a hand edit of a generated file, `palm install mcp <name> --force` restores it.
+For a name `palm.yaml` does not declare, it stops with a hint that shows `--url`, `--command` and `--snippet -`.
 Paste the README block with the last one.
 
 ## By flags

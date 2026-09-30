@@ -76,7 +76,8 @@ Hooks and stdio MCP servers are marked `(a program; asks before installing)`, an
 The listing ends with `Nothing written. Install some:` and two commands you can paste, with the `#ref` you typed.
 
 `--grep <text>` keeps the entities whose name or description contains the text, and the paste line takes the first two matches.
-Index warnings show as one count line; `palm describe source` prints them in full.
+Index notes you act on print in full: a file the layout misses, a glob that matches nothing, a dependency palm does not follow, a link that leaves the source.
+The other index notes show as one count line that points to `palm describe source <source>`, which prints them in full.
 A source that overlaps an output folder is refused at listing time, before it offers `--all`.
 
 The first word is a source when it is a name or alias declared in `palm.yaml`, `owner/repo`, a URL, a path, or the word `mcp`.
@@ -98,6 +99,7 @@ With names or `--all`, palm installs and records.
 
 1. It resolves the source, asking the remote for its current tags. An undeclared source is declared in `palm.yaml` once something installs, as [Sources](/palm/concepts/sources/#declared-on-first-use) describes.
 2. It matches each name within that source, ignoring case. A name that matches nothing fails with `E_NOT_FOUND`, and the hint is the closest name as a pasteable command. A name that means two kinds is asked about on a terminal, and `E_AMBIGUOUS` without one.
+The error lists every such name at once, and its hint is your command with each name as `kind:name`, with the same source, `#ref` and options.
 3. It refuses an entity whose kind and name another source already installed in this scope, with `E_CONFLICT` naming the owner.
 4. It takes the targets from `palm.yaml`. With none there, it detects them, writes them, and prints one line.
 5. It renders every entity for every target without writing, and computes the render hashes.
