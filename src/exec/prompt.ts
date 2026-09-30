@@ -10,6 +10,7 @@ import { TARGET_IDS } from '../core/types.js';
 import { plural } from '../lib/text.js';
 import { PROJECT_DIR } from '../targets/index.js';
 import { formatSize, modeText, visible } from './format.js';
+import { unpinnedLines } from './pins.js';
 import { commandAt, firstTarget } from './units.js';
 
 export interface PromptOptions {
@@ -153,7 +154,9 @@ function unitLines(unit: ExecUnit, n: number, scope: Scope): string[] {
   const name = visible(unit.entity.name);
   const head = `  ${n}. ${unit.kind} ${name}  from ${visible(unit.entity.source)}${fromText(unit.from)}`;
   const rows = unit.kind === 'mcp' ? mcpRows(unit) : hookRows(unit);
-  const warnings = (unit.warnings ?? []).map((w) => `${ROW}! ${visible(w)}`);
+  const warnings = [...(unit.warnings ?? []), ...unpinnedLines(unit)].map(
+    (w) => `${ROW}! ${visible(w)}`,
+  );
   return [
     head,
     ...rows,

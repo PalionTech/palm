@@ -11,6 +11,7 @@ import type { CheckProblem, CheckRun, LockEntry } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
 import { visible } from '../exec/format.js';
 import { type HookFinding, hookFindings } from './check-hooks.js';
+import { acknowledgeable } from './check-ignore.js';
 import {
   type CheckContext,
   checkRun,
@@ -94,9 +95,10 @@ function hookProblem(c: CheckContext, h: HookFinding): CheckProblem {
       `a command palm installed in ${where} was changed on disk: ${command}`,
       `review it, then ${palmCommand('install', [h.owner.source, `${h.owner.kind}:${h.owner.name}`], scopeOf(c), '--force')}`,
     );
+  const missing = h.missing ? `; script missing: ${h.missing}` : '';
   return {
     file: h.file,
-    message: `foreign hook command in ${where}: ${command}`,
+    message: `foreign hook command in ${where}: ${command}${missing}`,
     fix: `keep it if you added it; else remove it from ${h.file} (palm does not manage it)`,
   };
 }
@@ -124,10 +126,15 @@ export async function execTrusted(c: CheckContext): Promise<CheckRun> {
   );
 }
 
-/** V6: a command in a hook array palm manages that no lock entry explains (warning). */
+/**
+ * V6 V2': a command in any event array of a hook file palm parses that no lock entry explains
+ * (warning; a failure under `--strict`).
+ */
 export async function foreignHooks(c: CheckContext): Promise<CheckRun> {
   const f = found();
-  for (const h of await hookFindings(c)) if (!h.owner) f.warn.push(hookProblem(c, h));
+  for (const h of await hookFindings(c))
+    if (!h.owner)
+      f.warn.push(acknowledgeable(hookProblem(c, h), `foreign-hooks:${h.file}#${h.event}`));
   return checkRun(
     'foreign-hooks',
     {

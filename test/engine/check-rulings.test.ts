@@ -161,7 +161,7 @@ describe('check rulings (FINDINGS-v2)', () => {
     const { r } = await check(w, { offline: true });
     expect(r['lock-disk']).toMatchObject({
       status: 'skipped',
-      label: 'generated files: skipped (cache empty; run palm install)',
+      label: 'generated files: skipped (cache empty)',
     });
   });
 
@@ -178,17 +178,15 @@ describe('check rulings (FINDINGS-v2)', () => {
   it('K17 D20 variables not set are one warning line per server', async () => {
     const { w } = await world([{ kind: 'mcp', name: 'search' }]);
     const { r } = await check(w);
-    expect(r.secrets?.status).toBe('warn');
-    expect(r.secrets?.problems).toEqual([
+    expect(r.variables?.status).toBe('warn');
+    expect(r.variables?.problems).toEqual([
       expect.objectContaining({
         entity: expect.objectContaining({ name: 'search' }),
         message: 'needs SEARCH_KEY, SEARCH_TEAM_TOKEN, which are not set',
         fix: 'export SEARCH_KEY=… SEARCH_TEAM_TOKEN=…',
       }),
     ]);
-    expect(r.secrets?.label).toBe(
-      'no literal secret in generated files; 1 server needs variables that are not set',
-    );
+    expect(r.variables?.label).toBe('1 server needs variables that are not set');
   });
 
   it('J1 a literal under a secret key no shape rule knows fails when git tracks the real path', async () => {

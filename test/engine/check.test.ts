@@ -13,6 +13,7 @@ import { makeWorld, type World } from './world.js';
 
 const IDS = [
   'manifest-lock',
+  'targets',
   'render',
   'partial',
   'lock-disk',
@@ -22,8 +23,10 @@ const IDS = [
   'source-paths',
   'exec-trusted',
   'foreign-hooks',
+  'foreign-servers',
   'hook-scripts',
   'secrets',
+  'variables',
   'git-ignored',
   'sources-declared',
   'links',
@@ -168,7 +171,8 @@ describe('checkScope', () => {
     const r = await check(w);
     expect(r.secrets?.status).toBe('fail');
     expect(r.secrets?.problems.map((p) => p.message).join('\n')).toContain('readable by others');
-    expect(r.secrets?.problems.map((p) => p.fix)).toContain('export DOCS_TOKEN=…');
+    expect(r.variables?.status).toBe('warn');
+    expect(r.variables?.problems.map((p) => p.fix)).toContain('export DOCS_TOKEN=…');
   });
 
   it('fails git-ignored when an output directory is ignored by git', async () => {
@@ -180,9 +184,13 @@ describe('checkScope', () => {
       throw new Error('not ignored');
     });
     const r = await check(w);
-    expect(r['git-ignored']).toMatchObject({ status: 'fail', problems: [{ file: '.claude' }] });
-    expect(r['git-ignored']?.problems[0]?.message).toMatch(
-      /^\d+ files under \.claude\/ \(.+\) are ignored by git/,
+    expect(r['git-ignored']?.status).toBe('fail');
+    const skills = r['git-ignored']?.problems.find((p) => p.file === '.claude/skills');
+    expect(skills?.message).toMatch(
+      /^\d+ files under \.claude\/skills\/ \(.+\) are ignored by git/,
+    );
+    expect(skills?.fix).toBe(
+      'add !.claude/skills/ to .gitignore (an ignored .claude/ must become .claude/* first)',
     );
   });
 

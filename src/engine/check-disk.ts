@@ -6,7 +6,9 @@
 import { readFile } from 'node:fs/promises';
 import type { CheckProblem, CheckRun, LockEntry, Rendered, TargetId } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
+import type { RecordState } from '../domain/merged-record.js';
 import { scanHiddenUnicode } from '../lib/unicode.js';
+import { acknowledgeable, sourcePathOf } from './check-ignore.js';
 import {
   type CheckContext,
   checkRun,
@@ -17,7 +19,8 @@ import {
   rendersFiles,
   skipped,
 } from './check-kit.js';
-import { fileStates, fragmentStates, ownedFragments } from './diff.js';
+import { type FileState, fileStates, fragmentStates, ownedFragments } from './diff.js';
+import { knownEdits } from './edits.js';
 import { palmCommand } from './report.js';
 
 const MAX_TEXT_BYTES = 1024 * 1024;
@@ -86,27 +89,84 @@ async function entryDisk(c: CheckContext, e: LockEntry, f: Found): Promise<void>
   }
 }
 
+/**
+ * Y13': an in-repo entry whose source changed (`local-sources`) may also have generated files
+ * someone edited. The disk is hashed as palm wrote it (`knownEdits`, check 1): what differs
+ * from that is listed here too, so fixing the source change does not silently drop the edit.
+ */
+async function driftedEdits(c: CheckContext, e: LockEntry, f: Found): Promise<void> {
+  const out = c.renders.get(lockId(e));
+  if (!out) return;
+  const { paths } = c.run.state;
+  const files = new Map<string, FileState>();
+  const fragments = new Map<string, RecordState>();
+  for (const r of Object.values(out.renders)) {
+    if (!r) continue;
+    for (const [k, v] of await fileStates(paths, r)) files.set(k, v);
+    for (const [k, v] of await fragmentStates(paths, r, ownedFragments(e))) fragments.set(k, v);
+  }
+  const edits = await knownEdits(c.run, { previous: e, out, files, fragments });
+  const edited = [...new Set([...(edits?.edited ?? [])].map((k) => k.split('#')[0] as string))];
+  if (!edited.length) return;
+  const [first = ''] = edited.sort();
+  const which = edits?.unchecked
+    ? `palm cannot tell which of ${listed(edited)} holds the edit`
+    : `${listed(edited)} ${edited.length === 1 ? 'holds' : 'hold'} the edit`;
+  f.fail.push(
+    problem(
+      e,
+      first,
+      `generated files of ${e.kind} ${e.name} were edited since palm wrote them, and its source changed too; ${which}`,
+      `keep your edit by copying it into the source, then ${fixes(c, e).restore}; or ${fixes(c, e).force} to discard it`,
+    ),
+  );
+}
+
+function listed(files: readonly string[]): string {
+  const head = files.slice(0, 3).join(', ');
+  return files.length > 3 ? `${head} and ${files.length - 3} more` : head;
+}
+
+/**
+ * O12 X2 B5 E4': entries palm could not render because their commit is not cached (offline) were
+ * not checked, so the check is never ✓: `skipped` with a line naming how many, or the failure
+ * with the count beside it.
+ */
+function withOffline(c: CheckContext, run: CheckRun, offline: number): CheckRun {
+  if (!offline) return run;
+  const what = `${count(offline, 'entity', 'entities')} not checked (cache empty)`;
+  const fix = palmCommand('install', [], c.run.state.paths.scope);
+  if (run.status === 'fail') return { ...run, label: `${run.label}; ${what}` };
+  return {
+    ...run,
+    status: 'skipped',
+    label: `generated files: ${what}`,
+    problems: [...run.problems, { message: `lock-disk did not run for ${what}`, fix }],
+  };
+}
+
 /** Every listed file and fragment is on disk as the render recomputed from the cache has it. */
 export async function lockDisk(c: CheckContext): Promise<CheckRun> {
   const f = found();
   const entries = c.run.state.lock.entries.filter(rendersFiles);
   const offline = entries.filter((e) => c.offline.has(lockId(e)));
+  const fix = palmCommand('install', [], c.run.state.paths.scope);
   if (offline.length && offline.length === entries.length)
-    return skipped('lock-disk', 'generated files', 'cache empty; run palm install');
-  for (const e of entries)
-    if (!c.drifted.has(lockId(e)) && !c.offline.has(lockId(e))) await entryDisk(c, e, f);
-  const skippedNote = offline.length
-    ? `; ${count(offline.length, 'entity', 'entities')} skipped (cache empty; run palm install)`
-    : '';
-  return checkRun(
+    return skipped('lock-disk', 'generated files', 'cache empty', fix);
+  for (const e of entries) {
+    if (c.offline.has(lockId(e))) continue;
+    if (c.drifted.has(lockId(e))) await driftedEdits(c, e, f);
+    else await entryDisk(c, e, f);
+  }
+  const run = checkRun(
     'lock-disk',
     {
-      ok: `generated files match the lock${skippedNote}`,
-      bad: (n) =>
-        `${count(n, 'generated file')} ${n === 1 ? 'differs' : 'differ'} from the lock${skippedNote}`,
+      ok: 'generated files match the lock',
+      bad: (n) => `${count(n, 'generated file')} ${n === 1 ? 'differs' : 'differ'} from the lock`,
     },
     f,
   );
+  return withOffline(c, run, offline.length);
 }
 
 // ---------------------------------------------------------------------------
@@ -131,9 +191,9 @@ export async function hiddenUnicode(c: CheckContext): Promise<CheckRun> {
       const any = critical ?? findings[0];
       if (!any) continue;
       const message = `${file} holds ${any.name} (U+${any.codePoint.toString(16).toUpperCase()})`;
-      (critical ? f.fail : f.warn).push(
-        problem(e, file, message, `fix the source, then ${fixes(c, e).force}`),
-      );
+      const hit = problem(e, file, message, `fix the source, then ${fixes(c, e).force}`);
+      if (critical) f.fail.push(hit);
+      else f.warn.push(acknowledgeable(hit, `hidden-unicode:${sourcePathOf(e, file)}`));
     }
   return checkRun(
     'hidden-unicode',

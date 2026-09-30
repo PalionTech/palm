@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { basename, dirname, join, posix, relative, resolve } from 'node:path';
 import { PalmError } from '../core/errors.js';
 import { fileAtSha } from '../core/git.js';
+import { short } from '../core/hash.js';
 import type {
   AllowExec,
   ConsentOutcome,
@@ -118,11 +119,20 @@ export function nonInteractiveError(
   );
 }
 
-/** Long text through the output's pager when it has one (`Output.page`), else as one info block. */
+/** N10: text shorter than the terminal is printed as it is; no pager opens for a few lines. */
+function fitsTerminal(text: string): boolean {
+  const rows = process.stdout.rows;
+  return rows !== undefined && rows > 0 && text.split('\n').length < rows - 1;
+}
+
+/**
+ * Long text through the output's pager when it has one (`Output.page`) and the text is taller
+ * than the terminal (N10), else as one block.
+ */
 async function page(ctx: PalmContext, text: string): Promise<void> {
   const log = ctx.log as Logger & { page?: (text: string) => Promise<void> };
-  if (typeof log.page === 'function') await log.page(text);
-  else ctx.log.info(text);
+  if (typeof log.page === 'function' && !fitsTerminal(text)) await log.page(text);
+  else show(ctx, text);
 }
 
 /** A block of text as it is (the output's data lines when it has them), not as an `i` line. */
@@ -209,6 +219,15 @@ async function consentLoop(
   }
 }
 
+/**
+ * B9: the review block of the programs `--allow-exec` let through, as the prompt would have
+ * shown it, and one line naming each key and hash: a text record of the consent.
+ */
+function allowedBlock(req: ConsentRequest, opts: PromptOptions): string {
+  const keys = req.units.map((u) => `${u.key} (sha256:${short(u.hash, 8)})`).join(', ');
+  return `${consentSummary(req, opts)}\n\nallowed by --allow-exec: ${keys}`;
+}
+
 function allWithoutTerminal(args: readonly string[]): PalmError {
   const { base } = splitArgs(args);
   return new PalmError(
@@ -231,9 +250,10 @@ export async function askConsent(ctx: PalmContext, req: ConsentRequest): Promise
   const args = ctx.argv ?? DEFAULT_ARGS;
   if (allow === 'all' && !ctx.ui.isInteractive) throw allWithoutTerminal(args);
   const opts = promptOptions(ctx, req.lockFile);
-  const covered = req.units.filter((u) => allowed(u, allow)).map((u) => u.key);
+  const passing = req.units.filter((u) => allowed(u, allow));
+  const covered = passing.map((u) => u.key);
   const rest: ConsentRequest = { ...req, units: req.units.filter((u) => !allowed(u, allow)) };
-  if (allow === 'all' && req.units.length) show(ctx, consentSummary(req, opts));
+  if (passing.length) show(ctx, allowedBlock({ ...req, units: passing }, opts));
   if (rest.units.length === 0) return { allowed: covered, declined: [] };
   const review = () =>
     ctx.flags.review ? viewScripts(ctx, rest.units, req.read ?? unreadable) : undefined;

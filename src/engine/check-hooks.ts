@@ -1,18 +1,23 @@
 /**
- * The hook arrays palm merges into (`/hooks/<Event>` of `.claude/settings.json`,
- * `.cursor/hooks.json`, …), read as the harness reads them (D3, V6): every command there is
- * either explained by an installed entry's render, or foreign. A foreign command in the array
- * where one of palm's own commands went missing (same matcher) is palm's entry changed on disk
- * (a tampered command is `changed`, never re-added beside it); any other is a hand-added hook
- * that `check` names as a warning. Nothing is written.
+ * Every hook event array of the hook files palm parses (`/hooks/<Event>` of
+ * `.claude/settings.json`, `.cursor/hooks.json`, …, Sofia S2, V2'), read as the harness reads
+ * them (D3, V6): every command there is either explained by an installed entry's render, or
+ * foreign. A foreign command in an array palm merged into, where one of palm's own commands went
+ * missing (same matcher), is palm's entry changed on disk (a tampered command is `changed`,
+ * never re-added beside it); any other is a hand-added hook that `check` names as a warning
+ * (a failure under `--strict`), with the script it names when that file is missing (X14).
+ * Nothing is written.
  */
 import { readFile } from 'node:fs/promises';
 import type { LockEntry } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
+import { fragmentKey } from '../domain/merged-record.js';
 import { parseJson } from '../lib/json.js';
-import { parsePointer } from '../lib/json-pointer.js';
+import { formatPointer } from '../lib/json-pointer.js';
 import { isRecord } from '../lib/object.js';
+import { hookFiles } from './check-harness.js';
 import type { CheckContext } from './check-kit.js';
+import { missingScript } from './check-scripts.js';
 
 /** One command on disk that no lock entry explains. */
 export interface HookFinding {
@@ -22,6 +27,8 @@ export interface HookFinding {
   command: string;
   /** The entry whose command went missing where this one sits (a changed entry), if any. */
   owner?: LockEntry;
+  /** A file the command names that does not exist (lock form), for a foreign command (X14). */
+  missing?: string;
 }
 
 const HOOK_AT = /^\/hooks\/[^/]+$/;
@@ -44,18 +51,21 @@ function matcherOf(value: unknown): string {
   return isRecord(value) && typeof value.matcher === 'string' ? value.matcher : '';
 }
 
-/** The array at `at` in the JSON file, as the harness reads it; undefined when absent. */
-async function itemsAt(abs: string, at: string): Promise<unknown[] | undefined> {
+/** Every event array of the JSON hook file (`/hooks/<Event>`), as the harness reads it. */
+async function eventArrays(abs: string): Promise<Array<{ at: string; items: unknown[] }>> {
   const text = await readFile(abs, 'utf8').catch(() => undefined);
-  if (text === undefined) return undefined;
-  let node: unknown;
+  if (text === undefined) return [];
+  let doc: unknown;
   try {
-    node = parseJson(text, { tolerant: true });
+    doc = parseJson(text, { tolerant: true });
   } catch {
-    return undefined;
+    return [];
   }
-  for (const segment of parsePointer(at)) node = isRecord(node) ? node[segment] : undefined;
-  return Array.isArray(node) ? node : undefined;
+  const hooks = isRecord(doc) ? doc.hooks : undefined;
+  if (!isRecord(hooks)) return [];
+  return Object.entries(hooks).flatMap(([event, items]) =>
+    Array.isArray(items) ? [{ at: formatPointer(['hooks', event]), items }] : [],
+  );
 }
 
 interface PalmItem {
@@ -103,32 +113,55 @@ function arrays(c: CheckContext): Map<string, HookArray> {
   return out;
 }
 
-/** Commands palm's lock explains even without a render (the lock's recorded commands). */
+/**
+ * Commands palm explains: the lock's recorded commands (even without a render) and every
+ * command line an entry's render runs, for every target.
+ */
 function lockCommands(c: CheckContext): Set<string> {
-  return new Set(
-    c.run.state.lock.entries.flatMap((e) => (e.exec?.commands ?? []).map((x) => x.command)),
-  );
+  const out = new Set<string>();
+  for (const e of c.run.state.lock.entries) {
+    for (const x of e.exec?.commands ?? []) out.add(x.command);
+    for (const r of Object.values(c.renders.get(lockId(e))?.renders ?? {}))
+      for (const x of r?.exec ?? []) out.add(x.command);
+  }
+  return out;
 }
 
-function findingsIn(arr: HookArray, disk: unknown[], explained: Set<string>): HookFinding[] {
+/** What palm explains: command lines, and the `file#at#key` of every item the lock records. */
+interface Known {
+  commands: Set<string>;
+  items: Set<string>;
+}
+
+/**
+ * E6': an item the lock records by its key is palm's own even when palm now renders another
+ * command there (an in-repo source changed; `local-sources` reports that).
+ */
+function recordedItem(known: Known, arr: HookArray, item: unknown): boolean {
+  return known.items.has(`${arr.file}#${arr.at}#${fragmentKey(arr.at, item)}`);
+}
+
+function findingsIn(c: CheckContext, arr: HookArray, disk: unknown[], known: Known): HookFinding[] {
   const onDisk = new Set(disk.flatMap(commandsIn));
   const gone = arr.palm.filter((p) => commandsIn(p.value).some((cmd) => !onDisk.has(cmd)));
   const event = arr.at.slice('/hooks/'.length);
   const out: HookFinding[] = [];
-  for (const item of disk)
+  for (const item of disk.filter((i) => !recordedItem(known, arr, i)))
     for (const command of commandsIn(item)) {
-      if (explained.has(command)) continue;
+      if (known.commands.has(command)) continue;
       const owner = gone.find((p) => matcherOf(p.value) === matcherOf(item))?.entry;
-      out.push(
-        owner ? { file: arr.file, event, command, owner } : { file: arr.file, event, command },
-      );
+      const finding: HookFinding = { file: arr.file, event, command };
+      const missing = owner ? undefined : missingScript(c.run.state.paths, command);
+      if (owner) finding.owner = owner;
+      if (missing) finding.missing = missing;
+      out.push(finding);
     }
   return out;
 }
 
 /**
- * Every command in a hook array palm merges into that no installed entry explains: foreign,
- * or (`owner` set) standing where that entry's own command went missing.
+ * Every command in an event array of a hook file palm parses that no installed entry explains:
+ * foreign, or (`owner` set) standing where that entry's own command went missing.
  */
 export function hookFindings(c: CheckContext): Promise<HookFinding[]> {
   const known = MEMO.get(c);
@@ -139,14 +172,24 @@ export function hookFindings(c: CheckContext): Promise<HookFinding[]> {
 }
 
 async function findAll(c: CheckContext): Promise<HookFinding[]> {
-  const found = arrays(c);
-  const explained = lockCommands(c);
-  for (const arr of found.values())
-    for (const p of arr.palm) for (const cmd of commandsIn(p.value)) explained.add(cmd);
+  const palm = arrays(c);
+  const blind = unrendered(c);
+  const known: Known = {
+    commands: lockCommands(c),
+    items: new Set(
+      c.run.state.lock.entries.flatMap((e) =>
+        (e.merged ?? []).map((m) => `${m.file}#${m.at}#${m.key}`),
+      ),
+    ),
+  };
+  for (const arr of palm.values())
+    for (const p of arr.palm) for (const cmd of commandsIn(p.value)) known.commands.add(cmd);
   const out: HookFinding[] = [];
-  for (const arr of found.values()) {
-    const disk = await itemsAt(c.run.state.paths.abs(arr.file), arr.at);
-    if (disk) out.push(...findingsIn(arr, disk, explained));
-  }
+  for (const file of await hookFiles(c))
+    for (const { at, items } of await eventArrays(c.run.state.paths.abs(file))) {
+      const key = `${file}#${at}`;
+      if (blind.has(key)) continue;
+      out.push(...findingsIn(c, palm.get(key) ?? { file, at, palm: [] }, items, known));
+    }
   return out;
 }

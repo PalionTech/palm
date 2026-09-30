@@ -1,123 +1,17 @@
 /**
- * The checks about where generated files live (DESIGN §6 "Check"): `git-ignored`, `links`,
- * and the warnings `double-load` and `block-size`. `git-ignored` asks git about every file palm
- * wrote or merged into, not directories (B5 C8 Z5), and tells ignored (a failure: teammates
- * will not receive it) from not yet committed (a warning naming `git add`, E12). `links` walks
- * the output directories for dangling links and links leaving the scope (Z5).
+ * The checks about where generated files live (DESIGN §6 "Check"): `links`, and the warnings
+ * `double-load`, `agent-names` and `block-size` (`git-ignored` is in check-git.ts). `links`
+ * walks the output directories for dangling links and links leaving the scope (Z5).
  */
 import { existsSync } from 'node:fs';
 import { lstat, stat } from 'node:fs/promises';
 import { basename, posix } from 'node:path';
-import type { CheckProblem, CheckRun, LockEntry } from '../core/types.js';
-import { isGitIgnored, isGitTracked, walkFiles } from '../lib/fs.js';
+import type { CheckRun, LockEntry } from '../core/types.js';
+import { walkFiles } from '../lib/fs.js';
 import { BLOCK_CAPS, blockSizeProblem } from './block-size.js';
-import {
-  type CheckContext,
-  checkRun,
-  count,
-  entityOf,
-  type Found,
-  found,
-  skipped,
-} from './check-kit.js';
+import { type CheckContext, checkRun, count, entityOf, type Found, found } from './check-kit.js';
+import { scopesTwice } from './check-scopes.js';
 import { findOverlaps, overlapMessage } from './scope.js';
-
-/** git questions asked at once. */
-const CONCURRENCY = 8;
-
-async function mapLimit<T, R>(items: readonly T[], fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = [];
-  for (let i = 0; i < items.length; i += CONCURRENCY)
-    out.push(...(await Promise.all(items.slice(i, i + CONCURRENCY).map(fn))));
-  return out;
-}
-
-/** Every file palm wrote or merged into, lock form, that exists. */
-function writtenFiles(c: CheckContext): string[] {
-  const { lock, paths } = c.run.state;
-  const files = new Set<string>();
-  for (const e of lock.entries) {
-    for (const f of e.files) files.add(f);
-    for (const m of e.merged ?? []) files.add(m.file);
-  }
-  return [...files].filter((f) => existsSync(paths.abs(f))).sort();
-}
-
-/** `.claude/skills/tdd/SKILL.md` → `.claude`: the output path a group of files is reported under. */
-function topOf(file: string): string {
-  return file.split('/')[0] ?? file;
-}
-
-function grouped(files: readonly string[]): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  for (const f of files) out.set(topOf(f), [...(out.get(topOf(f)) ?? []), f]);
-  return out;
-}
-
-function listed(files: readonly string[]): string {
-  const head = files.slice(0, 3).join(', ');
-  return files.length > 3 ? `${head} and ${files.length - 3} more` : head;
-}
-
-/** One file by its path, several by their output path: `.mcp.json`, `12 files under .claude/ (…)`. */
-function subject(top: string, files: string[]): { what: string; path: string; one: boolean } {
-  const [only] = files;
-  if (files.length === 1 && only) return { what: only, path: only, one: true };
-  return {
-    what: `${count(files.length, 'file')} under ${top}/ (${listed(files)})`,
-    path: `${top}/`,
-    one: false,
-  };
-}
-
-function ignoredProblem(top: string, files: string[]): CheckProblem {
-  const s = subject(top, files);
-  const receive = s.one
-    ? 'is ignored by git, so teammates will not receive it'
-    : 'are ignored by git, so teammates will not receive them';
-  return {
-    file: top,
-    message: `${s.what} ${receive}`,
-    fix: `edit .gitignore: stop ignoring ${s.path}`,
-  };
-}
-
-function untrackedProblem(top: string, files: string[]): CheckProblem {
-  const s = subject(top, files);
-  return {
-    file: top,
-    message: `${s.what} ${s.one ? 'is' : 'are'} not committed yet (untracked)`,
-    fix: `git add ${s.path.replace(/\/$/, '')}`,
-  };
-}
-
-/** Every file palm wrote or merged into is committed: ignored fails, untracked warns. */
-export async function gitIgnored(c: CheckContext): Promise<CheckRun> {
-  const what = 'generated files committed';
-  if (c.run.state.paths.scope !== 'project') return skipped('git-ignored', what, 'global scope');
-  if (!c.git) return skipped('git-ignored', what);
-  const { paths } = c.run.state;
-  const files = writtenFiles(c);
-  const states = await mapLimit(files, async (f) => {
-    const abs = paths.abs(f);
-    if (await isGitIgnored(abs, paths.root)) return 'ignored';
-    return (await isGitTracked(abs, paths.root)) === false ? 'untracked' : 'tracked';
-  });
-  const f = found();
-  const ignored = files.filter((_, i) => states[i] === 'ignored');
-  const untracked = files.filter((_, i) => states[i] === 'untracked');
-  for (const [top, list] of grouped(ignored)) f.fail.push(ignoredProblem(top, list));
-  for (const [top, list] of grouped(untracked)) f.warn.push(untrackedProblem(top, list));
-  return checkRun(
-    'git-ignored',
-    {
-      ok: 'generated files are committed',
-      bad: (n) => `${count(n, 'output path')} ignored by git`,
-      warned: (n) => `${count(n, 'output path')} not committed yet`,
-    },
-    f,
-  );
-}
 
 // ---------------------------------------------------------------------------
 // links
@@ -285,9 +179,10 @@ async function agentsTwice(c: CheckContext, f: Found): Promise<void> {
 }
 
 /** A harness that would load one entity twice. */
-export function doubleLoad(c: CheckContext): CheckRun {
+export async function doubleLoad(c: CheckContext): Promise<CheckRun> {
   const f = found();
   instructionsTwice(c, f);
+  await scopesTwice(c, f);
   return checkRun(
     'double-load',
     {

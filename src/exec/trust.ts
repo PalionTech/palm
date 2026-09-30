@@ -42,15 +42,21 @@ export function withTrust(entry: LockEntry, unit: ExecUnit): LockEntry {
 /**
  * V5 (ruling 30): the line after someone declined a changed program whose earlier version the
  * lock still trusts: `hook fmt: previous version stays active (trusted sha256:1b9e04c2); palm
- * remove acme hook:fmt removes it`. Undefined when nothing trusted stays on disk.
+ * remove acme hook:fmt removes it`. An in-repo program runs in place, so its changed script is
+ * live already (E2'): the line says so and how to disable it. Undefined when nothing trusted
+ * stays on disk.
  */
 export function previousStaysActive(
   entry: LockEntry | undefined,
   scope: Scope,
+  unit?: ExecUnit,
 ): string | undefined {
   const hash = entry?.exec?.hash;
   if (!entry || !hash || !(entry.trust ?? []).includes(hash)) return undefined;
   const remove = ['palm', 'remove', entry.source, `${entry.kind}:${entry.name}`];
   if (scope === 'global') remove.push('-g');
-  return `${entry.kind} ${entry.name}: previous version stays active (trusted sha256:${short(hash, 8)}); ${remove.join(' ')} removes it`;
+  const who = `${entry.kind} ${entry.name}`;
+  if (unit?.closure.inPlace)
+    return `${who}: the changed script is already live (it runs in place from your repository); ${remove.join(' ')} disables it`;
+  return `${who}: previous version stays active (trusted sha256:${short(hash, 8)}); ${remove.join(' ')} removes it`;
 }
