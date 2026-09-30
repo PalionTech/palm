@@ -8,10 +8,12 @@ import { isPalmError } from '../../src/core/errors.js';
 import type {
   AgentDefinition,
   Entity,
+  HookSet,
   InstructionDefinition,
   TargetId,
 } from '../../src/core/types.js';
 import { renderAgent } from '../../src/targets/convert-agent.js';
+import { convertHooks, type Relocate } from '../../src/targets/convert-hooks.js';
 import { createTarget } from '../../src/targets/index.js';
 import { cleanupTmp, fakeEnv, mkEntity, renderInput, SKILL_MD, tmpDir, write } from './helpers.js';
 
@@ -312,5 +314,91 @@ describe('E9 Cursor readonly only when no tool writes or runs programs', () => {
     expect(renderAgent({ ...base, tools: ['Read', 'Grep'] }, 'cursor').content).toContain(
       'readonly: true',
     );
+  });
+});
+
+const asIs: Relocate = (command) => ({ canonical: command, rendered: command });
+const hookSet = (dialect: HookSet['dialect'], raw: unknown): HookSet => ({
+  name: 'h',
+  dialect,
+  raw,
+  references: [],
+  closure: { paths: [] },
+  promptHooks: [],
+});
+
+describe('J only documented hook keys per harness', () => {
+  const raw = {
+    hooks: {
+      SessionStart: [
+        {
+          matcher: 'startup',
+          hooks: [
+            { type: 'command', command: 'run-hook session-start', shell: 'bash', async: false },
+          ],
+        },
+      ],
+      PreToolUse: [
+        {
+          matcher: 'Bash',
+          hooks: [
+            { type: 'command', command: 'check-git', if: 'Bash(git *)' },
+            { type: 'command', command: 'lint', once: true, statusMessage: 'Linting' },
+            { type: 'prompt', prompt: 'Is this safe?' },
+          ],
+        },
+      ],
+    },
+  };
+
+  it('J claude keeps its documented keys (shell and async are Claude keys)', () => {
+    const r = convertHooks(hookSet('claude', raw), 'claude', asIs);
+    expect(r.hooks).toEqual(raw);
+    expect(r.dropped).toEqual([]);
+  });
+
+  it('J codex gets only Codex keys; handlers it would run differently are skipped', () => {
+    const r = convertHooks(hookSet('claude', raw), 'codex', asIs);
+    expect(r.hooks).toEqual({
+      hooks: {
+        SessionStart: [
+          {
+            matcher: 'startup',
+            hooks: [{ type: 'command', command: 'run-hook session-start', async: false }],
+          },
+        ],
+        PreToolUse: [
+          {
+            matcher: 'Bash',
+            hooks: [{ type: 'command', command: 'lint', statusMessage: 'Linting' }],
+          },
+        ],
+      },
+    });
+    expect(r.dropped).toEqual([
+      'SessionStart: shell (not a Codex hook key)',
+      'PreToolUse: hook with if: Bash(git *) (Codex has no if filter)',
+      'PreToolUse: once (not a Codex hook key)',
+      'PreToolUse: prompt hook (Codex runs command and mcp_tool hooks)',
+    ]);
+    expect(r.exec.map((e) => e.command)).toEqual(['run-hook session-start', 'lint']);
+  });
+});
+
+describe('C6 Copilot matchers with arguments', () => {
+  it('C6 a matcher with an argument is skipped for copilot with a note', () => {
+    const raw = {
+      hooks: {
+        PreToolUse: [
+          { matcher: 'Bash(git commit*)', hooks: [{ type: 'command', command: 'pre-commit' }] },
+          { matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'fmt' }] },
+        ],
+      },
+    };
+    const r = convertHooks(hookSet('claude', raw), 'copilot', asIs);
+    expect(r.dropped).toEqual([
+      'PreToolUse: matcher "Bash(git commit*)" has an argument copilot cannot match',
+    ]);
+    expect(r.exec.map((e) => e.command)).toEqual(['fmt']);
   });
 });
