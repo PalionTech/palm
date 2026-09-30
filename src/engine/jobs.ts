@@ -25,6 +25,7 @@ import type { RecordState } from '../domain/merged-record.js';
 import type { SourceRef } from '../domain/source.js';
 import { allowed, checkoutReader } from '../exec/consent.js';
 import { needsConsent } from '../exec/trust.js';
+import { refuseOversizedBlocks } from './block-size.js';
 import {
   type FileState,
   fileStates,
@@ -152,6 +153,8 @@ export async function prepareJob(run: Run, job: Job): Promise<Prepared> {
     policy,
     ...(values ? { values } : {}),
   });
+  const subject = { kind: job.entity.kind, name: job.entity.name, source: job.source.name };
+  await refuseOversizedBlocks(run, subject, out);
   const { files, fragments } = await diskStates(run, out);
   const check = await knownEdits(run, { previous, out, files, fragments, values });
   const decision = outcomeStatus({

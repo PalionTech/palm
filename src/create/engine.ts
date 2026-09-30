@@ -19,6 +19,7 @@ import type {
   InstallOptions,
   InstallRequest,
   InstallResult,
+  LayoutDescriptor,
   LockEntry,
   LockSource,
   McpRequest,
@@ -48,6 +49,8 @@ export interface SourceListing {
   checkout: SourceCheckout;
   index: SourceIndex;
   declared: boolean;
+  /** The source as the listing's lines name it: the key once declared, else as typed (K9, D9). */
+  paste?: string;
 }
 
 export interface InstalledRow {
@@ -74,7 +77,7 @@ export interface EngineApi {
   listSource(
     ctx: PalmContext,
     input: string,
-    opts: { scope: Scope },
+    opts: { scope: Scope; layout?: LayoutDescriptor },
     deps?: Partial<EngineDeps>,
   ): Promise<SourceListing>;
   installMcp(

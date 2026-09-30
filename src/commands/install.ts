@@ -11,8 +11,15 @@
  */
 import { isPalmError, PalmError } from '../core/errors.js';
 import { looksLikeSourceInput } from '../core/source-input.js';
-import type { Entity, EntityRefSpec, InstallRequest, PalmContext } from '../core/types.js';
+import type {
+  Entity,
+  EntityRefSpec,
+  InstallRequest,
+  LayoutDescriptor,
+  PalmContext,
+} from '../core/types.js';
 import type { ScopeState, SourceListing } from '../create/engine.js';
+import { parseLayoutFlags } from '../index/layout-flags.js';
 import type { App } from './app.js';
 import { type Invocation, interpretInstall, usage } from './grammar.js';
 import { formatName, type GrammarContext, palmLine, scopeFlag } from './hints.js';
@@ -38,6 +45,8 @@ interface InstallFlags extends GlobalOptions, RemovedFlags {
   target?: string;
   at?: string;
   grep?: string;
+  /** `--layout kind=glob`, repeatable (K2). */
+  layout?: string[];
 }
 
 interface NamedInstall {
@@ -65,7 +74,13 @@ function typedLine(job: NamedInstall) {
 
 /** K9, D9: the key once palm.yaml declares the source, else the input as typed (its #ref kept). */
 function pasteSource(listed: SourceListing, job: NamedInstall): string {
+  if (listed.paste !== undefined) return listed.paste;
   return listed.declared && !job.source.includes('#') ? listed.source.name : job.source;
+}
+
+/** K2: the `layout:` a new source gets, from `--layout kind=glob`. */
+function layoutOf(flags: InstallFlags): { layout?: LayoutDescriptor } {
+  return flags.layout?.length ? { layout: parseLayoutFlags(flags.layout) } : {};
 }
 
 /** L15: index notes for maintainers are one count line; the details under describe or PALM_DEBUG. */
@@ -87,7 +102,7 @@ async function list(ctx: PalmContext, app: App, job: NamedInstall) {
   const api = engine(app);
   const scope = job.before.paths.scope;
   const listed: SourceListing = await withSpinner(ctx, `Fetching ${job.source}`, () =>
-    api.listSource(ctx, job.source, { scope }, engineDeps(app)),
+    api.listSource(ctx, job.source, { scope, ...layoutOf(job.flags) }, engineDeps(app)),
   );
   const executable = await executables(app, listed.index.entities);
   noteIndexWarnings(app, listed, job);
@@ -108,6 +123,7 @@ function requestOf(job: NamedInstall): InstallRequest {
     ...(targets ? { targets } : {}),
     ...(flags.at ? { at: flags.at } : {}),
     ...(flags.as ? { as: flags.as } : {}),
+    ...layoutOf(flags),
   };
 }
 

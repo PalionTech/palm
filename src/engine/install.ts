@@ -9,6 +9,7 @@ import type {
   InstallOptions,
   InstallRequest,
   InstallResult,
+  LayoutDescriptor,
   PalmContext,
   Scope,
   SourceCheckout,
@@ -114,7 +115,10 @@ function forgetEmptySource(state: ScopeState, name: string): void {
 /** The source to install from: declared (or found), with a ref, and how to fetch it. */
 async function sourceOf(run: Run, req: InstallRequest, held: Held) {
   const { ctx, state } = run;
-  const decl: Declared = await declareSource(ctx, state, req.source, req.as ? { as: req.as } : {});
+  const decl: Declared = await declareSource(ctx, state, req.source, {
+    ...(req.as ? { as: req.as } : {}),
+    ...(req.layout ? { layout: req.layout } : {}),
+  });
   if (decl.added) Object.assign(held, { added: decl.ref.name, paste: decl.paste });
   const refd = decl.added
     ? { ref: decl.ref, pin: decl.pin }
@@ -189,7 +193,7 @@ export async function installFromSource(
 export async function listSource(
   ctx: PalmContext,
   input: string,
-  opts: { scope: Scope },
+  opts: { scope: Scope; layout?: LayoutDescriptor },
   depsIn?: Partial<EngineDeps>,
 ): Promise<{
   source: SourceRef;
@@ -200,7 +204,7 @@ export async function listSource(
 }> {
   const deps = await resolveEngineDeps(depsIn);
   const state = await openScope(ctx, opts.scope, { deps, readOnly: true });
-  const { ref, declared, paste } = peekSource(ctx, state, input);
+  const { ref, declared, paste } = peekSource(ctx, state, input, opts.layout);
   const probe =
     declared || !ref.isLocal ? state : { ...state, sources: state.sources.add(ref.source) };
   await assertNoOverlap(ctx, probe, deps);

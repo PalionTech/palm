@@ -169,6 +169,7 @@ function installOptions(cmd: Command): void {
     .option('--all', 'everything the source offers')
     .option('--grep <text>', 'list only what matches the text (name or description)')
     .option('--as <name>', 'the name a URL source gets in palm.yaml')
+    .option('--layout <k=glob>', 'a new source’s layout: skills=packages/* (repeatable)', collect)
     .option('--targets <ids>', 'only these targets for these entries (recorded per entry)')
     .addOption(hidden('--target <ids>', 'the same as --targets'))
     .addOption(hidden('--at <dir>', 'placement directory for these entries (honoured in 0.3)'))

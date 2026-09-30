@@ -21,6 +21,7 @@ import {
   rendersFiles,
   skipped,
 } from './check-kit.js';
+import { localSourceDirs, orphansOf } from './orphans.js';
 import { palmCommand } from './report.js';
 import { pendingRemovals } from './sync.js';
 
@@ -70,45 +71,15 @@ export function partialCheck(c: CheckContext): CheckRun {
   );
 }
 
-/** The folders palm owns whole for an entry: a skill's folder per harness, a closure copy. */
-function entityDirs(c: CheckContext, e: LockEntry): string[] {
-  const dirs = new Set<string>();
-  const segment = `/${e.name}/`;
-  if (e.kind === 'skill')
-    for (const file of e.files) {
-      const at = file.indexOf(segment);
-      if (at >= 0) dirs.add(file.slice(0, at + segment.length - 1));
-    }
-  const closure = e.exec?.closure?.root;
-  if (closure?.startsWith(c.run.state.paths.lockForm(c.run.state.paths.assetsDir)))
-    dirs.add(closure);
-  return [...dirs];
-}
-
-function localSourceDirs(c: CheckContext): string[] {
-  return c.run.state.sources
-    .all()
-    .flatMap((s) => (s.isLocal && s.source.path ? [s.source.path] : []));
-}
-
-/** Files below `dir` (lock form) that no lock entry lists. */
-async function unlisted(c: CheckContext, dir: string, listed: Set<string>): Promise<string[]> {
-  const abs = c.run.state.paths.abs(dir);
-  if (!existsSync(abs) || localSourceDirs(c).some((s) => isWithin(abs, s))) return [];
-  return (await walkFiles(abs)).files.map((f) => `${dir}/${f.rel}`).filter((r) => !listed.has(r));
-}
-
 /** C13: files inside an entity folder palm owns that the lock does not list. */
 export async function orphansCheck(c: CheckContext): Promise<CheckRun> {
   const f = found();
-  const { lock } = c.run.state;
-  const listed = new Set(lock.entries.flatMap((e) => e.files));
-  for (const e of lock.entries.filter(rendersFiles))
-    for (const dir of entityDirs(c, e))
-      for (const rel of await unlisted(c, dir, listed)) {
-        const message = `${rel} is inside ${dir}/ but palm.lock.yaml does not list it`;
-        f.fail.push(problem(e, message, install(c, [e.source, e.name], '--force'), rel));
-      }
+  const { state } = c.run;
+  for (const e of state.lock.entries.filter(rendersFiles))
+    for (const { dir, file } of await orphansOf(state, e)) {
+      const message = `${file} is inside ${dir}/ but palm.lock.yaml does not list it`;
+      f.fail.push(problem(e, message, install(c, [e.source, e.name], '--force'), file));
+    }
   return checkRun(
     'orphans',
     {
@@ -156,7 +127,7 @@ async function realOf(abs: string): Promise<string> {
 export async function sourcePaths(c: CheckContext): Promise<CheckRun> {
   const f = found();
   const { lock, paths } = c.run.state;
-  const dirs = localSourceDirs(c);
+  const dirs = localSourceDirs(c.run.state);
   const reals = await Promise.all(dirs.map(realOf));
   for (const e of lock.entries.filter(rendersFiles))
     for (const file of [...e.files, ...(e.merged ?? []).map((m) => m.file)]) {

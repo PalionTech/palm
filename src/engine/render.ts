@@ -1,13 +1,15 @@
 /**
  * One entity to its renders (DESIGN §6 step 5): each target's `render` (pure), the content
- * hash, the closure the renders copy, the exec unit, and the refusals: critical scan issues
- * (hidden Unicode, an unresolvable reference, a literal secret from a source) and secret
- * decisions that refuse a destination.
+ * hash, the closure the renders copy (with the files its scripts read, ruling E1; an in-repo
+ * closure read in place, ruling E2), the exec unit, and the refusals: critical scan issues
+ * (hidden Unicode, an unresolvable reference, a literal secret from a source, a literal in a
+ * hook script without `--force`, ruling 28) and secret decisions that refuse a destination.
  */
 import { join, posix } from 'node:path';
 import { commitDate } from '../core/git.js';
 import { hashPath, sha256 } from '../core/hash.js';
 import type {
+  Closure,
   ClosureFile,
   EngineDeps,
   Entity,
@@ -22,7 +24,10 @@ import type {
   TargetId,
 } from '../core/types.js';
 import { isTreeExcluded } from '../domain/ignore.js';
+import { isSkillCopySkipped } from '../domain/skill-copy.js';
 import type { SourceRef } from '../domain/source.js';
+import { inPlaceClosure } from '../exec/closure.js';
+import { withScriptReads } from '../exec/reads.js';
 import { canonicalJson } from '../lib/json.js';
 import { failure, failureOf, installCommand, label, type Subject } from './report.js';
 import { localPathOf, type ScopeState } from './scope.js';
@@ -41,6 +46,8 @@ interface EntityClosure {
   root: string;
   inPlace: boolean;
   files: ClosureFile[];
+  /** In-place closures: the directory the files are read from (the consent viewer, `v`). */
+  abs?: string;
 }
 
 export interface RenderOutput {
@@ -90,6 +97,11 @@ async function rootSkip(run: RenderRun): Promise<((rel: string) => boolean) | un
   };
 }
 
+/** A skill's content covers the files its copy deploys: the copy skip list at any depth (Y2, R1). */
+function skillSkip(entity: Entity): ((rel: string) => boolean) | undefined {
+  return entity.kind === 'skill' ? (rel) => isSkillCopySkipped(posix.basename(rel)) : undefined;
+}
+
 /** The content hash: the entity's files, or a server's canonical config (one file holds many servers). */
 async function contentOf(run: RenderRun): Promise<string> {
   const { entity, checkout } = run.job;
@@ -97,7 +109,8 @@ async function contentOf(run: RenderRun): Promise<string> {
     const { from: _from, secrets: _secrets, ...server } = entity.def.mcp;
     return sha256(canonicalJson(server));
   }
-  const skip = await rootSkip(run);
+  const skips = [await rootSkip(run), skillSkip(entity)].filter((s) => s !== undefined);
+  const skip = skips.length ? (rel: string) => skips.some((s) => s(rel)) : undefined;
   const abs = join(checkout.root, entity.path);
   return hashPath(abs, { boundary: checkout.root, ...(skip ? { skip } : {}) });
 }
@@ -126,14 +139,45 @@ function issueRefusal(run: RenderRun, issue: EntityIssue): InstallFailure {
   });
 }
 
-/** Critical issues refuse the entity (no override); warnings are reported. */
-function scanIssues(run: RenderRun): { refusals: InstallFailure[]; warnings: string[] } {
+/** Ruling 28: a literal secret in a hook's script (a closure file, not its definition). */
+function inHookScript(run: RenderRun, issue: EntityIssue): boolean {
+  return (
+    run.job.entity.kind === 'hook' &&
+    issue.code === 'secret-literal' &&
+    issue.severity === 'warning'
+  );
+}
+
+function scriptSecretRefusal(run: RenderRun, issue: EntityIssue): InstallFailure {
+  const again = installCommand(run.subject, run.state.paths.scope, '--force');
+  return failure(run.subject, 'E_SECRET', {
+    message: `${issue.message}; palm does not install a hook whose script holds a literal secret`,
+    hint: `remove it from the script (read it from an environment variable), or review it and run: ${again}`,
+  });
+}
+
+interface ScanVerdict {
+  refusals: InstallFailure[];
+  warnings: string[];
+  /** Findings the consent review shows under the program (ruling 28, under `--force`). */
+  review: string[];
+}
+
+/**
+ * Critical issues refuse the entity (no override); warnings are reported. A literal in a hook
+ * script refuses the hook unless `--force`, and then shows in the consent review (ruling 28).
+ */
+function scanIssues(run: RenderRun): ScanVerdict {
   const issues = run.job.entity.issues ?? [];
+  const force = run.ctx.flags.force;
+  const script = issues.filter((i) => inHookScript(run, i));
   const refusals = issues.filter((i) => i.severity === 'critical').map((i) => issueRefusal(run, i));
+  if (!force) refusals.push(...script.map((i) => scriptSecretRefusal(run, i)));
   const warnings = issues
     .filter((i) => i.severity === 'warning')
     .map((i) => `${label(run.job.entity)}: ${i.message}`);
-  return { refusals, warnings };
+  const review = force ? script.map((i) => `literal secret in a script: ${i.message}`) : [];
+  return { refusals, warnings, review };
 }
 
 /**
@@ -156,6 +200,7 @@ function renderInput(run: RenderRun, policy: SecretPolicy): RenderInput & { targ
     secretPolicy: policy,
     env: ctx.env,
   };
+  if (ctx.flags.force) input.force = true;
   if (policy === 'literal' && job.values) input.secretValues = job.values;
   return input;
 }
@@ -207,27 +252,41 @@ async function renderTargets(run: RenderRun, out: RenderOutput): Promise<void> {
   }
 }
 
-/** The closure files the renders write under the entity's asset root (none for in-place sources). */
-function closureOf(
-  renders: Partial<Record<TargetId, Rendered>>,
-  root: string,
-  inPlace: boolean,
-): EntityClosure {
+/** The closure a hook set or a server declares; undefined for other kinds. */
+function declaredClosure(entity: Entity): Closure | undefined {
+  if (entity.def.kind === 'hook') return entity.def.hooks.closure;
+  return entity.def.kind === 'mcp' ? entity.def.closure : undefined;
+}
+
+/**
+ * The closure: for a git source, the files the renders write under the entity's asset root;
+ * for an in-repo source, its closure files as the working tree holds them (ruling E2), read
+ * from `abs`.
+ */
+async function closureOf(run: RenderRun, out: RenderOutput, root: string): Promise<EntityClosure> {
+  const { entity, checkout, source } = run.job;
+  if (!source.isLocal) return copiedClosure(out.renders, root);
+  const declared = declaredClosure(entity);
+  const files = declared?.paths.length ? await inPlaceClosure(checkout.root, declared) : [];
+  return { root, inPlace: true, files, abs: checkout.root };
+}
+
+/** The closure files the renders write under the entity's asset root. */
+function copiedClosure(renders: Partial<Record<TargetId, Rendered>>, root: string): EntityClosure {
   const files = new Map<string, ClosureFile>();
-  if (!inPlace)
-    for (const r of Object.values(renders))
-      for (const f of r?.files ?? []) {
-        const rel = posix.relative(root, f.path);
-        if (rel.startsWith('..') || rel === '' || posix.isAbsolute(rel)) continue;
-        files.set(rel, {
-          path: rel,
-          mode: f.mode ?? 0o644,
-          size: f.data.byteLength,
-          hash: sha256(f.data),
-        });
-      }
+  for (const r of Object.values(renders))
+    for (const f of r?.files ?? []) {
+      const rel = posix.relative(root, f.path);
+      if (rel.startsWith('..') || rel === '' || posix.isAbsolute(rel)) continue;
+      files.set(rel, {
+        path: rel,
+        mode: f.mode ?? 0o644,
+        size: f.data.byteLength,
+        hash: sha256(f.data),
+      });
+    }
   const sorted = [...files.values()].sort((a, b) => (a.path < b.path ? -1 : 1));
-  return { root, inPlace, files: sorted };
+  return { root, inPlace: false, files: sorted };
 }
 
 function runsPrograms(entity: Entity): boolean {
@@ -266,7 +325,8 @@ export async function renderEntity(
     source: job.source.name,
   };
   const referenced = referenceSecrets(job.entity);
-  const run: RenderRun = { ctx, deps, state, job: { ...job, entity: referenced.entity }, subject };
+  const read = await withScriptReads(referenced.entity, job.checkout.root);
+  const run: RenderRun = { ctx, deps, state, job: { ...job, entity: read.entity }, subject };
   const root = assetsRootOf(state, job.source, job.entity, job.checkout);
   const issues = scanIssues(run);
   const harnesses = job.targets.map((t) => deps.getTarget(t).displayName);
@@ -278,12 +338,14 @@ export async function renderEntity(
     warnings: [
       ...referenced.replaced.map((s) => referencedLine(job.entity.name, s, harnesses)),
       ...issues.warnings,
+      ...read.warnings,
     ],
   };
   if (out.refusals.length) return out;
   await renderTargets(run, out);
-  out.closure = closureOf(out.renders, root, job.source.isLocal);
+  out.closure = await closureOf(run, out, root);
   const unit = await unitOf(run, out);
+  if (unit && issues.review.length) unit.warnings = issues.review;
   if (unit) out.unit = unit;
   return out;
 }

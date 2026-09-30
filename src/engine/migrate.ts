@@ -190,7 +190,9 @@ async function dropHookDirs(plan: Plan, legacy: LegacyItem[], hashes: Map<string
     }
     await dropCopies(plan, dir, hashes);
     const root = e.exec?.closure?.root;
-    if (root) moved.push(`${shownDir} → ${display(state.paths, state.paths.abs(root))}`);
+    const inPlace = state.sources.byName(e.source)?.isLocal;
+    if (root && !inPlace)
+      moved.push(`${shownDir} → ${display(state.paths, state.paths.abs(root))}`);
     else
       ctx.log.info(
         `hook ${e.name} runs in place from your repository (${e.source}); removed ${shownDir}`,

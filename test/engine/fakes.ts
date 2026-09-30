@@ -20,7 +20,6 @@ import { basename, dirname, join, relative } from 'node:path';
 import semver from 'semver';
 import { vi } from 'vitest';
 import { PalmError } from '../../src/core/errors.js';
-import { agentNameClashes } from '../../src/targets/agent-names.js';
 import {
   type AllowExec,
   type ConsentOutcome,
@@ -44,6 +43,7 @@ import {
   type TargetId,
   type UI,
 } from '../../src/core/types.js';
+import { agentNameClashes } from '../../src/targets/agent-names.js';
 
 // ---------------------------------------------------------------------------
 // Small helpers (independent of palm's own modules)
@@ -396,6 +396,7 @@ async function scanHooks(root: string, source: string): Promise<Entity[]> {
       raw: JSON.parse(text),
       references: [],
       closure: { paths: [`hooks/${n}`] },
+      pluginRootRel: '',
       promptHooks: [],
     };
     out.push(

@@ -22,8 +22,9 @@ import type {
 /**
  * Bump when the shape of cached indexes changes: older files are then a cache miss and rescanned
  * once. 3: entities carry `source` (not `origin`), references and closures; commands are skills.
+ * 4: activation, instruction file names, near-miss notes, the skill copy scan (0.2 fix wave).
  */
-export const INDEX_FORMAT = 3;
+export const INDEX_FORMAT = 4;
 
 /** `$PALM_HOME/cache`: checkouts and index files; safe to delete. */
 export function cacheDir(paths: PalmPaths): string {

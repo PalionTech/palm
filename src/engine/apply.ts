@@ -21,6 +21,7 @@ import { fragmentKey, type TargetVerdict } from './diff.js';
 import { uncheckedNote } from './edits.js';
 import type { Prepared, Run } from './jobs.js';
 import { keptProgram } from './moves.js';
+import { removeOrphans } from './orphans.js';
 import { protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failure, failureOf, installCommand, type Subject } from './report.js';
 import { literalsBefore, rotationWarnings } from './rotate.js';
@@ -49,8 +50,11 @@ function baseEntry(p: Prepared): LockEntry {
   return e;
 }
 
-function lockMerged(f: LockMerged): LockMerged {
-  return { file: f.file, at: f.at, id: f.id, key: f.key };
+/** The lock's record of a fragment; `created` while palm created its shared file (J14). */
+function lockMerged(f: LockMerged, created: boolean): LockMerged {
+  const m: LockMerged = { file: f.file, at: f.at, id: f.id, key: f.key };
+  if (created) m.created = true;
+  return m;
 }
 
 /** Keeps what the previous entry had on targets that failed this time. */
@@ -76,13 +80,23 @@ interface Collected {
   notes: Set<string>;
 }
 
-/** Render hashes, files, fragments and notes of every target that holds the entity. */
-function collect(p: Prepared, failed: Set<TargetId>, entry: LockEntry): Collected {
+/**
+ * Render hashes, files, fragments and notes of every target that holds the entity. A fragment
+ * whose shared file this apply created (`created`, from `ApplyResult.merged`) or the previous
+ * entry's apply created keeps `created` in the lock.
+ */
+function collect(
+  p: Prepared,
+  failed: Set<TargetId>,
+  entry: LockEntry,
+  created: ReadonlySet<string>,
+): Collected {
   const out: Collected = {
     files: new Set(),
     merged: new Map(),
     notes: new Set(p.job.entity.notes ?? []),
   };
+  const before = new Set((p.previous?.merged ?? []).filter((m) => m.created).map(fragmentKey));
   for (const id of TARGET_IDS) {
     const r = p.out.renders[id];
     if (!r || failed.has(id)) continue;
@@ -93,15 +107,22 @@ function collect(p: Prepared, failed: Set<TargetId>, entry: LockEntry): Collecte
     }
     entry.render[id] = r.hash;
     for (const f of r.files) out.files.add(f.path);
-    for (const f of r.fragments) out.merged.set(fragmentKey(f), lockMerged(f));
+    for (const f of r.fragments) {
+      const key = fragmentKey(f);
+      out.merged.set(key, lockMerged(f, created.has(key) || before.has(key)));
+    }
   }
   return out;
 }
 
 /** The lock entry after this run: render hashes, files and fragments of every target that holds it. */
-function entryFor(p: Prepared, failed: Set<TargetId>): LockEntry {
+function entryFor(
+  p: Prepared,
+  failed: Set<TargetId>,
+  created: ReadonlySet<string> = new Set(),
+): LockEntry {
   const entry = baseEntry(p);
-  const { files, merged, notes } = collect(p, failed, entry);
+  const { files, merged, notes } = collect(p, failed, entry, created);
   entry.files = [...files];
   if (failed.size && p.previous) carry(entry, p.previous, failed, merged);
   entry.files.sort();
@@ -163,9 +184,11 @@ function insideSourceFailure(run: Run, p: Prepared, id: TargetId, lockPath: stri
   run.result.failures.push(failure(subjectOf(p), 'E_SOURCE', { message, hint }, id));
 }
 
-async function writeTargets(run: Run, p: Prepared, failed: Set<TargetId>): Promise<void> {
+/** Writes each target that needs it; returns the keys of the fragments whose shared file it created. */
+async function writeTargets(run: Run, p: Prepared, failed: Set<TargetId>): Promise<Set<string>> {
   const { ctx, state } = run;
   const owned = ownedFor(run, p.previous);
+  const created = new Set<string>();
   for (const id of p.decision.toWrite) {
     const full = p.out.renders[id];
     if (!full || failed.has(id)) continue;
@@ -177,7 +200,7 @@ async function writeTargets(run: Run, p: Prepared, failed: Set<TargetId>): Promi
       continue;
     }
     try {
-      await run.deps.getTarget(id).apply({
+      const applied = await run.deps.getTarget(id).apply({
         rendered,
         scopeRoot: state.paths.root,
         owned,
@@ -185,6 +208,7 @@ async function writeTargets(run: Run, p: Prepared, failed: Set<TargetId>): Promi
         dryRun: ctx.flags.dryRun,
         env: ctx.env,
       });
+      for (const m of applied.merged ?? []) if (m.created) created.add(fragmentKey(m));
       if (!ctx.flags.dryRun) {
         noteWritten(state, rendered);
         run.touched = true;
@@ -197,6 +221,7 @@ async function writeTargets(run: Run, p: Prepared, failed: Set<TargetId>): Promi
       run.result.failures.push(f);
     }
   }
+  return created;
 }
 
 /**
@@ -322,21 +347,36 @@ export async function applyPrepared(run: Run, p: Prepared): Promise<InstallOutco
   run.result.failures.push(...p.out.refusals);
   const failed = new Set(p.out.refusals.flatMap((f) => (f.target ? [f.target] : [])));
   const literals = await literalsBefore(run, p);
-  await writeTargets(run, p, failed);
+  const created = await writeTargets(run, p, failed);
   await rotationWarnings(run, p, literals);
-  return settled(run, p, failed);
+  return settled(run, p, failed, created);
+}
+
+/** `install --force` deletes the files the entry's own folders hold and the lock does not list (C13). */
+async function strayFiles(run: Run, entry: LockEntry): Promise<string | undefined> {
+  if (!run.ctx.flags.force) return undefined;
+  const note = await removeOrphans(run.state, entry, run.ctx.flags.dryRun);
+  if (note && !run.ctx.flags.dryRun) run.touched = true;
+  return note;
 }
 
 /** After the writes: the outcome, the failure for kept edits, and the lock and palm.yaml entries. */
-async function settled(run: Run, p: Prepared, failed: Set<TargetId>): Promise<InstallOutcome> {
+async function settled(
+  run: Run,
+  p: Prepared,
+  failed: Set<TargetId>,
+  created: ReadonlySet<string>,
+): Promise<InstallOutcome> {
   const status = statusOf(p, failed);
-  const entry = entryFor(p, failed);
+  const entry = entryFor(p, failed, created);
   if (status === 'failed') return { entry: p.previous ?? entry, status, notes: entry.notes ?? [] };
   const kept = p.decision.kept.length > 0;
   if (kept && (status === 'modified' || status === 'partial')) modifiedFailure(run, p);
   await record(run, p, entry, status);
   const notes = [...(entry.notes ?? [])];
   if (kept && p.unchecked) notes.push(uncheckedNote(p.unchecked));
+  const stray = await strayFiles(run, entry);
+  if (stray) notes.push(stray);
   const outcome: InstallOutcome = { entry, status, notes };
   if (status === 'partial') outcome.perTarget = perTarget(p, failed);
   return outcome;

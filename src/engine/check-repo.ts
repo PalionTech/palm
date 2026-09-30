@@ -6,10 +6,11 @@
  * the output directories for dangling links and links leaving the scope (Z5).
  */
 import { existsSync } from 'node:fs';
-import { lstat, readdir, stat } from 'node:fs/promises';
-import { basename, dirname, join, posix } from 'node:path';
+import { lstat, stat } from 'node:fs/promises';
+import { basename, posix } from 'node:path';
 import type { CheckProblem, CheckRun, LockEntry } from '../core/types.js';
 import { isGitIgnored, isGitTracked, walkFiles } from '../lib/fs.js';
+import { BLOCK_CAPS, blockSizeProblem } from './block-size.js';
 import {
   type CheckContext,
   checkRun,
@@ -315,33 +316,6 @@ export async function agentNames(c: CheckContext): Promise<CheckRun> {
 // block-size
 // ---------------------------------------------------------------------------
 
-/** Above this a root AGENTS.md or GEMINI.md block file warns. */
-const BLOCK_WARN_BYTES = 24 * 1024;
-/** Codex reads at most 32 KiB of AGENTS.md (`project_doc_max_bytes`). */
-const CAPS: Record<string, number | undefined> = { 'AGENTS.md': 32 * 1024, 'GEMINI.md': undefined };
-
-/**
- * B2 Z6: the verdict on a block file of `bytes` (install and dry run use it before writing,
- * `check` after): `fail` above the harness's cap (install refuses without `--force`), `warn`
- * above 24 KiB. The fix names `targets:` on the entry until `at:` ships in 0.3.
- */
-export function blockSizeProblem(
-  file: string,
-  bytes: number,
-): { level: 'fail' | 'warn'; message: string; fix: string } | undefined {
-  const cap = CAPS[basename(file)];
-  const size = `${file} is ${Math.round(bytes / 1024)} KiB`;
-  const fix =
-    'narrow the entries with targets: in palm.yaml (for example targets: [claude]) until at: arrives in palm 0.3';
-  if (cap !== undefined && bytes > cap)
-    return {
-      level: 'fail',
-      message: `${size}, above the ${cap / 1024} KiB the harness reads`,
-      fix,
-    };
-  return bytes > BLOCK_WARN_BYTES ? { level: 'warn', message: size, fix } : undefined;
-}
-
 /** A root AGENTS.md or GEMINI.md palm writes blocks into, above 24 KiB (fail above the harness cap). */
 export async function blockSize(c: CheckContext): Promise<CheckRun> {
   const f = found();
@@ -349,7 +323,7 @@ export async function blockSize(c: CheckContext): Promise<CheckRun> {
   const files = new Set(
     lock.entries
       .flatMap((e) => (e.merged ?? []).map((m) => m.file))
-      .filter((p) => basename(p) in CAPS),
+      .filter((p) => basename(p) in BLOCK_CAPS),
   );
   for (const file of files) {
     const size = await stat(paths.abs(file)).then(

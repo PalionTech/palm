@@ -67,7 +67,8 @@ async function filesAt(
 
 /**
  * Every file of `closure`, read from `sourceRoot`, sorted by path, deduplicated, excluded names
- * left out. `boundary` (default: `sourceRoot`) is where symlinks may point.
+ * left out except a file a script reads (`Closure.reads`, rulings E1 and 27: that file only, as
+ * a plain asset). `boundary` (default: `sourceRoot`) is where symlinks may point.
  */
 export async function readClosure(
   sourceRoot: string,
@@ -75,11 +76,12 @@ export async function readClosure(
   boundary = sourceRoot,
 ): Promise<ClosureEntry[]> {
   const realBoundary = await fs.realpath(boundary);
+  const reads = new Set(closure.reads ?? []);
   const seen = new Map<string, string>();
   for (const p of closure.paths) {
     const rel = toPosix(path.normalize(p)).replace(/\/$/, '');
     for (const f of await filesAt(sourceRoot, rel, realBoundary))
-      if (!isClosureExcluded(f.rel)) seen.set(f.rel, f.abs);
+      if (reads.has(f.rel) || !isClosureExcluded(f.rel)) seen.set(f.rel, f.abs);
   }
   const out: ClosureEntry[] = [];
   for (const [rel, abs] of [...seen].sort(([a], [b]) => Number(a > b) - Number(a < b))) {

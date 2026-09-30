@@ -11,7 +11,7 @@ import { PalmError } from '../core/errors.js';
 import { defaultBranch, resolveRef } from '../core/git.js';
 import { worktreeRoot } from '../core/paths.js';
 import { deriveSourceName, parseSourceInput } from '../core/source-input.js';
-import type { PalmContext, Source } from '../core/types.js';
+import type { LayoutDescriptor, PalmContext, Source } from '../core/types.js';
 import { sameName } from '../domain/entity-ref.js';
 import { SourceRef } from '../domain/source.js';
 import { logMark, palmCommand } from './report.js';
@@ -210,28 +210,45 @@ function redeclare(
 }
 
 /**
+ * K2: `--layout` describes a source palm declares now; a declared source keeps the `layout:`
+ * palm.yaml gives it (E_USAGE naming where to edit it).
+ */
+function refuseLayout(state: ScopeState, known: SourceRef, layout?: LayoutDescriptor): void {
+  if (!layout) return;
+  const file = state.paths.scope === 'global' ? '~/.palm/palm.yaml' : 'palm.yaml';
+  throw new PalmError(
+    'E_USAGE',
+    `source ${known.name} is already in ${file}; --layout describes a new source`,
+    `edit layout: under sources: ${known.name} in ${file}, then run: ${palmCommand('install', [], state.paths.scope)}`,
+  );
+}
+
+/**
  * DESIGN §5 "Input forms": a declared name, alias or location is itself (another `#ref` moves
  * its intent; `--as` renames it, or with another `#ref` declares a second source); anything
- * else is parsed, named, given an explicit ref and added to palm.yaml (in memory).
+ * else is parsed, named, given an explicit ref and the `--layout` descriptor (K2), and added to
+ * palm.yaml (in memory).
  */
 export async function declareSource(
   ctx: PalmContext,
   state: ScopeState,
   input: string,
-  opts: { as?: string },
+  opts: { as?: string; layout?: LayoutDescriptor },
 ): Promise<Declared> {
   const paste = input.trim();
   const found = findDeclared(ctx, state, input, opts.as);
   if (found.known && !isSecondSource(found.known, found, opts.as)) {
+    refuseLayout(state, found.known, opts.layout);
     const r = redeclare(ctx, state, found.known, {
-      ...opts,
+      ...(opts.as ? { as: opts.as } : {}),
       ...(found.ref ? { ref: found.ref } : {}),
     });
     return { ...r, added: false, paste: r.ref.name };
   }
   const parsed = found.parsed ?? secondOf(found.known as SourceRef, found.ref);
   const name = opts.as ?? deriveSourceName(parsed, state.sources.names());
-  const { source, pin } = await withDefaultRef(state, { ...parsed, name });
+  const layout = opts.layout ? { layout: opts.layout } : {};
+  const { source, pin } = await withDefaultRef(state, { ...parsed, name, ...layout });
   const ref = declare(state, source);
   return {
     ref,
@@ -251,15 +268,18 @@ export function peekSource(
   ctx: PalmContext,
   state: ScopeState,
   input: string,
+  layout?: LayoutDescriptor,
 ): { ref: SourceRef; declared: boolean; paste: string } {
   const found = findDeclared(ctx, state, input);
   const { known } = found;
   if (known) {
+    refuseLayout(state, known, layout);
     const moved = found.ref && found.ref !== known.source.ref;
     const ref = moved ? SourceRef.of({ ...known.source, ref: found.ref as string }) : known;
     return { ref, declared: true, paste: moved ? `${known.name}#${found.ref}` : known.name };
   }
   const parsed = found.parsed as Source;
   const name = deriveSourceName(parsed, state.sources.names());
-  return { ref: SourceRef.of({ ...parsed, name }), declared: false, paste: input.trim() };
+  const ref = SourceRef.of({ ...parsed, name, ...(layout ? { layout } : {}) });
+  return { ref, declared: false, paste: input.trim() };
 }

@@ -13,6 +13,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { isPalmError, messageOf, PalmError } from '../core/errors.js';
 import type {
+  Closure,
   Entity,
   InstructionDefinition,
   Kind,
@@ -313,7 +314,7 @@ async function renderInstructionKind(job: RenderJob): Promise<void> {
 }
 
 /** Closure files below the asset root (git sources); in-place sources copy nothing. */
-async function renderClosure(job: RenderJob, closure: { paths: string[] }): Promise<void> {
+async function renderClosure(job: RenderJob, closure: Closure): Promise<void> {
   if (job.input.inPlace || closure.paths.length === 0) return;
   for (const f of await readClosure(job.input.sourceRoot, closure)) {
     const lockPath = path.posix.join(job.input.assetsRoot, f.rel);

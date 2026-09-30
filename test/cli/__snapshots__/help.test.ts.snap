@@ -281,6 +281,7 @@ Options:
   --all                everything the source offers
   --grep <text>        list only what matches the text (name or description)
   --as <name>          the name a URL source gets in palm.yaml
+  --layout <k=glob>    a new source’s layout: skills=packages/* (repeatable)
   --targets <ids>      only these targets for these entries (recorded per entry)
   --review             print the scripts of every program first; with --dry-run,
                        only print
