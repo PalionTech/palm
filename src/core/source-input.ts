@@ -203,18 +203,24 @@ export function looksLikeSourceInput(word: string): boolean {
   return input.body !== '' && MATCHERS.some(([test]) => test(input));
 }
 
-/** `./rel` of a local directory from the project root (`.` for the root itself); outside it is E_SOURCE. */
-function localName(path: string, projectRoot: string): string {
+/**
+ * `./rel` of a local directory from the project root (`.` for the root itself, `../rel` for a
+ * directory above it). The directory must lie inside `within` (the project root, or the git
+ * worktree a nested project sits in, B9; the home directory under -g, J6); outside it is
+ * E_SOURCE.
+ */
+function localName(path: string, projectRoot: string, within = projectRoot): string {
   const real = (p: string) => (existsSync(p) ? realpathSync(p) : resolve(p));
-  const [abs, root] = [real(path), real(projectRoot)];
-  if (!isWithin(abs, root))
+  const [abs, root, outer] = [real(path), real(projectRoot), real(within)];
+  if (!isWithin(abs, outer) && !isWithin(abs, root))
     throw new PalmError(
       'E_SOURCE',
-      `${path} is outside the project ${projectRoot}; a local source is a directory inside it`,
+      `${path} is outside the project ${within}; a local source is a directory inside it`,
       'move the directory into the project, or publish it as a git repository and palm install its URL',
     );
   const rel = toPosix(relative(root, abs));
-  return rel ? `./${rel}` : '.';
+  if (!rel) return '.';
+  return rel === '..' || rel.startsWith('../') ? rel : `./${rel}`;
 }
 
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9._-]+)?$/;
@@ -240,7 +246,9 @@ export function parseSourceInput(input: string, opts: ParseSourceOptions = {}): 
       'a name is letters, digits, ".", "_" and "-", for example --as kit',
     );
   const local =
-    parsed.type === 'local' ? localName(parsed.path ?? cwd, opts.projectRoot ?? cwd) : undefined;
+    parsed.type === 'local'
+      ? localName(parsed.path ?? cwd, opts.projectRoot ?? cwd, opts.within)
+      : undefined;
   const name = opts.as ?? local ?? deriveSourceName({ ...parsed, name: '' }, []);
   return { name, ...parsed };
 }
@@ -263,8 +271,13 @@ export interface ParseSourceOptions {
   layout?: LayoutDescriptor;
   /** Base for relative paths (default: process.cwd()). */
   cwd?: string;
-  /** The scope root local paths must lie in, and are named relative to (default: `cwd`). */
+  /** The scope root local paths are named relative to (default: `cwd`). */
   projectRoot?: string;
+  /**
+   * The directory local paths must lie in (default: `projectRoot`): the repository of a nested
+   * project (B9), the home directory under -g (J6).
+   */
+  within?: string;
 }
 
 /** Name candidates for a git source, best first. */

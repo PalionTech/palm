@@ -39,11 +39,38 @@ function timeoutError(e: GitFailure, what: string, url: string): PalmError {
   );
 }
 
-/** A git failure as a PalmError: E_NETWORK for timeouts and unreachable hosts, else E_GIT. */
+/**
+ * What git says for a repository that does not exist or needs credentials palm does not pass
+ * (GitHub answers a missing repository with a password prompt, which palm disables).
+ */
+const MISSING_PATTERNS = [
+  /could not read (Username|Password)/i,
+  /unable to get password/i,
+  /terminal prompts disabled/i,
+  /repository .*not found/i,
+  /authentication failed/i,
+  /does not appear to be a git repository/i,
+  /could not read from remote repository/i,
+];
+
+/** "repository not found or private": git's own words stay out (PALM_DEBUG shows them). */
+function missingRepository(url: string): PalmError {
+  return new PalmError(
+    'E_SOURCE',
+    `repository not found or private: ${url}`,
+    `check the name, then try: git ls-remote ${url}`,
+  );
+}
+
+/**
+ * A git failure as a PalmError: E_NETWORK for timeouts and unreachable hosts, E_SOURCE for a
+ * repository that is missing or private, else E_GIT.
+ */
 export function toPalmError(e: unknown, what: string, url: string): PalmError {
   if (e instanceof PalmError) return e;
   if (e instanceof GitFailure && isGitTimeout(e)) return timeoutError(e, what, url);
   const detail = e instanceof GitFailure ? e.detail : messageOf(e);
+  if (MISSING_PATTERNS.some((p) => p.test(detail))) return missingRepository(url);
   if (NETWORK_PATTERNS.some((p) => p.test(detail))) {
     return new PalmError(
       'E_NETWORK',
