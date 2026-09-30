@@ -86,27 +86,43 @@ async function entryDisk(c: CheckContext, e: LockEntry, f: Found): Promise<void>
   }
 }
 
+/**
+ * O12 X2 B5 E4': entries palm could not render because their commit is not cached (offline) were
+ * not checked, so the check is never ✓: `skipped` with a line naming how many, or the failure
+ * with the count beside it.
+ */
+function withOffline(c: CheckContext, run: CheckRun, offline: number): CheckRun {
+  if (!offline) return run;
+  const what = `${count(offline, 'entity', 'entities')} not checked (cache empty)`;
+  const fix = palmCommand('install', [], c.run.state.paths.scope);
+  if (run.status === 'fail') return { ...run, label: `${run.label}; ${what}` };
+  return {
+    ...run,
+    status: 'skipped',
+    label: `generated files: ${what}`,
+    problems: [...run.problems, { message: `lock-disk did not run for ${what}`, fix }],
+  };
+}
+
 /** Every listed file and fragment is on disk as the render recomputed from the cache has it. */
 export async function lockDisk(c: CheckContext): Promise<CheckRun> {
   const f = found();
   const entries = c.run.state.lock.entries.filter(rendersFiles);
   const offline = entries.filter((e) => c.offline.has(lockId(e)));
+  const fix = palmCommand('install', [], c.run.state.paths.scope);
   if (offline.length && offline.length === entries.length)
-    return skipped('lock-disk', 'generated files', 'cache empty; run palm install');
+    return skipped('lock-disk', 'generated files', 'cache empty', fix);
   for (const e of entries)
     if (!c.drifted.has(lockId(e)) && !c.offline.has(lockId(e))) await entryDisk(c, e, f);
-  const skippedNote = offline.length
-    ? `; ${count(offline.length, 'entity', 'entities')} skipped (cache empty; run palm install)`
-    : '';
-  return checkRun(
+  const run = checkRun(
     'lock-disk',
     {
-      ok: `generated files match the lock${skippedNote}`,
-      bad: (n) =>
-        `${count(n, 'generated file')} ${n === 1 ? 'differs' : 'differ'} from the lock${skippedNote}`,
+      ok: 'generated files match the lock',
+      bad: (n) => `${count(n, 'generated file')} ${n === 1 ? 'differs' : 'differ'} from the lock`,
     },
     f,
   );
+  return withOffline(c, run, offline.length);
 }
 
 // ---------------------------------------------------------------------------

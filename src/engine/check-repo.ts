@@ -18,6 +18,7 @@ import {
   entityOf,
   type Found,
   found,
+  notApplicable,
   skipped,
 } from './check-kit.js';
 import { findOverlaps, overlapMessage } from './scope.js';
@@ -94,7 +95,8 @@ function untrackedProblem(top: string, files: string[]): CheckProblem {
 /** Every file palm wrote or merged into is committed: ignored fails, untracked warns. */
 export async function gitIgnored(c: CheckContext): Promise<CheckRun> {
   const what = 'generated files committed';
-  if (c.run.state.paths.scope !== 'project') return skipped('git-ignored', what, 'global scope');
+  if (c.run.state.paths.scope !== 'project')
+    return notApplicable('git-ignored', what, 'global scope');
   if (!c.git) return skipped('git-ignored', what);
   const { paths } = c.run.state;
   const files = writtenFiles(c);

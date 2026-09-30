@@ -17,8 +17,8 @@ import {
   entityOf,
   found,
   missingTargets,
+  notApplicable,
   rendersFiles,
-  skipped,
 } from './check-kit.js';
 import { localSourceDirs, orphansOf } from './orphans.js';
 import { palmCommand } from './report.js';
@@ -93,7 +93,7 @@ export async function orphansCheck(c: CheckContext): Promise<CheckRun> {
 export async function pendingCheck(c: CheckContext): Promise<CheckRun> {
   const { state } = c.run;
   if (state.paths.scope !== 'global' || !state.applied)
-    return skipped('pending', 'applied files outside the lock', 'global scope only');
+    return notApplicable('pending', 'applied files outside the lock', 'global scope only');
   const f = found();
   const { files, fragments } = await pendingRemovals(state);
   const left = [...files, ...fragments.map((m) => `${m.at} in ${m.file}`)];

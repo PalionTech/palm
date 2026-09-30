@@ -161,7 +161,7 @@ describe('check rulings (FINDINGS-v2)', () => {
     const { r } = await check(w, { offline: true });
     expect(r['lock-disk']).toMatchObject({
       status: 'skipped',
-      label: 'generated files: skipped (cache empty; run palm install)',
+      label: 'generated files: skipped (cache empty)',
     });
   });
 

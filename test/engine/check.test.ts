@@ -22,6 +22,7 @@ const IDS = [
   'source-paths',
   'exec-trusted',
   'foreign-hooks',
+  'foreign-servers',
   'hook-scripts',
   'secrets',
   'git-ignored',

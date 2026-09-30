@@ -66,9 +66,34 @@ export function checkRun(id: string, labels: Labels, f: Found): CheckRun {
   return { id, label: labels.ok, status: 'ok', problems };
 }
 
-/** A check that did not run, never shown as passed (`skipped`, E12). */
-export function skipped(id: string, what: string, why = 'not a git repository'): CheckRun {
-  return { id, label: `${what}: skipped (${why})`, status: 'skipped', problems: [] };
+/** Checks that do not apply to the scope (a global-only check in a project): never a failure. */
+const NOT_APPLICABLE = new WeakSet<CheckRun>();
+
+/**
+ * A check that could not run, never shown as passed (`skipped`, E12). Its one problem line says
+ * so, so `--quiet` prints it too (O12), and `--strict` fails on it.
+ */
+export function skipped(
+  id: string,
+  what: string,
+  why = 'not a git repository',
+  fix?: string,
+): CheckRun {
+  const problem: CheckProblem = { message: `${id} did not run: ${why}` };
+  if (fix) problem.fix = fix;
+  return { id, label: `${what}: skipped (${why})`, status: 'skipped', problems: [problem] };
+}
+
+/** A check that does not apply to the scope (`skipped`, no problem; `--strict` ignores it). */
+export function notApplicable(id: string, what: string, why: string): CheckRun {
+  const run: CheckRun = { id, label: `${what}: skipped (${why})`, status: 'skipped', problems: [] };
+  NOT_APPLICABLE.add(run);
+  return run;
+}
+
+/** False for a check `notApplicable` built. */
+export function applies(run: CheckRun): boolean {
+  return !NOT_APPLICABLE.has(run);
 }
 
 export function entityOf(e: LockEntry): CheckProblem['entity'] {
