@@ -104,9 +104,18 @@ function errorDoc(e: unknown, run: RunLine): { code: string; message: string; hi
   if (!isPalmError(e)) return { code: 'E_INTERNAL', message: messageOf(e), hint: BUG_HINT };
   // J11: a repeated command line never carries a value the person typed for a secret.
   const safe = { args: redactTypedArgs(run.args), passthrough: run.passthrough };
-  const raw = retryHint(e, safe) ?? (e.code === 'E_INTERNAL' ? BUG_HINT : undefined);
+  const raw = globalMigrate(
+    retryHint(e, safe) ?? (e.code === 'E_INTERNAL' ? BUG_HINT : undefined),
+    run.args,
+  );
   const hint = raw === undefined ? undefined : publicHint(requoted(raw, safe.args));
   return hint ? { code: e.code, message: e.message, hint } : { code: e.code, message: e.message };
+}
+
+/** J6': a 0.1 palm.yaml met under -g is migrated under -g. */
+function globalMigrate(hint: string | undefined, args: readonly string[]): string | undefined {
+  const global = args.includes('-g') || args.includes('--global');
+  return global && hint === 'palm migrate' ? 'palm migrate -g' : hint;
 }
 
 /** Q14: a JSON error's hint without the indentation the terminal gives it. */

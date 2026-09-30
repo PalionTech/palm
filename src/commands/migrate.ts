@@ -30,7 +30,8 @@ function toCommit(report: MigrateReport): string[] {
   if (report.commit?.length) return commitOrder(report.commit);
   const files = ['palm.yaml', 'palm.lock.yaml'];
   if (report.gitignore) files.push('.gitignore');
-  if (report.movedAssets.length) files.push('.palm/assets/');
+  if (report.movedAssets.length || report.exec.some((u) => !u.closure.inPlace))
+    files.push('.palm/assets/');
   return files;
 }
 
@@ -39,11 +40,16 @@ function printReport(out: Output, report: MigrateReport, project: boolean): void
   out.mark('~', 'palm.yaml and palm.lock.yaml now use the palm 0.2 format');
   for (const a of report.movedAssets) out.mark('~', `moved ${a}`);
   if (report.gitignore) out.mark('~', `.gitignore: ${report.gitignore}`);
-  if (report.exec.length) {
-    const keys = report.exec.map((u) => u.key).join(', ');
-    out.info(
-      `${plural(report.exec.length, 'program')} copied again and trusted in the lock: ${keys}`,
-    );
+  // X19: a program that runs in place from the repository was trusted, not copied
+  const copied = report.exec.filter((u) => !u.closure.inPlace);
+  const inPlace = report.exec.filter((u) => u.closure.inPlace);
+  if (copied.length) {
+    const keys = copied.map((u) => u.key).join(', ');
+    out.info(`${plural(copied.length, 'program')} copied again and trusted in the lock: ${keys}`);
+  }
+  if (inPlace.length) {
+    const keys = inPlace.map((u) => u.key).join(', ');
+    out.info(`${plural(inPlace.length, 'program')} trusted in the lock, run in place: ${keys}`);
   }
   const files = project ? toCommit(report) : (report.commit ?? []);
   if (files.length) out.out(`Commit ${listJoin(files)} together.`);

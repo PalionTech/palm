@@ -149,6 +149,11 @@ function keepItLine(e: LockEntry, opts: RowOptions): string {
   return `    to keep your change, copy ${where} into your own source under a new name; --force discards it`;
 }
 
+/** X18: a note the lock keeps for the entry, on a row the run left unchanged: said at install. */
+function repeated(o: InstallOutcome, note: string): boolean {
+  return o.status === 'unchanged' && (o.entry.notes ?? []).includes(note);
+}
+
 export function outcomeRow(o: InstallOutcome, opts: RowOptions, said: Set<string>): Row {
   const e = o.entry;
   const base = { kind: e.kind, name: e.name, after: [] as string[] };
@@ -156,7 +161,7 @@ export function outcomeRow(o: InstallOutcome, opts: RowOptions, said: Set<string
     return { ...base, mark: '!', word: LEFT_OUT, cells: [DECLINED], after: programHints(e, opts) };
   const word = wordOf(o, opts);
   if (o.status === 'failed') return { ...base, mark: 'x', word, cells: [] };
-  const notes = notesOf(o, opts, said);
+  const notes = notesOf(o, opts, said).filter((n) => !repeated(o, n));
   const joined = notes.join('; ');
   const inline = joined && joined.length <= INLINE_NOTE ? `(${joined})` : '';
   const below = inline ? [] : notes.map((n) => `    ${n}`);

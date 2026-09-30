@@ -179,6 +179,20 @@ describe('the summary lines (Y3, Y16, Y18, Q11, O22, R14, R15)', () => {
     expect(text).toContain(`palm install ${MP} hook:fmt --force`);
   });
 
+  it('X18: a note the lock keeps is not repeated on a row the run left unchanged', () => {
+    const tdd = { ...skillAt('tdd'), notes: ['left out AGENTS.md'] };
+    const text = summary(
+      { ...nothing, outcomes: [outcome(tdd, 'unchanged', ['left out AGENTS.md'])] },
+      { named: true },
+    );
+    expect(text).not.toContain('AGENTS.md');
+    const fresh = summary(
+      { ...nothing, outcomes: [outcome(tdd, 'installed', ['left out AGENTS.md'])] },
+      {},
+    );
+    expect(fresh).toContain('left out AGENTS.md');
+  });
+
   it("R15': removing a plugin prints its line", async () => {
     const plugin = lockEntry({ kind: 'plugin', name: 'odu', source: 'juspay/odu' });
     const deps = fakeEngine({
@@ -338,6 +352,39 @@ describe('errors and empty scopes (M13, Q10, O20)', () => {
     const r = await palm(sb, ['migrate'], { deps });
     expect(r.stderr).not.toContain('2 hidden characters');
     expect(r.stdout).toContain('! skill w: 2 files hold U+200B');
+  });
+});
+
+describe('migrate (X19, J6)', () => {
+  it('X19: a program that runs in place is trusted, not copied, and .palm/assets is not committed for it', async () => {
+    const unit = { key: 'hook:fmt@./kit', closure: { inPlace: true } };
+    const report = {
+      manifest: '',
+      lock: '',
+      movedAssets: [],
+      exec: [unit],
+      warnings: [],
+      failures: [],
+    } as unknown as MigrateReport;
+    const check: CheckReport = { scope: 'project', ok: true, checks: [] };
+    const deps = fakeEngine({ migrateScope: async () => report, checkScope: async () => check });
+    const r = await palm(sb, ['migrate'], { deps });
+    expect(r.stdout).toContain('1 program trusted in the lock, run in place: hook:fmt@./kit');
+    expect(r.stdout).not.toContain('copied again');
+    expect(r.stdout).not.toContain('.palm/assets/');
+  });
+
+  it("J6': a palm 0.1 palm.yaml met under -g is migrated with -g", async () => {
+    const deps = fakeEngine({
+      openScope: async () => {
+        throw new PalmError('E_USAGE', 'palm.yaml is in the 0.1 format', 'palm migrate');
+      },
+      listInstalled: async () => {
+        throw new PalmError('E_USAGE', 'palm.yaml is in the 0.1 format', 'palm migrate');
+      },
+    });
+    const r = await palm(sb, ['get', '-g'], { deps });
+    expect(r.stderr).toBe('x palm.yaml is in the 0.1 format\n  palm migrate -g\n');
   });
 });
 
