@@ -10,6 +10,7 @@
 
 import type { HookDialect, HookSet } from '../core/types.js';
 import { isRecord, withoutUndefined } from '../lib/object.js';
+import { asString } from './util.js';
 
 const GEMINI_ONLY_EVENTS = new Set([
   'BeforeTool',
@@ -60,9 +61,56 @@ export function detectHookDialect(json: unknown): HookDialect {
   return 'unknown';
 }
 
-export function parseHooksJson(name: string, json: unknown, pluginRootRel?: string): HookSet {
+/** A hook set as parsed from its file: everything but the references and closure the scan adds. */
+export type ParsedHookSet = Omit<HookSet, 'references' | 'closure' | 'promptHooks'> & {
+  promptHooks: HookSet['promptHooks'];
+};
+
+export function parseHooksJson(name: string, json: unknown, pluginRootRel?: string): ParsedHookSet {
   const raw = normalizeHooksJson(json);
-  return withoutUndefined({ name, dialect: detectHookDialect(raw), raw, pluginRootRel });
+  return withoutUndefined({
+    name,
+    dialect: detectHookDialect(raw),
+    raw,
+    pluginRootRel,
+    promptHooks: promptHooksOf(raw),
+  });
+}
+
+/** One handler of a hook set: the object that holds `type`, `command` (or `bash`), `cwd`. */
+export interface HookHandler {
+  event: string;
+  matcher?: string;
+  handler: Record<string, unknown>;
+}
+
+/** Handlers of every dialect: Claude/Gemini nest them under `hooks`, Cursor/Copilot list them flat. */
+export function hookHandlers(raw: unknown): HookHandler[] {
+  const norm = normalizeHooksJson(raw);
+  if (!isRecord(norm) || !isRecord(norm.hooks)) return [];
+  const out: HookHandler[] = [];
+  for (const [event, list] of Object.entries(norm.hooks)) {
+    if (!Array.isArray(list)) continue;
+    for (const entry of list.filter(isRecord)) {
+      const matcher = asString(entry.matcher);
+      const inner = Array.isArray(entry.hooks) ? entry.hooks.filter(isRecord) : [entry];
+      for (const handler of inner) out.push(withoutUndefined({ event, matcher, handler }));
+    }
+  }
+  return out;
+}
+
+/** `type: prompt` handlers: text sent to the model, listed at consent, never gated (DESIGN §7). */
+function promptHooksOf(raw: unknown): HookSet['promptHooks'] {
+  const seen = new Set<string>();
+  const out: HookSet['promptHooks'] = [];
+  for (const { event, matcher, handler } of hookHandlers(raw)) {
+    const key = `${event}\0${matcher ?? ''}`;
+    if (handler.type !== 'prompt' || seen.has(key)) continue;
+    seen.add(key);
+    out.push(withoutUndefined({ event, matcher }));
+  }
+  return out;
 }
 
 /** True when the hooks object declares at least one event with at least one handler. */
