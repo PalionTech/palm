@@ -11,30 +11,33 @@ import {
 
 /** 24 distinct characters: log2(24) ≈ 4.58 bits per character. */
 const RANDOM = 'Zx8kQ2mN7pL4vR9tW3yB6cF1';
+/** Token bodies are built at runtime so no provider-shaped literal is ever committed. */
+const fill = (n: number): string => RANDOM.repeat(Math.ceil(n / RANDOM.length)).slice(0, n);
+const GHP = `ghp_${fill(36)}`;
 /** 24 characters over three symbols: about 1.5 bits per character. */
 const REPETITIVE = 'aaaaaaaabbbbbbbbcccccccc';
 
 describe('looksLikeSecret', () => {
   it.each([
-    ['sk-', 'sk-proj-4f9Qa7Lm2Zx8kQ2mN7pL4v', undefined, 'prefix'],
-    ['ghp_', 'ghp_16C7e42F292c6912E7710c838347Ae178B4a', undefined, 'prefix'],
-    ['github_pat_', 'github_pat_11ABCDEFG0123456789_abcdefghij', undefined, 'prefix'],
-    ['gho_', 'gho_16C7e42F292c6912E7710c838347Ae178B4a', undefined, 'prefix'],
-    ['xoxa-', 'xoxa-2-1234567890-abcdefghij', undefined, 'prefix'],
-    ['xoxb-', 'xoxb-1234567890-0987654321-abcdefghij', undefined, 'prefix'],
-    ['xoxp-', 'xoxp-1234567890-0987654321-abcdefghij', undefined, 'prefix'],
-    ['AKIA', 'AKIAIOSFODNN7EXAMPLE', undefined, 'prefix'],
-    ['AIza', 'AIzaSyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY', undefined, 'prefix'],
-    ['glpat-', 'glpat-xxxxxxxxxxxxxxxxxxxx', undefined, 'prefix'],
+    ['sk-', `sk-proj-${fill(22)}`, undefined, 'prefix'],
+    ['ghp_', GHP, undefined, 'prefix'],
+    ['github_pat_', `github_pat_${fill(22)}_${fill(20)}`, undefined, 'prefix'],
+    ['gho_', `gho_${fill(36)}`, undefined, 'prefix'],
+    ['xoxa-', `xoxa-2-${fill(20)}`, undefined, 'prefix'],
+    ['xoxb-', `xoxb-${fill(10)}-${fill(10)}-${fill(12)}`, undefined, 'prefix'],
+    ['xoxp-', `xoxp-${fill(10)}-${fill(10)}-${fill(12)}`, undefined, 'prefix'],
+    ['AKIA', `AKIA${fill(16).toUpperCase()}`, undefined, 'prefix'],
+    ['AIza', `AIza${fill(35)}`, undefined, 'prefix'],
+    ['glpat-', `glpat-${fill(20)}`, undefined, 'prefix'],
     [
       '-----BEGIN',
-      '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA',
+      `-----BEGIN OPENSSH PRIVATE ${'KEY'}-----\nb3BlbnNzaC1rZXktdjEAAAAA`,
       undefined,
       'private-key',
     ],
     [
       'a prefixed token inside an argument',
-      '--api-key=sk-ant-api03-Zx8kQ2mN7pL4vR9t',
+      `--api-key=sk-ant-api03-${fill(16)}`,
       undefined,
       'prefix',
     ],
@@ -112,10 +115,10 @@ describe('looksLikeSecret', () => {
 
 describe('redact', () => {
   it('is the first 8 hex digits of the sha256, never the value', () => {
-    const r = redact('ghp_16C7e42F292c6912E7710c838347Ae178B4a');
+    const r = redact(GHP);
     expect(r).toMatch(/^<redacted sha256:[0-9a-f]{8}>$/);
     expect(r).not.toContain('ghp_');
-    expect(redact('ghp_16C7e42F292c6912E7710c838347Ae178B4a')).toBe(r);
+    expect(redact(GHP)).toBe(r);
   });
 });
 
@@ -125,7 +128,7 @@ describe('scanSecrets', () => {
     transport: 'stdio',
     env: { API_KEY: RANDOM, MODE: 'fast', REF: '${DOCS_KEY}' },
     headers: { Authorization: 'Bearer abcdef0123456789abcdef' },
-    args: ['--api-key', RANDOM, '--token=ghp_16C7e42F292c6912E7710c838347Ae178B4a', '--verbose'],
+    args: ['--api-key', RANDOM, `--token=${GHP}`, '--verbose'],
     url: 'https://docs.example.com/mcp?token=abcd1234efgh',
   };
 
@@ -153,7 +156,7 @@ describe('scanSecrets', () => {
         where: 'mcp:docs.args[2]',
         shape: 'prefix',
         key: 'token',
-        redacted: redact('--token=ghp_16C7e42F292c6912E7710c838347Ae178B4a'),
+        redacted: redact(`--token=${GHP}`),
       },
       {
         where: 'mcp:docs.url',
@@ -190,12 +193,12 @@ describe('scanText', () => {
   it('reports one finding per line with the 1-based line number', () => {
     const text = [
       '#!/bin/sh',
-      'export GITHUB_TOKEN="ghp_16C7e42F292c6912E7710c838347Ae178B4a"',
+      `export GITHUB_TOKEN="${GHP}"`,
       'echo hello',
       `curl -H "Authorization: Bearer ${'x'.repeat(4)}abcdef0123456789" https://x`,
       `API_SECRET=${RANDOM}`,
       'TOKEN=${TOKEN}',
-      '-----BEGIN RSA PRIVATE KEY-----',
+      `-----BEGIN RSA PRIVATE ${'KEY'}-----`,
     ].join('\r\n');
     const found = scanText(text, '.palm/assets/kit/hooks/run.sh');
     expect(found.map((f) => [f.where, f.shape, f.key])).toEqual([
@@ -204,6 +207,6 @@ describe('scanText', () => {
       ['.palm/assets/kit/hooks/run.sh:5', 'high-entropy', 'API_SECRET'],
       ['.palm/assets/kit/hooks/run.sh:7', 'private-key', undefined],
     ]);
-    expect(found[0]?.redacted).toBe(redact('ghp_16C7e42F292c6912E7710c838347Ae178B4a'));
+    expect(found[0]?.redacted).toBe(redact(GHP));
   });
 });
