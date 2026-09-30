@@ -43,7 +43,9 @@ const MAX_SCRIPT_BYTES = 256 * 1024;
 const OPEN = '\u0001';
 const CLOSE = '\u0002';
 const SEGMENTS = '((?:/[A-Za-z0-9._@+-]+)+)';
-const SCRIPT_REF = String.raw`"?\$(?:0|\{0\}|BASH_SOURCE|\{BASH_SOURCE(?:\[0\])?(?::-\$0)?\})"?`;
+const SCRIPT_SELF = String.raw`"?\$(?:0|\{0\}|BASH_SOURCE|\{BASH_SOURCE(?:\[0\])?(?::-\$0)?\})"?`;
+/** The script itself, as written or through `$(realpath "$0")` / `$(readlink -f "$0")`. */
+const SCRIPT_REF = String.raw`(?:${SCRIPT_SELF}|"?\$\(\s*(?:realpath|readlink\s+-f)\s+${SCRIPT_SELF}\s*\)"?)`;
 const DIRNAME = new RegExp(String.raw`\$\(\s*dirname\s+(?:--\s+)?${SCRIPT_REF}\s*\)`, 'g');
 const DIRNAME_TICKS = new RegExp(String.raw`\`\s*dirname\s+(?:--\s+)?${SCRIPT_REF}\s*\``, 'g');
 const STRIP_SUFFIX = /\$\{(?:0|BASH_SOURCE(?:\[0\])?)%\/\*\}/g;

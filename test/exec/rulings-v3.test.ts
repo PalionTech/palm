@@ -78,15 +78,23 @@ describe("E1' reads through the script's own directory", () => {
         'cat "$DIR/../../data/a.txt"',
         'cat "$(dirname "$0")"/../../data/b.txt',
         'source "${BASH_SOURCE[0]%/*}/lib/c.sh"',
+        'HERE="$(dirname "$(realpath "$0")")"',
+        'cat "$HERE/../../data/d.txt"',
         'cat "${SCRIPT_HOME}/unknown.txt"',
       ),
       'data/a.txt': 'a\n',
       'data/b.txt': 'b\n',
+      'data/d.txt': 'd\n',
       'hooks/h/lib/c.sh': 'echo c\n',
     });
     const entity = hookEntity('h', 'hooks/h/hooks.json', ['hooks/h/hooks.json', 'hooks/h/run.sh']);
     const { entity: read } = await withScriptReads(entity, root);
-    expect(closureOf(read).reads).toEqual(['data/a.txt', 'data/b.txt', 'hooks/h/lib/c.sh']);
+    expect(closureOf(read).reads).toEqual([
+      'data/a.txt',
+      'data/b.txt',
+      'data/d.txt',
+      'hooks/h/lib/c.sh',
+    ]);
   });
 });
 
