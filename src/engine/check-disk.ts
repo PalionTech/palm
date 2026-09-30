@@ -102,7 +102,8 @@ export async function lockDisk(c: CheckContext): Promise<CheckRun> {
     'lock-disk',
     {
       ok: `generated files match the lock${skippedNote}`,
-      bad: (n) => `${count(n, 'problem')} with generated files${skippedNote}`,
+      bad: (n) =>
+        `${count(n, 'generated file')} ${n === 1 ? 'differs' : 'differ'} from the lock${skippedNote}`,
     },
     f,
   );

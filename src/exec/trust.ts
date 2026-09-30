@@ -3,7 +3,8 @@
  * `trust`, replayed silently while the unit's hash matches; a declined plugin hook stays quiet
  * until someone asks for it by name.
  */
-import type { ExecUnit, LockEntry, LockExec } from '../core/types.js';
+import { short } from '../core/hash.js';
+import type { ExecUnit, LockEntry, LockExec, Scope } from '../core/types.js';
 import { withoutUndefined } from '../lib/object.js';
 import { closureTree, commandAt, firstTarget } from './units.js';
 
@@ -49,4 +50,20 @@ export function withTrust(entry: LockEntry, unit: ExecUnit): LockEntry {
 /** `entry` marked declined: it installs nothing and holds no trust. */
 export function withDeclined(entry: LockEntry): LockEntry {
   return withoutUndefined({ ...entry, trust: undefined, declined: true });
+}
+
+/**
+ * V5 (ruling 30): the line after someone declined a changed program whose earlier version the
+ * lock still trusts: `hook fmt: previous version stays active (trusted sha256:1b9e04c2); palm
+ * remove acme hook:fmt removes it`. Undefined when nothing trusted stays on disk.
+ */
+export function previousStaysActive(
+  entry: LockEntry | undefined,
+  scope: Scope,
+): string | undefined {
+  const hash = entry?.exec?.hash;
+  if (!entry || !hash || !(entry.trust ?? []).includes(hash)) return undefined;
+  const remove = ['palm', 'remove', entry.source, `${entry.kind}:${entry.name}`];
+  if (scope === 'global') remove.push('-g');
+  return `${entry.kind} ${entry.name}: previous version stays active (trusted sha256:${short(hash, 8)}); ${remove.join(' ')} removes it`;
 }

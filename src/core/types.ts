@@ -573,6 +573,11 @@ export interface ExecUnit {
   closure: { root: string; inPlace: boolean; files: ClosureFile[]; bytes: number; abs?: string };
   /** Closure files a script reads rather than runs (ruling E1), listed at consent as `reads:`. */
   reads?: string[];
+  /**
+   * Findings the consent review shows under the unit as `!` rows, such as a literal secret in a
+   * script installed with `--force` (ruling 28). The engine fills it; it never changes the hash.
+   */
+  warnings?: string[];
   hash: string;
   /** Per target: the rendered command line and the file it lands in (for the prompt). */
   rendered: Partial<Record<TargetId, Array<{ id: string; command: string; file: string }>>>;

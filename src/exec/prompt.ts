@@ -153,7 +153,15 @@ function unitLines(unit: ExecUnit, n: number, scope: Scope): string[] {
   const name = visible(unit.entity.name);
   const head = `  ${n}. ${unit.kind} ${name}  from ${visible(unit.entity.source)}${fromText(unit.from)}`;
   const rows = unit.kind === 'mcp' ? mcpRows(unit) : hookRows(unit);
-  return [head, ...rows, ...targetsLine(unit), ...scriptLines(unit, scope), ...readsLines(unit)];
+  const warnings = (unit.warnings ?? []).map((w) => `${ROW}! ${visible(w)}`);
+  return [
+    head,
+    ...rows,
+    ...targetsLine(unit),
+    ...scriptLines(unit, scope),
+    ...readsLines(unit),
+    ...warnings,
+  ];
 }
 
 /** `Also 2 prompt hooks (text sent to the model; no program runs): fp-check Stop, SubagentStop.` */

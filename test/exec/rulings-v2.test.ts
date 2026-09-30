@@ -9,7 +9,7 @@ import type { ConsentRequest, Entity } from '../../src/core/types.js';
 import { inPlaceClosure } from '../../src/exec/closure.js';
 import { consentText } from '../../src/exec/consent.js';
 import { closureReads, withScriptReads } from '../../src/exec/reads.js';
-import { withTrust } from '../../src/exec/trust.js';
+import { previousStaysActive, withTrust } from '../../src/exec/trust.js';
 import { execUnitOf } from '../../src/exec/units.js';
 import { rendered } from './examples.js';
 
@@ -184,5 +184,43 @@ describe('E2 in-repo scripts are hashed in place', () => {
     );
     expect(text).toContain('scripts: 3 files');
     expect(text).toContain('in  kit/  (run in place from your repository)');
+  });
+});
+
+describe('V5 a declined change leaves the trusted version running', () => {
+  it('V5 the line names the trusted hash and the remove command', () => {
+    const hash = `sha256:${'1b9e04c2'.padEnd(64, '0')}`;
+    const entry = {
+      kind: 'hook' as const,
+      name: 'fmt',
+      source: 'acme',
+      path: 'hooks/fmt/hooks.json',
+      content: '',
+      render: {},
+      files: [],
+      exec: { commands: [], hash },
+      trust: [hash],
+    };
+    expect(previousStaysActive(entry, 'project')).toBe(
+      'hook fmt: previous version stays active (trusted sha256:1b9e04c2); palm remove acme hook:fmt removes it',
+    );
+    expect(previousStaysActive(entry, 'global')).toContain('palm remove acme hook:fmt -g');
+    expect(previousStaysActive({ ...entry, trust: [] }, 'project')).toBeUndefined();
+    expect(previousStaysActive(undefined, 'project')).toBeUndefined();
+  });
+});
+
+describe('ruling 28 findings shown in the consent review', () => {
+  it('28 a unit warning is a ! row under the unit and does not move the hash', async () => {
+    const root = await tree(SOURCE);
+    const files = await inPlaceClosure(root, { paths: ['hooks'] });
+    const unit = execUnitOf(hookEntity(['hooks']), {}, { root: 'kit', inPlace: true, files });
+    const warned = { ...unit, warnings: ['hooks/common.sh:1 holds a literal secret'] };
+    const text = consentText(
+      { operation: 'install', units: [warned], prompts: [], lockFile: '' },
+      { scope: 'project', lockFile: 'palm.lock.yaml' },
+    );
+    expect(text).toContain('     ! hooks/common.sh:1 holds a literal secret');
+    expect(warned.hash).toBe(unit.hash);
   });
 });
