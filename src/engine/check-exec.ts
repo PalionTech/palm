@@ -101,7 +101,10 @@ function hookProblem(c: CheckContext, h: HookFinding): CheckProblem {
   };
 }
 
-/** Every exec unit is trusted in the lock at the hash palm computes now; hook arrays hold nothing unexplained. */
+/**
+ * Every exec unit is trusted in the lock at the hash palm computes now, and no command palm
+ * installed in a hook array was replaced on disk (D3: `changed`, never re-added beside it).
+ */
 export async function execTrusted(c: CheckContext): Promise<CheckRun> {
   const f = found();
   for (const e of c.run.state.lock.entries) {
@@ -110,13 +113,26 @@ export async function execTrusted(c: CheckContext): Promise<CheckRun> {
     moved(c, e, f);
     await mergedDrift(c, e, f);
   }
-  for (const h of await hookFindings(c)) (h.owner ? f.fail : f.warn).push(hookProblem(c, h));
+  for (const h of await hookFindings(c)) if (h.owner) f.fail.push(hookProblem(c, h));
   return checkRun(
     'exec-trusted',
     {
       ok: 'every program palm installed is trusted',
       bad: (n) => `${count(n, 'program')} not trusted or changed on disk`,
-      warned: (n) => `every program palm installed is trusted; ${count(n, 'foreign hook command')}`,
+    },
+    f,
+  );
+}
+
+/** V6: a command in a hook array palm manages that no lock entry explains (warning). */
+export async function foreignHooks(c: CheckContext): Promise<CheckRun> {
+  const f = found();
+  for (const h of await hookFindings(c)) if (!h.owner) f.warn.push(hookProblem(c, h));
+  return checkRun(
+    'foreign-hooks',
+    {
+      ok: 'no foreign command in the hook files palm manages',
+      bad: (n) => `${count(n, 'foreign hook command')} in the hook files palm manages`,
     },
     f,
   );

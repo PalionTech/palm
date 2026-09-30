@@ -20,7 +20,7 @@ import { PLUGIN_ROOT_TOKENS } from '../domain/ignore.js';
 import { walkFiles } from '../lib/fs.js';
 
 /** A read palm could not follow: the script, the text as written and why. */
-export interface UnresolvedRead {
+interface UnresolvedRead {
   script: string;
   raw: string;
   why: string;

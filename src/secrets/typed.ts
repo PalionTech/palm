@@ -27,7 +27,7 @@ import { orList } from './policy.js';
 import { isSecretKey, redact, secretPart } from './scan.js';
 
 /** Why a typed value became a reference. */
-export type TypedWhy = 'typed' | 'secret' | 'fill-in' | 'input';
+type TypedWhy = 'typed' | 'secret' | 'fill-in' | 'input';
 
 export interface TypedReference {
   /** `env.BRAVE_API_KEY`, `headers.Authorization`, `args[2]`, `url`. */

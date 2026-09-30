@@ -34,10 +34,9 @@ async function filesAt(sourceRoot: string, rel: string, reads: ReadonlySet<strin
   if (!st) return [];
   if (!st.isDirectory()) return reads.has(rel) || !isClosureExcluded(rel) ? [{ rel, abs }] : [];
   const walk = await walkFiles(abs, { boundary: sourceRoot, skip: (n) => shouldSkipFile(n) });
-  const read = reads.has(rel);
   return walk.files
     .map((f) => ({ rel: `${rel}/${f.rel}`, abs: f.abs }))
-    .filter((f) => read || reads.has(f.rel) || !isClosureExcluded(f.rel));
+    .filter((f) => reads.has(f.rel) || !isClosureExcluded(f.rel));
 }
 
 /**

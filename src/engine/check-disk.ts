@@ -1,15 +1,11 @@
 /**
  * The checks that read generated files (DESIGN §6 "Check"): `lock-disk` and `hidden-unicode`.
- * `lock-disk` also fails on a partial install (an active target the entry is not on, Y5 Z5),
- * on files inside an entity directory the lock does not list (orphans, C13) and, under -g, on
- * files this machine holds that the lock no longer lists (J7). With `--offline` and an empty
- * cache it says so instead of reporting a difference (E13). Nothing is written.
+ * With `--offline` and a commit missing from the cache, `lock-disk` says so instead of
+ * reporting a difference (E13). Nothing is written.
  */
-import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import type { CheckProblem, CheckRun, LockEntry, Rendered, TargetId } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
-import { isWithin, walkFiles } from '../lib/fs.js';
 import { scanHiddenUnicode } from '../lib/unicode.js';
 import {
   type CheckContext,
@@ -18,7 +14,6 @@ import {
   entityOf,
   type Found,
   found,
-  missingTargets,
   rendersFiles,
   skipped,
 } from './check-kit.js';
@@ -72,19 +67,7 @@ async function targetFragments(
   }
 }
 
-/** Y5 Z5 E3: an active target the entry is not installed for (or no target at all). */
-function partial(c: CheckContext, e: LockEntry, f: Found): void {
-  const missing = missingTargets(c, e);
-  if (!missing.length) return;
-  const none = Object.keys(e.render).length === 0;
-  const what = none
-    ? 'is installed for no target'
-    : `is partial: not installed for ${missing.join(', ')}`;
-  f.fail.push(problem(e, undefined, `${e.kind} ${e.name} ${what}`, fixes(c, e).restore));
-}
-
 async function entryDisk(c: CheckContext, e: LockEntry, f: Found): Promise<void> {
-  partial(c, e, f);
   const out = c.renders.get(lockId(e));
   if (!out) {
     const message = `palm cannot render ${e.kind} ${e.name} from source ${e.source}`;
@@ -103,59 +86,6 @@ async function entryDisk(c: CheckContext, e: LockEntry, f: Found): Promise<void>
   }
 }
 
-/** The directories palm owns whole for an entry: a skill's folder per harness, a closure copy. */
-function entityDirs(c: CheckContext, e: LockEntry): string[] {
-  const dirs = new Set<string>();
-  const segment = `/${e.name}/`;
-  if (e.kind === 'skill')
-    for (const file of e.files) {
-      const at = file.indexOf(segment);
-      if (at >= 0) dirs.add(file.slice(0, at + segment.length - 1));
-    }
-  const closure = e.exec?.closure?.root;
-  if (closure?.startsWith(c.run.state.paths.lockForm(c.run.state.paths.assetsDir)))
-    dirs.add(closure);
-  return [...dirs];
-}
-
-/** Files below `dir` (lock form) that no lock entry lists. */
-async function unlisted(c: CheckContext, dir: string, listed: Set<string>): Promise<string[]> {
-  const abs = c.run.state.paths.abs(dir);
-  const local = c.run.state.sources
-    .all()
-    .flatMap((s) => (s.isLocal && s.source.path ? [s.source.path] : []));
-  if (!existsSync(abs) || local.some((s) => isWithin(abs, s))) return [];
-  return (await walkFiles(abs)).files.map((f) => `${dir}/${f.rel}`).filter((r) => !listed.has(r));
-}
-
-/** C13: files inside an entity directory palm owns that the lock does not list. */
-async function orphans(c: CheckContext, f: Found): Promise<void> {
-  const { lock } = c.run.state;
-  const listed = new Set(lock.entries.flatMap((e) => e.files));
-  for (const e of lock.entries.filter(rendersFiles))
-    for (const dir of entityDirs(c, e))
-      for (const rel of await unlisted(c, dir, listed)) {
-        const message = `${rel} is inside ${dir}/ but palm.lock.yaml does not list it`;
-        f.fail.push(problem(e, rel, message, fixes(c, e).force));
-      }
-}
-
-/** J7: under -g, files this machine holds that the pulled lock no longer lists. */
-function appliedLeftovers(c: CheckContext, f: Found): void {
-  const { applied, lock, paths } = c.run.state;
-  if (!applied) return;
-  const listed = new Set(lock.entries.flatMap((e) => e.files.map((p) => paths.abs(p))));
-  const left = applied.record.files.filter((x) => !listed.has(x.path) && existsSync(x.path));
-  if (!left.length) return;
-  f.fail.push({
-    message: `applied files no longer in the lock: ${left.length} (${left
-      .slice(0, 3)
-      .map((x) => paths.lockForm(x.path))
-      .join(', ')}${left.length > 3 ? ', …' : ''})`,
-    fix: `${palmCommand('install', [], paths.scope)} removes them`,
-  });
-}
-
 /** Every listed file and fragment is on disk as the render recomputed from the cache has it. */
 export async function lockDisk(c: CheckContext): Promise<CheckRun> {
   const f = found();
@@ -165,8 +95,6 @@ export async function lockDisk(c: CheckContext): Promise<CheckRun> {
     return skipped('lock-disk', 'generated files', 'cache empty; run palm install');
   for (const e of entries)
     if (!c.drifted.has(lockId(e)) && !c.offline.has(lockId(e))) await entryDisk(c, e, f);
-  await orphans(c, f);
-  appliedLeftovers(c, f);
   const skippedNote = offline.length
     ? `; ${count(offline.length, 'entity', 'entities')} skipped (cache empty; run palm install)`
     : '';

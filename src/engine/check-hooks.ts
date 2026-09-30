@@ -25,6 +25,8 @@ export interface HookFinding {
 }
 
 const HOOK_AT = /^\/hooks\/[^/]+$/;
+/** One analysis per check run: `exec-trusted` and `foreign-hooks` share it. */
+const MEMO = new WeakMap<CheckContext, Promise<HookFinding[]>>();
 const COMMAND_KEYS = ['command', 'bash', 'powershell'];
 
 /** Every command string of a hook item, at any depth (`command`, `bash`, `powershell`). */
@@ -117,7 +119,15 @@ function findingsIn(arr: HookArray, disk: unknown[], explained: Set<string>): Ho
  * Every command in a hook array palm merges into that no installed entry explains: foreign,
  * or (`owner` set) standing where that entry's own command went missing.
  */
-export async function hookFindings(c: CheckContext): Promise<HookFinding[]> {
+export function hookFindings(c: CheckContext): Promise<HookFinding[]> {
+  const known = MEMO.get(c);
+  if (known) return known;
+  const next = findAll(c);
+  MEMO.set(c, next);
+  return next;
+}
+
+async function findAll(c: CheckContext): Promise<HookFinding[]> {
   const found = arrays(c);
   const explained = lockCommands(c);
   for (const arr of found.values())

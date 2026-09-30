@@ -13,9 +13,15 @@ import { makeWorld, type World } from './world.js';
 
 const IDS = [
   'manifest-lock',
+  'render',
+  'partial',
   'lock-disk',
+  'orphans',
+  'pending',
   'local-sources',
+  'source-paths',
   'exec-trusted',
+  'foreign-hooks',
   'hook-scripts',
   'secrets',
   'git-ignored',
@@ -23,6 +29,8 @@ const IDS = [
   'links',
   'hidden-unicode',
   'double-load',
+  'agent-names',
+  'preloads',
   'block-size',
 ];
 

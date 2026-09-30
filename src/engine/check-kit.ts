@@ -81,7 +81,7 @@ export function count(n: number, word: string, plural = `${word}s`): string {
 }
 
 /** The targets a lock entry should be on: the scope's, narrowed by the entry's `targets`. */
-export function expectedTargets(run: Run, e: LockEntry): TargetId[] {
+function expectedTargets(run: Run, e: LockEntry): TargetId[] {
   const narrowed = e.targets;
   const scope = run.state.targets;
   return narrowed?.length ? scope.filter((t) => narrowed.includes(t)) : [...scope];

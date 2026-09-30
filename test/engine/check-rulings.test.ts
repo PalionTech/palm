@@ -4,7 +4,7 @@
  */
 import './fakes.js';
 
-import { mkdir, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { CheckRun } from '../../src/core/types.js';
@@ -74,8 +74,8 @@ describe('check rulings (FINDINGS-v2)', () => {
       failFor: ['cursor'],
     });
     const { r, report } = await check(w);
-    expect(r['lock-disk']?.status).toBe('fail');
-    expect(messages(r['lock-disk'])).toContain('skill tdd is partial: not installed for cursor');
+    expect(r.partial?.status).toBe('fail');
+    expect(messages(r.partial)).toContain('skill tdd is not installed for cursor');
     expect(report.ok).toBe(false);
   });
 
@@ -100,7 +100,8 @@ describe('check rulings (FINDINGS-v2)', () => {
       .upsert({ ...(tdd as NonNullable<typeof tdd>), render: {} })
       .save(w.path('palm.lock.yaml'));
     const { r } = await check(w);
-    expect(messages(r['lock-disk'])).toContain('skill tdd is installed for no target');
+    expect(r.render?.status).toBe('fail');
+    expect(messages(r.render)).toContain('skill tdd is installed for no target');
   });
 
   it('E2 V9 a unit whose hash moved since consent fails exec-trusted', async () => {
@@ -143,12 +144,13 @@ describe('check rulings (FINDINGS-v2)', () => {
     };
     await w.write('.claude/settings.json', JSON.stringify(both));
     ({ r } = await check(w));
-    expect(r['exec-trusted']?.problems).toEqual([
+    expect(r['exec-trusted']?.status).toBe('ok');
+    expect(r['foreign-hooks']?.problems).toEqual([
       expect.objectContaining({
         message: 'foreign hook command in .claude/settings.json (Stop): echo mine',
       }),
     ]);
-    expect(r['exec-trusted']?.status).not.toBe('ok');
+    expect(r['foreign-hooks']?.status).toBe('warn');
   });
 
   it('E13 offline with the commit missing from the cache skips lock-disk instead of failing', async () => {
@@ -166,8 +168,8 @@ describe('check rulings (FINDINGS-v2)', () => {
     const { w } = await world([{ name: 'tdd' }]);
     await w.write('.claude/skills/tdd/notes.md', 'stray\n');
     const { r } = await check(w);
-    expect(r['lock-disk']?.status).toBe('fail');
-    expect(messages(r['lock-disk'])).toContain(
+    expect(r.orphans?.status).toBe('fail');
+    expect(messages(r.orphans)).toContain(
       '.claude/skills/tdd/notes.md is inside .claude/skills/tdd/ but palm.lock.yaml does not list it',
     );
   });
@@ -232,8 +234,8 @@ describe('check rulings (FINDINGS-v2)', () => {
   it('K3 an agent that preloads a skill nobody installed warns with the install command', async () => {
     const { w } = await world([{ name: 'reviewer' }]);
     const { r } = await check(w);
-    expect(r['manifest-lock']?.status).toBe('warn');
-    expect(r['manifest-lock']?.problems).toEqual([
+    expect(r.preloads?.status).toBe('warn');
+    expect(r.preloads?.problems).toEqual([
       expect.objectContaining({
         message: 'agent reviewer preloads skill incident, not installed',
         fix: expect.stringMatching(/^palm install .+ incident$/),
@@ -245,8 +247,8 @@ describe('check rulings (FINDINGS-v2)', () => {
     const { w } = await world([{ name: 'reviewer' }]);
     await w.write('.claude/agents/new-reviewer.md', '---\nname: reviewer\n---\nAnother.\n');
     const { r } = await check(w);
-    expect(r['double-load']?.status).toBe('warn');
-    expect(messages(r['double-load'])).toContain(
+    expect(r['agent-names']?.status).toBe('warn');
+    expect(messages(r['agent-names'])).toContain(
       '.claude/agents/ holds two agents named reviewer: .claude/agents/reviewer.md and .claude/agents/new-reviewer.md',
     );
   });
@@ -279,6 +281,51 @@ describe('check rulings (FINDINGS-v2)', () => {
     expect(ignored?.problems.find((p) => p.fix?.startsWith('git add'))?.message).toMatch(
       /not committed yet \(untracked\)$/,
     );
+  });
+
+  it('C3 a generated path that reaches into a declared source through a link fails source-paths', async () => {
+    const { w } = await world([{ name: 'tdd' }]);
+    const src = await w.local('skill', { 'skills/mine/SKILL.md': 'mine\n' });
+    const r1 = await installFromSource(
+      w.ctx,
+      { source: src, names: [{ name: 'mine' }] },
+      { scope: 'project' },
+      w.deps,
+    );
+    expect(r1.failures).toEqual([]);
+    await rename(w.path('.claude/skills/tdd'), w.path('skill/tdd'));
+    await w.remove('.claude/skills');
+    await symlink('../skill', w.path('.claude/skills'));
+    const { r } = await check(w);
+    expect(r['source-paths']?.status).toBe('fail');
+    expect(messages(r['source-paths'])).toContain(
+      '.claude/skills/tdd/SKILL.md lies inside the declared source skill',
+    );
+  });
+
+  it('J7 under -g, applied files a pulled lock no longer lists fail pending', async () => {
+    const w = await makeWorld({ interactive: true, consent: 'yes' });
+    await mkdir(w.palmHome, { recursive: true });
+    await writeFile(join(w.palmHome, 'palm.yaml'), 'targets: [claude]\n');
+    const url = await w.remote('kit', { 'v1.0.0': KIT });
+    const ctx = w.context({});
+    const installed = await installFromSource(
+      ctx,
+      { source: url, names: [{ name: 'tdd' }] },
+      { scope: 'global' },
+      w.deps,
+    );
+    expect(installed.failures).toEqual([]);
+    const lockFile = join(w.palmHome, 'palm.lock.yaml');
+    const lock = await Lock.load(lockFile);
+    await lock.remove({ kind: 'skill', name: 'tdd', source: 'kit' }).save(lockFile);
+    const report = await checkScope(ctx, { scope: 'global' }, w.deps);
+    const pending = report.checks.find((c) => c.id === 'pending');
+    expect(pending?.status).toBe('fail');
+    expect(messages(pending)).toMatch(
+      /^applied files no longer in the lock: 1 \(<claude>\/skills\/tdd\/SKILL\.md\)$/,
+    );
+    expect(pending?.problems[0]?.fix).toBe('palm install -g removes them');
   });
 
   it('B2 Z6 the block-size verdict install shares: refuse above the cap, warn above 24 KiB', () => {

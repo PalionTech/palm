@@ -7,10 +7,17 @@
 import type { CheckReport, CheckRun, EngineDeps, PalmContext, Scope } from '../core/types.js';
 import { gitToplevel } from '../lib/fs.js';
 import { hiddenUnicode, lockDisk } from './check-disk.js';
-import { execTrusted, hookScripts } from './check-exec.js';
+import {
+  orphansCheck,
+  partialCheck,
+  pendingCheck,
+  renderCheck,
+  sourcePaths,
+} from './check-entries.js';
+import { execTrusted, foreignHooks, hookScripts } from './check-exec.js';
 import { type CheckContext, renderAll } from './check-kit.js';
-import { localSources, manifestLock, sourcesDeclared } from './check-lock.js';
-import { blockSize, doubleLoad, gitIgnored, links } from './check-repo.js';
+import { localSources, manifestLock, preloads, sourcesDeclared } from './check-lock.js';
+import { agentNames, blockSize, doubleLoad, gitIgnored, links } from './check-repo.js';
 import { secrets } from './check-secrets.js';
 import { resolveEngineDeps } from './deps.js';
 import { runOf } from './jobs.js';
@@ -18,12 +25,22 @@ import { openScope } from './scope.js';
 
 type Check = (c: CheckContext) => CheckRun | Promise<CheckRun>;
 
-/** The run order; `local-sources` runs before `lock-disk` so a drifted entry is reported once. */
+/**
+ * The run order; `local-sources` runs before `lock-disk` so a drifted entry is reported once.
+ * The ids after DESIGN §6's twelve are FINDINGS-v2 ruling 29: `render`, `partial`, `orphans`,
+ * `pending`, `source-paths` fail; `foreign-hooks`, `preloads`, `agent-names` only warn.
+ */
 const ORDER: Array<[string, Check]> = [
   ['manifest-lock', manifestLock],
+  ['render', renderCheck],
+  ['partial', partialCheck],
   ['local-sources', localSources],
   ['lock-disk', lockDisk],
+  ['orphans', orphansCheck],
+  ['pending', pendingCheck],
+  ['source-paths', sourcePaths],
   ['exec-trusted', execTrusted],
+  ['foreign-hooks', foreignHooks],
   ['hook-scripts', hookScripts],
   ['secrets', secrets],
   ['git-ignored', gitIgnored],
@@ -31,14 +48,22 @@ const ORDER: Array<[string, Check]> = [
   ['links', links],
   ['hidden-unicode', hiddenUnicode],
   ['double-load', doubleLoad],
+  ['agent-names', agentNames],
+  ['preloads', preloads],
   ['block-size', blockSize],
 ];
 
 const REPORT_ORDER = [
   'manifest-lock',
+  'render',
+  'partial',
   'lock-disk',
+  'orphans',
+  'pending',
   'local-sources',
+  'source-paths',
   'exec-trusted',
+  'foreign-hooks',
   'hook-scripts',
   'secrets',
   'git-ignored',
@@ -46,6 +71,8 @@ const REPORT_ORDER = [
   'links',
   'hidden-unicode',
   'double-load',
+  'agent-names',
+  'preloads',
   'block-size',
 ];
 

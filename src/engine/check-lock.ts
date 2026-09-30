@@ -109,7 +109,8 @@ function sourceSide(c: CheckContext, f: Found): void {
  * K3: an installed agent that preloads a skill (`skills:` in its frontmatter) nobody installed
  * gets a warning naming the install command; palm installs nothing on its own (PLAN §6).
  */
-function preloads(c: CheckContext, f: Found): void {
+export function preloads(c: CheckContext): CheckRun {
+  const f = found();
   const { lock, paths } = c.run.state;
   const has = (name: string) =>
     lock.entries.some((x) => x.kind === 'skill' && !x.declined && sameName(x.name, name));
@@ -126,6 +127,14 @@ function preloads(c: CheckContext, f: Found): void {
           ),
         );
   }
+  return checkRun(
+    'preloads',
+    {
+      ok: 'every skill an agent preloads is installed',
+      bad: (n) => `${count(n, 'preloaded skill')} not installed`,
+    },
+    f,
+  );
 }
 
 export function manifestLock(c: CheckContext): CheckRun {
@@ -133,13 +142,11 @@ export function manifestLock(c: CheckContext): CheckRun {
   manifestSide(c, f);
   entrySide(c, f);
   sourceSide(c, f);
-  preloads(c, f);
   return checkRun(
     'manifest-lock',
     {
       ok: 'manifest and lock agree',
       bad: (n) => `${count(n, 'disagreement')} between palm.yaml and palm.lock.yaml`,
-      warned: (n) => `manifest and lock agree; ${count(n, 'preloaded skill')} not installed`,
     },
     f,
   );

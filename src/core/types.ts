@@ -837,7 +837,7 @@ export interface CheckProblem {
 }
 
 export interface CheckRun {
-  /** Stable id: `manifest-lock`, `lock-disk`, `local-sources`, `exec-trusted`, `hook-scripts`, `secrets`, `git-ignored`, `sources-declared`, `links`, `hidden-unicode`, `double-load`, `block-size`. */
+  /** Stable id: `manifest-lock`, `render`, `partial`, `lock-disk`, `orphans`, `pending`, `local-sources`, `source-paths`, `exec-trusted`, `foreign-hooks`, `hook-scripts`, `secrets`, `git-ignored`, `sources-declared`, `links`, `hidden-unicode`, `double-load`, `agent-names`, `preloads`, `block-size` (FINDINGS-v2 ruling 29 added `render` through `preloads`). */
   id: string;
   label: string;
   status: CheckStatus;

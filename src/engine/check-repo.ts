@@ -278,10 +278,9 @@ async function agentsTwice(c: CheckContext, f: Found): Promise<void> {
 }
 
 /** A harness that would load one entity twice. */
-export async function doubleLoad(c: CheckContext): Promise<CheckRun> {
+export function doubleLoad(c: CheckContext): CheckRun {
   const f = found();
   instructionsTwice(c, f);
-  await agentsTwice(c, f);
   return checkRun(
     'double-load',
     {
@@ -292,12 +291,26 @@ export async function doubleLoad(c: CheckContext): Promise<CheckRun> {
   );
 }
 
+/** Y14: agent files with one name in a harness's agents folder (warning). */
+export async function agentNames(c: CheckContext): Promise<CheckRun> {
+  const f = found();
+  await agentsTwice(c, f);
+  return checkRun(
+    'agent-names',
+    {
+      ok: 'no two agents share a name in a harness folder',
+      bad: (n) => `${count(n, 'agent name')} used twice in a harness folder`,
+    },
+    f,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // block-size
 // ---------------------------------------------------------------------------
 
 /** Above this a root AGENTS.md or GEMINI.md block file warns. */
-export const BLOCK_WARN_BYTES = 24 * 1024;
+const BLOCK_WARN_BYTES = 24 * 1024;
 /** Codex reads at most 32 KiB of AGENTS.md (`project_doc_max_bytes`). */
 const CAPS: Record<string, number | undefined> = { 'AGENTS.md': 32 * 1024, 'GEMINI.md': undefined };
 
