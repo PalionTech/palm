@@ -196,7 +196,9 @@ function assertSkillSize(job: RenderJob, files: SkillFiles['files']): void {
   throw new PalmError(
     'E_SOURCE',
     `skill ${job.entity.name}: ${copySize(files.length, bytes)} to copy; a skill above ${limit} needs --force`,
-    `check ${job.entity.path === '.' ? 'the source root' : job.entity.path} in the source, then run`,
+    job.entity.path === '.'
+      ? 'a SKILL.md at the source root makes the whole repository the skill; to copy it anyway, run'
+      : `check ${job.entity.path} in the source; to copy it anyway, run`,
     { retryWith: '--force' },
   );
 }

@@ -5,8 +5,9 @@
  * in a definition is replaced by `<redacted sha256:8>`, so the index never holds it. MCP servers
  * then get `secrets`, the variables they need, from the redacted definition.
  *
- * Every file a skill, agent or instruction copies is scanned too (ruling Y2): a literal there is
- * critical, since the file is written as it is and palm never writes a literal from a source.
+ * Every file a skill, agent or instruction copies is scanned too (ruling Y2): a credential there
+ * is critical, since the file is written as it is and palm never writes a literal from a source;
+ * a random value in code or prose is a warning (`copiedSeverity`).
  *
  * The shapes and the redaction are `src/secrets/scan.ts`; scan.ts passes them in.
  */
@@ -131,15 +132,42 @@ function definitionIssues(e: Entity, scanner: SecretScanner): EntityIssue[] {
   return r.issues;
 }
 
+/** How bad one finding in a file is; `text` is the file's text. */
+type Severity = (f: SecretFinding, file: string, text: string) => EntityIssue['severity'];
+
 async function fileIssues(
   file: SourceFile,
   scanner: SecretScanner,
-  severity: EntityIssue['severity'],
+  severity: Severity,
 ): Promise<EntityIssue[]> {
   const text = await readScannable(file.abs);
   if (text === undefined) return [];
-  return scanner.scanText(text, file.rel).map((f) => issueOf(f, file.rel, severity));
+  return scanner
+    .scanText(text, file.rel)
+    .map((f) => issueOf(f, file.rel, severity(f, file.rel, text)));
 }
+
+/** Files whose `name = value` lines are configuration, where a random value is a credential. */
+const DATA_FILE = /(^|\/)\.env(\.[^/]*)?$|\.(json|jsonc|toml|ya?ml|ini|cfg|conf|properties)$/i;
+
+/** The line a `<file>:<line>` finding points at. */
+function lineOf(f: SecretFinding, text: string): string {
+  const n = Number(/:(\d+)$/.exec(f.where)?.[1] ?? 0);
+  return text.split(/\r?\n/)[n - 1] ?? '';
+}
+
+/**
+ * A copied file's finding refuses the entity when it is a credential beyond doubt: a known token
+ * prefix, a Bearer token, a secret in a URL, a private key block, or a random value in a
+ * configuration file. A random value in code or prose (`apiKey = hash(input)`) and a certificate
+ * or public key block are warnings: palm cannot tell them from a secret, so it says so and copies.
+ */
+const copiedSeverity: Severity = (f, file, text) => {
+  if (f.shape === 'high-entropy') return DATA_FILE.test(file) ? 'critical' : 'warning';
+  if (f.shape === 'private-key')
+    return lineOf(f, text).includes('PRIVATE KEY') ? 'critical' : 'warning';
+  return 'critical';
+};
 
 async function closureIssues(
   ctx: ScanContext,
@@ -151,7 +179,7 @@ async function closureIssues(
   // The definition files were scanned value by value above.
   const own = new Set([e.path, ...(ctx.extraSources.get(e) ?? [])]);
   const files = (await closureFiles(ctx, closure)).filter((f) => !own.has(f.rel));
-  return (await Promise.all(files.map((f) => fileIssues(f, scanner, 'warning')))).flat();
+  return (await Promise.all(files.map((f) => fileIssues(f, scanner, () => 'warning')))).flat();
 }
 
 /** Kinds whose files are copied or converted as they are (their text is the render). */
@@ -164,7 +192,7 @@ async function copiedIssues(
   scanner: SecretScanner,
 ): Promise<EntityIssue[]> {
   const files = await ownFiles(ctx, e);
-  return (await Promise.all(files.map((f) => fileIssues(f, scanner, 'critical')))).flat();
+  return (await Promise.all(files.map((f) => fileIssues(f, scanner, copiedSeverity)))).flat();
 }
 
 async function entityIssues(

@@ -72,6 +72,19 @@ describe('Y2 a root SKILL.md never copies harness configs and keys', () => {
     expect(find(r, 'agent', 'caller').issues?.[0]?.severity).toBe('critical');
     expect(find(r, 'instruction', 'keys').issues?.[0]?.code).toBe('secret-literal');
   });
+
+  it('Y2 a random value refuses in a config file, and is a warning in code or prose', async () => {
+    const random = `${FILL}Bq3Wc5Yh${FILL}`;
+    await put('skills/cfg/SKILL.md', skillMd('cfg'));
+    await put('skills/cfg/config.json', { api_key: random });
+    await put('skills/code/SKILL.md', skillMd('code'));
+    await put('skills/code/server.js', `const apiKey = ${random};\n`);
+    await put('skills/pem/SKILL.md', `${skillMd('pem')}\n-----BEGIN CERTIFICATE-----\n`);
+    const r = await run();
+    expect(find(r, 'skill', 'cfg').issues?.map((i) => i.severity)).toEqual(['critical']);
+    expect(find(r, 'skill', 'code').issues?.map((i) => i.severity)).toEqual(['warning']);
+    expect(find(r, 'skill', 'pem').issues?.map((i) => i.severity)).toEqual(['warning']);
+  });
 });
 
 describe('C4 only the top-most SKILL.md is an entity', () => {

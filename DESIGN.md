@@ -206,9 +206,12 @@ Enforced in targets and engine:
   `.gemini`, `.opencode`, `.github`, `.vscode`, `.apm`, `.mcp.json`, `opencode.json`),
   `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`, palm's files (`palm.yaml`, `palm.lock.yaml`,
   `palm.local.yaml`, `.palm`) and `.env` files, with one note naming what was left out. Every
-  file a skill, agent or instruction copies is secret-scanned at index time; a literal refuses the
-  entity. A skill above 200 files or 5 MB is refused without `--force`, with the count in the
-  message (`RenderInput.force`). `agents/openai.yaml` is copied only into `.agents/skills`.
+  file a skill, agent or instruction copies is secret-scanned at index time: a credential beyond
+  doubt (a known token prefix, a Bearer token, a secret in a URL, a private key block, a random
+  value in a configuration file) refuses the entity; a random value in code or prose and a
+  certificate block are warnings. A skill above 200 files or 5 MB is refused without
+  `--force`, with the count in the message (`RenderInput.force`). `agents/openai.yaml` is
+  copied only into `.agents/skills`.
 - Symlinks inside a source are followed only when their real target stays inside the source,
   so a skill cannot smuggle `~/.ssh/id_rsa` into `.claude/skills`.
 - A deploy is a transaction: `Target.render` computes every file and fragment without writing;
