@@ -213,28 +213,35 @@ function checkFailures(report: CheckReport): InstallFailure[] {
   return out;
 }
 
-/** Paths `git status` lists that palm wrote or changed: the files and folders to commit. */
+/** A `git status --short` line as the path to commit: an untracked file by its top folder. */
+function commitPath(line: string): string | undefined {
+  const path = line
+    .slice(3)
+    .replace(/^.* -> /, '')
+    .replace(/^"(.*)"$/, '$1');
+  if (!path || path.startsWith('.palm/lock') || path.startsWith('.palm/local/')) return undefined;
+  if (!line.startsWith('??')) return path;
+  if (path.startsWith('.palm/assets/')) return '.palm/assets/';
+  const slash = path.indexOf('/');
+  return slash < 0 ? path : path.slice(0, slash + 1);
+}
+
+/**
+ * What the migration changed or created, as `git status` lists it, limited to what palm owns
+ * (palm.yaml, the lock, `.gitignore`, `.palm/assets/`, the lock's files and merged files): the
+ * files and output folders to commit, untracked folders 0.1 never committed included.
+ */
 async function toCommit(plan: Plan): Promise<string[] | undefined> {
   const { paths, lock } = plan.run.state;
   if (paths.scope !== 'project') return undefined;
-  const status = await runGit(['status', '--short', '--untracked-files=normal', '--', '.'], {
-    cwd: paths.root,
-  }).catch(() => undefined);
+  const args = ['status', '--short', '--untracked-files=all', '--', '.'];
+  const status = await runGit(args, { cwd: paths.root }).catch(() => undefined);
   if (status === undefined) return undefined;
-  const mine = ['palm.yaml', 'palm.lock.yaml', '.gitignore'];
-  for (const e of lock.entries) mine.push(...e.files, ...(e.merged ?? []).map((m) => m.file));
-  const owned = (p: string) =>
-    p.startsWith('.palm/') || mine.some((f) => f === p || (p.endsWith('/') && f.startsWith(p)));
-  const listed = status
-    .split('\n')
-    .map((l) =>
-      l
-        .slice(3)
-        .replace(/^.* -> /, '')
-        .replace(/^"(.*)"$/, '$1'),
-    )
-    .filter((p) => p && owned(p));
-  return [...new Set(listed)].sort();
+  const mine = ['palm.yaml', 'palm.lock.yaml', '.gitignore', '.palm/assets/'];
+  for (const e of lock.entries) mine.push(...e.files, ...(e.merged ?? []).map((g) => g.file));
+  const owned = (p: string) => mine.some((f) => f === p || (p.endsWith('/') && f.startsWith(p)));
+  const listed = status.split('\n').flatMap((l) => commitPath(l) ?? []);
+  return [...new Set(listed.filter(owned))].sort();
 }
 
 async function finish(plan: Plan, report: MigrateReport, deps: EngineDeps): Promise<void> {
