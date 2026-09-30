@@ -11,16 +11,13 @@
  */
 import { existsSync } from 'node:fs';
 import { readdir, rm } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import { withScopeLock } from '../core/context.js';
 import { isPalmError, PalmError } from '../core/errors.js';
-import { runGit } from '../core/git-exec.js';
 import { hashPath } from '../core/hash.js';
 import type {
-  CheckReport,
   EngineDeps,
   ExecUnit,
-  InstallFailure,
   LegacyConfig,
   LegacyManifest,
   LockEntry,
@@ -39,6 +36,7 @@ import { ensureIgnoreLines } from './gitignore.js';
 import { convertLegacy, type LegacyItem, type Migration } from './migrate-legacy.js';
 import { provisionalLock } from './migrate-lock.js';
 import { type Plan, planMigration } from './migrate-plan.js';
+import { checkFailures, display, filesToCommit, shown } from './migrate-report.js';
 import { withLegacyComments } from './migrate-text.js';
 import { applyAll } from './runner.js';
 import { saveScope } from './scope.js';
@@ -77,17 +75,6 @@ async function readLegacy(paths: ScopePaths): Promise<Legacy> {
 
 function baseDir(paths: ScopePaths): string {
   return paths.scope === 'global' ? paths.palmHome : paths.root;
-}
-
-/** `~/…` for a path below the home directory, as people type it. */
-function shown(paths: ScopePaths, abs: string): string {
-  const rel = relative(paths.home, abs);
-  return rel.startsWith('..') ? abs : `~/${rel}`;
-}
-
-/** A path for people: project-relative, or `~/…` under -g (tokens stay in the lock). */
-function display(paths: ScopePaths, abs: string): string {
-  return paths.scope === 'global' ? shown(paths, abs) : paths.lockForm(abs);
 }
 
 function manifestOf(paths: ScopePaths, m: Migration): Manifest {
@@ -200,56 +187,12 @@ async function dropHookDirs(plan: Plan, legacy: LegacyItem[], hashes: Map<string
 // After the install: the check and the files to commit
 // ---------------------------------------------------------------------------
 
-/** One failure per problem of a failed check (code E_CHECK; `report.check` holds the check). */
-function checkFailures(report: CheckReport): InstallFailure[] {
-  const out: InstallFailure[] = [];
-  for (const c of report.checks.filter((r) => r.status === 'fail'))
-    for (const p of c.problems) {
-      const who = p.entity
-        ? { kind: p.entity.kind, name: p.entity.name, source: p.entity.source }
-        : { kind: 'source' as const, name: c.id, source: p.file ?? c.label };
-      out.push({ ...who, code: 'E_CHECK', message: p.message, ...(p.fix ? { hint: p.fix } : {}) });
-    }
-  return out;
-}
-
-/** A `git status --short` line as the path to commit: an untracked file by its top folder. */
-function commitPath(line: string): string | undefined {
-  const path = line
-    .slice(3)
-    .replace(/^.* -> /, '')
-    .replace(/^"(.*)"$/, '$1');
-  if (!path || path.startsWith('.palm/lock') || path.startsWith('.palm/local/')) return undefined;
-  if (!line.startsWith('??')) return path;
-  if (path.startsWith('.palm/assets/')) return '.palm/assets/';
-  const slash = path.indexOf('/');
-  return slash < 0 ? path : path.slice(0, slash + 1);
-}
-
-/**
- * What the migration changed or created, as `git status` lists it, limited to what palm owns
- * (palm.yaml, the lock, `.gitignore`, `.palm/assets/`, the lock's files and merged files): the
- * files and output folders to commit, untracked folders 0.1 never committed included.
- */
-async function toCommit(plan: Plan): Promise<string[] | undefined> {
-  const { paths, lock } = plan.run.state;
-  if (paths.scope !== 'project') return undefined;
-  const args = ['status', '--short', '--untracked-files=all', '--', '.'];
-  const status = await runGit(args, { cwd: paths.root }).catch(() => undefined);
-  if (status === undefined) return undefined;
-  const mine = ['palm.yaml', 'palm.lock.yaml', '.gitignore', '.palm/assets/'];
-  for (const e of lock.entries) mine.push(...e.files, ...(e.merged ?? []).map((g) => g.file));
-  const owned = (p: string) => mine.some((f) => f === p || (p.endsWith('/') && f.startsWith(p)));
-  const listed = status.split('\n').flatMap((l) => commitPath(l) ?? []);
-  return [...new Set(listed.filter(owned))].sort();
-}
-
 async function finish(plan: Plan, report: MigrateReport, deps: EngineDeps): Promise<void> {
   const { ctx, state, result } = plan.run;
   report.check = await checkScope(ctx, { scope: state.paths.scope }, deps);
   report.failures = [...result.failures, ...checkFailures(report.check)];
   report.warnings.push(...result.warnings);
-  const commit = await toCommit(plan);
+  const commit = await filesToCommit(state);
   if (commit) report.commit = commit;
 }
 

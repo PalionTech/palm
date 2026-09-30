@@ -50,7 +50,16 @@ async function commitAll(dir: string): Promise<void> {
 }
 
 /** `palm migrate` without a terminal: refused, nothing changed; then the printed line migrates. */
-async function migrateWithConsent(cwd: string, root: string, ...flags: string[]): Promise<Run> {
+/**
+ * `palm migrate` without a terminal: refused, nothing changed; then the printed line migrates
+ * (with `json`, as one JSON report on stdout).
+ */
+async function migrateWithConsent(
+  cwd: string,
+  root: string,
+  flags: string[] = [],
+  json = false,
+): Promise<Run> {
   const before = await snapshot(root);
   const refused = await m.palm(cwd, 'migrate', ...flags);
   expect(refused.code, refused.all).toBe(1);
@@ -58,7 +67,15 @@ async function migrateWithConsent(cwd: string, root: string, ...flags: string[])
     `then:    palm migrate${flags.map((f) => ` ${f}`).join('')} --allow-exec`,
   );
   expect(await snapshot(root)).toEqual(before);
-  const run = await m.palm(cwd, 'migrate', ...flags, '--allow-exec', allowExecOf(refused.all));
+  const extra = json ? ['--json'] : [];
+  const run = await m.palm(
+    cwd,
+    'migrate',
+    ...flags,
+    ...extra,
+    '--allow-exec',
+    allowExecOf(refused.all),
+  );
   expect(run.code, run.all).toBe(0);
   return run;
 }
@@ -578,7 +595,11 @@ describe('palm migrate on the persona projects, continued', () => {
 
   it('J2 D16 J17 migrate -g writes through the dotfiles links, keeps every server, maps another home onto this one', async () => {
     await dotfilesHome();
-    const run = await migrateWithConsent(m.home, m.home, '-g');
+    const run = await migrateWithConsent(m.home, m.home, ['-g'], true);
+    expect(JSON.parse(run.stdout).commit).toEqual([
+      '~/dotfiles/palm/palm.lock.yaml',
+      '~/dotfiles/palm/palm.yaml',
+    ]);
     expect(run.all).toContain(
       'copy ~/.palm/mine/agents/scribe.md to ~/.palm/kit/agents/scribe.md, then run: palm install ~/.palm/kit scribe -g',
     );
