@@ -33,7 +33,7 @@ Other commands you will use:
 | `npm run test:watch` | vitest in watch mode |
 | `npm run test:coverage` | tests with v8 coverage; fails below the thresholds in `vitest.config.ts` |
 | `npm run lint:fix` | applies Biome formatting and safe lint fixes |
-| `npm run bench` | times the origin scanner on a synthetic origin of about 4,000 files; compare the numbers before and after a change to `src/index/` |
+| `npm run bench` | times the source scanner on a synthetic source of about 4,000 files; compare the numbers before and after a change to `src/index/` |
 | `npm run knip` | reports unused files, exports and dependencies |
 | `bash scripts/e2e.sh` | end-to-end run against real public repositories (needs network) |
 
@@ -42,7 +42,7 @@ Other commands you will use:
 1. **Unit and integration tests** (`npm test`) live in `test/<module>/`, mirroring `src/`.
    They are hermetic: `test/support/setup.ts` gives every worker a temporary `HOME`, `PALM_HOME`
    and harness directories, disables global git config, strips tokens and blocks `fetch`.
-   Origins are local fixture repositories under `test/fixtures/`. No test touches the network
+   Sources are local fixture repositories under `test/fixtures/`. No test touches the network
    or your real home directory.
 2. **Property tests** (`*.property.test.ts`) use fast-check for parsers and anything with a
    grammar.
@@ -51,7 +51,7 @@ Other commands you will use:
 4. **End-to-end** (`scripts/e2e.sh`) installs from real public repositories into a throwaway
    sandbox. It never touches your real `~/.palm`, `~/.claude` or other harness directories.
    CI runs it nightly against the packed tarball (`e2e.yml`). Run it before changing git
-   handling, origin scanning or anything that writes harness files. Set `PALM_BIN=palm` to test
+   handling, source scanning or anything that writes harness files. Set `PALM_BIN=palm` to test
    an installed palm instead of building `dist/`.
 
 A bug fix comes with a test that fails without the fix.
@@ -130,14 +130,14 @@ and scope, and the safety rules below it apply to every target.
 
 ## Adding a scan rule
 
-Scan rules decide what an origin repository contains. They are listed in priority order in
+Scan rules decide what a source repository contains. They are listed in priority order in
 DESIGN.md section 5, "Scan rules". The code is in `src/index/`.
 
 1. Add a fixture under `test/fixtures/<name>-like/`, named after the real repository whose
    layout it copies, with only the files the rule needs.
 2. Add the rule in `src/index/` at the right priority, and a test in `test/index/` that scans
    the fixture and checks the entities, names and warnings.
-3. Run `npm run bench` before and after; a rule must not make large origins noticeably slower.
+3. Run `npm run bench` before and after; a rule must not make large sources noticeably slower.
 4. Update the scan-rules list in DESIGN.md and the scan rules reference page in the docs.
 
 ## Deprecating a command or option

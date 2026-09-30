@@ -1,5 +1,5 @@
 /**
- * A synthetic cursor/plugins-sized origin (~4k files): `plugins` Cursor plugins, each with
+ * A synthetic cursor/plugins-sized source (~4k files): `plugins` Cursor plugins, each with
  * 5 skills (plus references and scripts), 3 agents, an MCP server, a rule and junk files,
  * listed in one marketplace. Shared by test/index/scan-fs.test.ts and `npm run bench`.
  */
@@ -8,7 +8,7 @@ import { putFile } from './sandbox.js';
 const skillMd = (name: string) =>
   `---\nname: ${name}\ndescription: ${name} skill\n---\n\n# ${name}\n`;
 
-/** Entities scanOrigin must find in a tree written by writeSyntheticOrigin(root, plugins). */
+/** Entities scanSource must find in a tree written by writeSyntheticSource(root, plugins). */
 export function syntheticCounts(plugins = 100) {
   return { plugins, skills: plugins * 5, agents: plugins * 3, mcp: plugins, rules: plugins };
 }
@@ -41,8 +41,8 @@ function pluginFiles(p: number): Array<[string, string | object]> {
   return files;
 }
 
-/** Writes the synthetic origin below `root`; returns the number of files written. */
-export async function writeSyntheticOrigin(root: string, plugins = 100): Promise<number> {
+/** Writes the synthetic source below `root`; returns the number of files written. */
+export async function writeSyntheticSource(root: string, plugins = 100): Promise<number> {
   const files: Array<[string, string | object]> = [];
   for (let p = 0; p < plugins; p++) files.push(...pluginFiles(p));
   const entries = Array.from({ length: plugins }, (_, p) => ({

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { isPalmError } from '../../src/core/errors.js';
 import { putFile } from '../support/sandbox.js';
-import { writeSyntheticOrigin } from '../support/synthetic.js';
+import { writeSyntheticSource } from '../support/synthetic.js';
 import { scanSource } from './helpers.js';
 
 let tmp: string;
@@ -268,7 +268,7 @@ describe('scanSource filesystem edge cases', () => {
 
   // Wall-clock time is measured by `npm run bench` (scripts/bench-scan.mjs), not asserted here.
   it('scans a cursor/plugins-sized repository (~4k files)', async () => {
-    await writeSyntheticOrigin(join(tmp, 'repo'), 100);
+    await writeSyntheticSource(join(tmp, 'repo'), 100);
     const r = await run();
     const count = (k: string) => r.entities.filter((e) => e.kind === k).length;
     expect({
