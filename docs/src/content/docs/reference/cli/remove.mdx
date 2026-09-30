@@ -1,87 +1,107 @@
 ---
-title: palm uninstall
-description: Remove entities and what palm wrote for them, or unregister an origin.
+title: palm remove
+description: Delete exactly the files and merged config entries an entity wrote, and update palm.yaml and the lock.
 ---
 
 import Capture from '../../../../components/Capture.astro';
 
-`palm uninstall` deletes the files palm wrote for an entity, reverses its merged config and updates `palm.yaml` and `palm.lock.yaml`.
+`palm remove` deletes exactly what the lock says an entity wrote, then drops it from `palm.yaml` and the lock.
 
 ```sh
-palm uninstall [kind] <name[@origin]>... [options]
-palm uninstall origin <alias>... [options]
+palm remove [source] <[kind:]name...> [--exclude]
 ```
 
-Aliases: `palm remove`, `palm rm`, `palm delete`.
-Kinds: `skill`, `agent`, `instruction`, `command`, `hook`, `mcp`, `plugin` and `origin`, as singular, plural or [short name](/palm/reference/cli/#kinds).
-Without a kind, palm matches the name in every entity kind.
+Aliases: `palm uninstall`, `palm rm`.
 
-| Command | Meaning |
+| Command | What it does |
 | --- | --- |
-| `palm uninstall skill tdd` | Remove a skill and the dependencies nothing else needs. |
-| `palm uninstall skills tdd grill-me` | Remove several skills. |
-| `palm rm plugin superpowers -g` | Remove a plugin and its members from the global scope. |
-| `palm uninstall mcp docs --dry-run` | Show what palm would remove. |
-| `palm uninstall skill tdd --force` | Remove the skill even when you changed its files, and delete those changes. |
-| `palm uninstall origin pstack` | Unregister an origin. Installed entities stay. |
+| `palm remove tdd` | Remove the entity named `tdd`, from whichever source it came from. |
+| `palm remove mattpocock/skills tdd handoff` | Remove two entities of one source. |
+| `palm remove obra/superpowers brainstorming --exclude` | Drop one plugin member for the whole team. |
+| `palm remove obra/superpowers plugin:superpowers` | Remove a plugin and every member no other plugin declares. |
+| `palm remove mcp:docs` | Remove a hand-declared MCP server. |
+| `palm remove handoff -g` | Remove from your home directory. |
 
-<Capture name="c-uninstall" />
+<Capture name="c-remove" title="~/project" />
 
 ## Options
 
-{/* cli-reference:options uninstall */}
+{/* cli-reference:options remove */}
 
 | Argument | Meaning |
 | --- | --- |
-| `kind` | skill, agent, instruction, command, hook, mcp, plugin, origin (plurals and short names work); omit it to match every entity kind |
-| `names` | `name[@origin][#ref]` |
+| `source` | a declared source name or alias; needed when the name exists in two sources |
+| `names` | entity names, with a kind: prefix when one name means two kinds |
 
-No options of its own. The [global options](/palm/reference/cli/#global-options) apply.
+| Option | Meaning |
+| --- | --- |
+| `--exclude` | for a plugin member: add it to the plugin's exclude list for the team |
+
+The [global options](/palm/reference/cli/#global-options) also apply.
 
 {/* /cli-reference */}
 
-## Dependencies
-
-An entity that an agent or plugin pulled in goes with it, unless something still needs it:
-
-- `palm.yaml` lists it directly. It stays and becomes a direct install.
-- Another installed plugin or agent declares it. It stays, and the lockfile records that entry as its parent.
-
-`palm why <kind> <name>` shows what keeps an entity installed.
-
 ## Behavior
 
-### What it writes
+palm selects each entity by name, by kind when a name means two kinds, and by source when a name exists in two sources.
+It then undoes exactly what the lock lists.
 
-- Deletes every file the lockfile lists for the entity, and removes the directories palm emptied. It removes a harness folder such as `.claude` or `.cursor` only when palm created it and nothing else is left in it.
-- Removes exactly the values palm merged into shared files, such as `.mcp.json` or `.claude/settings.json`. It prunes containers palm emptied and deletes a JSON file left as `{}`.
-- Removes palm's own managed blocks from `AGENTS.md` and `GEMINI.md`.
-- Removes the entry from `palm.yaml`, and the section when it becomes empty, then updates `palm.lock.yaml`.
-- `palm uninstall origin` removes the alias from `~/.palm/config.yaml` and from the project's `palm.yaml`.
+- Files by path. Folders palm emptied are removed, up to but never including the harness folders such as `.claude` or `.github`.
+- Merged entries by identity: a hook inside `.claude/settings.json`, a server inside `.mcp.json`, a block in `AGENTS.md`. Your own entries in the same file stay. A JSON, TOML or Markdown file left empty is deleted.
+- The entity's `.palm/assets/<source>/<entity>/` folder.
 
-### What it asks
+palm then removes the entry from `palm.yaml` and the lock.
+A source with no entries left is dropped from both.
 
-Nothing.
+In a project, the result is a set of deleted and edited files that you commit.
+A teammate's `git pull` removes the entity for them, with no palm run.
+Under `-g`, `~/.palm/applied.yaml` records the removal, and `palm install -g` on another machine repeats it.
 
-### What it refuses
+## Plugin members
 
-- An entity with a file you changed since palm wrote it. palm removes none of its files, keeps it installed and prints the command that removes it: `palm uninstall <kind> <name> --force`.
-- A name installed as two kinds: `E_AMBIGUOUS`. Name the kind.
-- A name that is not installed in the scope: `E_NOT_FOUND`. Add `-g` for the global scope.
+A member installed through a plugin cannot be removed on its own name alone, because the plugin would bring it back.
 
-When a target cannot remove its files, palm prints an `x` line.
-The entry stays in the lockfile with what is still on disk.
+```text
+x brainstorming belongs to plugin superpowers: exclude it for the team (palm remove obra/superpowers brainstorming --exclude) or remove the plugin
+```
+
+`--exclude` adds `skill:brainstorming` to the plugin entry's `exclude:` list and removes the member.
+Removing a plugin removes its members, except a member another installed plugin still declares. That member stays, and a warning names the command that removes both.
+
+## Reads and writes
+
+| File | Reads | Writes |
+| --- | --- | --- |
+| `palm.yaml` | yes | removes entries, empty sections and sources with no entries |
+| `palm.lock.yaml` | yes | removes entries and unused sources |
+| harness files | yes, to compare with the render | deletes files, removes merged entries |
+| `.palm/assets/` | no | deletes the entity's folder |
+
+## What it refuses
+
+A file you changed since palm wrote it stops the removal, and the entity stays installed and locked.
+
+```text
+x skill tdd: .claude/skills/tdd/SKILL.md was modified since install
+    palm remove mattpocock/skills tdd --force
+```
+
+`--force` deletes the changed file too.
+palm never deletes a path whose real path is inside a declared source, `--force` included.
+
+Removing something that is not installed prints `i <name> is not installed` and exits 0.
 
 ## Exit codes
 
 | Code | When |
 | --- | --- |
-| `0` | Every named entity is removed. |
-| `1` | A name or alias is not found, a name is ambiguous, an entity has files you changed, or a file could not be removed. |
-| `2` | A usage error, such as no name. |
+| `0` | Every named entity is removed, or was not installed. |
+| `1` | A file was modified since install, a plugin member was named without `--exclude`, a name exists in two sources, or a file could not be removed. |
+| `2` | No name, an unknown option, or `--local`. |
+| `130` | You pressed Esc or Ctrl-C at a prompt. |
 
 ## Related
 
-- [`palm install`](/palm/reference/cli/install/)
-- [`palm why`](/palm/reference/cli/why/)
-- [palm.lock.yaml](/palm/reference/palm-lock-yaml/)
+- [palm install](/palm/reference/cli/install/)
+- [Install plugins and marketplaces](/palm/guides/plugins-and-marketplaces/)
+- [palm.yaml and palm.lock.yaml](/palm/concepts/manifest-and-lockfile/)

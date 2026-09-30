@@ -18,7 +18,7 @@ When you finish, the project runs on 0.2, and the only changes are `palm.yaml`, 
 
 - Commit the current state, so `git diff` shows exactly what the migration changed.
 - Upgrade palm with `npm install -g @paliontech/palm@latest`.
-- Keep `~/.palm/config.yaml` in place until every project is migrated. palm reads its origins once per project.
+- Keep `~/.palm/config.yaml` in place until every project is migrated. palm reads its repository list once per project.
 
 ## Steps
 
@@ -55,15 +55,15 @@ When you finish, the project runs on 0.2, and the only changes are `palm.yaml`, 
 
 | palm 0.1 | palm 0.2 |
 | --- | --- |
-| an origin in `~/.palm/config.yaml` | a source in `palm.yaml`, keyed `owner/repo` for GitHub, else by the alias, with its URL, root, layout and locked ref |
-| an origin alias that differs from the key | `alias:` on the source |
+| a repository registered in `~/.palm/config.yaml` | a source in `palm.yaml`, keyed `owner/repo` for GitHub, else by the alias, with its URL, root, layout and locked ref |
+| a registration alias that differs from the key | `alias:` on the source |
 | `tdd@mattpocock#v1.2.3` in a kind list | `tdd` under the source's `skills:`; the ref moves to the source |
 | entries of one source pinned to different refs | the most common ref wins, and palm names the others |
 | a plugin with uninstalled members | a `plugins:` entry with `exclude:` |
 | a `command` entry | a skill of the same name |
 | an MCP server from the MCP registry | an entry under `mcp:`, copied from the rendered `.mcp.json` or harness file |
 | an entry installed with `--target` beyond the project's set | per-entry `targets:`, with a note |
-| an entry from the `mine` origin | a warning that names the folder to copy the file into |
+| an entry from `~/.palm/mine` | a warning that names the folder to copy the file into |
 | `.palm/hooks/<name>/`, ignored by git | `.palm/assets/<source>/<name>/`, committed |
 | `.palm/` in `.gitignore` | `.palm/local/` and `palm.local.yaml` |
 | lock version 1 or 2 | lock version 3 |
@@ -95,7 +95,7 @@ The 0.1 grammar keeps working for one release as hidden aliases.
 | `palm why`, `palm find` | `palm describe <name>`, `palm describe <path>` |
 | `palm search`, `palm install mcp <registry name>` | none; see [Add MCP servers](/palm/guides/mcp-servers/) |
 | `palm config get`, `palm config set` | none; the global targets live in `~/.palm/palm.yaml` |
-| `palm create` wizard, the `mine` origin | `palm create <kind> <name>` into `./agent-kit` |
+| `palm create` wizard, `~/.palm/mine` | `palm create <kind> <name>` into `./agent-kit` |
 
 `palm doctor`, `audit`, `outdated`, `why`, `find`, `search` and `config` print one line naming the replacement and exit 2.
 

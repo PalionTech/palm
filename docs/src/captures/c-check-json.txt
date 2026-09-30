@@ -1,0 +1,88 @@
+$ palm check --json
+{
+  "ok": false,
+  "checks": [
+    {
+      "id": "manifest-lock",
+      "label": "manifest and lock agree",
+      "status": "pass",
+      "problems": []
+    },
+    {
+      "id": "lock-disk",
+      "label": "1 file differs from the lock",
+      "status": "fail",
+      "problems": [
+        {
+          "entity": "skill:tdd",
+          "file": ".agents/skills/tdd/references/mocking.md",
+          "message": "missing",
+          "fix": "palm install"
+        }
+      ]
+    },
+    {
+      "id": "local-sources",
+      "label": "in-repo sources match the lock",
+      "status": "pass",
+      "problems": []
+    },
+    {
+      "id": "exec-trusted",
+      "label": "every program is trusted",
+      "status": "pass",
+      "problems": []
+    },
+    {
+      "id": "hook-scripts",
+      "label": "every hook script exists and is executable",
+      "status": "pass",
+      "problems": []
+    },
+    {
+      "id": "secrets",
+      "label": "no secret literals in tracked files",
+      "status": "pass",
+      "problems": []
+    },
+    {
+      "id": "git-ignored",
+      "label": "generated files are not ignored by git",
+      "status": "pass",
+      "problems": []
+    },
+    {
+      "id": "sources-declared",
+      "label": "every source is declared",
+      "status": "pass",
+      "problems": []
+    },
+    {
+      "id": "links",
+      "label": "no path leaves the project",
+      "status": "pass",
+      "problems": []
+    },
+    {
+      "id": "hidden-unicode",
+      "label": "no hidden Unicode in generated files",
+      "status": "pass",
+      "problems": []
+    },
+    {
+      "id": "double-load",
+      "label": "no harness loads an entity twice",
+      "status": "pass",
+      "problems": []
+    },
+    {
+      "id": "block-size",
+      "label": "instruction blocks are within size limits",
+      "status": "pass",
+      "problems": []
+    }
+  ],
+  "warnings": [
+    "DOCS_TOKEN is not set; mcp docs needs it (export DOCS_TOKEN)"
+  ]
+}

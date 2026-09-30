@@ -71,7 +71,7 @@ Press `v` at the prompt to read every script before you answer. The default is n
 
 ## Where hook scripts go
 
-palm copies what a hook runs into `.palm/assets/<source>/<hook>/`: the folder that holds the hook definition, plus every file a command names.
+palm copies what a hook runs into `.palm/assets/<source>/<hook>/`. That is the folder that holds the hook definition, plus every file a command names.
 It never copies `SKILL.md`, `AGENTS.md` or plugin manifests, so no harness finds a second copy of anything there.
 Commands point at the copy through each harness's project directory variable, such as `"$CLAUDE_PROJECT_DIR"`, never through an absolute path.
 You commit the folder, so a clone without palm has working hooks.

@@ -1,32 +1,29 @@
 ---
 title: palm update
-description: Move installed entities to the newest ref palm.yaml allows, or refresh origin indexes.
+description: Move sources to the newest commit their ref allows, after a plan that lists every changed entity and every new or changed program.
 ---
 
 import Capture from '../../../../components/Capture.astro';
 
-`palm update` fetches your origins, prints a plan and, after you confirm, reinstalls what changed.
+`palm update` re-resolves each source's `ref:` against its remote, prints a plan, asks, and installs what changed.
 
 ```sh
-palm update [kind] [names...] [options]
-palm update origins [aliases...]
+palm update [sources...] [--to <ref>] [--dry-run] [--strict] [--review]
 ```
 
 Alias: `palm up`.
-Kinds: `skill`, `agent`, `instruction`, `command`, `hook`, `mcp`, `plugin` and `origin`, as singular, plural or [short name](/palm/reference/cli/#kinds).
-Without a kind or names, palm updates everything installed in the scope.
 
-| Command | Meaning |
+| Command | What it does |
 | --- | --- |
-| `palm update` | Plan and apply updates for everything installed in this project. |
-| `palm update skills` | Every skill installed directly, not as a dependency. |
-| `palm update skill tdd --dry-run` | Print the plan only. |
-| `palm update --yes` | Apply without asking, for scripts and CI. |
-| `palm update -g` | Everything installed in your home directory. |
-| `palm update origins` | Refetch and rescan every origin. |
-| `palm update origin mattpocock` | Refetch and rescan one origin. |
+| `palm update` | Plan and apply updates for every git source in `palm.yaml`. |
+| `palm update mattpocock/skills` | Only this source. |
+| `palm update --dry-run` | Print the plan and write nothing. This is the outdated report. |
+| `palm update --dry-run --strict` | The same, and exit 1 when a source is behind its ref. |
+| `palm update acme-kit --to ^2` | Move the ref in `palm.yaml` to a new range, then update. |
+| `palm update --review` | Print script diffs of changed programs before the question. |
+| `palm update --yes` | Apply without the plan question. Programs still need consent. |
 
-<Capture name="c-update" />
+<Capture name="c-update" title="~/project" />
 
 ## Options
 
@@ -34,62 +31,83 @@ Without a kind or names, palm updates everything installed in the scope.
 
 | Argument | Meaning |
 | --- | --- |
-| `kind` | skill, agent, instruction, command, hook, mcp, plugin, origin (plurals and short names work); omit it for everything installed |
-| `names` | `name[@origin][#ref]` |
+| `sources` | declared source names or aliases; all when none |
 
-No options of its own. The [global options](/palm/reference/cli/#global-options) apply.
+| Option | Meaning |
+| --- | --- |
+| `--to <ref>` | move the ref in palm.yaml for the named sources |
+| `--strict` | with --dry-run: exit 1 when anything is behind its ref |
+| `--review` | print changed scripts as diffs against the trusted version before asking |
+
+The [global options](/palm/reference/cli/#global-options) also apply.
 
 {/* /cli-reference */}
 
 ## The plan
 
-| Mark | Meaning |
+palm first plans without writing anything in the scope.
+For each selected source it resolves the ref against the remote, fetches the new commit into the cache, indexes it and compares every entry.
+
+```text
+Update plan (project scope)
+mattpocock/skills   ^1.2   v1.2.0 (3f2a1c9) → v1.2.3 (8be01d4)
+~ updated    skill   tdd
++ added      skill   review (plugin:kit)          acme-kit
+= unchanged  agent   reviewer                     acme-kit
+! hook team-skills: setup.sh changed (sha256:a7cc… → 3e01…); d shows the diff
+! you changed these files since palm wrote them; palm overwrites them only with --force:
+    .claude/skills/tdd/SKILL.md  (skill tdd)
+```
+
+| Line | Meaning |
 | --- | --- |
-| `~ updated` | New content: the ref and commit move, or the content changes at the same ref. Also an entry rendered by an older palm, or with files removed by hand. |
-| `+ added` | A member or dependency the new version declares. |
-| `- removed` | A member or dependency the new version no longer declares. |
-| `= unchanged` | Nothing to do. |
-| `x failed` | The origin is unreachable, or no longer has the entity. |
+| `<source>  <ref>  <old> → <new>` | the source, its ref, and the move from the locked tag and commit to the new ones |
+| `~ updated` | the entity's content changed |
+| `+ added`, `- removed` | a plugin member the new version declares or dropped |
+| `= unchanged` | same content; palm re-pins it to the new commit silently |
+| `x failed` | the source is unreachable, or no longer has the entity |
+| `⊘ skipped` | an in-repo source; `palm update` never touches those, a bare `palm install` does |
+| `! hook ...` | a new or changed program, with its old and new hash |
+| `! you changed these files` | generated files you edited; palm keeps them unless you pass `--force` |
 
-Below the table, palm lists files you changed that the update would overwrite.
-It overwrites them only with `--force`.
+Then palm asks `Apply N changes? [y/N]`. The default is no, and no changes nothing.
+Without a terminal, `--yes` answers it. Without either, palm stops with `E_NON_INTERACTIVE` and names the command with `--yes`.
 
-`palm update` respects the `#ref` in `palm.yaml`.
-A tag stays where it is, and a semver range moves to its highest matching tag.
-Without a `#ref`, the entry moves to the latest release.
-A dependency is updated through the plugin or agent that pulled it in.
+## Programs are never covered by `--yes`
 
-## Behavior
+A changed or new hook or stdio server goes through [consent](/palm/concepts/consent/) on its own, after the plan.
+On a terminal, `d` pages a unified diff of each changed script against the version you trusted, and `v` pages the full scripts.
+`--review` prints those diffs before the question, paged on a terminal.
+Without a terminal, a changed program stops with `E_UNTRUSTED_EXEC` and the `--allow-exec` line to consent to its new hash.
 
-### What it writes
+## Applying
 
-- The harness files of each changed entity, and `palm.lock.yaml` with the new ref and commit.
-- Nothing under `--dry-run`, and nothing when the plan has no changes.
-- `palm update origins`: the checkouts and indexes in `~/.palm/cache/`.
+palm installs the changed entries as [palm install](/palm/reference/cli/install/#install-from-a-source) does, moves each source's commit and resolved tag in the lock, and writes the lock.
+Entries whose content did not change are re-pinned to the new commit, so a second `--dry-run` reports nothing behind.
+When git is present, palm prints `git diff --stat` of the scope, so you see what to commit.
 
-### What it asks
+`--to <ref>` moves the range itself. palm writes the new `ref:` to `palm.yaml` for the named sources, then plans against it.
 
-`Apply N changes?`, with the default No.
-When the plan adds hooks or stdio MCP servers, the same question also asks consent to run them.
-Without a terminal, palm stops with `E_NON_INTERACTIVE` unless you pass `--yes`.
+## Reads and writes
 
-### What it refuses
-
-Files you changed since palm wrote them, unless `--force`.
-
-With `--json`, the document is `{ "plan", "outcomes", "failures", "warnings" }`.
+| File | Reads | Writes |
+| --- | --- | --- |
+| `palm.yaml` | yes | only with `--to` |
+| `palm.lock.yaml` | yes | new commits, resolved tags, hashes, trust |
+| harness files and `.palm/assets/` | yes | the changed entries |
+| `~/.palm/cache/` | yes | new checkouts and indexes, also under `--dry-run` |
 
 ## Exit codes
 
 | Code | When |
 | --- | --- |
-| `0` | Nothing to update, the update applied, or you answered No. |
-| `1` | An origin, the registry or a deploy failed, or no terminal and no `--yes`. |
-| `2` | A usage error. |
-| `130` | You pressed Esc at the question. |
+| `0` | The plan was applied, declined, or printed with `--dry-run`. |
+| `1` | A source failed, an entry failed, a program needs consent without a terminal, the plan needs `--yes` without a terminal, or `--dry-run --strict` found a source behind its ref. |
+| `2` | An unknown option or source argument. |
+| `130` | You pressed Esc or Ctrl-C at a prompt. |
 
 ## Related
 
-- [`palm outdated`](/palm/reference/cli/outdated/)
-- [`palm install`](/palm/reference/cli/install/)
-- [Names and refs](/palm/reference/cli/#names)
+- [Sources](/palm/concepts/sources/#refs-and-ranges)
+- [Share a team baseline](/palm/guides/team-baseline/#take-an-update)
+- [Consent and executable content](/palm/concepts/consent/)

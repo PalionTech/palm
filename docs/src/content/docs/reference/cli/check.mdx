@@ -1,0 +1,84 @@
+---
+title: palm check
+description: The read-only CI gate. palm check runs every consistency check, prints each one, and names the command that fixes every problem it finds.
+---
+
+import Capture from '../../../../components/Capture.astro';
+
+`palm check` proves that `palm.yaml`, the lock, the generated files and the in-repo sources agree. It never writes, never prompts and never fetches for an in-repo source.
+
+```sh
+palm check [--json]
+```
+
+| Command | What it does |
+| --- | --- |
+| `palm check` | Run every check and print one line per check, then one line per problem. |
+| `palm check --json` | The same, as one JSON document. |
+| `palm check -g` | Check the global scope against `~/.palm/applied.yaml` and the harness homes. |
+
+<Capture name="c-check" title="~/project" />
+
+## Options
+
+{/* cli-reference:options check */}
+
+No options of its own. The [global options](/palm/reference/cli/#global-options) apply.
+
+{/* /cli-reference */}
+
+## The checks
+
+palm runs every check in this order and prints one line each, `✓` or `x`.
+It prints `no problems` only when nothing failed and nothing warned.
+
+| Id | Fails when | Fix |
+| --- | --- | --- |
+| `manifest-lock` | an entry of `palm.yaml` has no lock entry, or the reverse; a source's `ref:` differs from the lock's; a lock source lacks its URL or commit; a plugin's `only:` or `exclude:` names nothing | `palm install` |
+| `lock-disk` | a listed file is missing or differs from the render; a merged entry is missing or changed | `palm install` to restore, `palm install <source> <name> --force` for an edited file |
+| `local-sources` | an in-repo source's tree differs from the lock | `palm install`, then commit `palm.lock.yaml` |
+| `exec-trusted` | an entry's program hash is not in its `trust:`, or a merged command on disk differs from the lock | `palm install --allow-exec <key>=<hash>` |
+| `hook-scripts` | a hook command names a file that is missing or not executable | `palm install` |
+| `secrets` | a generated file that git tracks, or others can read, holds a secret-shaped literal | `palm install <source> <name> --force` after fixing the source, or `export VAR` |
+| `git-ignored` | an output directory or `.palm/assets` is ignored by git | edit `.gitignore` |
+| `sources-declared` | a lock source is not in `palm.yaml`, or an in-repo source is missing on disk | `palm install`, or restore the directory |
+| `links` | an output path resolves outside the scope, a link under an output directory dangles, or a source overlaps an output directory | move the source |
+| `hidden-unicode` | a generated file holds a bidi override, a tag character or a rare variation selector; zero-width characters only warn | fix the source, then `palm install --force` |
+| `double-load` | warning only: a harness would load one entity twice | the 0.3 carrier rule |
+| `block-size` | warning when the managed blocks of a root `AGENTS.md` or `GEMINI.md` pass 24 KiB; failure above the harness's documented cap | move entries with `at:` in 0.3 |
+
+The `secrets` check also lists every variable the installed MCP servers need, and warns for each one that is not set.
+Checks that need git run only inside a repository. Elsewhere they print `skipped (not a git repository)`.
+
+## Network
+
+`lock-disk` recomputes each render from the cache.
+A locked commit that is not in the cache is fetched once, which is the only network access `palm check` makes.
+Cache `~/.palm/cache` between CI runs, and `palm check` runs offline.
+
+## JSON
+
+<Capture name="c-check-json" title="~/project" />
+
+## Reads and writes
+
+| File | Reads | Writes |
+| --- | --- | --- |
+| `palm.yaml`, `palm.lock.yaml` | yes | never |
+| generated files, `.palm/assets/`, in-repo sources | yes | never |
+| `~/.palm/cache/` | yes | a missing locked commit only |
+| git | `git ls-files`, `git check-ignore`, `git rev-parse` | never |
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | No check failed. Warnings alone exit 0. |
+| `1` | At least one check failed. |
+| `2` | An unknown option, or a `palm.yaml` in the 0.1 format. |
+
+## Related
+
+- [Check the setup in CI](/palm/guides/ci/)
+- [palm install](/palm/reference/cli/install/#sync-the-scope)
+- [Troubleshooting](/palm/reference/troubleshooting/)

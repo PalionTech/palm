@@ -3,19 +3,19 @@ title: palm completion
 description: Print a shell completion script for bash, zsh or fish.
 ---
 
-`palm completion` prints a completion script built from palm's command tree.
+`palm completion` prints a static completion script generated from palm's command tree.
 
 ```sh
-palm completion <shell>
+palm completion bash|zsh|fish
 ```
 
-| Command | Meaning |
+| Command | What it does |
 | --- | --- |
 | `palm completion bash` | Print the bash script. |
 | `palm completion zsh` | Print the zsh script. |
 | `palm completion fish` | Print the fish script. |
 
-Load it from your shell's startup file:
+Load it from your shell's startup file.
 
 | Shell | Setup |
 | --- | --- |
@@ -37,13 +37,13 @@ No options of its own. The [global options](/palm/reference/cli/#global-options)
 
 ## What it completes
 
-The script completes verbs, aliases, utilities and the kind words of each verb.
-It also completes each command's options and the target names after `--target`.
-It is static: after an upgrade that adds a command, print it again.
+The script completes the verbs and their aliases, the utilities, each command's options, the kind words of `get` and `describe`, and the target names after `--target` and `--targets`.
+It does not complete source names or entity names, because those need the network.
+The script is static. After an upgrade that adds a command, print it again.
 
-## Behavior
+## Reads and writes
 
-`palm completion` prints to stdout, writes nothing and never prompts.
+`palm completion` prints to stdout. It reads no file, writes nothing and never prompts.
 
 ## Exit codes
 
@@ -55,3 +55,4 @@ It is static: after an upgrade that adds a command, print it again.
 ## Related
 
 - [CLI overview](/palm/reference/cli/)
+- [Installation](/palm/getting-started/install/#shell-completion)

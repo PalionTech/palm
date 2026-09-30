@@ -639,6 +639,27 @@ SKILL`,
     commands: [{ palm: ['check'], exit: 1 }, ['install'], ['check']],
   },
   {
+    name: 'c-check-json',
+    sources: [MATT],
+    setup: [
+      ['init', '--target', 'claude,codex'],
+      ['install', 'mattpocock/skills', 'tdd'],
+      [
+        'install',
+        'mcp',
+        'docs',
+        '--url',
+        'https://docs.example.com/mcp',
+        '--header',
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: palm placeholder syntax, not a template
+        'Authorization=Bearer ${DOCS_TOKEN}',
+      ],
+      { sh: 'git add -A && git commit -qm "Add palm setup"' },
+      { sh: 'rm .agents/skills/tdd/references/mocking.md' },
+    ],
+    commands: [{ palm: ['check', '--json'], exit: 1 }],
+  },
+  {
     name: 'c-get',
     sources: [MATT, OFFICIAL],
     setup: [

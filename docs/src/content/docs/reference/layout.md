@@ -1,28 +1,22 @@
 ---
 title: Layout descriptor
-description: Tell palm where a repository keeps its entities when auto-detection does not fit.
+description: Tell palm where a source keeps its entities when auto-detection does not fit, with a layout key on the source in palm.yaml.
 ---
 
-A **layout descriptor** tells palm where an origin keeps its entities.
+A **layout descriptor** tells palm where a source keeps its entities.
 When it names at least one kind, palm skips auto-detection and reads only the globs you give it.
 
-```sh
-palm install origin openai/skills --alias openai-curated --layout 'skills=skills/.curated/*'
-```
-
-palm stores the descriptor with the origin in `~/.palm/config.yaml`:
-
-```yaml title="~/.palm/config.yaml"
-origins:
-  - alias: openai-curated
-    type: git
-    url: https://github.com/openai/skills.git
-    layout:
-      skills: ["skills/.curated/*"]
+```yaml title="palm.yaml"
+sources:
+  openai/skills:
+    ref: main
+    layout: { skills: ["skills/.curated/*"] }
+    skills: [gh-address-comments]
 ```
 
 `openai/skills` keeps curated, experimental and system skills side by side.
-The descriptor indexes only the curated ones.
+This descriptor indexes only the curated ones.
+palm records the layout in the lock, so every machine builds the same index from the same commit.
 
 ## Keys
 
@@ -30,7 +24,7 @@ The descriptor indexes only the curated ones.
 | --- | --- | --- |
 | `skills` | glob or list | folders that contain a `SKILL.md`, or the `SKILL.md` files themselves |
 | `agents` | glob or list | agent files |
-| `commands` | glob or list | command and prompt files |
+| `commands` | glob or list | command and prompt files, indexed as skills |
 | `instructions` | glob or list | instruction and rule files |
 | `hooks` | glob or list | `hooks.json` files |
 | `mcp` | glob or list | `.mcp.json` or `mcp.json` files |
@@ -38,38 +32,44 @@ The descriptor indexes only the curated ones.
 | `include` | list | entity names to keep; everything else is dropped from the index |
 | `nameFrom` | `frontmatter` or `dirname` | where a skill's name comes from; the default is `frontmatter` |
 
-A kind you leave out is not indexed for that origin.
+A kind you leave out is not indexed for that source.
 A descriptor with only `exclude`, `include` or `nameFrom` keeps auto-detection and adjusts it.
 
 ## Glob rules
 
-- Globs are relative to the origin root, which is the `--root` folder when you set one.
+- Globs are relative to the source root, which is the `root:` folder when you set one.
 - `*` matches within one path segment and `**` matches across segments.
-- Dot folders match: `skills/.curated/*` works as written.
+- Dot folders match. `skills/.curated/*` works as written.
 - palm skips only `.git`, `node_modules` and your `exclude` globs. The ignore list of [auto-detection](/palm/reference/scan-rules/#what-palm-ignores) does not apply.
-- palm does not follow symlinks while it matches a descriptor.
+- A glob never matches anything outside the source.
 
-## On the command line
+## More examples
 
-`--layout` takes `key=value` and repeats.
-A value may hold several globs, separated by commas.
-
-```sh
-palm install origin acme/agents --layout 'agents=catalog/people/*.md' --layout 'skills=catalog/skills/*' --layout 'exclude=catalog/tests'
-palm install origin acme/skills --layout 'nameFrom=dirname'
+```yaml title="palm.yaml"
+sources:
+  acme-kit:
+    url: https://gitlab.acme.com/platform/agent-kit.git
+    layout:
+      agents: [catalog/people/*.md]
+      skills: [catalog/skills/*]
+      exclude: [catalog/tests]
+    agents: [reviewer]
+  acme/skills:
+    layout: { nameFrom: dirname }
+    skills: [lint-fix]
 ```
-
-A descriptor also works for a project origin in `palm.yaml`, under the same `layout` key.
 
 ## When to write one
 
-- The repository keeps entities in folders palm ignores, such as `templates/` or `examples/`.
+- The repository keeps entities in folders palm skips, such as `templates/` or `examples/`.
 - You want part of a repository, such as only its curated skills.
 - Skill names in frontmatter clash, and folder names are unique.
 
 Otherwise, let auto-detection read the repository as published.
+There is no author-side palm file. The descriptor is always the consumer's choice, in the consumer's `palm.yaml`.
 
 ## Related
 
 - [Scan rules](/palm/reference/scan-rules/)
-- [Origins](/palm/concepts/origins/)
+- [Scanning](/palm/concepts/scanning/)
+- [palm.yaml reference](/palm/reference/palm-yaml/)

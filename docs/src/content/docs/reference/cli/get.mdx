@@ -1,34 +1,35 @@
 ---
 title: palm get
-description: List installed entities, what your origins offer, your origins and your targets.
+description: List what is installed in a scope, the declared sources, the targets, or every generated file with the entity that wrote it.
 ---
 
 import Capture from '../../../../components/Capture.astro';
 
-`palm get` lists what is installed in the scope, or with `--available`, what your origins offer.
+`palm get` reads the lock and lists what is installed, one row per entry.
 
 ```sh
-palm get [kind] [names...] [options]
-palm get origins [aliases...]
+palm get [kind] [names...] [-s <source>] [--files]
+palm get sources
 palm get targets
 palm get all
 ```
 
 Aliases: `palm list`, `palm ls`.
-Kinds: `skill`, `agent`, `instruction`, `command`, `hook`, `mcp`, `plugin`, `origin`, `target` and `all`, as singular, plural or [short name](/palm/reference/cli/#kinds).
-Without a kind, palm lists every installed entity.
 
-| Command | Meaning |
+| Command | What it lists |
 | --- | --- |
-| `palm get` | Every entity installed in this project. |
-| `palm get skills -g` | Skills installed in your home directory. |
-| `palm get skills --available` | Every skill your origins offer, grouped by origin. |
-| `palm get sk --available -o mattpocock` | What one origin offers. |
-| `palm get origins` | Registered origins with their location, ref, scope and counts. |
-| `palm get targets` | Each harness, whether it is active, and where the active set comes from. |
-| `palm get all --json` | Installed entities, origins and targets as one JSON document. |
+| `palm get` | every installed entry |
+| `palm get skills` | installed skills only |
+| `palm get skill tdd handoff` | two entries by name |
+| `palm get -s mattpocock/skills` | entries from one source |
+| `palm get mcp` | MCP servers with the variables each needs and whether they are set |
+| `palm get --files` | every generated path with its entry |
+| `palm get sources` | the declared sources |
+| `palm get targets` | each harness, whether it is active and its config folder |
+| `palm get all` | entries, sources and targets |
+| `palm get -g` | the global scope |
 
-<Capture name="c-get" />
+<Capture name="c-get" title="~/project" />
 
 ## Options
 
@@ -36,50 +37,55 @@ Without a kind, palm lists every installed entity.
 
 | Argument | Meaning |
 | --- | --- |
-| `kind` | skill, agent, instruction, command, hook, mcp, plugin, origin, target, all (plurals and short names work); omit it for every installed entity |
-| `names` | `name[@origin][#ref]` |
+| `kind` | skill, agent, instruction, hook, mcp, plugin, sources, targets or all (plurals and short names work) |
+| `names` | entry names to show |
 
 | Option | Meaning |
 | --- | --- |
-| `--available` | list what your origins offer instead of what is installed |
-| `-o, --origin <name-or-alias>` | only this origin: alias, owner/repo[/root], URL or local path (installed entities also: mine, registry, adhoc) |
+| `-s, --source <name>` | only entries from this source |
+| `--files` | list every generated path with its entry |
 
 The [global options](/palm/reference/cli/#global-options) also apply.
 
 {/* /cli-reference */}
 
-## Views
+## Columns
 
-| View | Columns |
+| Column | Shows |
 | --- | --- |
-| Installed | kind, name, origin, version, targets, via |
-| `--available` | one table per origin: kind, name, version, description |
-| `get origins` | alias, type, location, ref, scope, entities; `--verbose` adds the detection rule, commit and index warnings |
-| `get targets` | target, harness, status, detected in project and global scope, config folder |
-| `get all` | the installed, origins and targets views in turn |
+| `kind`, `name` | the entry |
+| `source` | the declared source name, or `palm.yaml` for a hand-declared MCP server |
+| `ref` | the version: `v1.2.3` for an exact tag, `^1.2 → v1.2.3` for a range and what it resolved to, `main` for a branch, `tree 10934f8` for an in-repo source |
+| `targets` | the targets the entry is on |
+| `files` | how many files palm wrote for it |
+| `via` | `plugin:<name>` when a plugin selected it |
 
-`-o` takes an alias, `owner/repo`, `owner/repo/<folder>`, a URL or a local path.
-For installed entities it also takes `mine`, `registry` and `adhoc`: the `create` origin, the MCP registry and ad hoc MCP servers.
+`palm get sources` shows each source's name, alias, kind (`github`, `git` or `local`), ref, commit or tree hash, and the number of entries.
+`palm get targets` shows every target, whether it is active in this scope, and where its config lives.
 
-With `--json`, installed entities come as lockfile entries in `items`, and `--available` as one item per origin.
-`get all` gives `{ "installed", "origins", "targets" }`.
+`--files` replaces a search of the harness folders. Pipe it to `grep` to find who wrote a file, or use `palm describe <path>`.
 
-## Behavior
+palm 0.3 adds a footer with the bytes each harness loads at every session start, and a `layer` column for personal entries.
 
-`palm get` never prompts.
-It writes nothing in the scope.
-To read an index that is not cached yet, it fetches the origin into `~/.palm/cache/`, unless `--offline`.
+## JSON
+
+`palm get --json` prints `{ "items": [...] }`, one object per entry with `kind`, `name`, `source`, `ref`, `resolved`, `sha`, `targets`, `files` and `layer`.
+See [JSON output](/palm/reference/cli/#json-output).
+
+## Reads and writes
+
+`palm get` reads `palm.yaml` and the lock, and the environment for `palm get mcp`. It writes nothing and needs no network.
 
 ## Exit codes
 
 | Code | When |
 | --- | --- |
-| `0` | The list printed, also when it is empty. |
-| `1` | A name you gave is not installed (`E_NOT_FOUND`), `-o` matches no origin or several, or an origin cannot be fetched. |
-| `2` | A usage error. |
+| `0` | The list printed, even when it is empty. |
+| `1` | `-s` names a source that is not declared. |
+| `2` | An unknown kind word or option. |
 
 ## Related
 
-- [`palm describe`](/palm/reference/cli/describe/)
-- [`palm search`](/palm/reference/cli/search/)
-- [Targets](/palm/concepts/targets/)
+- [palm describe](/palm/reference/cli/describe/)
+- [palm check](/palm/reference/cli/check/)
+- [Kinds](/palm/reference/cli/#kinds)
