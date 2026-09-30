@@ -26,6 +26,7 @@ export async function realpathInside(abs: string, roots: readonly string[]): Pro
 export async function isGitIgnored(abs: string, cwd: string): Promise<boolean | undefined>;   // NEW: `git check-ignore -q`, undefined when git or a repository is missing
 export async function isGitTracked(abs: string, cwd: string): Promise<boolean | undefined>;   // NEW: `git ls-files --error-unmatch`
 export async function gitToplevel(dir: string): Promise<string | undefined>;                   // NEW: `git rev-parse --show-toplevel`, undefined outside a repository
+export async function gitDiffStat(dir: string): Promise<string | undefined>;                   // NEW: `git diff --stat -- .` below dir (printed after `palm update`), undefined outside a repository or when clean
 // (the three git helpers live in lib/git-query.ts, re-exported by fs.ts; they call core/git-exec runGit through an injected runner
 //  to keep lib palm-free: `setGitRunner(next: GitRunner | undefined)`, installed by core/context createContext)
 // json.ts, yaml.ts, frontmatter.ts, names.ts, object.ts, placeholders.ts, text.ts, unicode.ts: as in 0.1
@@ -93,6 +94,8 @@ export class Manifest {
   sourceNames(): string[]; hasSource(name: string): boolean;
   addSource(source: Source, baseDir: string): this;                                           // by name; keeps existing entries
   removeSource(name: string): this;
+  renameSource(from: string, to: string): this;                                               // same position, entries and options kept (DESIGN §5 rename)
+  text(): string;                                                                             // what save writes for a fresh file (migrate --dry-run)
   entries(name: string, kind: Kind): ManifestEntryObject[];                                   // normalised (strings → objects)
   allEntries(): Array<{ source: string; kind: Kind; entry: ManifestEntryObject }>;
   hasEntry(name: string, kind: Kind, entity: string): boolean;                                // any case
@@ -115,7 +118,7 @@ export class Lock {
   static async loadLegacy(file: string): Promise<LegacyLockfile | undefined>;                 // migrate only: v1/v2 as data, undefined when missing
   async save(file: string): Promise<void>;                                                    // deterministic v3 (DESIGN §4); same lock → same bytes
   hash(): string;                                                                             // sha256 of the bytes `save` would write
-  get sources(): Record<string, LockSource>; source(name: string): LockSource | undefined; setSource(name: string, s: LockSource): this; removeSource(name: string): this;
+  get sources(): Record<string, LockSource>; source(name: string): LockSource | undefined; setSource(name: string, s: LockSource): this; removeSource(name: string): this; renameSource(from: string, to: string): this /* entries follow */;
   get entries(): LockEntry[]; get size(): number; toJSON(): Lockfile;
   find(key: {kind, name}, source?: string): LockEntry | undefined; findAll(key: {kind, name}): LockEntry[];
   select(q: { kind?: Kind; name: string; source?: string }): LockEntry[];                     // user queries, any case
@@ -355,6 +358,8 @@ export function withDeclined(entry: LockEntry): LockEntry;
 export function getTarget(id: TargetId): Target; export function allTargets(): Target[];
 export function createTarget(id: TargetId, env?: NodeJS.ProcessEnv): GenericTarget;
 export const PROJECT_DIR: Record<TargetId, string>;                                           // DESIGN §2 relocation table (quoted idioms)
+// placements.ts (NEW): Target.placements(at: { scope; scopeRoot; env }, active: TargetId[]) → Array<{ kind; where }> (types.ts, optional on Target):
+//   where each installable kind goes at a scope, lock form with `<name>` (DESIGN §10 `describe target`); the shared skills dir follows `active`
 // layout.ts: TargetSpec { id; displayName; layout(paths: ScopePaths): TargetLayout; detect(paths: ScopePaths): Promise<boolean>; outputDirs(paths: ScopePaths): string[] /* lock form */ }
 //   one per harness (claude.ts, codex.ts, copilot.ts, cursor.ts, gemini.ts, opencode.ts). TargetLayout as 0.1 minus commands, plus `skillsDir(active: TargetId[])`
 //   (cursor: .claude/skills when claude is active, else .agents/skills).
@@ -411,7 +416,8 @@ export async function openScope(ctx: PalmContext, scope: Scope, opts?: { readOnl
 export async function saveScope(state: ScopeState, opts?: { manifest?: boolean; lock?: boolean }): Promise<void>; // only when JSON.stringify changed; global: rewrites applied.yaml with the lock
 export async function persistTargets(state: ScopeState): Promise<boolean>;                    // writes `targets:` when the manifest has none; true when written
 // resolve.ts
-export async function resolveSource(ctx: PalmContext, deps: EngineDeps, state: ScopeState, ref: SourceRef, opts?: { sha?: string; refresh?: boolean }): Promise<{ checkout: SourceCheckout; index: SourceIndex }>;
+export interface ResolveJob { ctx: PalmContext; deps: EngineDeps; state: ScopeState; ref: SourceRef; sha?: string; refresh?: boolean }
+export async function resolveSource(job: ResolveJob): Promise<{ checkout: SourceCheckout; index: SourceIndex }>; // one options object (the 4-parameter shape rule)
 //   locked sha when given (bare install), else the ref intent; one fetch per source and sha per run; a local source at the scope root is hashed with the lock-owned paths excluded (fetchSource `exclude`)
 export async function declareSource(ctx: PalmContext, state: ScopeState, input: string, opts: { as?: string; yes: boolean }): Promise<SourceRef>;
 //   DESIGN §5 "Input forms": declared → itself (another `#ref` moves the intent after confirmation; a new `--as` name for an already declared location
@@ -457,7 +463,7 @@ export async function migrateScope(ctx: PalmContext, opts: { scope: Scope; dryRu
 //   MigrateReport.manifest is the new palm.yaml text; MigrateReport.failures: what could not be migrated (the CLI exits 1 on any); the only user of copyClosure
 // query.ts
 export interface InstalledRow { entry: LockEntry; source: LockSource; layer: 'team' | 'local' }
-export interface EntityInfo { entry: LockEntry; entity?: Entity; source: LockSource; files: Partial<Record<TargetId, string[]>>; notes: string[]; exec?: { commands: LockExec['commands']; hash: string; trusted: boolean }; secrets?: Array<{ name: string; set: boolean }>; selectedBy: string /* manifest | plugin:<n> */ }
+export interface EntityInfo { entry: LockEntry; entity?: Entity; source: LockSource; files: Partial<Record<TargetId, string[]>>; notes: string[]; exec?: { commands: LockExec['commands']; hash: string; trusted: boolean }; secrets?: Array<{ name: string; set: boolean }>; selectedBy: string /* manifest | plugin:<n> */; blocks?: Partial<Record<TargetId, Array<{ file: string; at: string; value: unknown }>>> /* an MCP server's block per harness */ }
 export async function listInstalled(ctx: PalmContext, scope: Scope, q?: { kind?: Kind; names?: string[]; source?: string }): Promise<InstalledRow[]>;
 export async function describeEntity(ctx: PalmContext, q: EntityRefSpec & { source?: string }, opts: { scope: Scope }, deps?: Partial<EngineDeps>): Promise<EntityInfo>;
 export async function ownerOfPath(ctx: PalmContext, query: string, opts: { scope: Scope }): Promise<Array<{ entry: LockEntry; match: 'file' | 'inside' | 'merged'; file: string }>>;

@@ -1048,8 +1048,9 @@ Per command:
   selected it (a plugin, palm.yaml), exec commands and trust state, the variables an MCP server
   needs. Given a path (absolute, `~/…`, relative), the entity that wrote it (`file`, `inside`,
   `merged`). `describe source <s>`: url or path, ref, sha, root, layout, detection rule, counts
-  per kind, index warnings. `describe target <t>`: where each kind goes in this scope (a render
-  of a sample entity per kind, env overrides included).
+  per kind, index warnings. `describe target <t>`: where each kind goes in this scope
+  (`Target.placements`: the layout's paths with the converters' file names, `<name>` for the
+  entity, env overrides included; the shared skill directory follows the scope's targets).
 - `palm create <kind> <name> [--in dir] [--description text]`: writes a template (`skill` →
   `<dir>/skills/<name>/SKILL.md`, `agent` → `<dir>/agents/<name>.md`, `instruction` →
   `<dir>/instructions/<name>.md`, `hook` → `<dir>/hooks/<name>/hooks.json` with an example
