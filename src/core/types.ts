@@ -1,27 +1,25 @@
 /**
- * palm — shared type contract. See DESIGN.md.
+ * palm: shared type contract (v3, palm 0.2). See DESIGN.md and API.md.
  *
- * Every module imports its types from here. Extend this file (and DESIGN.md)
- * rather than inventing private shapes.
+ * Every module imports its types from here. Extend this file (and DESIGN.md) rather than
+ * inventing private shapes. This file imports nothing from the rest of palm.
  */
-
-import type { OriginSet } from '../domain/origin-set.js';
 
 // ---------------------------------------------------------------------------
 // Kinds, targets, scopes
 // ---------------------------------------------------------------------------
 
-export type Kind = 'skill' | 'agent' | 'instruction' | 'command' | 'hook' | 'mcp' | 'plugin';
+/**
+ * Entity kinds. `command` is gone: command files in a source are indexed as skills
+ * (`SkillDefinition.fromCommand`). `plugin` is a kind in the index and the lock (members carry
+ * `via: plugin:<name>`), but the CLI presents it as a selector over a source's entities.
+ */
+export type Kind = 'skill' | 'agent' | 'instruction' | 'hook' | 'mcp' | 'plugin';
 
-export const KINDS: readonly Kind[] = [
-  'skill',
-  'agent',
-  'instruction',
-  'command',
-  'hook',
-  'mcp',
-  'plugin',
-] as const;
+export const KINDS: readonly Kind[] = ['skill', 'agent', 'instruction', 'hook', 'mcp', 'plugin'] as const;
+
+/** Kinds a user can name on the command line and in palm.yaml (`plugin` selects, the rest install). */
+export type ManifestKind = Kind;
 
 export type TargetId = 'claude' | 'codex' | 'copilot' | 'cursor' | 'gemini' | 'opencode';
 
@@ -38,16 +36,16 @@ export const TARGET_IDS: readonly TargetId[] = [
 export type Scope = 'project' | 'global';
 
 // ---------------------------------------------------------------------------
-// Origins
+// Sources
 // ---------------------------------------------------------------------------
 
-/** Optional override of layout auto-detection for one origin. Globs are relative to the origin root. */
+/** Optional override of layout auto-detection for one source. Globs are relative to the source root. */
 export interface LayoutDescriptor {
   /** Globs matching directories that contain SKILL.md. */
   skills?: string | string[];
   /** Globs matching agent definition files. */
   agents?: string | string[];
-  /** Globs matching command/prompt files. */
+  /** Globs matching command/prompt files (indexed as skills). */
   commands?: string | string[];
   /** Globs matching instruction/rule files. */
   instructions?: string | string[];
@@ -63,37 +61,45 @@ export interface LayoutDescriptor {
   nameFrom?: 'frontmatter' | 'dirname';
 }
 
-export interface OriginSpec {
-  /** Short handle used in `name@alias`. Unique within the config. */
-  alias: string;
-  type: 'git' | 'local';
+export type SourceType = 'git' | 'local';
+
+/**
+ * A place entities come from, declared in the manifest of its scope (`sources:` in palm.yaml,
+ * or in `~/.palm/palm.yaml` under `-g`). The `name` is the manifest key: `owner/repo` for a
+ * GitHub repository, `./dir` for a directory inside the project, otherwise a chosen name with
+ * `url:` or `path:`. Names and aliases are unique within one manifest, case-insensitively.
+ */
+export interface Source {
+  name: string;
+  type: SourceType;
   /** git: normalized clone URL (https://github.com/owner/repo.git or ssh form). */
   url?: string;
-  /** local: absolute directory path. */
+  /** local: directory path. Project scope stores it project-relative; in memory it is absolute. */
   path?: string;
-  /** git: requested ref (tag, branch or sha). Absent = latest semver tag, else default branch. */
+  /** git: version intent, the one home of it: a tag, branch, sha or semver range (`^1.2`). */
   ref?: string;
-  /** Subdirectory inside the repo that is the real origin root. */
+  /** Subdirectory inside the repository that is the real source root. */
   root?: string;
+  /** Optional short name accepted wherever the name is (`palm get -s mp`). Must match ALIAS_RE. */
+  alias?: string;
   layout?: LayoutDescriptor;
-  /** Free-form note shown in `palm get origins`. */
-  description?: string;
 }
 
-/** Result of fetching an origin into the cache. */
-export interface OriginCheckout {
-  spec: OriginSpec;
-  /** Cache dir name; see DESIGN.md §5. */
-  originId: string;
-  /** Absolute path to the directory that should be scanned (repo root + spec.root). */
+/** Result of fetching a source into the cache (git) or resolving it in place (local). */
+export interface SourceCheckout {
+  source: Source;
+  /** Cache dir name; see DESIGN.md section 5. Never the source name. */
+  sourceId: string;
+  /** Absolute path to the directory that should be scanned (repo root + source.root). */
   root: string;
-  /** Absolute path to the repository checkout (before `root` is applied). */
+  /** Absolute path to the repository checkout (before `root` is applied); local: the directory itself. */
   repoDir: string;
-  /** Resolved commit sha (git origins) or undefined (local). */
+  /** Resolved commit sha (git) or undefined (local). */
   sha?: string;
   /** The ref that was actually checked out (tag/branch name or sha). */
   ref?: string;
-  fetchedAt: string; // ISO timestamp
+  /** Local sources: the source tree hash (DESIGN.md section 4, `tree`). */
+  tree?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +108,12 @@ export interface OriginCheckout {
 
 export interface EntityRef {
   kind: Kind;
+  name: string;
+}
+
+/** A user-typed entity reference: `[kind:]name`. */
+export interface EntityRefSpec {
+  kind?: Kind;
   name: string;
 }
 
@@ -118,14 +130,14 @@ export interface McpServerConfig {
   /** Secrets referenced by env/headers that the user must supply. */
   secrets?: SecretRef[];
   /** Where this config came from, for display. */
-  source?: { type: 'origin' | 'registry' | 'adhoc'; ref?: string; version?: string };
+  origin?: { type: 'source' | 'manifest' | 'snippet' | 'flags'; ref?: string };
 }
 
 export interface SecretRef {
   /** Environment variable name (also used as placeholder name). */
   name: string;
   /** Where it is used. */
-  in: 'env' | 'header';
+  in: 'env' | 'header' | 'arg' | 'url';
   /** Header name when `in === 'header'`. */
   header?: string;
   description?: string;
@@ -142,15 +154,10 @@ export interface AgentDefinition {
   model?: string;
   tools?: string[];
   disallowedTools?: string[];
-  /** Skill names this agent depends on. */
+  /** Skill names the agent mentions. palm does not install them; it prints one hint line. */
   skills?: string[];
-  /** MCP server names this agent depends on. */
+  /** MCP server names the agent mentions. Same rule as `skills`. */
   mcpServers?: string[];
-  /**
-   * Instructions installed alongside the agent (palm extension, `instructions:` frontmatter).
-   * Entries are dependency strings `name[@origin]`; no harness reads this key, palm strips it on deploy.
-   */
-  instructions?: string[];
   color?: string;
   /** The system prompt (markdown body). */
   body: string;
@@ -160,33 +167,28 @@ export interface AgentDefinition {
   sourceFormat?: 'claude-md' | 'copilot-agent-md' | 'codex-toml' | 'cursor-md' | 'apm-agent-md';
 }
 
+/**
+ * How an instruction is activated by the harness that authored it (DESIGN.md section 2).
+ * Written by the index from the source format; targets preserve or map it (0.3), never widen.
+ */
+export type Activation = 'always' | 'on-request' | 'paths' | 'manual';
+
 export interface InstructionDefinition {
   name: string;
   description?: string;
   /** Path globs the instruction applies to; empty/undefined = always. */
   globs?: string[];
   alwaysApply: boolean;
+  activation: Activation;
   body: string;
   sourceFormat?: 'md' | 'mdc' | 'instructions-md' | 'agents-md';
 }
 
-export interface CommandDefinition {
-  name: string;
-  description?: string;
-  argumentHint?: string;
+/** A command file the index turned into a skill: the target renders SKILL.md from these. */
+export interface CommandAsSkill {
   body: string;
-  sourceFormat?: 'claude-md' | 'prompt-md' | 'gemini-toml' | 'opencode-md';
-}
-
-export type HookDialect = 'claude' | 'cursor' | 'copilot' | 'gemini' | 'unknown';
-
-export interface HookSet {
-  name: string;
-  dialect: HookDialect;
-  /** Parsed JSON of the hooks file (or the inline manifest block). */
-  raw: unknown;
-  /** Directory (relative to origin root) that `${CLAUDE_PLUGIN_ROOT}` / `${CURSOR_PLUGIN_ROOT}` refer to. */
-  pluginRootRel?: string;
+  argumentHint?: string;
+  sourceFormat: 'claude-md' | 'prompt-md' | 'gemini-toml' | 'opencode-md';
 }
 
 export interface SkillDefinition {
@@ -201,7 +203,51 @@ export interface SkillDefinition {
   dirName?: string;
   /** Parent skill name for nested sub-skills. */
   parent?: string;
+  /** Present when the entity was a command file: `path` is that file, not a directory. */
+  fromCommand?: CommandAsSkill;
   extra?: Record<string, unknown>;
+}
+
+export type HookDialect = 'claude' | 'cursor' | 'copilot' | 'gemini' | 'unknown';
+
+/** Where a plugin-root or relative reference was found in a hook or MCP definition. */
+export type ReferenceSite = 'command' | 'args' | 'cwd';
+
+/**
+ * One reference to a file of the source, found at index time (DESIGN.md section 2,
+ * "Relocation"). `rel` is the source-relative path it names; an unresolvable reference has
+ * `unresolved` set and refuses the entity at install.
+ */
+export interface SourceReference {
+  /** The text as written (`${CLAUDE_PLUGIN_ROOT}/hooks/x.sh`, `./scripts/y.sh`). */
+  raw: string;
+  form: 'plugin-root' | 'relative' | 'project-dir';
+  site: ReferenceSite;
+  /** Source-relative path of what it names, when it resolved. */
+  rel?: string;
+  /** The reason it did not resolve (the offending line is `raw`). */
+  unresolved?: string;
+}
+
+/** What install copies for an entity's executables: source-relative paths (files or directories). */
+export interface Closure {
+  /** Directories and files, source-relative, sorted, no duplicates, never a skill, root doc or manifest. */
+  paths: string[];
+}
+
+export interface HookSet {
+  name: string;
+  dialect: HookDialect;
+  /** Parsed JSON of the hooks file (or the inline manifest block). */
+  raw: unknown;
+  /** Directory (relative to source root) that `${CLAUDE_PLUGIN_ROOT}` / `${CURSOR_PLUGIN_ROOT}` refer to. */
+  pluginRootRel?: string;
+  /** Every plugin-root or relative reference in its commands, resolved at index time. */
+  references: SourceReference[];
+  /** What a deploy copies to the asset directory (empty for prompt-only hook sets). */
+  closure: Closure;
+  /** Commands with `type: prompt`, listed at consent as text, never gated. */
+  promptHooks: Array<{ event: string; matcher?: string }>;
 }
 
 export interface Entity {
@@ -211,12 +257,12 @@ export interface Entity {
   description?: string;
   version?: string;
   /**
-   * Location relative to the origin root:
-   * skill/plugin → directory; agent/command/instruction/hook → file; mcp → the config file.
+   * Location relative to the source root:
+   * skill/plugin → directory (a command-as-skill → the file); agent/instruction/hook → file; mcp → the config file.
    */
   path: string;
-  /** Origin alias. */
-  origin: string;
+  /** Source name. */
+  source: string;
   /** Containing plugin name, when the entity was found through a plugin manifest. */
   plugin?: string;
   /** Kind-specific parsed definition. */
@@ -224,22 +270,23 @@ export interface Entity {
     | { kind: 'skill'; skill: SkillDefinition }
     | { kind: 'agent'; agent: AgentDefinition }
     | { kind: 'instruction'; instruction: InstructionDefinition }
-    | { kind: 'command'; command: CommandDefinition }
     | { kind: 'hook'; hooks: HookSet }
-    | { kind: 'mcp'; mcp: McpServerConfig }
+    | { kind: 'mcp'; mcp: McpServerConfig; references: SourceReference[]; closure: Closure }
     | { kind: 'plugin'; members: EntityRef[]; manifestPath?: string };
-  /** Problems found in the entity's files during the scan (hidden Unicode); absent when none. */
+  /** Problems found in the entity's files during the scan; absent when none. */
   issues?: EntityIssue[];
+  /** Index notes shown at install and by `describe` (`from command review.md`). */
+  notes?: string[];
 }
 
-/** A problem the scanner found in one of an entity's files (DESIGN §5, "Scan issues"). */
+/** A problem the scanner found in one of an entity's files (DESIGN.md section 5, "Scan issues"). */
 export interface EntityIssue {
-  /** Stable machine-readable code, e.g. `hidden-unicode`. */
-  code: string;
+  /** `hidden-unicode` | `unresolvable-reference` | `secret-literal` | `oversized`. */
+  code: 'hidden-unicode' | 'unresolvable-reference' | 'secret-literal' | 'oversized';
   severity: 'critical' | 'warning';
   /** One line naming the file and what was found. */
   message: string;
-  /** Origin-relative file the issue is in. */
+  /** Source-relative file the issue is in. */
   file?: string;
 }
 
@@ -247,137 +294,329 @@ export interface ScanResult {
   entities: Entity[];
   /** Human-readable notes: remote marketplace entries not fetched, name mismatches, skipped files. */
   warnings: string[];
-  /** Which detection rule fired (for `palm get origins --verbose`). */
+  /** Which detection rule fired (recorded in the lock as `descriptor`). */
   detected: 'descriptor' | 'apm' | 'marketplace' | 'plugin-manifest' | 'convention' | 'empty';
 }
 
-export interface OriginIndex extends ScanResult {
-  origin: string;
-  originId: string;
+export interface SourceIndex extends ScanResult {
+  source: string;
+  sourceId: string;
   sha?: string;
   ref?: string;
+  tree?: string;
   root: string;
-  scannedAt: string;
 }
 
 // ---------------------------------------------------------------------------
-// Manifest & lockfile
+// Manifest (palm.yaml, v3)
 // ---------------------------------------------------------------------------
 
-/** `<name>[@<origin>][#<ref>]` parsed. */
-export interface DepRef {
+/**
+ * One entry under a source's kind list. A string is the name; the object form narrows it.
+ * `only`/`exclude` apply to plugins and list members as `kind:name`. `at` is stored in 0.2 and
+ * honoured in 0.3 (placement root). `render` is reserved (0.3: `verbatim`, `stripHiddenUnicode`).
+ */
+export interface ManifestEntryObject {
   name: string;
-  origin?: string;
+  targets?: TargetId[];
+  at?: string;
+  only?: string[];
+  exclude?: string[];
+  render?: Record<string, unknown>;
+}
+
+export type ManifestEntry = string | ManifestEntryObject;
+
+/** A source as written in palm.yaml, with the entries installed from it. */
+export interface ManifestSource {
+  url?: string;
+  path?: string;
+  root?: string;
   ref?: string;
+  alias?: string;
+  layout?: LayoutDescriptor;
+  skills?: ManifestEntry[];
+  agents?: ManifestEntry[];
+  instructions?: ManifestEntry[];
+  hooks?: ManifestEntry[];
+  mcp?: ManifestEntry[];
+  plugins?: ManifestEntry[];
 }
 
-/** Ad hoc MCP definition inside palm.yaml. */
+/** A hand-declared MCP server inside palm.yaml (`mcp:` map, keyed by the config name). */
 export interface McpManifestEntry {
-  name: string;
   transport?: 'stdio' | 'http' | 'sse';
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  cwd?: string;
   url?: string;
   headers?: Record<string, string>;
-  /** MCP registry name when the entry came from the registry. */
-  registry?: string;
-  version?: string;
+  targets?: TargetId[];
 }
-
-export type DepSpec = string | DepRef;
 
 export interface Manifest {
   targets?: TargetId[];
-  origins?: Array<string | OriginSpec>;
-  skills?: DepSpec[];
-  agents?: DepSpec[];
-  instructions?: DepSpec[];
-  commands?: DepSpec[];
-  hooks?: DepSpec[];
-  mcp?: Array<string | McpManifestEntry>;
-  plugins?: DepSpec[];
+  sources?: Record<string, ManifestSource>;
+  mcp?: Record<string, McpManifestEntry>;
 }
 
-export interface MergedRecord {
-  /** File that received the merged fragment (scope-relative for project, absolute for global). */
-  file: string;
-  /** JSON pointer (RFC 6901) to the array/object where `value` was inserted. */
-  pointer: string;
-  /** Exact value inserted, for removal by deep-equality. */
-  value: unknown;
+/** palm.local.yaml (0.3): the same shape plus `disable`. Reserved; not read in 0.2. */
+export interface LocalManifest extends Manifest {
+  disable?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Lockfile (palm.lock.yaml, v3)
+// ---------------------------------------------------------------------------
+
+export interface LockSource {
+  /** git: clone URL. */
+  url?: string;
+  root?: string;
+  /** git: the ref intent copied from the manifest when resolved. */
+  ref?: string;
+  /** git: the resolved commit. */
+  sha?: string;
+  /** git: the tag or branch the sha was resolved from, when `ref` is a range. */
+  resolved?: string;
+  /** local: project-relative path (project scope) or `<home>`-token path (global). */
+  path?: string;
+  /** local: source tree hash at the last render (DESIGN.md section 4). */
+  tree?: string;
+  /** The layout in effect, so another machine rebuilds the index from the sha alone. */
+  layout?: LayoutDescriptor;
+  /** Which scan rule produced the index. */
+  descriptor?: ScanResult['detected'];
 }
 
 /**
- * Version of palm's rendering of entities into harness files. Bump it when a target writes
- * different bytes for the same entity (renderers, layouts, merge formats): lock entries record
- * the version their files were rendered with, and the next install re-renders any entry with
- * an older one instead of reporting it unchanged. Entries migrated from lockfile v1 carry 0.
+ * A fragment palm merged into a shared file, without its value (the render yields it).
+ * `id` is palm's identity (`palm:<kind>:<name>:<n>`); `key` is what finds the fragment inside
+ * `at` on disk: the object key or TOML table name for keyed fragments, the block id for
+ * markdown blocks, and for appended array items the `sha256:<8 hex>` of the item's identity
+ * fields (hooks: matcher and command strings; OpenCode instructions: the string).
  */
-export const TRANSFORM_VERSION = 2;
+export interface LockMerged {
+  /** Lock-form path of the shared file. */
+  file: string;
+  /** JSON pointer to the array or object, `/mcp_servers/<n>` for TOML, `block:<id>` for markdown. */
+  at: string;
+  id: string;
+  key: string;
+}
 
-/** One file palm wrote for an entry, with the hash of what it wrote. */
-export interface LockedFile {
-  /** Scope-relative (project) or absolute (global) path. */
-  path: string;
-  /**
-   * `sha256:<hex>` of the file as written (text hashed with LF line ends, like `hashPath`);
-   * empty when unknown (migrated from lockfile v1, or a dry run). Palm refuses to overwrite
-   * or delete a file whose on-disk hash differs from this one unless `--force`.
-   */
+/** The executables of one hook entry or stdio MCP server, as the lock records them. */
+export interface LockExec {
+  /** One line per harness-run command: `<event>//<matcher or ->` for hooks, `stdio` for MCP. */
+  commands: Array<{ id: string; command: string }>;
+  /** Asset directory (lock form) and the closure's tree hash, absent for in-place sources. */
+  closure?: { root: string; files: number; tree: string };
+  /** The exec hash (DESIGN.md section 7): sha256 over the canonical commands and the closure tree. */
   hash: string;
 }
 
 export interface LockEntry {
   kind: Kind;
   name: string;
-  origin: string;
-  /** git origins: clone URL, so another machine can recreate a missing alias. */
+  source: string;
+  /** Source-relative path of the entity. */
+  path: string;
+  /** `plugin:<name>` when installed as a plugin member. */
+  via?: string;
+  /** sha256 of the entity's source content. */
+  content: string;
+  /** One render hash per target the entry is on (DESIGN.md section 4). */
+  render: Partial<Record<TargetId, string>>;
+  /** Every path palm wrote for this entry, lock form, sorted. Directories are listed by their files. */
+  files: string[];
+  merged?: LockMerged[];
+  exec?: LockExec;
+  /** Exec hashes a person consented to; replayed silently while `exec.hash` is among them. */
+  trust?: string[];
+  /** True when a plugin's hook was declined: installed nothing, asks again only by name. */
+  declined?: boolean;
+  /** Persistent notes (dropped fields, skipped targets, mapped activation). */
+  notes?: string[];
+  /** Only when the entry is narrowed below the scope's target set. */
+  targets?: TargetId[];
+  /** Placement root (0.3, `at:`). Stored when the manifest sets it; ignored by 0.2 targets. */
+  at?: string;
+  /** Plugin entries only: the members it declared. */
+  deps?: EntityRef[];
+  /** 0.3: the carrier file per target when one file carries the entity for several harnesses. */
+  carrier?: Partial<Record<TargetId, string>>;
+}
+
+export interface Lockfile {
+  version: 3;
+  sources: Record<string, LockSource>;
+  entries: LockEntry[];
+}
+
+/**
+ * `$PALM_HOME/applied.yaml`: what this machine holds for the global scope, the only machine
+ * record palm keeps. Project scope has none (git carries the outputs).
+ */
+export interface AppliedRecord {
+  /** sha256 of the lock bytes last applied. */
+  lockHash: string;
+  /** Absolute paths, one per file palm wrote, with the hash of what it wrote. */
+  files: Array<{ path: string; hash: string }>;
+  /** Merged fragments with absolute file paths. */
+  merged: Array<LockMerged & { entry: string }>;
+  /** The harness homes the tokens expanded to. */
+  homes: Partial<Record<TargetId | 'home' | 'palm' | 'agents', string>>;
+}
+
+// ---------------------------------------------------------------------------
+// Legacy formats (read only by `palm migrate`)
+// ---------------------------------------------------------------------------
+
+export interface LegacyOriginSpec {
+  alias: string;
+  type: 'git' | 'local';
   url?: string;
-  /** git origins: subdirectory that is the origin root (`OriginSpec.root`). */
+  path?: string;
+  ref?: string;
+  root?: string;
+  layout?: LayoutDescriptor;
+}
+
+export interface LegacyManifest {
+  targets?: TargetId[];
+  origins?: Array<string | LegacyOriginSpec>;
+  skills?: unknown[];
+  agents?: unknown[];
+  instructions?: unknown[];
+  commands?: unknown[];
+  hooks?: unknown[];
+  mcp?: unknown[];
+  plugins?: unknown[];
+}
+
+export interface LegacyLockEntry {
+  kind: string;
+  name: string;
+  origin: string;
+  url?: string;
   root?: string;
   ref?: string;
   sha?: string;
   path: string;
-  contentHash: string;
-  /** `TRANSFORM_VERSION` the files were rendered with (0: migrated from lockfile v1). */
-  transform: number;
-  targets: TargetId[];
-  files: LockedFile[];
-  merged?: MergedRecord[];
-  /** `plugin:<name>` or `agent:<name>` when installed as a dependency. */
+  contentHash?: string;
+  targets?: TargetId[];
+  files?: Array<string | { path: string; hash: string }>;
+  merged?: Array<{ file: string; pointer: string; value: unknown }>;
   via?: string;
-  /**
-   * Plugin/agent entries only: the entities it declared (plugin members; agent skills, MCP
-   * servers and instructions). Uninstall keeps a `via` dependency while any remaining entry
-   * lists it here (reference counting), and re-parents it to that entry.
-   */
   deps?: EntityRef[];
 }
 
-/** palm.lock.yaml. Version 2: per-file hashes, `transform`, no timestamps. v1 files load and convert. */
-export interface Lockfile {
-  version: 2;
-  /** The persisted target set the scope was last synced against (target contraction). */
+export interface LegacyLockfile {
+  version: 1 | 2;
   targets?: TargetId[];
-  /** Harness directories palm created (lock form), removed once an uninstall leaves them empty. */
   createdDirs?: string[];
-  entries: LockEntry[];
+  entries: LegacyLockEntry[];
 }
 
-// ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
-
-export interface PalmConfig {
+export interface LegacyConfig {
   targets?: TargetId[];
-  origins: OriginSpec[];
-  /** Secret placement default per scope. */
+  origins?: LegacyOriginSpec[];
   secrets?: { project?: SecretPolicy; global?: SecretPolicy };
-  mcpRegistryUrl?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Executable content and consent (src/exec)
+// ---------------------------------------------------------------------------
+
+export interface ClosureFile {
+  /** Path relative to the closure root. */
+  path: string;
+  /** Permission bits (0o755 / 0o644). */
+  mode: number;
+  hash: string;
+}
+
+/**
+ * One unit of executable material: a hook entry (every command it merges, in every target) or
+ * a stdio MCP server. `hash` = sha256(canonical commands ‖ events ‖ matchers ‖ closure tree).
+ * `canonical` keeps placeholders, so a new target or a palm upgrade never moves the hash.
+ */
+export interface ExecUnit {
+  kind: 'hook' | 'mcp';
+  entity: { kind: Kind; name: string; source: string };
+  /** `hook:<name>@<source>` or `mcp:<name>@<source>`: the `--allow-exec` key. */
+  key: string;
+  commands: Array<{ id: string; canonical: string; event?: string; matcher?: string }>;
+  /** Closure root (lock form) and files; `files` empty for in-place sources. */
+  closure: { root: string; inPlace: boolean; files: ClosureFile[]; bytes: number };
+  hash: string;
+  /** Per target: the rendered command line and the file it lands in (for the prompt). */
+  rendered: Partial<Record<TargetId, Array<{ id: string; command: string; file: string }>>>;
+  /** Commit and ref the unit comes from, for the prompt header. */
+  from?: { sha?: string; ref?: string; date?: string };
+  /** MCP only: environment keys and cwd, part of the identity. */
+  env?: string[];
+  cwd?: string;
+}
+
+/** `--allow-exec` as parsed: `hook:gh-cli@trailofbits/skills=sha256:a7cc7911` (hash may be a prefix of at least 8 hex). */
+export interface AllowExec {
+  key: string;
+  hash: string;
+}
+
+export type ConsentAnswer = 'yes' | 'no' | 'view' | 'diff';
+
+export interface ConsentRequest {
+  /** The units that need consent now (new or changed hash). */
+  units: ExecUnit[];
+  /** Prompt hooks listed as text. */
+  prompts: Array<{ entity: string; event: string; matcher?: string }>;
+  /** On update: the previously trusted unit per key, for the diff. */
+  previous?: Record<string, ExecUnit>;
+  /** Where the hashes will be recorded. */
+  lockFile: string;
+}
+
+export interface ConsentOutcome {
+  /** Keys the user allowed (or that `--allow-exec` matched). */
+  allowed: string[];
+  /** Keys declined. */
+  declined: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Secrets (src/secrets)
+// ---------------------------------------------------------------------------
 
 export type SecretPolicy = 'env-ref' | 'literal';
+
+export type SecretShape =
+  | 'prefix'
+  | 'bearer'
+  | 'private-key'
+  | 'high-entropy'
+  | 'url-userinfo'
+  | 'url-token';
+
+export interface SecretFinding {
+  /** What was scanned: `mcp:<name>.env.KEY`, `hook:<name>#<id>`, `.palm/assets/x/y.sh:12`, `palm.yaml:mcp.docs.headers.Authorization`. */
+  where: string;
+  shape: SecretShape;
+  /** `<redacted sha256:8>`; never the value. */
+  redacted: string;
+  /** The key or header name when known. */
+  key?: string;
+}
+
+/** Why a literal may or may not be written to one destination. */
+export interface SecretDecision {
+  policy: SecretPolicy;
+  /** `refused` never writes; `warn` writes and reports. */
+  action: 'env-ref' | 'literal' | 'refused' | 'warn';
+  reason: string;
+}
 
 // ---------------------------------------------------------------------------
 // Context passed through every operation
@@ -407,6 +646,12 @@ export interface UI {
     opts?: { placeholder?: string; initial?: string; validate?: (v: string) => string | undefined },
   ): Promise<string>;
   secret(message: string): Promise<string>;
+  /**
+   * The consent prompt (DESIGN.md section 7): `text` is printed, then one key is read:
+   * `y` yes, `n` or Enter no, `v` view scripts, `d` diff (only when `canDiff`). Non-interactive
+   * implementations throw E_NON_INTERACTIVE.
+   */
+  consent(text: string, opts: { canDiff: boolean }): Promise<ConsentAnswer>;
   spinner(message: string): { stop(msg?: string): void; message(msg: string): void };
 }
 
@@ -415,75 +660,91 @@ export interface PalmPaths {
   palmHome: string;
   /** User home (respecting HOME override in tests). */
   home: string;
-  /** Project root for project scope (see DESIGN.md §2). */
+  /** Project root for project scope (see DESIGN.md section 2). */
   projectRoot: string;
   cwd: string;
 }
 
+export interface PalmFlags {
+  /** Accept defaults for non-consent prompts. Never consents to executables. */
+  yes: boolean;
+  dryRun: boolean;
+  force: boolean;
+  offline: boolean;
+  json: boolean;
+  /** Parsed `--allow-exec`; `'all'` is accepted only on a terminal. */
+  allowExec: AllowExec[] | 'all';
+  /** `--secrets literal` (project scope needs it for typed literals). */
+  secrets?: SecretPolicy;
+  /** 0.3: write to palm.local.yaml. Parsed and refused with E_USAGE in 0.2. */
+  local: boolean;
+}
+
 export interface PalmContext {
   paths: PalmPaths;
-  config: PalmConfig;
-  /**
-   * The effective origins: `config.origins` plus the project's palm.yaml origins (read once per
-   * context, on first use). Changed only through core/config addOrigin/removeOrigin.
-   */
-  origins: OriginSet;
   ui: UI;
   log: Logger;
   env: NodeJS.ProcessEnv;
-  flags: {
-    yes: boolean;
-    dryRun: boolean;
-    force: boolean;
-    offline: boolean;
-    verbose: boolean;
-  };
+  flags: PalmFlags;
 }
 
 // ---------------------------------------------------------------------------
-// Engine requests/results
+// Engine requests and results
 // ---------------------------------------------------------------------------
 
+/** `palm install <source> [names…] [--all]`, one request per source. */
 export interface InstallRequest {
-  kind?: Kind;
-  spec: DepSpec;
-  /** Ad hoc origin for this request (unregistered), already parsed. */
-  from?: OriginSpec;
-  /** Ad hoc MCP definition (`palm install mcp name -- cmd` / `--url`). */
-  adhocMcp?: McpServerConfig;
-  /** Resolve this MCP registry name directly (manifest `{ registry: … }` entries; used by sync/update). */
-  registry?: string;
+  /** A declared source name or alias, or CLI input (`owner/repo[#ref]`, URL, path) declared on first use. */
+  source: string;
+  /** Entity references; empty with `all` = every installable entity of the source. */
+  names: EntityRefSpec[];
+  all?: boolean;
+  /** Per-entry narrowing written to palm.yaml. */
+  targets?: TargetId[];
+  at?: string;
+}
+
+/** A hand-declared MCP server (`install mcp` flags, `--json` snippet) headed for `mcp:` in palm.yaml. */
+export interface McpRequest {
+  config: McpServerConfig;
+  targets?: TargetId[];
 }
 
 export interface InstallOptions {
   scope: Scope;
-  targets: TargetId[];
-  secretPolicy?: SecretPolicy;
-  /** Don't record in manifest (used for `via` dependencies and sync). */
-  noSave?: boolean;
-  /**
-   * Executables the user already allowed in the caller's own prompt (`palm update` lists them
-   * in its plan), as `executablesOf` lines: the install asks only about any others.
-   */
-  consented?: readonly string[];
+  /** 0.3: record in palm.local.yaml. Refused in 0.2. */
+  local?: boolean;
 }
+
+export type OutcomeStatus =
+  | 'installed'
+  | 'updated'
+  | 're-rendered'
+  | 'restored'
+  | 'unchanged'
+  | 'modified'
+  | 'partial'
+  | 'skipped'
+  | 'removed'
+  | 'failed';
 
 export interface InstallOutcome {
   entry: LockEntry;
-  /** `failed`: nothing (or not everything) was deployed; the matching `failures` say why. */
-  status: 'installed' | 'updated' | 'unchanged' | 'skipped' | 'failed';
+  status: OutcomeStatus;
+  /** Per target when the status differs by target (`partial`). */
+  perTarget?: Partial<Record<TargetId, OutcomeStatus>>;
   notes: string[];
 }
 
-/** One thing an install could not do. The run continues; the CLI exits 1 when any exist. */
+/** One thing a run could not do. The run continues; the CLI exits 1 when any exist. */
 export interface InstallFailure {
-  /** The entity's kind, or `origin` when an origin could not be fetched for a kind-less request. */
-  kind: Kind | 'origin';
+  /** The entity's kind, or `source` when a source could not be fetched. */
+  kind: Kind | 'source';
   name: string;
-  origin: string;
+  source: string;
   /** The target that failed, when the failure is one target's. */
   target?: TargetId;
-  /** A PalmError code (`E_CONFLICT`, `E_TARGET`, `E_ORIGIN`, …), `E_INTERNAL` for anything else. */
+  /** A PalmError code. */
   code: string;
   message: string;
   hint?: string;
@@ -496,38 +757,144 @@ export interface InstallResult {
   failures: InstallFailure[];
 }
 
+export interface RemoveResult {
+  removed: LockEntry[];
+  failures: InstallFailure[];
+  warnings: string[];
+}
+
+export type UpdateMark = 'updated' | 'added' | 'removed' | 'unchanged' | 'failed' | 'skipped';
+
+export interface UpdatePlanItem {
+  mark: UpdateMark;
+  kind: Kind;
+  name: string;
+  source: string;
+  via?: string;
+  /** `v1.0.0 (abc1234)` or `content <hash7>`. */
+  from?: string;
+  to?: string;
+  /** Lock paths the user changed since palm wrote them (kept unless --force). */
+  atRisk: string[];
+  /** The exec unit after the update, when it is new or its hash changed. */
+  exec?: { unit: ExecUnit; previous?: ExecUnit };
+  note?: string;
+}
+
+export interface UpdatePlan {
+  scope: Scope;
+  sources: Array<{ name: string; from?: string; to?: string; ref: string }>;
+  items: UpdatePlanItem[];
+  failures: InstallFailure[];
+  warnings: string[];
+}
+
+export type CheckStatus = 'ok' | 'warn' | 'fail';
+
+export interface CheckProblem {
+  entity?: { kind: Kind; name: string; source: string };
+  file?: string;
+  message: string;
+  /** The command that fixes it. */
+  fix?: string;
+}
+
+export interface CheckRun {
+  /** Stable id: `manifest-lock`, `lock-disk`, `local-sources`, `exec-trusted`, `hook-scripts`, `secrets`, `git-ignored`, `sources-declared`, `links`, `hidden-unicode`, `double-load`, `block-size`. */
+  id: string;
+  label: string;
+  status: CheckStatus;
+  problems: CheckProblem[];
+}
+
+export interface CheckReport {
+  scope: Scope;
+  checks: CheckRun[];
+  /** True when no check failed. */
+  ok: boolean;
+}
+
+export interface MigrateReport {
+  manifest: string;
+  lock: string;
+  sourcesAdded: string[];
+  movedAssets: string[];
+  gitignore?: string;
+  /** Executables re-vendored, for the one consent. */
+  exec: ExecUnit[];
+  warnings: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Target interface (src/targets/*)
 // ---------------------------------------------------------------------------
 
-/** Everything a target needs to write one entity. */
-export interface DeployInput {
+/** Everything a target needs to render one entity. Pure apart from reading the source. */
+export interface RenderInput {
   entity: Entity;
   /** Absolute path of the entity on disk (dir for skill/plugin, file otherwise). */
   absPath: string;
-  /** Absolute origin root (for resolving plugin-relative assets). */
-  originRoot: string;
+  /** Absolute source root (for resolving references and the closure). */
+  sourceRoot: string;
+  source: Source;
   scope: Scope;
-  /** Absolute directory that scope-relative paths resolve against (projectRoot or home). */
+  /** Absolute directory that lock-form paths resolve against (projectRoot or home). */
   scopeRoot: string;
+  /** Lock-form directory that holds this entity's closure: `.palm/assets/<source>/<entity>` (git) or the source path itself (local, `inPlace`). */
+  assetsRoot: string;
+  inPlace: boolean;
   secretPolicy: SecretPolicy;
-  /** Resolved secret values when policy is literal. */
+  /** Resolved secret values when the policy is literal. */
   secretValues?: Record<string, string>;
-  dryRun: boolean;
-  force: boolean;
-  /** Files already owned by this entity in the lock (may be overwritten). Merged keys appear as `file#pointer`. */
-  ownedFiles: string[];
   /** Environment for CLAUDE_CONFIG_DIR / CODEX_HOME / COPILOT_HOME / PALM_HOME resolution (default: process.env). */
   env?: NodeJS.ProcessEnv;
 }
 
-export interface DeployResult {
-  /** Files written, scope-relative for project scope, absolute for global. */
-  files: string[];
-  merged?: MergedRecord[];
+export interface RenderedFile {
+  /** Lock-form path. */
+  path: string;
+  data: Uint8Array;
+  /** Permission bits; undefined = default. */
+  mode?: number;
+}
+
+/** A fragment to merge into a shared file, with its value; the lock stores it without the value. */
+export interface RenderedFragment extends LockMerged {
+  value: unknown;
+  /** Create the shared file 0600 when it does not exist (user-level secret-bearing files). */
+  createMode?: number;
+}
+
+export interface Rendered {
+  files: RenderedFile[];
+  fragments: RenderedFragment[];
+  /** The exec commands this target will run, canonical and rendered, for the exec unit. */
+  exec: Array<{ id: string; canonical: string; command: string; file: string; event?: string; matcher?: string }>;
   notes: string[];
-  /** True when the target has nothing to do for this kind/scope (documented gap). */
+  /** True when the target has nothing to do for this kind/scope (documented gap; noted). */
   skipped?: boolean;
+  /** sha256 over the sorted (path, mode, content hash) list plus fragment (file, at, key, canonical JSON value) list. */
+  hash: string;
+}
+
+/** Files already owned by the entity being written (so they may be replaced). */
+export interface ApplyInput {
+  rendered: Rendered;
+  scopeRoot: string;
+  /** Lock-form files and `file#at#key` fragments the previous lock entry owns. */
+  owned: string[];
+  force: boolean;
+  dryRun: boolean;
+  env?: NodeJS.ProcessEnv;
+}
+
+export interface ApplyResult {
+  /** Lock-form paths written (or that would be, in a dry run). */
+  files: string[];
+  merged: LockMerged[];
+  /** Files present with identical content, adopted without writing. */
+  adopted: string[];
+  notes: string[];
 }
 
 export interface Target {
@@ -537,10 +904,15 @@ export interface Target {
   detect(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): Promise<boolean>;
   /** Root config dir for the scope, e.g. <projectRoot>/.claude or ~/.claude. */
   configDir(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): string;
-  deploy(input: DeployInput): Promise<DeployResult>;
+  /** Output directories this target writes to at a scope (lock form), for overlap checks. */
+  outputDirs(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): string[];
+  /** Compute every file and fragment for the entity. No writes. */
+  render(input: RenderInput): Promise<Rendered>;
+  /** Write a render: collision policy, merges, journaling and rollback (DESIGN.md section 2). */
+  apply(input: ApplyInput): Promise<ApplyResult>;
   /**
-   * Remove the given files/merged records previously produced by deploy.
-   * `env` resolves CLAUDE_CONFIG_DIR / CODEX_HOME / … like `DeployInput.env` (default: process.env).
+   * Remove exactly `entry.files` inside this target's roots and the assets dir, prune emptied
+   * dirs, and unmerge `entry.merged` by (at, key). `env` as in RenderInput.
    */
   undeploy(
     entry: LockEntry,
@@ -555,29 +927,35 @@ export interface Target {
 // Engine collaborators (implemented in the named files)
 // ---------------------------------------------------------------------------
 
-/** An installable MCP server found in the registry (src/mcp/registry.ts). */
-export interface RegistryCandidate {
-  name: string;
-  description?: string;
-  version?: string;
-  config: McpServerConfig;
-}
-
 /**
  * Collaborators the engine calls into (src/engine/deps.ts supplies lazily imported
  * defaults; tests pass fakes as `Partial<EngineDeps>`).
  */
 export interface EngineDeps {
-  /** default: src/index/scan.ts `scanOrigin` */
-  scan: (root: string, spec: OriginSpec) => Promise<ScanResult>;
+  /** default: src/index/scan.ts `scanSource` */
+  scan: (root: string, source: Source) => Promise<ScanResult>;
   /** default: src/targets/index.ts `getTarget` */
   getTarget: (id: TargetId) => Target;
-  /** default: src/mcp/registry.ts `resolveRegistry` */
-  resolveRegistry: (
-    name: string,
-    opts: { registryUrl?: string; version?: string },
-  ) => Promise<RegistryCandidate[]>;
-  /** default: src/mcp/secrets.ts `resolveSecrets` */
+  /** default: src/exec/units.ts `execUnitOf`: builds the unit from an entity and its renders */
+  execUnit: (
+    entity: Entity,
+    renders: Partial<Record<TargetId, Rendered>>,
+    closure: { root: string; inPlace: boolean; files: ClosureFile[] },
+    from?: ExecUnit['from'],
+  ) => ExecUnit;
+  /** default: src/exec/consent.ts `askConsent`: prompt, `--allow-exec`, or E_UNTRUSTED_EXEC */
+  askConsent: (ctx: PalmContext, req: ConsentRequest) => Promise<ConsentOutcome>;
+  /** default: src/secrets/scan.ts `scanSecrets` */
+  scanSecrets: (value: unknown, where: string) => SecretFinding[];
+  /** default: src/secrets/policy.ts `decideSecret` */
+  decideSecret: (input: {
+    scope: Scope;
+    fromSource: boolean;
+    requested?: SecretPolicy;
+    destinationAbs: string;
+    force: boolean;
+  }) => Promise<SecretDecision>;
+  /** default: src/secrets/resolve.ts `resolveSecrets`: env lookup and masked prompts under `literal` */
   resolveSecrets: (
     ctx: PalmContext,
     cfg: McpServerConfig,
