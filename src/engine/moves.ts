@@ -114,7 +114,7 @@ function restore(run: Run, m: Move): void {
 }
 
 /** The outcome of a program whose new version the person declined: the trusted one stays (V5). */
-function keptProgram(run: Run, p: Prepared): InstallOutcome {
+export function keptProgram(run: Run, p: Prepared): InstallOutcome {
   const entry = p.previous as NonNullable<Prepared['previous']>;
   const s = { kind: entry.kind, name: entry.name, source: entry.source };
   const trusted = entry.exec?.hash ? ` (trusted ${short(entry.exec.hash, 8)})` : '';

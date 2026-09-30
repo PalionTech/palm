@@ -20,6 +20,7 @@ import { deepEqual } from '../lib/object.js';
 import { fragmentKey, type TargetVerdict } from './diff.js';
 import { uncheckedNote } from './edits.js';
 import type { Prepared, Run } from './jobs.js';
+import { keptProgram } from './moves.js';
 import { protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failure, failureOf, installCommand, type Subject } from './report.js';
 import { literalsBefore, rotationWarnings } from './rotate.js';
@@ -355,7 +356,8 @@ function declined(run: Run, p: Prepared): InstallOutcome {
     `see it: ${installCommand(s, scope, '--dry-run --review')}`,
     `install it: ${installCommand({ ...s, name: `${s.kind}:${s.name}` }, scope)}`,
   ];
-  if (p.previous && !p.previous.declined) return { entry: p.previous, status: 'skipped', notes };
+  // The trusted version is still merged and runs (V5): say so, and how to remove it.
+  if (p.previous && !p.previous.declined) return keptProgram(run, p);
   const entry = withDeclined({ ...baseEntry(p), render: {}, files: [] });
   if (p.job.via) run.state.lock.upsert(entry);
   return { entry, status: 'skipped', notes };

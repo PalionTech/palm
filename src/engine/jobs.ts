@@ -3,6 +3,7 @@
  * `prepareJob` renders and diffs (nothing written), `askForConsent` asks once for every exec
  * unit the run would write, then apply.ts writes entity by entity.
  */
+import { PalmError } from '../core/errors.js';
 import type {
   ConsentRequest,
   EngineDeps,
@@ -229,4 +230,7 @@ export async function askForConsent(
   const yes = new Set(answer.allowed);
   for (const p of asking)
     p.consent = yes.has((p.out.unit as ExecUnit).key) ? 'allowed' : 'declined';
+  // A program the person named and then declined ends the run: exit 130, nothing written (Y22).
+  if (asking.some((p) => p.consent === 'declined' && p.job.explicit && p.job.record))
+    throw new PalmError('E_CANCELLED', 'cancelled; nothing was written');
 }
