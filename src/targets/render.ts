@@ -286,9 +286,9 @@ function noteWidened(job: RenderJob, activation: InstructionDefinition['activati
 }
 
 /**
- * The file name an instruction already in `target`'s own format keeps, byte for byte: a Claude
+ * The file name an instruction already in `target`'s own format keeps, with its bytes: a Claude
  * rule for claude (ruling B12), a Copilot `.instructions.md` for copilot and a Cursor `.mdc` for
- * cursor (rulings O9, Y8'). Undefined when the target converts it.
+ * cursor (rulings O9, Y8'), each under its source file name. Undefined when the target converts.
  */
 function nativeFileName(
   target: TargetId,
@@ -297,8 +297,8 @@ function nativeFileName(
 ): string | undefined {
   if (target === 'claude' && def.sourceFormat === 'claude-md') return def.fileName ?? `${name}.md`;
   if (target === 'copilot' && def.sourceFormat === 'instructions-md')
-    return `${name}.instructions.md`;
-  if (target === 'cursor' && def.sourceFormat === 'mdc') return `${name}.mdc`;
+    return def.fileName ?? `${name}.instructions.md`;
+  if (target === 'cursor' && def.sourceFormat === 'mdc') return def.fileName ?? `${name}.mdc`;
   return undefined;
 }
 

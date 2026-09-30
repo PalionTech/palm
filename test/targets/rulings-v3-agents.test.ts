@@ -50,6 +50,14 @@ describe("Y8' a Cursor .mdc passes through for cursor; empty keys and quoting co
     expect(text(cursor.files[0]?.data)).toBe(mdc);
   });
 
+  it("Y8' a native rule keeps its source file name, so it lands on the file it came from", async () => {
+    const mdc = '---\nalwaysApply: true\n---\nAlways.\n';
+    const cursor = await renderRule('cursor', 'rules/React_Rules.mdc', mdc);
+    expect(cursor.files.map((f) => f.path)).toEqual(['.cursor/rules/React_Rules.mdc']);
+    const claude = await renderRule('claude', 'rules/React_Rules.mdc', mdc);
+    expect(claude.files.map((f) => f.path)).toEqual(['.claude/rules/react-rules.md']);
+  });
+
   it("Y8' an on-disk rule with empty keys and other quoting adopts", () => {
     const file = '.cursor/rules/review.mdc';
     const disk = Buffer.from(

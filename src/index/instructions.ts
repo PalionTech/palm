@@ -63,6 +63,13 @@ function markdownActivation(data: Frontmatter, scoped: boolean, description?: st
   return description === undefined ? 'manual' : 'on-request';
 }
 
+/** The source file name a verbatim copy keeps, when it differs from `<name><ext>` (B12, Y8'). */
+function keptFileName(absPath: string, name: string, ext: string): string | undefined {
+  const base = basename(absPath);
+  if (base === `${name}${ext}` || !base.endsWith(ext) || !isSafeName(base)) return undefined;
+  return base;
+}
+
 export function parseInstructionFile(absPath: string, text: string): InstructionDefinition {
   const lower = absPath.toLowerCase();
   const { data, body } = parseFrontmatter(text);
@@ -72,12 +79,15 @@ export function parseInstructionFile(absPath: string, text: string): Instruction
 
   if (lower.endsWith('.mdc')) {
     const activation = mdcActivation(data, description);
-    return definition({ ...head, globs: asList(data.globs), activation, sourceFormat: 'mdc' });
+    const fileName = keptFileName(absPath, name, '.mdc');
+    const globs = asList(data.globs);
+    return definition({ ...head, globs, activation, sourceFormat: 'mdc', fileName });
   }
   if (lower.endsWith('.instructions.md')) {
     const globs = scopingGlobs(data.applyTo);
     const activation = globs ? 'paths' : 'always';
-    return definition({ ...head, globs, activation, sourceFormat: 'instructions-md' });
+    const fileName = keptFileName(absPath, name, '.instructions.md');
+    return definition({ ...head, globs, activation, sourceFormat: 'instructions-md', fileName });
   }
   if (basename(lower) === 'agents.md') {
     return definition({ name, body, activation: 'always', sourceFormat: 'agents-md' });
@@ -86,7 +96,6 @@ export function parseInstructionFile(absPath: string, text: string): Instruction
   const activation = markdownActivation(data, globs !== undefined, description);
   if (NON_CLAUDE_KEYS.some((k) => k in data))
     return definition({ ...head, globs, activation, sourceFormat: 'md' });
-  const base = basename(absPath);
-  const fileName = base === `${name}.md` || !isSafeName(base) ? undefined : base;
+  const fileName = keptFileName(absPath, name, '.md');
   return definition({ ...head, globs, activation, sourceFormat: 'claude-md', fileName });
 }
