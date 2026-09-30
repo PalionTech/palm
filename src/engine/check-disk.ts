@@ -1,17 +1,29 @@
 /**
- * The checks that read generated files (DESIGN §6 "Check"): `lock-disk`, `hook-scripts`,
- * `secrets` and `hidden-unicode`. Nothing is written.
+ * The checks that read generated files (DESIGN §6 "Check"): `lock-disk` and `hidden-unicode`.
+ * `lock-disk` also fails on a partial install (an active target the entry is not on, Y5 Z5),
+ * on files inside an entity directory the lock does not list (orphans, C13) and, under -g, on
+ * files this machine holds that the lock no longer lists (J7). With `--offline` and an empty
+ * cache it says so instead of reporting a difference (E13). Nothing is written.
  */
-import { readFile, stat } from 'node:fs/promises';
-import type { CheckRun, LockEntry, Rendered, TargetId } from '../core/types.js';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import type { CheckProblem, CheckRun, LockEntry, Rendered, TargetId } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
-import { isGitTracked } from '../lib/fs.js';
-import { findPlaceholders, isRuntimeVar } from '../lib/placeholders.js';
+import { isWithin, walkFiles } from '../lib/fs.js';
 import { scanHiddenUnicode } from '../lib/unicode.js';
-import { type CheckContext, checkRun, count, entityOf, type Found, found } from './check-kit.js';
+import {
+  type CheckContext,
+  checkRun,
+  count,
+  entityOf,
+  type Found,
+  found,
+  missingTargets,
+  rendersFiles,
+  skipped,
+} from './check-kit.js';
 import { fileStates, fragmentStates } from './diff.js';
 import { palmCommand } from './report.js';
-import { readConfig } from './rotate.js';
 
 const MAX_TEXT_BYTES = 1024 * 1024;
 
@@ -23,200 +35,149 @@ function fixes(c: CheckContext, e: LockEntry) {
   };
 }
 
-async function targetDisk(c: CheckContext, e: LockEntry, r: Rendered, f: Found): Promise<void> {
+function problem(
+  e: LockEntry,
+  file: string | undefined,
+  message: string,
+  fix: string,
+): CheckProblem {
+  return file === undefined
+    ? { entity: entityOf(e), message, fix }
+    : { entity: entityOf(e), file, message, fix };
+}
+
+async function targetFiles(c: CheckContext, e: LockEntry, r: Rendered, f: Found): Promise<void> {
   const { paths, applied } = c.run.state;
   const fix = fixes(c, e);
   for (const [file, s] of await fileStates(paths, r, applied ? { applied } : {})) {
-    if (s === 'missing')
-      f.fail.push({ entity: entityOf(e), file, message: `${file} is missing`, fix: fix.restore });
+    if (s === 'missing') f.fail.push(problem(e, file, `${file} is missing`, fix.restore));
     else if (s !== 'same')
-      f.fail.push({
-        entity: entityOf(e),
-        file,
-        message: `${file} differs from what palm renders`,
-        fix: fix.force,
-      });
+      f.fail.push(problem(e, file, `${file} differs from what palm renders`, fix.force));
   }
-  for (const [key, s] of await fragmentStates(paths, r)) {
-    const file = key.split('#')[0];
+}
+
+async function targetFragments(
+  c: CheckContext,
+  e: LockEntry,
+  r: Rendered,
+  f: Found,
+): Promise<void> {
+  const fix = fixes(c, e);
+  for (const [key, s] of await fragmentStates(c.run.state.paths, r)) {
+    const file = key.split('#')[0] as string;
     if (s === 'missing')
-      f.fail.push({
-        entity: entityOf(e),
-        file,
-        message: `palm's entry in ${file} is missing`,
-        fix: fix.restore,
-      });
+      f.fail.push(problem(e, file, `palm's entry in ${file} is missing`, fix.restore));
     if (s === 'changed')
-      f.fail.push({
-        entity: entityOf(e),
-        file,
-        message: `palm's entry in ${file} was changed`,
-        fix: fix.force,
-      });
+      f.fail.push(problem(e, file, `palm's entry in ${file} was changed`, fix.force));
   }
+}
+
+/** Y5 Z5 E3: an active target the entry is not installed for (or no target at all). */
+function partial(c: CheckContext, e: LockEntry, f: Found): void {
+  const missing = missingTargets(c, e);
+  if (!missing.length) return;
+  const none = Object.keys(e.render).length === 0;
+  const what = none
+    ? 'is installed for no target'
+    : `is partial: not installed for ${missing.join(', ')}`;
+  f.fail.push(problem(e, undefined, `${e.kind} ${e.name} ${what}`, fixes(c, e).restore));
+}
+
+async function entryDisk(c: CheckContext, e: LockEntry, f: Found): Promise<void> {
+  partial(c, e, f);
+  const out = c.renders.get(lockId(e));
+  if (!out) {
+    const message = `palm cannot render ${e.kind} ${e.name} from source ${e.source}`;
+    f.fail.push(problem(e, undefined, message, fixes(c, e).restore));
+    return;
+  }
+  for (const id of Object.keys(e.render) as TargetId[]) {
+    const r = out.renders[id];
+    if (!r || r.hash !== e.render[id]) {
+      const message = `${e.kind} ${e.name} renders differently for ${id} than palm.lock.yaml records`;
+      f.fail.push(problem(e, undefined, message, fixes(c, e).restore));
+      continue;
+    }
+    await targetFiles(c, e, r, f);
+    await targetFragments(c, e, r, f);
+  }
+}
+
+/** The directories palm owns whole for an entry: a skill's folder per harness, a closure copy. */
+function entityDirs(c: CheckContext, e: LockEntry): string[] {
+  const dirs = new Set<string>();
+  const segment = `/${e.name}/`;
+  if (e.kind === 'skill')
+    for (const file of e.files) {
+      const at = file.indexOf(segment);
+      if (at >= 0) dirs.add(file.slice(0, at + segment.length - 1));
+    }
+  const closure = e.exec?.closure?.root;
+  if (closure?.startsWith(c.run.state.paths.lockForm(c.run.state.paths.assetsDir)))
+    dirs.add(closure);
+  return [...dirs];
+}
+
+/** Files below `dir` (lock form) that no lock entry lists. */
+async function unlisted(c: CheckContext, dir: string, listed: Set<string>): Promise<string[]> {
+  const abs = c.run.state.paths.abs(dir);
+  const local = c.run.state.sources
+    .all()
+    .flatMap((s) => (s.isLocal && s.source.path ? [s.source.path] : []));
+  if (!existsSync(abs) || local.some((s) => isWithin(abs, s))) return [];
+  return (await walkFiles(abs)).files.map((f) => `${dir}/${f.rel}`).filter((r) => !listed.has(r));
+}
+
+/** C13: files inside an entity directory palm owns that the lock does not list. */
+async function orphans(c: CheckContext, f: Found): Promise<void> {
+  const { lock } = c.run.state;
+  const listed = new Set(lock.entries.flatMap((e) => e.files));
+  for (const e of lock.entries.filter(rendersFiles))
+    for (const dir of entityDirs(c, e))
+      for (const rel of await unlisted(c, dir, listed)) {
+        const message = `${rel} is inside ${dir}/ but palm.lock.yaml does not list it`;
+        f.fail.push(problem(e, rel, message, fixes(c, e).force));
+      }
+}
+
+/** J7: under -g, files this machine holds that the pulled lock no longer lists. */
+function appliedLeftovers(c: CheckContext, f: Found): void {
+  const { applied, lock, paths } = c.run.state;
+  if (!applied) return;
+  const listed = new Set(lock.entries.flatMap((e) => e.files.map((p) => paths.abs(p))));
+  const left = applied.record.files.filter((x) => !listed.has(x.path) && existsSync(x.path));
+  if (!left.length) return;
+  f.fail.push({
+    message: `applied files no longer in the lock: ${left.length} (${left
+      .slice(0, 3)
+      .map((x) => paths.lockForm(x.path))
+      .join(', ')}${left.length > 3 ? ', …' : ''})`,
+    fix: `${palmCommand('install', [], paths.scope)} removes them`,
+  });
 }
 
 /** Every listed file and fragment is on disk as the render recomputed from the cache has it. */
 export async function lockDisk(c: CheckContext): Promise<CheckRun> {
   const f = found();
-  for (const e of c.run.state.lock.entries) {
-    if (e.declined || e.kind === 'plugin' || c.driftedSources.has(e.source)) continue;
-    const out = c.renders.get(lockId(e));
-    if (!out) {
-      f.fail.push({
-        entity: entityOf(e),
-        message: `palm cannot render ${e.kind} ${e.name} from source ${e.source}`,
-        fix: fixes(c, e).restore,
-      });
-      continue;
-    }
-    for (const id of Object.keys(e.render) as TargetId[]) {
-      const r = out.renders[id];
-      if (!r || r.hash !== e.render[id]) {
-        f.fail.push({
-          entity: entityOf(e),
-          message: `${e.kind} ${e.name} renders differently for ${id} than palm.lock.yaml records`,
-          fix: fixes(c, e).restore,
-        });
-        continue;
-      }
-      await targetDisk(c, e, r, f);
-    }
-  }
+  const entries = c.run.state.lock.entries.filter(rendersFiles);
+  const offline = entries.filter((e) => c.offline.has(lockId(e)));
+  if (offline.length && offline.length === entries.length)
+    return skipped('lock-disk', 'generated files', 'cache empty; run palm install');
+  for (const e of entries)
+    if (!c.drifted.has(lockId(e)) && !c.offline.has(lockId(e))) await entryDisk(c, e, f);
+  await orphans(c, f);
+  appliedLeftovers(c, f);
+  const skippedNote = offline.length
+    ? `; ${count(offline.length, 'entity', 'entities')} skipped (cache empty; run palm install)`
+    : '';
   return checkRun(
     'lock-disk',
     {
-      ok: 'generated files match the lock',
-      bad: (n) => `${count(n, 'generated file')} ${n === 1 ? 'differs' : 'differ'} from the lock`,
+      ok: `generated files match the lock${skippedNote}`,
+      bad: (n) => `${count(n, 'problem')} with generated files${skippedNote}`,
     },
     f,
   );
-}
-
-// ---------------------------------------------------------------------------
-// hook-scripts
-// ---------------------------------------------------------------------------
-
-/** `<root idiom>/<path>` in a rendered command, with the directory the idiom stands for. */
-function scriptRefs(c: CheckContext, command: string): Array<{ abs: string; direct: boolean }> {
-  const { paths } = c.run.state;
-  const roots: Array<[RegExp, string]> = [
-    [/"\$(?:CLAUDE|CURSOR|GEMINI)_PROJECT_DIR"\/([^\s"']+)/g, paths.root],
-    [/"\$\(git rev-parse --show-toplevel 2>\/dev\/null \|\| pwd\)"\/([^\s"']+)/g, paths.root],
-    [/"\$\{PALM_HOME:-\$HOME\/\.palm\}"\/([^\s"']+)/g, paths.palmHome],
-    [/"\$HOME"\/([^\s"']+)/g, paths.token('home')],
-  ];
-  const out: Array<{ abs: string; direct: boolean }> = [];
-  for (const [re, dir] of roots)
-    for (const m of command.matchAll(re))
-      out.push({ abs: `${dir}/${m[1]}`, direct: m.index === 0 });
-  return out;
-}
-
-async function modeOf(abs: string): Promise<number | undefined> {
-  try {
-    return (await stat(abs)).mode;
-  } catch {
-    return undefined;
-  }
-}
-
-/** A missing script, or one the command runs directly without the executable bit. */
-async function scriptProblem(
-  c: CheckContext,
-  e: LockEntry,
-  id: string,
-  ref: { abs: string; direct: boolean },
-) {
-  const mode = await modeOf(ref.abs);
-  const file = c.run.state.paths.lockForm(ref.abs);
-  let why: string | undefined;
-  if (mode === undefined) why = 'does not exist';
-  else if (ref.direct && !(mode & 0o111)) why = 'is not executable';
-  return why
-    ? { entity: entityOf(e), file, message: `${id}: ${file} ${why}`, fix: fixes(c, e).restore }
-    : undefined;
-}
-
-/** Every file a hook command names exists (and is executable when the command runs it directly). */
-export async function hookScripts(c: CheckContext): Promise<CheckRun> {
-  const f = found();
-  for (const e of c.run.state.lock.entries) {
-    if (e.declined || !e.exec) continue;
-    for (const cmd of e.exec.commands)
-      for (const ref of scriptRefs(c, cmd.command)) {
-        const p = await scriptProblem(c, e, cmd.id, ref);
-        if (p) f.fail.push(p);
-      }
-  }
-  const bad = (n: number) => `${count(n, 'hook script')} missing or not executable`;
-  return checkRun('hook-scripts', { ok: 'every hook script exists', bad }, f);
-}
-
-// ---------------------------------------------------------------------------
-// secrets
-// ---------------------------------------------------------------------------
-
-/** Generated JSON and TOML files (whole files and the shared files palm merged into). */
-function configFiles(c: CheckContext): Map<string, LockEntry> {
-  const out = new Map<string, LockEntry>();
-  for (const e of c.run.state.lock.entries)
-    for (const file of [...e.files, ...(e.merged ?? []).map((m) => m.file)])
-      if (/\.(json|toml)$/.test(file) && !out.has(file)) out.set(file, e);
-  return out;
-}
-
-async function literalSecrets(c: CheckContext, f: Found): Promise<void> {
-  const { paths } = c.run.state;
-  for (const [file, owner] of configFiles(c)) {
-    const abs = paths.abs(file);
-    const findings = c.run.deps.scanSecrets(await readConfig(abs), file);
-    if (!findings.length) continue;
-    const tracked = c.git ? await isGitTracked(abs, paths.root) : undefined;
-    const others = ((await modeOf(abs)) ?? 0) & 0o004;
-    if (!tracked && !others) continue;
-    const why = tracked ? 'tracked by git' : 'readable by others';
-    const where = findings.map((x) => x.where).join(', ');
-    f.fail.push({
-      entity: entityOf(owner),
-      file,
-      message: `${file} holds a literal secret (${where}), ${why}`,
-      fix: `${fixes(c, owner).force} after fixing the source`,
-    });
-  }
-}
-
-/** Every `${VAR}` the installed servers need, and whether it is set (unset: a warning). */
-function variables(c: CheckContext, f: Found): string[] {
-  const seen = new Set<string>();
-  for (const e of c.run.state.lock.entries) {
-    if (e.kind !== 'mcp') continue;
-    const out = c.renders.get(lockId(e));
-    const text = JSON.stringify(
-      Object.values(out?.renders ?? {}).map((r) => r?.fragments.map((x) => x.value)),
-    );
-    for (const p of findPlaceholders(text)) {
-      if (isRuntimeVar(p.name) || seen.has(p.name)) continue;
-      seen.add(p.name);
-      if (c.run.ctx.env[p.name] === undefined)
-        f.warn.push({
-          entity: entityOf(e),
-          message: `needs ${p.name}, which is not set`,
-          fix: `export ${p.name}`,
-        });
-    }
-  }
-  return [...seen].filter((v) => c.run.ctx.env[v] !== undefined);
-}
-
-/** No literal secret in a tracked or world-readable generated file; required variables listed. */
-export async function secrets(c: CheckContext): Promise<CheckRun> {
-  const f = found();
-  await literalSecrets(c, f);
-  const set = variables(c, f);
-  const needs = set.length ? `; ${set.join(', ')} set` : '';
-  const bad = (n: number) => `${count(n, 'secret problem')}${needs}`;
-  return checkRun('secrets', { ok: `no literal secret in generated files${needs}`, bad }, f);
 }
 
 // ---------------------------------------------------------------------------
@@ -240,13 +201,10 @@ export async function hiddenUnicode(c: CheckContext): Promise<CheckRun> {
       const critical = findings.find((x) => x.severity === 'critical');
       const any = critical ?? findings[0];
       if (!any) continue;
-      const problem = {
-        entity: entityOf(e),
-        file,
-        message: `${file} holds ${any.name} (U+${any.codePoint.toString(16).toUpperCase()})`,
-        fix: `fix the source, then ${fixes(c, e).force}`,
-      };
-      (critical ? f.fail : f.warn).push(problem);
+      const message = `${file} holds ${any.name} (U+${any.codePoint.toString(16).toUpperCase()})`;
+      (critical ? f.fail : f.warn).push(
+        problem(e, file, message, `fix the source, then ${fixes(c, e).force}`),
+      );
     }
   return checkRun(
     'hidden-unicode',

@@ -1,15 +1,14 @@
 /**
  * The checks that compare palm.yaml, the lock and the sources (DESIGN §6 "Check"):
- * `manifest-lock`, `local-sources`, `sources-declared` and `exec-trusted`.
+ * `manifest-lock`, `local-sources` and `sources-declared`.
  */
 import { existsSync } from 'node:fs';
 import { short } from '../core/hash.js';
 import type { CheckProblem, CheckRun, LockEntry, LockSource } from '../core/types.js';
 import { lockId, Via } from '../domain/entity-key.js';
+import { sameName } from '../domain/entity-ref.js';
 import { type CheckContext, checkRun, count, entityOf, type Found, found } from './check-kit.js';
-import { fragmentStates } from './diff.js';
 import { palmCommand } from './report.js';
-import { resolveSource } from './resolve.js';
 import { MANIFEST_SOURCE } from './sources.js';
 
 function install(c: CheckContext, extra?: string): string {
@@ -106,30 +105,76 @@ function sourceSide(c: CheckContext, f: Found): void {
   }
 }
 
+/**
+ * K3: an installed agent that preloads a skill (`skills:` in its frontmatter) nobody installed
+ * gets a warning naming the install command; palm installs nothing on its own (PLAN §6).
+ */
+function preloads(c: CheckContext, f: Found): void {
+  const { lock, paths } = c.run.state;
+  const has = (name: string) =>
+    lock.entries.some((x) => x.kind === 'skill' && !x.declined && sameName(x.name, name));
+  for (const e of lock.entries) {
+    const entity = e.kind === 'agent' ? c.renders.get(lockId(e))?.entity : undefined;
+    if (entity?.def.kind !== 'agent') continue;
+    for (const skill of entity.def.agent.skills ?? [])
+      if (!has(skill))
+        f.warn.push(
+          problem(
+            `agent ${e.name} preloads skill ${skill}, not installed`,
+            palmCommand('install', [e.source, skill], paths.scope),
+            e,
+          ),
+        );
+  }
+}
+
 export function manifestLock(c: CheckContext): CheckRun {
   const f = found();
   manifestSide(c, f);
   entrySide(c, f);
   sourceSide(c, f);
-  const bad = (n: number) => `${count(n, 'disagreement')} between palm.yaml and palm.lock.yaml`;
-  return checkRun('manifest-lock', { ok: 'manifest and lock agree', bad }, f);
+  preloads(c, f);
+  return checkRun(
+    'manifest-lock',
+    {
+      ok: 'manifest and lock agree',
+      bad: (n) => `${count(n, 'disagreement')} between palm.yaml and palm.lock.yaml`,
+      warned: (n) => `manifest and lock agree; ${count(n, 'preloaded skill')} not installed`,
+    },
+    f,
+  );
 }
 
-/** A local source's tree differs from the lock's `tree`; its entries are then reported here. */
-export async function localSources(c: CheckContext): Promise<CheckRun> {
+/**
+ * B3: an in-repo entry whose own files changed since the lock (its content hash moved) is the
+ * drift signal, per entry, so two pull requests that touch two entries do not conflict in
+ * palm.lock.yaml. The entry is then reported here, not again by `lock-disk`.
+ */
+export function localSources(c: CheckContext): CheckRun {
   const f = found();
-  const { ctx, deps, state } = c.run;
-  for (const ref of state.sources.all()) {
-    if (!ref.isLocal) continue;
-    const ls = state.lock.source(ref.name);
-    const r = await resolveSource({ ctx, deps, state, ref }).catch(() => undefined);
-    if (!r || !ls?.tree || r.checkout.tree === ls.tree) continue;
-    c.driftedSources.add(ref.name);
-    const moved = `tree ${short(ls.tree, 7)} → ${short(r.checkout.tree ?? '', 7)}`;
-    const message = `source ${ref.name} changed since palm.lock.yaml (${moved})`;
-    f.fail.push(problem(message, `${install(c)} and commit palm.lock.yaml`));
+  const { state } = c.run;
+  const local = new Set(
+    state.sources
+      .all()
+      .filter((s) => s.isLocal)
+      .map((s) => s.name),
+  );
+  for (const e of state.lock.entries) {
+    if (!local.has(e.source) || e.declined || e.kind === 'plugin') continue;
+    const out = c.renders.get(lockId(e));
+    if (!out || out.content === e.content) continue;
+    c.drifted.add(lockId(e));
+    const moved = `content ${short(e.content, 7)} → ${short(out.content, 7)}`;
+    f.fail.push(
+      problem(
+        `${e.kind} ${e.name} in source ${e.source} changed since palm.lock.yaml (${moved})`,
+        `${install(c)}, then commit palm.lock.yaml and the files it re-rendered`,
+        e,
+      ),
+    );
   }
-  const bad = (n: number) => `${count(n, 'in-repo source')} changed since the lock`;
+  const bad = (n: number) =>
+    `${count(n, 'in-repo entity', 'in-repo entities')} changed since the lock`;
   return checkRun('local-sources', { ok: 'in-repo sources match the lock', bad }, f);
 }
 
@@ -147,36 +192,4 @@ export function sourcesDeclared(c: CheckContext): CheckRun {
   }
   const bad = (n: number) => `${count(n, 'source')} not declared or missing`;
   return checkRun('sources-declared', { ok: 'every source is declared', bad }, f);
-}
-
-/** A hook's merged command on disk that differs from the lock's (found by key, changed value). */
-async function mergedDrift(c: CheckContext, e: LockEntry, f: Found): Promise<void> {
-  const out = c.renders.get(lockId(e));
-  if (!out || e.kind !== 'hook') return;
-  const fix = palmCommand('install', [e.source, e.name], c.run.state.paths.scope, '--force');
-  for (const r of Object.values(out.renders)) {
-    if (!r) continue;
-    for (const [key, s] of await fragmentStates(c.run.state.paths, r))
-      if (s === 'changed')
-        f.fail.push({
-          ...problem(`a command of hook ${e.name} on disk differs from palm.lock.yaml`, fix, e),
-          file: key.split('#')[0] as string,
-        });
-  }
-}
-
-/** Every exec unit is trusted in the lock; merged commands on disk match the lock's. */
-export async function execTrusted(c: CheckContext): Promise<CheckRun> {
-  const f = found();
-  for (const e of c.run.state.lock.entries) {
-    if (e.declined || !e.exec) continue;
-    const key = `${e.kind}:${e.name}@${e.source}`;
-    if (!(e.trust ?? []).includes(e.exec.hash)) {
-      const message = `${e.kind} ${e.name} runs a program nobody consented to (${short(e.exec.hash)})`;
-      f.fail.push(problem(message, install(c, `--allow-exec ${key}=${e.exec.hash}`), e));
-    }
-    await mergedDrift(c, e, f);
-  }
-  const bad = (n: number) => `${count(n, 'program')} not trusted or changed on disk`;
-  return checkRun('exec-trusted', { ok: 'every program palm installed is trusted', bad }, f);
 }

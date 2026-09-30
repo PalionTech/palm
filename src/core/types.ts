@@ -242,6 +242,12 @@ export interface SourceReference {
 export interface Closure {
   /** Directories and files, source-relative, sorted, no duplicates, never a skill, root doc or manifest. */
   paths: string[];
+  /**
+   * The part of `paths` a closure script reads rather than runs (ruling E1, found by
+   * `src/exec/reads.ts`): copied even when CLOSURE_NEVER names it (a hook that reads a
+   * SKILL.md), and listed at consent as `reads:`.
+   */
+  reads?: string[];
 }
 
 export interface HookSet {
@@ -419,7 +425,7 @@ export interface LockMerged {
 export interface LockExec {
   /** One line per harness-run command: `<Event>//<matcher or ->[#n]` (Claude event names) for hooks, `stdio` for MCP. */
   commands: Array<{ id: string; command: string }>;
-  /** Asset directory (lock form) and the closure's tree hash, absent for in-place sources. */
+  /** Asset directory (lock form), or the in-repo source for an in-place closure, and the closure tree hash. */
   closure?: { root: string; files: number; tree: string };
   /** The exec hash (DESIGN.md section 7): sha256 over the canonical commands and the closure tree. */
   hash: string;
@@ -551,7 +557,7 @@ export interface ClosureFile {
 /**
  * One unit of executable material: a hook entry (every command it merges, in every target) or
  * a stdio MCP server. `hash` = sha256(canonical commands ‖ events ‖ matchers ‖ env keys ‖ cwd ‖
- * closure tree); in-repo sources have no closure in it (their scripts run in place).
+ * closure tree); in-repo sources hash their scripts too, read in place (ruling E2).
  * `canonical` keeps placeholders, so a new target or a palm upgrade never moves the hash.
  */
 export interface ExecUnit {
@@ -560,8 +566,13 @@ export interface ExecUnit {
   /** `hook:<name>@<source>` or `mcp:<name>@<source>`: the `--allow-exec` key. */
   key: string;
   commands: Array<{ id: string; canonical: string; event?: string; matcher?: string }>;
-  /** Closure root (lock form) and files; `files` empty for in-place sources. */
-  closure: { root: string; inPlace: boolean; files: ClosureFile[]; bytes: number };
+  /**
+   * Closure root (lock form) and files. In-place (in-repo) closures list their files as they
+   * are in the working tree, and `abs` names the directory they are read from (`v`).
+   */
+  closure: { root: string; inPlace: boolean; files: ClosureFile[]; bytes: number; abs?: string };
+  /** Closure files a script reads rather than runs (ruling E1), listed at consent as `reads:`. */
+  reads?: string[];
   hash: string;
   /** Per target: the rendered command line and the file it lands in (for the prompt). */
   rendered: Partial<Record<TargetId, Array<{ id: string; command: string; file: string }>>>;
@@ -814,7 +825,8 @@ export interface UpdatePlan {
   warnings: string[];
 }
 
-export type CheckStatus = 'ok' | 'warn' | 'fail';
+/** `skipped`: the check did not run (outside a repository, an empty cache offline); never shown as passed. */
+export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skipped';
 
 export interface CheckProblem {
   entity?: { kind: Kind; name: string; source: string };
@@ -990,7 +1002,7 @@ export interface EngineDeps {
   execUnit: (
     entity: Entity,
     renders: Partial<Record<TargetId, Rendered>>,
-    closure: { root: string; inPlace: boolean; files: ClosureFile[] },
+    closure: { root: string; inPlace: boolean; files: ClosureFile[]; abs?: string },
     from?: ExecUnit['from'],
   ) => ExecUnit;
   /** default: src/exec/consent.ts `askConsent`: prompt, `--allow-exec`, or E_UNTRUSTED_EXEC */

@@ -24,8 +24,11 @@ async function readSafely(
   return read(unit, file).catch(() => undefined);
 }
 
-function bodyText(body: string | undefined): string {
-  if (body === undefined) return '(palm could not read this file from the cache)';
+function bodyText(body: string | undefined, unit: ExecUnit): string {
+  if (body === undefined)
+    return unit.closure.inPlace
+      ? '(palm could not read this file from the working tree)'
+      : '(palm could not read this file from the cache)';
   if (body.slice(0, BINARY_SNIFF).includes('\0')) return '(binary file, not shown)';
   return visibleBody(body).replace(/\n$/, '');
 }
@@ -33,15 +36,14 @@ function bodyText(body: string | undefined): string {
 async function fileBlock(unit: ExecUnit, file: ClosureFile, read: ScriptReader): Promise<string> {
   const path = visible(posix.join(unit.closure.root, file.path));
   const facts = `${modeText(file.mode)}  ${formatSize(file.size)}  sha256:${short(file.hash, 8)}`;
-  return `==> ${path}  ${facts}\n${bodyText(await readSafely(read, unit, file))}\n`;
+  return `==> ${path}  ${facts}\n${bodyText(await readSafely(read, unit, file), unit)}\n`;
 }
 
 async function unitScripts(unit: ExecUnit, read: ScriptReader): Promise<string[]> {
-  const head = title(unit);
-  if (unit.closure.inPlace)
-    return [
-      `${head}\n  runs in place from ${visible(unit.closure.root)}; the scripts are part of your repository\n`,
-    ];
+  const inPlace = unit.closure.inPlace
+    ? `\n  runs in place from ${visible(unit.closure.root)}; shown from the working tree`
+    : '';
+  const head = `${title(unit)}${inPlace}`;
   if (!unit.closure.files.length) return [`${head}\n  no scripts\n`];
   const blocks = [head];
   for (const file of unit.closure.files) blocks.push(await fileBlock(unit, file, read));

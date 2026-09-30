@@ -1,22 +1,24 @@
 /**
  * `palm check` (DESIGN §6 "Check"): read-only, runs every check in the documented order and
  * reports each one, with one problem per disagreement and the command that fixes it. Checks
- * that need git are listed as skipped outside a repository. `ok` is false when any check fails;
- * warnings alone keep it true.
+ * that could not run (outside a repository, an empty cache offline) are `skipped`, never shown
+ * as passed. `ok` is false when any check fails; warnings alone keep it true.
  */
 import type { CheckReport, CheckRun, EngineDeps, PalmContext, Scope } from '../core/types.js';
 import { gitToplevel } from '../lib/fs.js';
-import { hiddenUnicode, hookScripts, lockDisk, secrets } from './check-disk.js';
+import { hiddenUnicode, lockDisk } from './check-disk.js';
+import { execTrusted, hookScripts } from './check-exec.js';
 import { type CheckContext, renderAll } from './check-kit.js';
-import { execTrusted, localSources, manifestLock, sourcesDeclared } from './check-lock.js';
+import { localSources, manifestLock, sourcesDeclared } from './check-lock.js';
 import { blockSize, doubleLoad, gitIgnored, links } from './check-repo.js';
+import { secrets } from './check-secrets.js';
 import { resolveEngineDeps } from './deps.js';
 import { runOf } from './jobs.js';
 import { openScope } from './scope.js';
 
 type Check = (c: CheckContext) => CheckRun | Promise<CheckRun>;
 
-/** The documented order; `local-sources` runs before `lock-disk` so drifted sources are reported once. */
+/** The run order; `local-sources` runs before `lock-disk` so a drifted entry is reported once. */
 const ORDER: Array<[string, Check]> = [
   ['manifest-lock', manifestLock],
   ['local-sources', localSources],
@@ -62,11 +64,13 @@ export async function checkScope(
   const quiet: PalmContext = { ...ctx, flags: { ...ctx.flags, dryRun: true, yes: false } };
   const state = await openScope(quiet, opts.scope, { deps, readOnly: true });
   const run = runOf(quiet, deps, state);
+  const offline = new Set<string>();
   const c: CheckContext = {
     run,
     git: await inRepository(state.paths.root, opts.scope),
-    renders: await renderAll(run),
-    driftedSources: new Set(),
+    renders: await renderAll({ run, offline }),
+    offline,
+    drifted: new Set(),
   };
   const byId = new Map<string, CheckRun>();
   for (const [id, check] of ORDER) byId.set(id, await check(c));

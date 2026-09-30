@@ -1,40 +1,139 @@
 /**
  * The checks about where generated files live (DESIGN §6 "Check"): `git-ignored`, `links`,
- * and the warnings `double-load` and `block-size`.
+ * and the warnings `double-load` and `block-size`. `git-ignored` asks git about every file palm
+ * wrote or merged into, not directories (B5 C8 Z5), and tells ignored (a failure: teammates
+ * will not receive it) from not yet committed (a warning naming `git add`, E12). `links` walks
+ * the output directories for dangling links and links leaving the scope (Z5).
  */
 import { existsSync } from 'node:fs';
-import { lstat, stat } from 'node:fs/promises';
-import type { CheckRun, LockEntry } from '../core/types.js';
-import { isGitIgnored } from '../lib/fs.js';
-import { type CheckContext, checkRun, count, entityOf, found, skipped } from './check-kit.js';
+import { lstat, readdir, stat } from 'node:fs/promises';
+import { basename, dirname, join, posix } from 'node:path';
+import type { CheckProblem, CheckRun, LockEntry } from '../core/types.js';
+import { readFrontmatterFile } from '../lib/frontmatter.js';
+import { isGitIgnored, isGitTracked, walkFiles } from '../lib/fs.js';
+import {
+  type CheckContext,
+  checkRun,
+  count,
+  entityOf,
+  type Found,
+  found,
+  skipped,
+} from './check-kit.js';
 import { findOverlaps } from './scope.js';
 
-/** No output directory (or `.palm/assets`) is ignored by git: teammates would not receive it. */
-export async function gitIgnored(c: CheckContext): Promise<CheckRun> {
-  const { ctx, deps, state } = c.run;
-  if (!c.git) return skipped('git-ignored', 'output directories committed');
-  const f = found();
-  const dirs = new Set([state.paths.lockForm(state.paths.assetsDir)]);
-  for (const t of state.targets)
-    for (const d of deps.getTarget(t).outputDirs(state.paths.scope, state.paths.root, ctx.env))
-      dirs.add(d);
-  for (const dir of dirs) {
-    const abs = state.paths.abs(dir);
-    if (!existsSync(abs)) continue;
-    if (await isGitIgnored(abs, state.paths.root))
-      f.fail.push({
-        file: dir,
-        message: `${dir}/ is ignored by git, so teammates will not receive its files`,
-        fix: `edit .gitignore: stop ignoring ${dir}/`,
-      });
+/** git questions asked at once. */
+const CONCURRENCY = 8;
+
+async function mapLimit<T, R>(items: readonly T[], fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += CONCURRENCY)
+    out.push(...(await Promise.all(items.slice(i, i + CONCURRENCY).map(fn))));
+  return out;
+}
+
+/** Every file palm wrote or merged into, lock form, that exists. */
+function writtenFiles(c: CheckContext): string[] {
+  const { lock, paths } = c.run.state;
+  const files = new Set<string>();
+  for (const e of lock.entries) {
+    for (const f of e.files) files.add(f);
+    for (const m of e.merged ?? []) files.add(m.file);
   }
+  return [...files].filter((f) => existsSync(paths.abs(f))).sort();
+}
+
+/** `.claude/skills/tdd/SKILL.md` → `.claude`: the output path a group of files is reported under. */
+function topOf(file: string): string {
+  return file.split('/')[0] ?? file;
+}
+
+function grouped(files: readonly string[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const f of files) out.set(topOf(f), [...(out.get(topOf(f)) ?? []), f]);
+  return out;
+}
+
+function listed(files: readonly string[]): string {
+  const head = files.slice(0, 3).join(', ');
+  return files.length > 3 ? `${head} and ${files.length - 3} more` : head;
+}
+
+/** One file by its path, several by their output path: `.mcp.json`, `12 files under .claude/ (…)`. */
+function subject(top: string, files: string[]): { what: string; path: string; one: boolean } {
+  const [only] = files;
+  if (files.length === 1 && only) return { what: only, path: only, one: true };
+  return {
+    what: `${count(files.length, 'file')} under ${top}/ (${listed(files)})`,
+    path: `${top}/`,
+    one: false,
+  };
+}
+
+function ignoredProblem(top: string, files: string[]): CheckProblem {
+  const s = subject(top, files);
+  const receive = s.one
+    ? 'is ignored by git, so teammates will not receive it'
+    : 'are ignored by git, so teammates will not receive them';
+  return {
+    file: top,
+    message: `${s.what} ${receive}`,
+    fix: `edit .gitignore: stop ignoring ${s.path}`,
+  };
+}
+
+function untrackedProblem(top: string, files: string[]): CheckProblem {
+  const s = subject(top, files);
+  return {
+    file: top,
+    message: `${s.what} ${s.one ? 'is' : 'are'} not committed yet (untracked)`,
+    fix: `git add ${s.path.replace(/\/$/, '')}`,
+  };
+}
+
+/** Every file palm wrote or merged into is committed: ignored fails, untracked warns. */
+export async function gitIgnored(c: CheckContext): Promise<CheckRun> {
+  const what = 'generated files committed';
+  if (c.run.state.paths.scope !== 'project') return skipped('git-ignored', what, 'global scope');
+  if (!c.git) return skipped('git-ignored', what);
+  const { paths } = c.run.state;
+  const files = writtenFiles(c);
+  const states = await mapLimit(files, async (f) => {
+    const abs = paths.abs(f);
+    if (await isGitIgnored(abs, paths.root)) return 'ignored';
+    return (await isGitTracked(abs, paths.root)) === false ? 'untracked' : 'tracked';
+  });
+  const f = found();
+  const ignored = files.filter((_, i) => states[i] === 'ignored');
+  const untracked = files.filter((_, i) => states[i] === 'untracked');
+  for (const [top, list] of grouped(ignored)) f.fail.push(ignoredProblem(top, list));
+  for (const [top, list] of grouped(untracked)) f.warn.push(untrackedProblem(top, list));
   return checkRun(
     'git-ignored',
     {
-      ok: 'output directories are committed',
-      bad: (n) => `${count(n, 'output directory')} ignored by git`,
+      ok: 'generated files are committed',
+      bad: (n) => `${count(n, 'output path')} ignored by git`,
+      warned: (n) => `${count(n, 'output path')} not committed yet`,
     },
     f,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// links
+// ---------------------------------------------------------------------------
+
+async function isDangling(abs: string): Promise<boolean> {
+  const isLink = await lstat(abs).then(
+    (s) => s.isSymbolicLink(),
+    () => false,
+  );
+  return (
+    isLink &&
+    !(await stat(abs).then(
+      () => true,
+      () => false,
+    ))
   );
 }
 
@@ -42,41 +141,65 @@ async function linkProblem(c: CheckContext, e: LockEntry, file: string) {
   const { paths } = c.run.state;
   const abs = paths.abs(file);
   const { real, inside } = await paths.realInside(abs);
+  const fix = `remove the link at ${file}, then palm install`;
   if (!inside)
     return {
       entity: entityOf(e),
       file,
       message: `${file} resolves to ${real}, outside the scope`,
-      fix: `remove the link at ${file}, then palm install`,
+      fix,
     };
-  const isLink = await lstat(abs).then(
-    (s) => s.isSymbolicLink(),
-    () => false,
+  if (await isDangling(abs))
+    return { entity: entityOf(e), file, message: `${file} is a dangling link`, fix };
+  return undefined;
+}
+
+/** The project's output directories that exist (lock form). */
+function outputDirs(c: CheckContext): string[] {
+  const { ctx, deps, state } = c.run;
+  const { paths } = state;
+  const dirs = new Set(
+    state.targets.flatMap((t) => deps.getTarget(t).outputDirs(paths.scope, paths.root, ctx.env)),
   );
-  const dangling =
-    isLink &&
-    !(await stat(abs).then(
-      () => true,
-      () => false,
-    ));
-  return dangling
-    ? {
-        entity: entityOf(e),
-        file,
-        message: `${file} is a dangling link`,
-        fix: `remove the link at ${file}, then palm install`,
-      }
-    : undefined;
+  return [...dirs].filter((d) => existsSync(paths.abs(d)));
+}
+
+/** Links below `dir` that dangle or leave the project: `[file, why]`. */
+async function badLinks(c: CheckContext, dir: string): Promise<Array<[string, string]>> {
+  const { paths } = c.run.state;
+  const walk = await walkFiles(paths.abs(dir), { boundary: paths.root });
+  const outside = new Set(walk.symlinksOutside);
+  const out: Array<[string, string]> = [];
+  for (const rel of walk.skipped) {
+    const file = rel === '.' ? dir : `${dir}/${rel}`;
+    if (outside.has(rel)) out.push([file, `${file} links outside the project`]);
+    else if (await isDangling(paths.abs(file))) out.push([file, `${file} is a dangling link`]);
+  }
+  return out;
+}
+
+/** Z5: dangling links and links leaving the project anywhere under the project's output directories. */
+async function outputLinks(c: CheckContext, f: Found, reported: Set<string>): Promise<void> {
+  if (c.run.state.paths.scope !== 'project') return;
+  for (const dir of outputDirs(c))
+    for (const [file, message] of await badLinks(c, dir))
+      if (!reported.has(file))
+        f.fail.push({ file, message, fix: `remove the link at ${file}, then palm install` });
 }
 
 /** Output paths stay inside the scope; no dangling link; no source overlaps an output directory. */
 export async function links(c: CheckContext): Promise<CheckRun> {
   const f = found();
+  const reported = new Set<string>();
   for (const e of c.run.state.lock.entries)
     for (const file of e.files) {
       const p = await linkProblem(c, e, file);
-      if (p) f.fail.push(p);
+      if (p) {
+        f.fail.push(p);
+        reported.add(file);
+      }
     }
+  await outputLinks(c, f, reported);
   for (const o of await findOverlaps(c.run.ctx, c.run.state, c.run.deps))
     f.fail.push({
       message: `source "${o.source}" (${o.sourceRel}) overlaps the ${o.target === 'palm' ? 'palm asset' : o.target} directory ${o.dir}/`,
@@ -89,24 +212,22 @@ export async function links(c: CheckContext): Promise<CheckRun> {
   );
 }
 
+// ---------------------------------------------------------------------------
+// double-load
+// ---------------------------------------------------------------------------
+
 const CARRIER_FIX =
   'palm 0.3 picks one carrier per harness; until then narrow the entry with targets: in palm.yaml';
 
-/** A harness that would load one entity twice (Cursor reads .claude/skills, .agents/skills and AGENTS.md). */
-export function doubleLoad(c: CheckContext): CheckRun {
-  const f = found();
+/**
+ * E8 B23: Cursor reads AGENTS.md and `.cursor/rules`, so an instruction palm wrote to both is
+ * loaded twice. Skills are not: Cursor reads `.claude/skills` and `.agents/skills` and keeps one
+ * per name, the carrier fact the render uses too.
+ */
+function instructionsTwice(c: CheckContext, f: Found): void {
   const { state } = c.run;
-  if (state.paths.scope !== 'project' || !state.targets.includes('cursor'))
-    return checkRun('double-load', { ok: 'no harness loads an entity twice', bad: () => '' }, f);
+  if (state.paths.scope !== 'project' || !state.targets.includes('cursor')) return;
   for (const e of state.lock.entries) {
-    const inClaude = e.files.some((p) => p.startsWith(`.claude/skills/${e.name}/`));
-    const inAgents = e.files.some((p) => p.startsWith(`.agents/skills/${e.name}/`));
-    if (e.kind === 'skill' && inClaude && inAgents)
-      f.warn.push({
-        entity: entityOf(e),
-        message: `cursor loads skill ${e.name} twice (.claude/skills and .agents/skills)`,
-        fix: CARRIER_FIX,
-      });
     const inBlock = (e.merged ?? []).some((m) => m.file === 'AGENTS.md');
     const inRules = e.files.some((p) => p.startsWith('.cursor/rules/'));
     if (e.kind === 'instruction' && inBlock && inRules)
@@ -116,6 +237,51 @@ export function doubleLoad(c: CheckContext): CheckRun {
         fix: CARRIER_FIX,
       });
   }
+}
+
+async function agentName(abs: string): Promise<string> {
+  const fm = await readFrontmatterFile(abs).catch(() => undefined);
+  const name = fm?.data.name;
+  return typeof name === 'string' && name.trim() ? name.trim() : basename(abs, '.md');
+}
+
+/** Other agent files beside `abs` that carry the same name. */
+async function sameNamed(abs: string): Promise<{ name: string; others: string[] }> {
+  const name = await agentName(abs);
+  const siblings = (await readdir(dirname(abs)).catch(() => [] as string[])).filter(
+    (n) => n.endsWith('.md') && n !== basename(abs),
+  );
+  const others: string[] = [];
+  for (const other of siblings)
+    if ((await agentName(join(dirname(abs), other))) === name) others.push(other);
+  return { name, others };
+}
+
+/** Y14: two agent files with one name in a harness's agents directory (the harness keeps one). */
+async function agentsTwice(c: CheckContext, f: Found): Promise<void> {
+  const { paths, lock } = c.run.state;
+  const files = lock.entries
+    .filter((e) => e.kind === 'agent')
+    .flatMap((e) => e.files.filter((p) => p.endsWith('.md')).map((file) => ({ e, file })));
+  for (const { e, file } of files) {
+    if (!existsSync(paths.abs(file))) continue;
+    const dir = posix.dirname(file);
+    const { name, others } = await sameNamed(paths.abs(file));
+    for (const other of others)
+      f.warn.push({
+        entity: entityOf(e),
+        file,
+        message: `${dir}/ holds two agents named ${name}: ${file} and ${dir}/${other}`,
+        fix: `rename or remove ${dir}/${other}, or narrow the entry with targets: in palm.yaml`,
+      });
+  }
+}
+
+/** A harness that would load one entity twice. */
+export async function doubleLoad(c: CheckContext): Promise<CheckRun> {
+  const f = found();
+  instructionsTwice(c, f);
+  await agentsTwice(c, f);
   return checkRun(
     'double-load',
     {
@@ -126,34 +292,53 @@ export function doubleLoad(c: CheckContext): CheckRun {
   );
 }
 
-const WARN_BYTES = 24 * 1024;
+// ---------------------------------------------------------------------------
+// block-size
+// ---------------------------------------------------------------------------
+
+/** Above this a root AGENTS.md or GEMINI.md block file warns. */
+export const BLOCK_WARN_BYTES = 24 * 1024;
 /** Codex reads at most 32 KiB of AGENTS.md (`project_doc_max_bytes`). */
 const CAPS: Record<string, number | undefined> = { 'AGENTS.md': 32 * 1024, 'GEMINI.md': undefined };
+
+/**
+ * B2 Z6: the verdict on a block file of `bytes` (install and dry run use it before writing,
+ * `check` after): `fail` above the harness's cap (install refuses without `--force`), `warn`
+ * above 24 KiB. The fix names `targets:` on the entry until `at:` ships in 0.3.
+ */
+export function blockSizeProblem(
+  file: string,
+  bytes: number,
+): { level: 'fail' | 'warn'; message: string; fix: string } | undefined {
+  const cap = CAPS[basename(file)];
+  const size = `${file} is ${Math.round(bytes / 1024)} KiB`;
+  const fix =
+    'narrow the entries with targets: in palm.yaml (for example targets: [claude]) until at: arrives in palm 0.3';
+  if (cap !== undefined && bytes > cap)
+    return {
+      level: 'fail',
+      message: `${size}, above the ${cap / 1024} KiB the harness reads`,
+      fix,
+    };
+  return bytes > BLOCK_WARN_BYTES ? { level: 'warn', message: size, fix } : undefined;
+}
 
 /** A root AGENTS.md or GEMINI.md palm writes blocks into, above 24 KiB (fail above the harness cap). */
 export async function blockSize(c: CheckContext): Promise<CheckRun> {
   const f = found();
   const { paths, lock } = c.run.state;
   const files = new Set(
-    lock.entries.flatMap((e) => (e.merged ?? []).map((m) => m.file)).filter((p) => p in CAPS),
+    lock.entries
+      .flatMap((e) => (e.merged ?? []).map((m) => m.file))
+      .filter((p) => basename(p) in CAPS),
   );
   for (const file of files) {
     const size = await stat(paths.abs(file)).then(
       (s) => s.size,
       () => 0,
     );
-    const cap = CAPS[file];
-    const problem = {
-      file,
-      message: `${file} is ${Math.round(size / 1024)} KiB`,
-      fix: 'move entries with at: (palm 0.3)',
-    };
-    if (cap !== undefined && size > cap)
-      f.fail.push({
-        ...problem,
-        message: `${problem.message}, above the ${cap / 1024} KiB the harness reads`,
-      });
-    else if (size > WARN_BYTES) f.warn.push(problem);
+    const p = blockSizeProblem(file, size);
+    if (p) (p.level === 'fail' ? f.fail : f.warn).push({ file, message: p.message, fix: p.fix });
   }
   return checkRun(
     'block-size',

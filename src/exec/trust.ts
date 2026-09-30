@@ -24,15 +24,15 @@ export function needsConsent(
 
 /**
  * What the lock records of a unit: one readable command per line (the first target's
- * rendering, as the harness file holds it), the closure and the hash.
+ * rendering, as the harness file holds it), the closure (an in-repo one too, ruling E2) and
+ * the hash.
  */
 function lockExecOf(unit: ExecUnit): LockExec {
   const target = firstTarget(unit);
   const commands = unit.commands.map((c, i) => ({ id: c.id, command: commandAt(unit, target, i) }));
   const exec: LockExec = { commands, hash: unit.hash };
-  const { root, inPlace, files } = unit.closure;
-  if (!inPlace && files.length)
-    exec.closure = { root, files: files.length, tree: closureTree(files) };
+  const { root, files } = unit.closure;
+  if (files.length) exec.closure = { root, files: files.length, tree: closureTree(files) };
   return exec;
 }
 
