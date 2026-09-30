@@ -2,16 +2,18 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type {
+  ApplyResult,
   Entity,
   HookSet,
   LockEntry,
   Rendered,
   Scope,
   SourceReference,
+  Target,
   TargetId,
 } from '../../src/core/types.js';
 import type { RenderRequest } from '../../src/targets/render.js';
-import { fakeEnv, tmpDir, write } from '../support/sandbox.js';
+import { tmpDir, write } from '../support/sandbox.js';
 
 export {
   cleanupTmp,
@@ -243,6 +245,16 @@ export function allKinds(src: Fixture): Array<{ label: string; entity: Entity; a
   ];
 }
 
+/** Read `file`, apply a pure text transform, write the result when it changed (what the Applier does). */
+export async function applyText(
+  file: string,
+  transform: (text: string | undefined) => string | undefined,
+): Promise<void> {
+  const text = await fs.readFile(file, 'utf8').catch(() => undefined);
+  const next = transform(text);
+  if (next !== undefined) await write(file, next);
+}
+
 /** The lock form of an entity's asset root in a scope. */
 export function assetsRootOf(scope: Scope, name: string): string {
   return `${scope === 'project' ? '.palm' : '<palm>'}/assets/${ASSET_SEGMENT}/${name}`;
@@ -268,7 +280,6 @@ export function renderInput(c: RenderCase, over: Partial<RenderRequest> = {}): R
     assetsRoot: assetsRootOf(c.scope, c.entity.name),
     inPlace: false,
     secretPolicy: 'env-ref',
-    env: fakeEnv(c.scopeRoot),
     ...(c.targets ? { targets: c.targets } : {}),
     ...over,
   };
@@ -289,6 +300,23 @@ export function lockEntryOf(
     files: result.files,
     merged: result.merged,
   };
+}
+
+/** Render and apply one entity (nothing owned, no force); the lock entry the engine would record. */
+export async function install(
+  target: Target,
+  c: RenderCase,
+  over: Partial<RenderRequest> = {},
+): Promise<{ rendered: Rendered; result: ApplyResult; entry: LockEntry }> {
+  const rendered = await target.render(renderInput(c, over));
+  const result = await target.apply({
+    rendered,
+    scopeRoot: c.scopeRoot,
+    owned: [],
+    force: false,
+    dryRun: false,
+  });
+  return { rendered, result, entry: lockEntryOf(c.entity, result) };
 }
 
 /** A render as readable data: file bytes as text, the hash left out (the domain computes it). */

@@ -1,34 +1,45 @@
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import type { JsonItemRecord, JsonKeyRecord } from '../../src/domain/merged-record.js';
-import { toStored } from '../../src/domain/merged-record.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fragmentKey } from '../../src/domain/lock.js';
+import type { MergedRecord } from '../../src/domain/merged-record.js';
+import { formatPointer } from '../../src/lib/json-pointer.js';
 import {
   appendItemText,
   ensureKeyText,
   type JsonEdit,
+  jsonRecordState,
   setKeyText,
   unmergeJsonFile,
 } from '../../src/targets/json-merge.js';
 import { applyText, cleanupTmp, exists, read, readJson, tmpDir, write } from './helpers.js';
 
+vi.mock('../../src/domain/lock.js', async (orig) =>
+  (await import('./fakes.js')).withLock(await orig()),
+);
+
 afterEach(cleanupTmp);
 
-/** Plan-and-write an array item the way a deploy does; the record the planner stores. */
-async function appendItem(file: string, path: string[], value: unknown): Promise<JsonItemRecord> {
-  await applyText(file, (text) => appendItemText(text, { file, path, value }));
-  return { type: 'json-item', file, path, value };
+type JsonRecord = Extract<MergedRecord, { type: 'json-item' | 'json-key' }>;
+
+/** Merge an array item the way an apply does; the record its fragment names. */
+async function appendItem(file: string, segs: string[], value: unknown): Promise<JsonRecord> {
+  await applyText(file, (text) => appendItemText(text, { file, path: segs, value }));
+  const key = fragmentKey(formatPointer(segs), value);
+  return { type: 'json-item', file, path: segs, id: 'palm:hook:x:0', key, value };
 }
 
-/** Plan-and-write an object key the way a deploy does; the record the planner stores. */
+/** Set an object key the way an apply does; the record its fragment names. */
 async function setKey(
   file: string,
-  path: string[],
+  segs: string[],
   value: unknown,
   opts: Partial<JsonEdit> = {},
-): Promise<JsonKeyRecord> {
-  await applyText(file, (text) => setKeyText(text, { ...opts, file, path, value }));
-  return { type: 'json-key', file, path, value };
+): Promise<JsonRecord> {
+  await applyText(file, (text) => setKeyText(text, { ...opts, file, path: segs, value }));
+  return { type: 'json-key', file, path: segs, id: 'palm:mcp:x:0', key: segs.at(-1) ?? '', value };
 }
+
+const HOOK = { matcher: 'Bash', hooks: [{ type: 'command', command: 'guard.sh', timeout: 5 }] };
 
 describe('setKeyText / appendItemText', () => {
   it('creates the document and intermediate objects', () => {
@@ -53,7 +64,7 @@ describe('setKeyText / appendItemText', () => {
     expect(next).not.toContain('comment');
   });
 
-  it('appends array items idempotently (a deep-equal item is unchanged)', async () => {
+  it('finds an item by key: identical is a no-op, other keys are appended', async () => {
     const file = path.join(await tmpDir(), 'hooks.json');
     await appendItem(file, ['hooks', 'stop'], { command: 'a' });
     expect(
@@ -61,6 +72,18 @@ describe('setKeyText / appendItemText', () => {
     ).toBeUndefined();
     await appendItem(file, ['hooks', 'stop'], { command: 'b' });
     expect(await readJson(file)).toEqual({ hooks: { stop: [{ command: 'a' }, { command: 'b' }] } });
+  });
+
+  it('an item found by key with another value is replaced in place, or E_CONFLICT', () => {
+    const text = JSON.stringify({ hooks: { PreToolUse: [{ command: 'user' }, HOOK] } });
+    const edited = { ...HOOK, hooks: [{ ...HOOK.hooks[0], timeout: 60 }] };
+    const edit = { file: 's.json', path: ['hooks', 'PreToolUse'], value: edited };
+    expect(() => appendItemText(text, { ...edit, onConflict: 'error' })).toThrow(
+      expect.objectContaining({ code: 'E_CONFLICT' }),
+    );
+    expect(JSON.parse(appendItemText(text, edit) as string)).toEqual({
+      hooks: { PreToolUse: [{ command: 'user' }, edited] },
+    });
   });
 
   it('conflicting key: error mode throws E_CONFLICT, default overwrites', () => {
@@ -89,7 +112,7 @@ describe('setKeyText / appendItemText', () => {
   it('escapes pointer segments', async () => {
     const file = path.join(await tmpDir(), 'x.json');
     const rec = await setKey(file, ['servers', 'io.github/x~y'], { url: 'u' });
-    expect(toStored(rec).pointer).toBe('/servers/io.github~1x~0y');
+    expect(formatPointer(rec.path)).toBe('/servers/io.github~1x~0y');
     await unmergeJsonFile(file, rec);
     // `servers` became empty and was pruned; a file left as `{}` is deleted.
     expect(await exists(file)).toBe(false);
@@ -108,8 +131,41 @@ describe('setKeyText / appendItemText', () => {
   });
 });
 
+describe('jsonRecordState', () => {
+  it('json-item: found by key; a changed value is `changed`, an absent key `missing`', async () => {
+    const file = path.join(await tmpDir(), 'settings.json');
+    const rec = await appendItem(file, ['hooks', 'PreToolUse'], HOOK);
+    expect(jsonRecordState(await read(file), rec)).toBe('held');
+    const edited = { ...HOOK, hooks: [{ ...HOOK.hooks[0], timeout: 60 }] };
+    await write(file, JSON.stringify({ hooks: { PreToolUse: [edited] } }));
+    expect(jsonRecordState(await read(file), rec)).toBe('changed');
+    await write(file, JSON.stringify({ hooks: { PreToolUse: [{ ...HOOK, matcher: 'Edit' }] } }));
+    expect(jsonRecordState(await read(file), rec)).toBe('missing');
+    expect(jsonRecordState(undefined, rec)).toBe('missing');
+    expect(jsonRecordState('{', rec)).toBe('changed');
+  });
+
+  it('json-key: `${VAR}` in what palm writes matches a literal on disk; another value is changed', () => {
+    const rec: JsonRecord = {
+      type: 'json-key',
+      file: 'm.json',
+      path: ['mcpServers', 's'],
+      id: 'palm:mcp:s:0',
+      key: 's',
+      value: { command: 'x', env: { TOKEN: '${TOKEN}' } },
+    };
+    const on = (s: unknown) => JSON.stringify({ mcpServers: { s } });
+    expect(jsonRecordState(on({ command: 'x', env: { TOKEN: 'abc' } }), rec)).toBe('held');
+    expect(jsonRecordState(on({ command: 'y', env: { TOKEN: 'abc' } }), rec)).toBe('changed');
+    expect(jsonRecordState(on({ command: 'x', env: { TOKEN: 'a' }, extra: 1 }), rec)).toBe(
+      'changed',
+    );
+    expect(jsonRecordState('{}', rec)).toBe('missing');
+  });
+});
+
 describe('unmergeJsonFile', () => {
-  it('removes array items by deep equality and object keys, leaving everything else', async () => {
+  it('removes the item and the key found by key, leaving everything else', async () => {
     const file = path.join(await tmpDir(), 'settings.json');
     await write(
       file,
@@ -130,18 +186,13 @@ describe('unmergeJsonFile', () => {
     });
   });
 
-  it('keeps a key whose palm-written value was changed; tolerates added keys', async () => {
-    const file = path.join(await tmpDir(), 'm.json');
-    const rec = await setKey(file, ['mcpServers', 's'], { command: 'x' });
-    await write(file, JSON.stringify({ mcpServers: { s: { command: 'changed' } } }));
+  it('removes by key even when the value changed (the engine decides before undeploy)', async () => {
+    const file = path.join(await tmpDir(), 's.json');
+    const rec = await appendItem(file, ['hooks', 'PreToolUse'], HOOK);
+    const edited = { ...HOOK, hooks: [{ ...HOOK.hooks[0], timeout: 60 }] };
+    await write(file, JSON.stringify({ theme: 'x', hooks: { PreToolUse: [edited] } }));
     await unmergeJsonFile(file, rec);
-    expect(await readJson(file)).toEqual({ mcpServers: { s: { command: 'changed' } } });
-    await write(
-      file,
-      JSON.stringify({ mcpServers: { s: { command: 'x', disabled: true } }, theme: 'dark' }),
-    );
-    await unmergeJsonFile(file, rec);
-    expect(await readJson(file)).toEqual({ theme: 'dark' });
+    expect(await readJson(file)).toEqual({ theme: 'x' });
   });
 
   it('prunes containers it emptied (never the root) and deletes a file left as {}', async () => {
@@ -158,19 +209,23 @@ describe('unmergeJsonFile', () => {
     expect(await exists(only)).toBe(false);
   });
 
-  it('is a no-op for missing files and pointers', async () => {
+  it('is a no-op for missing files, paths and keys', async () => {
     const dir = await tmpDir();
-    await unmergeJsonFile(path.join(dir, 'nope.json'), {
-      type: 'json-key',
-      file: 'x',
-      path: ['a', 'b'],
+    const rec = (type: JsonRecord['type'], segs: string[], file: string): JsonRecord => ({
+      type,
+      file,
+      path: segs,
+      id: 'palm:x:y:0',
+      key: 'k',
       value: 1,
     });
+    await unmergeJsonFile(path.join(dir, 'nope.json'), rec('json-key', ['a', 'b'], 'x'));
     const file = path.join(dir, 'f.json');
-    await write(file, '{"a":1}');
-    await unmergeJsonFile(file, { type: 'json-key', file, path: ['b', 'c'], value: 1 });
-    await unmergeJsonFile(file, { type: 'json-item', file, path: ['a'], value: 1 });
-    expect(await read(file)).toBe('{"a":1}');
+    await write(file, '{"a":1,"hooks":{"Stop":[{"command":"u"}]}}');
+    await unmergeJsonFile(file, rec('json-key', ['b', 'c'], file));
+    await unmergeJsonFile(file, rec('json-item', ['a'], file));
+    await unmergeJsonFile(file, rec('json-item', ['hooks', 'Stop'], file));
+    expect(await read(file)).toBe('{"a":1,"hooks":{"Stop":[{"command":"u"}]}}');
   });
 });
 
