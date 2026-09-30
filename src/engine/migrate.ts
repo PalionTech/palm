@@ -1,139 +1,93 @@
 /**
  * `palm migrate` (DESIGN §6 "Migrate", 0.2 only): reads the 0.1 palm.yaml, palm.lock.yaml (v1 or
- * v2) and ~/.palm/config.yaml, writes the 0.2 palm.yaml and a lock holding the sources and the
- * files 0.1 wrote (so they are palm's to replace), replaces the `.palm/` ignore line, then runs a
- * bare install that adopts identical files, re-vendors hook scripts into `.palm/assets/` (one
- * consent for all of them) and deletes `.palm/hooks/`. `--dry-run` returns the new palm.yaml and
- * writes nothing.
+ * v2) and ~/.palm/config.yaml and converts them to the 0.2 palm.yaml (comments kept) and a lock
+ * holding the files and fragments 0.1 wrote (so they are palm's to replace). Everything that can
+ * refuse comes first and writes nothing: the scope guards and the overlap rule, every source at
+ * its locked commit, the bare install's render and the one consent for the programs it
+ * re-vendors. Then palm.yaml, the lock and `.gitignore` are written (through symlinks), the
+ * install adopts identical files and replaces what 0.1 rendered differently, `.palm/hooks/`
+ * goes, and `palm check` runs: a failing check is a failure of the migration. `--dry-run`
+ * returns the new palm.yaml (and shows the programs) and writes nothing.
  */
 import { existsSync } from 'node:fs';
-import { readFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { parse as parseToml } from 'smol-toml';
-import { PalmError } from '../core/errors.js';
+import { readdir, rm } from 'node:fs/promises';
+import { join, relative } from 'node:path';
+import { withScopeLock } from '../core/context.js';
+import { isPalmError, PalmError } from '../core/errors.js';
+import { runGit } from '../core/git-exec.js';
 import { hashPath } from '../core/hash.js';
 import type {
+  CheckReport,
   EngineDeps,
   ExecUnit,
   InstallFailure,
   LegacyConfig,
-  LegacyLockEntry,
   LegacyManifest,
   LockEntry,
-  LockMerged,
   MigrateReport,
   PalmContext,
   Scope,
 } from '../core/types.js';
-import { fragmentId, fragmentKey, Lock } from '../domain/lock.js';
+import { Lock } from '../domain/lock.js';
 import { detectManifestFormat, Manifest } from '../domain/manifest.js';
 import { ScopePaths } from '../domain/scope-paths.js';
-import { removeEmptyTree } from '../lib/fs.js';
-import { parseJson } from '../lib/json.js';
-import { formatPointer, parsePointer } from '../lib/json-pointer.js';
-import { deepEqual, isRecord } from '../lib/object.js';
-import { readYamlFile, stringifyYaml } from '../lib/yaml.js';
+import { readTextIfExists, removeEmptyTree, writeFileAtomic } from '../lib/fs.js';
+import { parseYaml, readYamlFile, stringifyYaml } from '../lib/yaml.js';
+import { checkScope } from './check.js';
 import { resolveEngineDeps } from './deps.js';
 import { ensureIgnoreLines } from './gitignore.js';
-import { convertLegacy, kindOf, type LegacyItem, type Migration } from './migrate-legacy.js';
-import { syncScope } from './sync.js';
+import { convertLegacy, type LegacyItem, type Migration } from './migrate-legacy.js';
+import { provisionalLock } from './migrate-lock.js';
+import { type Plan, planMigration } from './migrate-plan.js';
+import { withLegacyComments } from './migrate-text.js';
+import { applyAll } from './runner.js';
+import { saveScope } from './scope.js';
 
 // ---------------------------------------------------------------------------
-// The files and fragments 0.1 wrote, as the provisional lock entries of the migration
+// The 0.1 files
 // ---------------------------------------------------------------------------
 
-async function untouched(
-  paths: ScopePaths,
-  file: string | { path: string; hash: string },
-): Promise<string | undefined> {
-  if (typeof file === 'string') return undefined;
-  const abs = paths.scope === 'global' ? file.path : paths.abs(file.path);
-  const hash = await hashPath(abs).catch(() => undefined);
-  return hash === file.hash ? paths.lockForm(abs) : undefined;
+interface Legacy {
+  manifest: LegacyManifest;
+  /** palm.yaml as written, for its comments. */
+  text?: string;
+  lock: Awaited<ReturnType<typeof Lock.loadLegacy>>;
+  config?: LegacyConfig;
 }
 
-function valueAt(doc: unknown, segments: string[]): unknown {
-  let cur = doc;
-  for (const s of segments)
-    cur = isRecord(cur) || Array.isArray(cur) ? (cur as Record<string, unknown>)[s] : undefined;
-  return cur;
-}
-
-/** 0.1 fragments are items of arrays under `/hooks/...` and `/instructions`, else object keys. */
-function isItem(pointer: string): boolean {
-  return pointer.startsWith('/hooks/') || pointer === '/instructions';
-}
-
-async function holds(abs: string, m: { pointer: string; value: unknown }): Promise<boolean> {
-  const text = await readFile(abs, 'utf8').catch(() => undefined);
-  if (text === undefined) return false;
-  if (m.pointer.startsWith('block:'))
-    return typeof m.value === 'string' && text.includes(m.value.trim());
-  try {
-    const doc = abs.endsWith('.toml') ? parseToml(text) : parseJson(text, { tolerant: true });
-    const at = valueAt(doc, parsePointer(m.pointer));
-    return isItem(m.pointer) && Array.isArray(at)
-      ? at.some((x) => deepEqual(x, m.value))
-      : deepEqual(at, m.value);
-  } catch {
-    return false;
-  }
-}
-
-function mergedFor(file: string, pointer: string, value: unknown): { at: string; key: string } {
-  if (pointer.startsWith('block:')) return { at: pointer, key: pointer.slice('block:'.length) };
-  const segments = parsePointer(pointer);
-  const last = segments[segments.length - 1] ?? '';
-  if (file.endsWith('.toml')) return { at: pointer, key: last };
-  if (isItem(pointer)) return { at: pointer, key: fragmentKey(pointer, value) };
-  return { at: formatPointer(segments.slice(0, -1)), key: last };
-}
-
-async function mergedOf(paths: ScopePaths, item: LegacyItem): Promise<LockMerged[]> {
-  const out: LockMerged[] = [];
-  for (const [n, m] of (item.entry.merged ?? []).entries()) {
-    const abs = paths.scope === 'global' ? m.file : paths.abs(m.file);
-    if (!(await holds(abs, m))) continue;
-    const file = paths.lockForm(abs);
-    out.push({
-      file,
-      ...mergedFor(file, m.pointer, m.value),
-      id: fragmentId({ kind: item.kind, name: item.entry.name }, n),
-    });
-  }
-  return out;
-}
-
-async function provisional(paths: ScopePaths, item: LegacyItem): Promise<LockEntry> {
-  const e: LegacyLockEntry = item.entry;
-  const files: string[] = [];
-  for (const f of e.files ?? []) {
-    const kept = await untouched(paths, f);
-    if (kept) files.push(kept);
-  }
-  const entry: LockEntry = {
-    kind: item.kind,
-    name: e.name,
-    source: item.source,
-    path: e.path,
-    content: e.contentHash ?? '',
-    render: {},
-    files: files.sort(),
+async function readLegacy(paths: ScopePaths): Promise<Legacy> {
+  const text = await readTextIfExists(paths.manifestFile);
+  const raw = text === undefined ? undefined : parseYaml<unknown>(text, paths.manifestFile);
+  const lock = await Lock.loadLegacy(paths.lockFile);
+  const config = await readYamlFile<LegacyConfig>(join(paths.palmHome, 'config.yaml'));
+  const legacy = detectManifestFormat(raw) === 'legacy';
+  if (!legacy && !lock)
+    throw new PalmError(
+      'E_USAGE',
+      'nothing to migrate: palm.yaml and palm.lock.yaml are in the 0.2 format',
+      paths.scope === 'global' ? 'palm install -g' : 'palm install',
+    );
+  return {
+    manifest: legacy ? (raw as LegacyManifest) : {},
+    ...(legacy && text !== undefined ? { text } : {}),
+    lock,
+    ...(config ? { config } : {}),
   };
-  const merged = await mergedOf(paths, item);
-  if (merged.length) entry.merged = merged;
-  if (item.via) entry.via = item.via;
-  if (item.kind === 'plugin' && e.deps?.length)
-    entry.deps = e.deps.map((d) => ({ kind: kindOf(d.kind), name: d.name }));
-  return entry;
 }
-
-// ---------------------------------------------------------------------------
-// The new palm.yaml and lock
-// ---------------------------------------------------------------------------
 
 function baseDir(paths: ScopePaths): string {
   return paths.scope === 'global' ? paths.palmHome : paths.root;
+}
+
+/** `~/…` for a path below the home directory, as people type it. */
+function shown(paths: ScopePaths, abs: string): string {
+  const rel = relative(paths.home, abs);
+  return rel.startsWith('..') ? abs : `~/${rel}`;
+}
+
+/** A path for people: project-relative, or `~/…` under -g (tokens stay in the lock). */
+function display(paths: ScopePaths, abs: string): string {
+  return paths.scope === 'global' ? shown(paths, abs) : paths.lockForm(abs);
 }
 
 function manifestOf(paths: ScopePaths, m: Migration): Manifest {
@@ -145,86 +99,245 @@ function manifestOf(paths: ScopePaths, m: Migration): Manifest {
   return manifest;
 }
 
-async function lockOf(paths: ScopePaths, m: Migration): Promise<Lock> {
-  const lock = new Lock();
+// ---------------------------------------------------------------------------
+// Lines for the person
+// ---------------------------------------------------------------------------
+
+function sourceLines(ctx: PalmContext, paths: ScopePaths, m: Migration): string[] {
+  const added: string[] = [];
+  const file = paths.scope === 'global' ? '~/.palm/palm.yaml' : 'palm.yaml';
+  const tail = paths.scope === 'global' ? '' : '; commit it';
   for (const s of m.sources) {
-    const ls = { ...s.lock };
-    if (s.source.path) ls.path = paths.lockForm(s.source.path);
-    lock.setSource(s.source.name, ls);
+    if (!s.fromConfig) continue;
+    added.push(s.source.name);
+    const needed = `${s.entries} ${s.entries === 1 ? 'entry' : 'entries'}`;
+    ctx.log.info(
+      `${file}: source ${s.source.name} added from ~/.palm/config.yaml, needed by ${needed}${tail}`,
+    );
   }
-  for (const item of m.legacy) lock.upsert(await provisional(paths, item));
-  return lock;
+  return added;
+}
+
+/** The migration guide's advice: config.yaml stays until every project is migrated. */
+function configLine(ctx: PalmContext, scope: Scope): void {
+  ctx.log.info(
+    scope === 'global'
+      ? '~/.palm/config.yaml is no longer read; delete it once every project is migrated'
+      : 'keep ~/.palm/config.yaml until every project is migrated; palm migrate reads it',
+  );
+}
+
+function renameLines(ctx: PalmContext, plan: Plan): void {
+  for (const r of plan.renamed)
+    ctx.log.info(
+      `${r.kind} ${r.from} from ${r.source} is ${r.kind} ${r.to} in palm 0.2 (named after its folder)`,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// .palm/hooks: 0.1's copies of hook scripts
+// ---------------------------------------------------------------------------
+
+async function filesBelow(dir: string): Promise<string[]> {
+  const found = await readdir(dir, { recursive: true, withFileTypes: true }).catch(() => []);
+  return found.filter((d) => d.isFile()).map((d) => join(d.parentPath, d.name));
+}
+
+/**
+ * Deletes the files below `dir` that still hold what palm 0.1 recorded (`hashes`); the others
+ * are the person's and are named in a warning. Empty directories go.
+ */
+async function dropCopies(plan: Plan, dir: string, hashes: Map<string, string>): Promise<void> {
+  const { state, result } = plan.run;
+  for (const f of await filesBelow(dir)) {
+    const recorded = hashes.get(f);
+    if (recorded && recorded === (await hashPath(f).catch(() => undefined))) await rm(f);
+    else
+      result.warnings.push(
+        `kept ${display(state.paths, f)}: you changed it after palm 0.1 copied it`,
+      );
+  }
+  await removeEmptyTree(dir);
+}
+
+/** The 0.2 lock entry of a 0.1 hook (renamed when palm 0.2 names it differently). */
+function migratedHook(plan: Plan, item: LegacyItem): LockEntry | undefined {
+  const to = plan.renamed.find(
+    (r) => r.kind === 'hook' && r.source === item.source && r.from === item.entry.name,
+  )?.to;
+  const e = plan.run.state.lock.find({ kind: 'hook', name: to ?? item.entry.name }, item.source);
+  return e && Object.keys(e.render).length ? e : undefined;
+}
+
+/**
+ * `.palm/hooks/<name>` of every migrated hook goes: the scripts now live under `.palm/assets/`
+ * (or run in place from an in-repo source). A hook that did not migrate keeps its copy, since
+ * its 0.1 command still runs it.
+ */
+async function dropHookDirs(plan: Plan, legacy: LegacyItem[], hashes: Map<string, string>) {
+  const { state, result, ctx } = plan.run;
+  const hooksDir = join(state.paths.palmDir, 'hooks');
+  const moved: string[] = [];
+  for (const item of legacy.filter((i) => i.kind === 'hook')) {
+    const dir = join(hooksDir, item.entry.name);
+    if (!existsSync(dir)) continue;
+    const shownDir = display(state.paths, dir);
+    const e = migratedHook(plan, item);
+    if (!e) {
+      result.warnings.push(`kept ${shownDir}: hook ${item.entry.name} did not migrate`);
+      continue;
+    }
+    await dropCopies(plan, dir, hashes);
+    const root = e.exec?.closure?.root;
+    if (root) moved.push(`${shownDir} → ${display(state.paths, state.paths.abs(root))}`);
+    else ctx.log.info(`hook ${e.name} runs in place from ${e.source}; removed ${shownDir}`);
+  }
+  await removeEmptyTree(hooksDir);
+  return moved;
+}
+
+// ---------------------------------------------------------------------------
+// After the install: the check and the files to commit
+// ---------------------------------------------------------------------------
+
+/** One failure per problem of a failed check (code E_CHECK; `report.check` holds the check). */
+function checkFailures(report: CheckReport): InstallFailure[] {
+  const out: InstallFailure[] = [];
+  for (const c of report.checks.filter((r) => r.status === 'fail'))
+    for (const p of c.problems) {
+      const who = p.entity
+        ? { kind: p.entity.kind, name: p.entity.name, source: p.entity.source }
+        : { kind: 'source' as const, name: c.id, source: p.file ?? c.label };
+      out.push({ ...who, code: 'E_CHECK', message: p.message, ...(p.fix ? { hint: p.fix } : {}) });
+    }
+  return out;
+}
+
+/** Paths `git status` lists that palm wrote or changed: the files and folders to commit. */
+async function toCommit(plan: Plan): Promise<string[] | undefined> {
+  const { paths, lock } = plan.run.state;
+  if (paths.scope !== 'project') return undefined;
+  const status = await runGit(['status', '--short', '--untracked-files=normal', '--', '.'], {
+    cwd: paths.root,
+  }).catch(() => undefined);
+  if (status === undefined) return undefined;
+  const mine = ['palm.yaml', 'palm.lock.yaml', '.gitignore'];
+  for (const e of lock.entries) mine.push(...e.files, ...(e.merged ?? []).map((m) => m.file));
+  const owned = (p: string) =>
+    p.startsWith('.palm/') || mine.some((f) => f === p || (p.endsWith('/') && f.startsWith(p)));
+  const listed = status
+    .split('\n')
+    .map((l) =>
+      l
+        .slice(3)
+        .replace(/^.* -> /, '')
+        .replace(/^"(.*)"$/, '$1'),
+    )
+    .filter((p) => p && owned(p));
+  return [...new Set(listed)].sort();
+}
+
+async function finish(plan: Plan, report: MigrateReport, deps: EngineDeps): Promise<void> {
+  const { ctx, state, result } = plan.run;
+  report.check = await checkScope(ctx, { scope: state.paths.scope }, deps);
+  report.failures = [...result.failures, ...checkFailures(report.check)];
+  report.warnings.push(...result.warnings);
+  const commit = await toCommit(plan);
+  if (commit) report.commit = commit;
 }
 
 // ---------------------------------------------------------------------------
 // migrateScope
 // ---------------------------------------------------------------------------
 
-interface Legacy {
-  manifest: LegacyManifest;
-  lock: Awaited<ReturnType<typeof Lock.loadLegacy>>;
-  config?: LegacyConfig;
-  configFile: string;
+/** The first write of the migration: palm.yaml (comments kept), the lock and `.gitignore`. */
+async function writeScope(plan: Plan, text: string): Promise<string | undefined> {
+  const { paths, lock } = plan.run.state;
+  await writeFileAtomic(paths.manifestFile, text);
+  await lock.save(paths.lockFile);
+  if (paths.scope !== 'project') return undefined;
+  return ensureIgnoreLines(paths.root, false);
 }
 
-async function readLegacy(paths: ScopePaths): Promise<Legacy> {
-  const raw = await readYamlFile<unknown>(paths.manifestFile);
-  const lock = await Lock.loadLegacy(paths.lockFile);
-  const configFile = join(paths.palmHome, 'config.yaml');
-  const config = await readYamlFile<LegacyConfig>(configFile);
-  if (detectManifestFormat(raw) !== 'legacy' && !lock)
-    throw new PalmError(
-      'E_USAGE',
-      'nothing to migrate: palm.yaml and palm.lock.yaml are in the 0.2 format',
-      'palm install',
-    );
-  const manifest = detectManifestFormat(raw) === 'legacy' ? (raw as LegacyManifest) : {};
-  return { manifest, lock, ...(config ? { config } : {}), configFile };
+/** The programs re-vendored with the one consent (in a dry run: the ones it would ask for). */
+function consented(plan: Plan): ExecUnit[] {
+  const asked = plan.run.ctx.flags.dryRun ? ['allowed', 'ask'] : ['allowed'];
+  return plan.prepared.filter((p) => asked.includes(p.consent)).map((p) => p.out.unit as ExecUnit);
 }
 
-function sourceLines(ctx: PalmContext, m: Migration): string[] {
-  const added: string[] = [];
-  for (const s of m.sources) {
-    if (!s.fromConfig) continue;
-    added.push(s.source.name);
-    ctx.log.info(
-      `palm.yaml: source ${s.source.name} added from ~/.palm/config.yaml, needed by ${s.entries} ${s.entries === 1 ? 'entry' : 'entries'}; commit it`,
-    );
-  }
-  return added;
-}
-
-/** `.palm/hooks/<name>` of every migrated hook, once its scripts live under `.palm/assets/`. */
-async function dropHookDirs(paths: ScopePaths, lock: Lock): Promise<string[]> {
-  const hooksDir =
-    paths.scope === 'global' ? join(paths.palmHome, 'hooks') : join(paths.root, '.palm', 'hooks');
-  const moved: string[] = [];
-  for (const e of lock.entries) {
-    const dir = join(hooksDir, e.name);
-    if (e.kind !== 'hook' || !existsSync(dir)) continue;
-    await rm(dir, { recursive: true, force: true });
-    const to = e.exec?.closure?.root;
-    moved.push(`${paths.lockForm(dir)}${to ? ` → ${to}` : ''}`);
-  }
-  await removeEmptyTree(hooksDir);
-  return moved;
-}
-
-async function install(
+/** Up to the consent; in a dry run a refusal is reported with the preview instead of thrown. */
+async function planOrReport(
   ctx: PalmContext,
-  scope: Scope,
+  input: Parameters<typeof planMigration>[2] & { scope: Scope },
+  report: MigrateReport,
   deps: EngineDeps,
-): Promise<{ units: ExecUnit[]; failures: InstallFailure[]; warnings: string[] }> {
-  const units: ExecUnit[] = [];
-  const capture: EngineDeps = {
-    ...deps,
-    askConsent: async (c, req) => {
-      units.push(...req.units);
-      return deps.askConsent(c, req);
-    },
+): Promise<Plan | undefined> {
+  try {
+    return await planMigration(ctx, input.scope, input, deps);
+  } catch (e) {
+    if (!ctx.flags.dryRun || !isPalmError(e) || e.code === 'E_CANCELLED') throw e;
+    report.failures.push({
+      kind: 'source',
+      name: '',
+      source: 'palm.yaml',
+      code: e.code,
+      message: e.message,
+      ...(e.hint ? { hint: e.hint } : {}),
+    });
+    return undefined;
+  }
+}
+
+/** One migration: the scope, its 0.1 files and their conversion. */
+interface Migrating {
+  paths: ScopePaths;
+  legacy: Legacy;
+  m: Migration;
+}
+
+function baseReport(mig: Migrating, manifest: Manifest, lock: Lock): MigrateReport {
+  return {
+    manifest: withLegacyComments(manifest.text(), mig.legacy.text, mig.m),
+    lock: stringifyYaml(lock.toJSON()),
+    sourcesAdded: [],
+    movedAssets: [],
+    exec: [],
+    warnings: [...mig.m.warnings],
+    failures: [],
   };
-  const result = await syncScope(ctx, { scope }, capture);
-  return { units, failures: result.failures, warnings: result.warnings };
+}
+
+/** After the consent: the files, the install, `.palm/hooks`, the check. */
+async function apply(ctx: PalmContext, mig: Migrating, plan: Plan, report: MigrateReport) {
+  const { paths, m, legacy } = mig;
+  report.sourcesAdded = sourceLines(ctx, paths, m);
+  renameLines(ctx, plan);
+  const gitignore = await writeScope(plan, report.manifest);
+  if (gitignore) report.gitignore = gitignore.replace(/^\.gitignore: /, '');
+  await applyAll(plan.run, plan.prepared);
+  await saveScope(plan.run.state);
+  report.lock = stringifyYaml(plan.run.state.lock.toJSON());
+  report.movedAssets = await dropHookDirs(plan, m.legacy, plan.hashes);
+  if (legacy.config) configLine(ctx, paths.scope);
+}
+
+async function migrate(ctx: PalmContext, mig: Migrating, deps: EngineDeps): Promise<MigrateReport> {
+  const { lock, hashes } = await provisionalLock(mig.paths, mig.m);
+  const manifest = manifestOf(mig.paths, mig.m);
+  const report = baseReport(mig, manifest, lock);
+  const input = { manifest, lock, hashes, legacy: mig.m.legacy, text: report.manifest };
+  const plan = await planOrReport(ctx, { ...input, scope: mig.paths.scope }, report, deps);
+  if (!plan) return report;
+  report.manifest = withLegacyComments(plan.run.state.manifest.text(), mig.legacy.text, mig.m);
+  report.exec = consented(plan);
+  if (ctx.flags.dryRun) {
+    const refusals = plan.prepared.flatMap((p) => p.out.refusals);
+    report.failures.push(...plan.run.result.failures, ...refusals);
+    return report;
+  }
+  await apply(ctx, mig, plan, report);
+  await finish(plan, report, deps);
+  return report;
 }
 
 /** DESIGN §6 "Migrate". */
@@ -242,30 +355,9 @@ export async function migrateScope(
     ...(legacy.config ? { config: legacy.config } : {}),
     scope: opts.scope,
     root: baseDir(paths),
+    palmHome: shown(paths, paths.palmHome),
   });
-  const manifest = manifestOf(paths, m);
-  const lock = await lockOf(paths, m);
-  const report: MigrateReport = {
-    manifest: manifest.text(),
-    lock: stringifyYaml(lock.toJSON()),
-    sourcesAdded: [],
-    movedAssets: [],
-    exec: [],
-    warnings: [...m.warnings],
-    failures: [],
-  };
-  if (opts.dryRun) return report;
-  report.sourcesAdded = sourceLines(ctx, m);
-  await rm(paths.manifestFile, { force: true });
-  await manifest.save(paths.manifestFile);
-  await lock.save(paths.lockFile);
-  const ignore = opts.scope === 'project' ? await ensureIgnoreLines(paths.root, false) : undefined;
-  if (ignore) report.gitignore = ignore.replace(/^\.gitignore: /, '');
-  const installed = await install(ctx, opts.scope, deps);
-  report.exec = installed.units;
-  report.failures = installed.failures;
-  report.warnings.push(...installed.warnings);
-  report.movedAssets = await dropHookDirs(paths, await Lock.load(paths.lockFile));
-  if (legacy.config) ctx.log.info('~/.palm/config.yaml is no longer read; delete it');
-  return report;
+  const c = opts.dryRun ? { ...ctx, flags: { ...ctx.flags, dryRun: true } } : ctx;
+  const run = () => migrate(c, { paths, legacy, m }, deps);
+  return opts.dryRun ? run() : withScopeLock(paths, run);
 }

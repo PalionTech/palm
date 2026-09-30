@@ -848,8 +848,18 @@ export interface MigrateReport {
   /** Executables re-vendored, for the one consent. */
   exec: ExecUnit[];
   warnings: string[];
-  /** What could not be migrated; the CLI exits 1 when any exist. */
+  /**
+   * What could not be migrated; the CLI exits 1 when any exist. A failed check after the
+   * migration adds one failure per problem, with code `E_CHECK` (the same problems as `check`).
+   */
   failures: InstallFailure[];
+  /** `palm check` run on the migrated scope (absent in a dry run). */
+  check?: CheckReport;
+  /**
+   * Project scope in a git repository: every path the migration changed or created, as
+   * `git status` lists it (untracked output folders as `dir/`), to commit together.
+   */
+  commit?: string[];
 }
 
 // ---------------------------------------------------------------------------
