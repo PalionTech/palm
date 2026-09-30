@@ -1,0 +1,18 @@
+$ palm get targets
+target    harness         active  config dir
+────────  ──────────────  ──────  ──────────
+claude    Claude Code     yes     .claude/
+codex     Codex           no      .codex/
+copilot   GitHub Copilot  no      .github/
+cursor    Cursor          yes     .cursor/
+gemini    Gemini CLI      no      .gemini/
+opencode  OpenCode        no      .opencode/
+i palm.yaml has no targets:; claude and cursor are detected from .claude/ and .cursor/
+$ palm describe target cursor
+target cursor  Cursor, active (detected from .cursor/)
+  skill         .claude/skills/<name>/          Cursor reads .claude/skills; claude is a target, so no second copy
+  agent         .cursor/agents/<name>.md
+  instruction   .cursor/rules/<name>.mdc
+  hook          .cursor/hooks.json              merged
+  mcp           .cursor/mcp.json                merged
+  hook scripts  .palm/assets/<source>/<entity>/  run as "$CURSOR_PROJECT_DIR"/.palm/assets/...

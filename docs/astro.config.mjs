@@ -11,7 +11,7 @@ const SITE = 'https://paliontech.github.io';
 const BASE = '/palm';
 const REPO = 'https://github.com/PalionTech/palm';
 const DESCRIPTION =
-  "palm installs skills, subagents, instructions, hooks, MCP servers and plugins from git repositories. It writes them into Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI and OpenCode, in each tool's native format. A lockfile records every file it writes, so installs repeat and removals are exact.";
+  "palm installs skills, subagents, instructions, hooks and MCP servers from git repositories into Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI and OpenCode, in each tool's native format. You commit what it writes, a lock pins every source, and palm check proves in CI that the files still match.";
 
 // Draft pages exist in `astro dev` only; the production sidebar must not point at them.
 const isBuild = process.argv.slice(2).includes('build');
@@ -125,7 +125,7 @@ export default defineConfig({
           projectName: 'palm',
           description: DESCRIPTION,
           details:
-            'palm is a command-line package manager (`npm install -g @paliontech/palm`, binary `palm`). An origin is a git repository or local folder; an entity is one installable item; a target is a harness identifier (`claude`, `codex`, `copilot`, `cursor`, `gemini`, `opencode`).',
+            'palm is a command-line tool (`npm install -g @paliontech/palm`, binary `palm`). A source is a git repository or a directory in the project, declared in palm.yaml; an entity is one skill, agent, instruction, hook or MCP server; a target is a harness identifier (`claude`, `codex`, `copilot`, `cursor`, `gemini`, `opencode`). The eight verbs are init, install, remove, update, check, get, describe and create.',
           // Heading anchor links would print as "Section titled ..." lines.
           customSelectors: { all: ['.sl-anchor-link'] },
         }),

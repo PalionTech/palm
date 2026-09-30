@@ -1,0 +1,23 @@
+$ palm update --dry-run
+Update plan (project scope)
+acme/agent-kit   ^1.0   v1.0.0 (7d795f9) → v1.1.0 (5e2b8c1)
+~ updated    skill         ci-watch
+= unchanged  agent         ci-watcher
+= unchanged  instruction   typescript
+dry run: nothing written
+$ palm update --yes
+Update plan (project scope)
+acme/agent-kit   ^1.0   v1.0.0 (7d795f9) → v1.1.0 (5e2b8c1)
+~ updated    skill         ci-watch
+= unchanged  agent         ci-watcher
+= unchanged  instruction   typescript
+~ updated  skill  ci-watch   .claude/skills/ci-watch/, .agents/skills/ci-watch/   2 files   from acme/agent-kit v1.1.0
+1 updated, 2 unchanged.
+ .agents/skills/ci-watch/SKILL.md | 2 ++
+ .claude/skills/ci-watch/SKILL.md | 2 ++
+ palm.lock.yaml                   | 8 ++++----
+ 3 files changed, 8 insertions(+), 4 deletions(-)
+$ git status --short
+ M .agents/skills/ci-watch/SKILL.md
+ M .claude/skills/ci-watch/SKILL.md
+ M palm.lock.yaml

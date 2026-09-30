@@ -1,0 +1,7 @@
+$ palm install tdd
+x "tdd" is not a repository. palm installs from git repositories:
+    palm install <owner/repo> tdd             for example  palm install mattpocock/skills tdd
+$ palm install mattpocock/skills tdd
+targets: cursor   (detected from .cursor/; change targets: in palm.yaml)
++ skill  tdd   .agents/skills/tdd/   1 file   from mattpocock/skills v1.2.3   (Cursor reads .agents/skills)
+1 installed. Commit palm.yaml, palm.lock.yaml and .agents/ together.

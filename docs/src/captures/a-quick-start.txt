@@ -1,0 +1,18 @@
+$ palm init --target claude,codex
++ palm.yaml   targets: claude, codex
++ .gitignore  .palm/local/ and palm.local.yaml
+$ palm install mattpocock/skills
+mattpocock/skills  v1.2.3 (2c0db90)   5 skills, 1 plugin
+  plugin  mattpocock-skills   Matt Pocock's agent skills for real engineering.
+  skill   git-guardrails      Block dangerous git commands.
+  skill   grill-me            Interview the user relentlessly about a plan.
+  skill   handoff             Write a handoff note for the next session.
+  skill   old-thing           An old skill kept for reference.
+  skill   tdd                 Test-driven development with red-green-refactor.
+Nothing written. Install some:
+    palm install mattpocock/skills git-guardrails grill-me
+    palm install mattpocock/skills --all
+$ palm install mattpocock/skills grill-me
+i ref ^1.2 saved to palm.yaml (latest tag v1.2.3)
++ skill  grill-me   .claude/skills/grill-me/, .agents/skills/grill-me/   4 files   from mattpocock/skills v1.2.3
+1 installed. Commit palm.yaml, palm.lock.yaml, .claude/ and .agents/ together.

@@ -1,0 +1,25 @@
+$ cd ~/teammate && ls -a .claude .agents
+.agents:
+.  ..  skills
+
+.claude:
+.  ..  agents  rules  skills
+$ cd ~/teammate && palm check
+✓ manifest and lock agree
+✓ generated files match the lock
+✓ in-repo sources match the lock
+✓ every program is trusted
+✓ every hook script exists and is executable
+✓ no secret literals in tracked files
+✓ generated files are not ignored by git
+✓ every source is declared
+✓ no path leaves the project
+✓ no hidden Unicode in generated files
+✓ no harness loads an entity twice
+✓ instruction blocks are within size limits
+no problems
+$ cd ~/teammate && palm install
+= unchanged  skill        ci-watch     acme/agent-kit v1.0.0
+= unchanged  agent        ci-watcher   acme/agent-kit v1.0.0
+= unchanged  instruction  typescript   acme/agent-kit v1.0.0
+3 unchanged. Nothing written.

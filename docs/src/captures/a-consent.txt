@@ -1,0 +1,30 @@
+$ palm install trailofbits/skills plugin:gh-cli
+This install adds 1 program that will run on your machine.
+
+  1. hook gh-cli  from trailofbits/skills  (commit 924ffa8, v2.1.0, 2026-09-28)
+     SessionStart          bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/persist-session-id.sh
+     PreToolUse  Bash      bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/intercept-github-curl.sh
+     targets: claude (.claude/settings.json), cursor (.cursor/hooks.json)
+     scripts: 3 files, 646 B  ->  .palm/assets/trailofbits__skills/gh-cli/  (committed with your repo)
+       hooks/hooks.json                644   498 B   sha256:5d1c0e7a
+       hooks/intercept-github-curl.sh  755   104 B   sha256:77d0a9f1
+       hooks/persist-session-id.sh     755   44 B    sha256:1b9e04c2
+
+x 1 program needs your consent and there is no terminal
+  review:  palm install trailofbits/skills plugin:gh-cli --dry-run --review
+  then:    palm install trailofbits/skills plugin:gh-cli --allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911
+$ palm install trailofbits/skills plugin:gh-cli --allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911
+i ref ^2.1 saved to palm.yaml (latest tag v2.1.0)
++ hook  gh-cli   .palm/assets/trailofbits__skills/gh-cli/ (3 files), .claude/settings.json, .cursor/hooks.json   via plugin:gh-cli
+i trusted hook gh-cli (sha256:a7cc7911): teammates and CI install it without asking while the hash matches
+1 installed. Commit palm.yaml, palm.lock.yaml, .palm/assets/, .claude/ and .cursor/ together.
+$ grep -n -A 8 'exec:' palm.lock.yaml
+38:    exec:
+39-      commands:
+40-        - id: SessionStart//-
+41-          command: bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/persist-session-id.sh
+42-        - id: PreToolUse//Bash
+43-          command: bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/intercept-github-curl.sh
+44-      closure: { root: .palm/assets/trailofbits__skills/gh-cli, files: 3, tree: "sha256:0acbc4d0addef989fc3c89cfe6e5b4c48c0e5a8f2d1532cf4fcb47eef8bfd7a0" }
+45-      hash: sha256:a7cc7911b215de6db06993ec8339894a2ff3b4fa89fc95ca274b555665e7f431
+46-    trust:

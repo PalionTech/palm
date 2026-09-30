@@ -1,0 +1,35 @@
+$ palm install obra/superpowers plugin:superpowers
+This install adds 1 program that will run on your machine.
+
+  1. hook session-start  from obra/superpowers  (commit 1b6aef2, v4.0.3, 2026-09-28)
+     SessionStart  startup|clear|compact   "$CLAUDE_PROJECT_DIR"/.palm/assets/obra__superpowers/session-start/hooks/run-hook.cmd session-start
+     targets: claude (.claude/settings.json), codex (.codex/hooks.json)
+     scripts: 3 files, 2 KB  ->  .palm/assets/obra__superpowers/session-start/  (committed with your repo)
+       hooks/hooks-cursor.json  644   312 B   sha256:0c4d2e19
+       hooks/hooks.json         644   355 B   sha256:8b17f0a3
+       hooks/run-hook.cmd       755   1.3 KB  sha256:e5a9c410
+
+x 1 program needs your consent and there is no terminal
+  review:  palm install obra/superpowers plugin:superpowers --dry-run --review
+  then:    palm install obra/superpowers plugin:superpowers --allow-exec hook:session-start@obra/superpowers=sha256:c81f4e02
+$ palm install obra/superpowers plugin:superpowers --allow-exec hook:session-start@obra/superpowers=sha256:c81f4e02
+i ref ^4.0 saved to palm.yaml (latest tag v4.0.3)
++ skill  brainstorming             2 files   via plugin:superpowers
++ skill  test-driven-development   6 files   via plugin:superpowers
++ skill  writing-skills            4 files   via plugin:superpowers
++ hook   session-start             .palm/assets/obra__superpowers/session-start/ (3 files), .claude/settings.json, .codex/hooks.json   via plugin:superpowers
+i trusted hook session-start (sha256:c81f4e02): teammates and CI install it without asking while the hash matches
+4 installed. Commit palm.yaml, palm.lock.yaml, .palm/assets/, .claude/, .agents/ and .codex/ together.
+$ palm remove brainstorming
+x brainstorming belongs to plugin superpowers: exclude it for the team (palm remove obra/superpowers brainstorming --exclude) or remove the plugin
+$ palm remove obra/superpowers brainstorming --exclude
+- removed  skill  brainstorming   2 files   (excluded from plugin superpowers)
+$ cat palm.yaml
+targets: [claude, codex]
+
+sources:
+  obra/superpowers:
+    ref: ^4.0
+    plugins:
+      - name: superpowers
+        exclude: [skill:brainstorming]

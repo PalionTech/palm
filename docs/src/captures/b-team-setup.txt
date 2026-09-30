@@ -1,0 +1,20 @@
+$ palm install acme/agent-kit ci-watch ci-watcher typescript
+i ref ^1.0 saved to palm.yaml (latest tag v1.0.0)
++ skill        ci-watch     .claude/skills/ci-watch/, .agents/skills/ci-watch/   2 files   from acme/agent-kit v1.0.0
++ agent        ci-watcher   .claude/agents/, .codex/agents/                     2 files   from acme/agent-kit v1.0.0
++ instruction  typescript   .claude/rules/typescript.md, AGENTS.md (block)       2 files   from acme/agent-kit v1.0.0
+i codex: .codex/agents/ci-watcher.toml: dropped model and readonly (no Codex field)
+3 installed. Commit palm.yaml, palm.lock.yaml, .claude/, .agents/, .codex/ and AGENTS.md together.
+$ git add -A && git commit -qm "Add the team agent setup" && git show --stat --format=%s HEAD
+Add the team agent setup
+
+ .agents/skills/ci-watch/SKILL.md |  6 ++++++
+ .claude/agents/ci-watcher.md     |  7 +++++++
+ .claude/rules/typescript.md      |  6 ++++++
+ .claude/skills/ci-watch/SKILL.md |  6 ++++++
+ .codex/agents/ci-watcher.toml    |  5 +++++
+ .gitignore                       |  2 ++
+ AGENTS.md                        |  5 +++++
+ palm.lock.yaml                   | 71 +++++++++++++++++++++++++++++++++++++++++++
+ palm.yaml                        |  6 ++++++
+ 9 files changed, 114 insertions(+)

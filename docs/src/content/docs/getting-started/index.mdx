@@ -1,6 +1,6 @@
 ---
 title: What is palm
-description: palm is a package manager for the files that configure AI coding agents. It writes each item where Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI and OpenCode read it.
+description: palm installs the files that configure AI coding agents from git repositories, writes each one where Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI and OpenCode read it, and proves in CI that nothing drifted.
 sidebar:
   label: What is palm
 ---
@@ -8,68 +8,80 @@ sidebar:
 import Capture from '../../../components/Capture.astro';
 import CaptureTree from '../../../components/CaptureTree.astro';
 
-palm is a package manager for the files that configure AI coding agents.
-You name a skill, a subagent or an MCP server.
-palm writes it where each of your tools reads it.
+palm installs the files that configure AI coding agents.
+You name a git repository and the skills, subagents, rules, hooks or MCP servers you want from it.
+palm writes each one where every harness you use reads it.
 
 ```sh
 npm install -g @paliontech/palm
-palm install origin mattpocock/skills
-palm install skill tdd
+palm install mattpocock/skills tdd
 ```
 
 ## One item, six formats
 
-Coding agents read the same kinds of files: skills, subagents, instructions, commands, hooks and MCP servers.
+Coding agents read the same kinds of files: skills, subagents, instructions, hooks and MCP servers.
 Each harness expects them in its own place and format.
 A subagent is a Markdown file in `.claude/agents` for Claude Code.
 Codex wants a TOML file in `.codex/agents`, and Copilot wants an `.agent.md` file in `.github/agents`.
-An MCP server goes into `.mcp.json`, `.codex/config.toml`, `.vscode/mcp.json`, `.cursor/mcp.json`, `.gemini/settings.json` or `opencode.json`.
-Each of those files spells an environment variable differently.
+An MCP server goes into `.mcp.json`, `.codex/config.toml`, `.vscode/mcp.json`, `.cursor/mcp.json`, `.gemini/settings.json` or `opencode.json`, and each spells an environment variable differently.
 
-Copying by hand means one edit per harness for every change, and nothing records what you copied.
-palm reads a repository as its author published it and writes each item in each harness's format.
-It records every file in `palm.lock.yaml`.
-A teammate repeats the setup with one command, and an uninstall removes exactly what palm wrote.
+Copying by hand means one edit per harness for every change, and nothing records where a file came from.
+palm reads a repository as its author published it, writes each item in each harness's format, and records the source commit and every file in `palm.lock.yaml`.
+
+## Two commands from zero
+
+Nora uses Claude Code and has an empty project with a `.claude/` folder.
+
+<Capture name="a-onboarding-nora" title="~/project" />
+
+The first command fails, and its first line is the fix.
+The second lists what the repository offers and writes nothing.
+The third installs every skill for the one harness palm detected, and leaves out the hook until Nora looks at it.
+The hook runs a program, so it needs its own install and a yes. [Consent](/palm/concepts/consent/) explains that step.
+
+## What palm writes
+
+This session installs one agent and one skill for all six harnesses.
+
+<Capture name="landing" title="~/project" />
+
+<CaptureTree name="landing" depth={3} />
+
+- `palm.yaml` is the **manifest**. It lists the targets, each source with its version range, and what you took from it.
+- `palm.lock.yaml` is the **lock**. It pins each source to a commit and records one hash per entry and target, plus every file palm wrote.
+- Everything else is a **generated file**. You commit these too, so a teammate's clone and your CI hold the same bytes.
 
 ## When palm helps
 
 | Situation | What palm does |
 | --- | --- |
-| You use two or more harnesses on one repository | One install writes the item for each of them. |
-| Your team shares skills, agents and MCP servers | `palm install` in a fresh clone installs what `palm.yaml` lists, from the commits in the lockfile. |
-| CI must use the same setup as your laptop | `palm install --frozen` fails when the files, the manifest and the lockfile disagree. |
-| An agent needs skills and an MCP server | Installing the agent installs them, and uninstalling it removes what nothing else uses. |
-| You publish skills or plugins | Users install from your repository as it is, with no palm-specific manifest. |
+| You use two or more harnesses on one repository | One install writes the item for each of them, once per harness. |
+| Your team shares skills, agents and MCP servers | The files are committed. A clone works without palm, and `palm check` proves it matches. |
+| A plugin ships hooks | palm shows every command and script before it writes them, and pins your yes by hash. |
+| An MCP server's README shows a JSON snippet | `palm install mcp --json -` reads it and writes it for every harness, with secrets as references. |
+| You keep your own skills in the repository | `palm create skill <name>` writes a template into `./agent-kit` and installs it. Edits are live. |
 
-## One install and its files
+## Eight verbs
 
-This session installs one agent and one skill for all six harnesses.
-The origins `pstack` and `mattpocock` were added before it.
+| Verb | What it does |
+| --- | --- |
+| `palm init` | Write `palm.yaml` with the targets for this project. |
+| `palm install` | List a source, install from it, or with no arguments make the disk match `palm.yaml` and the lock. |
+| `palm remove` | Delete exactly the files and config entries an entity wrote. |
+| `palm update` | Move sources to the newest commit their range allows, after showing a plan. |
+| `palm check` | Read-only CI gate. Fails on any drift between `palm.yaml`, the lock, the files and in-repo sources. |
+| `palm get` | List what is installed, the sources, or the targets. |
+| `palm describe` | Show one entity, source, target, or the entity that wrote a file. |
+| `palm create` | Write a template skill, agent, instruction or hook into your in-repo source. |
 
-<Capture name="landing" title="~/project" />
-
-These are the files the two commands created.
-
-<CaptureTree name="landing" depth={3} />
-
-- `palm.yaml` is the **manifest**. It lists what you asked for, and you commit it.
-- `palm.lock.yaml` is the **lockfile**. It records every file palm wrote, with a content hash. Commit it too.
-- The agent exists once per harness format.
-- The skill exists twice, because Claude Code does not read `.agents/skills`.
-
-## Commands
-
-Every command has the form `palm <verb> <kind> [names]`, as in `palm install skill tdd`.
-
-<Capture name="palm-help" />
+`palm migrate`, `palm completion` and `palm cache clean` are utilities. The [CLI reference](/palm/reference/cli/) covers all of them.
 
 ## Map of the docs
 
 | Section | Answers | Start with |
 | --- | --- | --- |
 | Getting started | How to install palm and finish a first install | [Installation](/palm/getting-started/install/), [Quick start](/palm/getting-started/quick-start/) |
-| Concepts | How palm models what it installs | [Entities and kinds](/palm/concepts/entities/), [Origins](/palm/concepts/origins/), [Targets](/palm/concepts/targets/), [Manifest and lockfile](/palm/concepts/manifest-and-lockfile/) |
-| Guides | How to finish one task, start to end | The [use cases](/palm/#use-cases) on the home page |
-| Reference | Exact commands, files, paths and terms | [CLI](/palm/reference/cli/), [palm.yaml](/palm/reference/palm-yaml/), [Targets matrix](/palm/reference/targets-matrix/), [Scan rules](/palm/reference/scan-rules/), [Layout descriptor](/palm/reference/layout/), [Glossary](/palm/reference/glossary/) |
-| Explanation | Why palm works the way it does | [Why origins](/palm/explanation/why-origins/), [Why native files](/palm/explanation/why-native-files/), [Security model](/palm/explanation/security/), [palm compared](/palm/explanation/comparison/) |
+| Concepts | How palm models what it installs | [Sources](/palm/concepts/sources/), [Entities](/palm/concepts/entities/), [palm.yaml and palm.lock.yaml](/palm/concepts/manifest-and-lockfile/), [Consent](/palm/concepts/consent/) |
+| Guides | How to finish one task, start to end | [Set up a new project](/palm/guides/new-project/), [Share a team baseline](/palm/guides/team-baseline/), [Check the setup in CI](/palm/guides/ci/) |
+| Reference | Exact commands, files, paths and terms | [CLI](/palm/reference/cli/), [palm.yaml](/palm/reference/palm-yaml/), [Targets matrix](/palm/reference/targets-matrix/), [Glossary](/palm/reference/glossary/) |
+| Explanation | Why palm works the way it does | [Why native files](/palm/explanation/why-native-files/), [Why sources per project](/palm/explanation/why-sources/), [Security model](/palm/explanation/security/) |

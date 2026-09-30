@@ -1,0 +1,8 @@
+$ palm install acme/agent-kit release-notes
+i ref ^1.0 saved to palm.yaml (latest tag v1.0.0)
++ skill  release-notes   .claude/skills/release-notes/, .agents/skills/release-notes/   2 files   from acme/agent-kit v1.0.0
+1 installed. Commit palm.yaml, palm.lock.yaml, .claude/ and .agents/ together.
+$ palm get
+kind   name           source          ref            targets       files  via
+─────  ─────────────  ──────────────  ─────────────  ────────────  ─────  ───
+skill  release-notes  acme/agent-kit  ^1.0 → v1.0.0  claude,codex  2

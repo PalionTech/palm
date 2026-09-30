@@ -1,0 +1,22 @@
+$ palm install anthropics/claude-plugins-official
+anthropics/claude-plugins-official  main (bc94689)   4 plugins, 1 agent, 2 skills, 1 hook, 3 mcp
+  plugin  agent-sdk-dev           Development kit for the Claude Agent SDK
+  plugin  clangd-lsp              C/C++ language server
+  plugin  context7                Context7 docs
+  plugin  github                  GitHub MCP
+  agent   agent-sdk-verifier-py   Use this agent to verify a Python Agent SDK app.
+  skill   new-sdk-app             Create and setup a new Claude Agent SDK application   (from command commands/new-sdk-app.md)
+  skill   sdk-helper              Helps with Agent SDK questions.
+  hook    agent-sdk-dev           claude: PreToolUse Write|Edit -> hooks/guard.py   (a program; asks before installing)
+  mcp     context7                http  https://mcp.context7.com/mcp
+  mcp     fs                      stdio npx -y @modelcontextprotocol/server-filesystem .   (a program; asks before installing)
+  mcp     github                  http  https://api.githubcopilot.com/mcp/
+Nothing written. Install some:
+    palm install anthropics/claude-plugins-official agent-sdk-verifier-py sdk-helper
+    palm install anthropics/claude-plugins-official --all
+
+Warnings
+! plugin clangd-lsp: lspServers are not installed by palm
+! remote plugin "42crunch" (https://github.com/42Crunch-AI/claude-plugins.git, plugins/api-security-testing, v1.5.5) not fetched: declare it: palm install 42Crunch-AI/claude-plugins/plugins/api-security-testing#v1.5.5 <names>
+! remote plugin "agentforce-adlc" (https://github.com/SalesforceAIResearch/agentforce-adlc.git) not fetched: declare it: palm install SalesforceAIResearch/agentforce-adlc <names>
+! plugin "npm-plugin": npm sources are not supported

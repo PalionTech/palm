@@ -1,0 +1,39 @@
+$ palm check
+✓ manifest and lock agree
+x 1 file differs from the lock
+✓ in-repo sources match the lock
+✓ every program is trusted
+✓ every hook script exists and is executable
+✓ no secret literals in tracked files (DOCS_TOKEN: not set)
+✓ generated files are not ignored by git
+✓ every source is declared
+✓ no path leaves the project
+✓ no hidden Unicode in generated files
+✓ no harness loads an entity twice
+✓ instruction blocks are within size limits
+x .agents/skills/tdd/references/mocking.md (skill tdd) is missing: palm install
+1 problem, 1 warning
+
+Warnings
+! DOCS_TOKEN is not set; mcp docs needs it (export DOCS_TOKEN)
+$ palm install
+↺ restored   skill  tdd    .agents/skills/tdd/references/mocking.md
+= unchanged  mcp    docs   palm.yaml
+1 restored, 1 unchanged.
+$ palm check
+✓ manifest and lock agree
+✓ generated files match the lock
+✓ in-repo sources match the lock
+✓ every program is trusted
+✓ every hook script exists and is executable
+✓ no secret literals in tracked files (DOCS_TOKEN: not set)
+✓ generated files are not ignored by git
+✓ every source is declared
+✓ no path leaves the project
+✓ no hidden Unicode in generated files
+✓ no harness loads an entity twice
+✓ instruction blocks are within size limits
+no failures, 1 warning
+
+Warnings
+! DOCS_TOKEN is not set; mcp docs needs it (export DOCS_TOKEN)

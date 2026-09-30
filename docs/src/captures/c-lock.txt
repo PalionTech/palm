@@ -1,0 +1,68 @@
+$ cat palm.lock.yaml
+# Written by palm. Commit it with palm.yaml and the files it lists.
+version: 3
+sources:
+  mattpocock/skills:
+    url: https://github.com/mattpocock/skills.git
+    ref: ^1.2
+    resolved: v1.2.3
+    sha: 2c0db9046017ad90f70ed14046665fee10b122b9
+    descriptor: marketplace
+  trailofbits/skills:
+    url: https://github.com/trailofbits/skills.git
+    ref: ^2.1
+    resolved: v2.1.0
+    sha: 924ffa802321c6497b0462f685b888b38a78dc90
+    descriptor: marketplace
+entries:
+  - kind: skill
+    name: tdd
+    source: mattpocock/skills
+    path: skills/engineering/tdd
+    content: sha256:7f69d19eee8872271042cef4f776cc8490025eff15918e72b6141f350515b7bf
+    render:
+      claude: sha256:4b24360cb39b7714d235491b06f1ed11391dc656ad01246ad7d7e1629dcda3fa
+      cursor: sha256:4b24360cb39b7714d235491b06f1ed11391dc656ad01246ad7d7e1629dcda3fa
+    files:
+      - .claude/skills/tdd/SKILL.md
+      - .claude/skills/tdd/agents/openai.yaml
+      - .claude/skills/tdd/references/mocking.md
+    notes:
+      - cursor reads .claude/skills; no second copy
+  - kind: hook
+    name: gh-cli
+    source: trailofbits/skills
+    via: plugin:gh-cli
+    path: plugins/gh-cli/hooks/hooks.json
+    content: sha256:ba2097f45cf1843d952a0cdc56aa106a993add46b6c2e7fbaa4d487f099f8223
+    render:
+      claude: sha256:a55b26e087d14352d154663487cace611481dc3e3988da4a4fed7c68f2eff032
+      cursor: sha256:267c6a5acce532e8b3af2438d54582975e0f96e676ed23dc8f59da5dae513989
+    files:
+      - .palm/assets/trailofbits__skills/gh-cli/hooks/hooks.json
+      - .palm/assets/trailofbits__skills/gh-cli/hooks/intercept-github-curl.sh
+      - .palm/assets/trailofbits__skills/gh-cli/hooks/persist-session-id.sh
+    merged:
+      - { file: .claude/settings.json, at: /hooks/SessionStart, id: "palm:hook:gh-cli:0", key: "sha256:a819408c" }
+      - { file: .claude/settings.json, at: /hooks/PreToolUse, id: "palm:hook:gh-cli:1", key: "sha256:81740996" }
+      - { file: .cursor/hooks.json, at: /hooks/sessionStart, id: "palm:hook:gh-cli:2", key: "sha256:b1025376" }
+      - { file: .cursor/hooks.json, at: /hooks/preToolUse, id: "palm:hook:gh-cli:3", key: "sha256:f576104e" }
+    exec:
+      commands:
+        - id: SessionStart//-
+          command: bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/persist-session-id.sh
+        - id: PreToolUse//Bash
+          command: bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/intercept-github-curl.sh
+      closure: { root: .palm/assets/trailofbits__skills/gh-cli, files: 3, tree: "sha256:0acbc4d0addef989fc3c89cfe6e5b4c48c0e5a8f2d1532cf4fcb47eef8bfd7a0" }
+      hash: sha256:a7cc7911b215de6db06993ec8339894a2ff3b4fa89fc95ca274b555665e7f431
+    trust:
+      - sha256:a7cc7911b215de6db06993ec8339894a2ff3b4fa89fc95ca274b555665e7f431
+  - kind: plugin
+    name: gh-cli
+    source: trailofbits/skills
+    path: plugins/gh-cli
+    content: sha256:003cfdb82afbdb0ffda89fc23659a613c1df7691dd8010d8a0938b06fc2f3c0c
+    render: {}
+    files: []
+    deps:
+      - { kind: hook, name: gh-cli }

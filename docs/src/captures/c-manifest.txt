@@ -1,0 +1,18 @@
+$ cat palm.yaml
+targets: [claude, cursor]
+
+sources:
+  mattpocock/skills:
+    ref: ^1.2
+    skills: [tdd, handoff]
+  obra/superpowers:
+    ref: ^4.0
+    plugins:
+      - name: superpowers
+        exclude: [skill:brainstorming]
+
+mcp:
+  docs:
+    url: https://docs.example.com/mcp
+    headers:
+      Authorization: Bearer ${DOCS_TOKEN}

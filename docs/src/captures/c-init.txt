@@ -1,0 +1,8 @@
+$ palm init
++ palm.yaml   targets: claude, cursor   (detected from .claude/ and .cursor/)
+~ .gitignore  added .palm/local/ and palm.local.yaml
+$ cat palm.yaml .gitignore
+targets: [claude, cursor]
+node_modules/
+.palm/local/
+palm.local.yaml

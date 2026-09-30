@@ -1,0 +1,28 @@
+$ palm get skills --json
+{
+  "items": [
+    {
+      "kind": "skill",
+      "name": "tdd",
+      "source": "mattpocock/skills",
+      "ref": "^1.2",
+      "resolved": "v1.2.3",
+      "sha": "2c0db9046017ad90f70ed14046665fee10b122b9",
+      "targets": [
+        "claude"
+      ],
+      "files": 3,
+      "layer": "team"
+    }
+  ],
+  "warnings": []
+}
+$ palm install mattpocock/skills tdd-coach --json
+{
+  "error": {
+    "code": "E_NOT_FOUND",
+    "message": "mattpocock/skills has no tdd-coach. Did you mean tdd?",
+    "hint": "palm install mattpocock/skills tdd"
+  },
+  "warnings": []
+}

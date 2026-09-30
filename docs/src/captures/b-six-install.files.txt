@@ -1,0 +1,10 @@
+.agents/skills/sdk-helper/SKILL.md
+.claude/agents/agent-sdk-verifier-py.md
+.claude/skills/sdk-helper/SKILL.md
+.codex/agents/agent-sdk-verifier-py.toml
+.cursor/agents/agent-sdk-verifier-py.md
+.gemini/agents/agent-sdk-verifier-py.md
+.github/agents/agent-sdk-verifier-py.agent.md
+.opencode/agents/agent-sdk-verifier-py.md
+palm.lock.yaml
+palm.yaml

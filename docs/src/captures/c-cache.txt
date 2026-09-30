@@ -1,0 +1,8 @@
+$ palm cache clean --yes
+- removed ~/.palm/cache (1 checkout, 1 index, 96 KB)
+$ palm install --offline
+x mattpocock/skills at 2c0db90 is not in the cache, and --offline allows no fetch
+    palm install
+$ palm install
+= unchanged  skill  tdd   mattpocock/skills v1.2.3
+1 unchanged. Nothing written.

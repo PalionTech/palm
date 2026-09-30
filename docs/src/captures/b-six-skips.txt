@@ -1,0 +1,17 @@
+$ palm install anthropics/claude-plugins-official new-sdk-app
++ skill  new-sdk-app   .claude/skills/new-sdk-app/, .agents/skills/new-sdk-app/   2 files   from command commands/new-sdk-app.md
+i new-sdk-app is a command in the source and installs as a skill; $ARGUMENTS works in Claude Code and Cursor, and codex, copilot, gemini and opencode do not expand it
+1 installed.
+$ palm install anthropics/claude-plugins-official hook:agent-sdk-dev --dry-run
+This install adds 1 program that will run on your machine.
+
+  1. hook agent-sdk-dev  from anthropics/claude-plugins-official  (commit bc94689, main, 2026-09-28)
+     PreToolUse  Write|Edit   python3 "$CLAUDE_PROJECT_DIR"/.palm/assets/anthropics__claude-plugins-official/agent-sdk-dev/hooks/guard.py
+     targets: claude (.claude/settings.json), codex (.codex/hooks.json), copilot (.github/hooks/agent-sdk-dev.json), cursor (.cursor/hooks.json), gemini (.gemini/settings.json)
+     scripts: 2 files, 700 B  ->  .palm/assets/anthropics__claude-plugins-official/agent-sdk-dev/  (committed with your repo)
+       hooks/guard.py    644   402 B   sha256:6d2e91b0
+       hooks/hooks.json  644   298 B   sha256:f03a7c55
+
++ would install  hook  agent-sdk-dev   5 targets, 2 asset files
+⊘ skipped        hook  agent-sdk-dev   opencode: OpenCode has no declarative hooks
+dry run: nothing written

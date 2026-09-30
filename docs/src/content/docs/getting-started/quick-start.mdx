@@ -1,96 +1,107 @@
 ---
 title: Quick start
-description: Add an origin, install a skill for Claude Code and Codex, and remove it again.
+description: Install one skill for Claude Code and Codex from a GitHub repository, check it, commit it and remove it again.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 import Capture from '../../../components/Capture.astro';
 import CaptureTree from '../../../components/CaptureTree.astro';
 
-In five minutes you add a repository of skills and install one skill for Claude Code and Codex.
-Then you remove it again.
+In five minutes you install a skill from `mattpocock/skills` for Claude Code and Codex, prove the setup is consistent, and remove it again.
 Every step is one command.
 
 ```sh
-palm install origin mattpocock/skills
 palm init --target claude,codex
-palm install skill grill-me
+palm install mattpocock/skills
+palm install mattpocock/skills grill-me
+palm check
 ```
 
 ## Before you start
 
 - palm is installed. See [Installation](/palm/getting-started/install/).
-- You are in a git repository or another project directory.
+- You are inside a git repository.
 
-palm treats the nearest directory with a `palm.yaml` or a `.git` as the project root.
-It refuses to use your home directory as a project, so run these steps inside one.
+palm treats the nearest directory with a `palm.yaml`, or else the nearest `.git`, as the project root.
+It refuses to treat your home directory as a project, so run these steps inside one.
 
 ## Steps
 
 <Steps>
-1. Add an origin.
-
-   ```sh
-   palm install origin mattpocock/skills
-   ```
-
-   palm clones the repository, scans it and saves it in `~/.palm/config.yaml`.
-   Its alias is `mattpocock`, because `skills` is a generic repository name.
-
-2. Choose the harnesses for this project.
+1. Choose the harnesses for this project.
 
    ```sh
    palm init --target claude,codex
    ```
 
    palm writes `targets: [claude, codex]` to `palm.yaml`.
-   Inside a git repository, palm also adds `.palm/` to `.gitignore` and creates the file when there is none.
+   It adds `.palm/local/` and `palm.local.yaml` to `.gitignore`, the only palm paths you do not commit.
+   Without `--target`, palm detects the harnesses from folders such as `.claude/` and `.cursor/`.
 
-3. See what the origin offers.
+2. See what the repository offers.
 
    ```sh
-   palm get skills --available
+   palm install mattpocock/skills
    ```
 
-4. Install a skill.
+   With no names, palm fetches the repository, lists its skills, agents, rules, hooks and MCP servers, and writes nothing.
+   The last lines are commands you can paste.
+
+3. Install a skill.
 
    ```sh
-   palm install skill grill-me
+   palm install mattpocock/skills grill-me
+   ```
+
+   palm declares `mattpocock/skills` in `palm.yaml` with a version range, writes the skill for both harnesses and pins the commit in `palm.lock.yaml`.
+
+4. Check the result.
+
+   ```sh
+   palm check
+   ```
+
+   `palm check` recomputes every generated file from the lock and changes nothing. CI runs the same command.
+
+5. Commit.
+
+   ```sh
+   git add palm.yaml palm.lock.yaml .gitignore .claude .agents
+   git commit -m "Add the grill-me skill"
    ```
 </Steps>
 
 ## What happened
 
-This is a real session of steps 2 to 4.
-The origin was added before it, from palm's test fixture that mirrors `mattpocock/skills`.
+This is a recorded session of steps 1 to 3.
 
 <Capture name="a-quick-start" title="~/project" />
 
-The session created these six files.
+The session created these files.
 
 <CaptureTree name="a-quick-start" />
 
 - Claude Code reads the copy in `.claude/skills/grill-me/`.
-- Codex reads the copy in `.agents/skills/grill-me/`. Copilot, Cursor, Gemini CLI and OpenCode read that folder too.
-- `palm.yaml` now lists `grill-me@mattpocock` under `skills:`.
-- `palm.lock.yaml` records each file with its content hash.
+- Codex reads the copy in `.agents/skills/grill-me/`. Copilot, Gemini CLI and OpenCode read that folder too.
+- `palm.yaml` now declares `mattpocock/skills` with `ref: ^1.2`, the newest tag's minor range, and lists `grill-me` under it.
+- `palm.lock.yaml` records the commit, one render hash per harness and the four file paths.
 
 Start a new Claude Code or Codex session in the project, and the skill is available.
-`palm describe skill grill-me` shows the origin, the version and the files per harness.
+`palm describe grill-me` shows the source, the version and the files per harness.
 
 ## Remove it again
 
 <Capture name="a-quick-start-remove" title="~/project" />
 
-`palm uninstall` deleted the four files and every folder it emptied, including the `.claude` folder it had created.
-It removed the entry from `palm.yaml` and from the lockfile.
-These are the only files the session left behind.
+`palm remove` deleted the four files and every folder it emptied, and removed the entry from `palm.yaml` and the lock.
+The source had nothing left, so palm removed it from `palm.yaml` too.
+Only these two files changed.
 
 <CaptureTree name="a-quick-start-remove" />
 
 ## Next steps
 
-- Install for more harnesses. The [targets](/palm/concepts/targets/) page explains how palm picks them.
-- Share the setup. Commit `palm.yaml` and `palm.lock.yaml`, as [manifest and lockfile](/palm/concepts/manifest-and-lockfile/) explains.
-- Add an agent with its skills. See [dependencies](/palm/concepts/dependencies/).
+- Share the setup with your team. See [Share a team baseline](/palm/guides/team-baseline/).
+- Add an MCP server from its README. See [Add MCP servers](/palm/guides/mcp-servers/).
+- Learn how palm treats hooks. See [Consent and executable content](/palm/concepts/consent/).
 - Look up every command in the [CLI reference](/palm/reference/cli/).

@@ -1,0 +1,16 @@
+$ palm install origin mattpocock/skills
+i palm install origin is now: palm install mattpocock/skills
+mattpocock/skills  v1.2.3 (2c0db90)   5 skills, 1 plugin
+  plugin  mattpocock-skills   Matt Pocock's agent skills for real engineering.
+  skill   git-guardrails      Block dangerous git commands.
+  skill   grill-me            Interview the user relentlessly about a plan.
+  skill   handoff             Write a handoff note for the next session.
+  skill   old-thing           An old skill kept for reference.
+  skill   tdd                 Test-driven development with red-green-refactor.
+Nothing written. Install some:
+    palm install mattpocock/skills git-guardrails grill-me
+    palm install mattpocock/skills --all
+$ palm outdated
+x palm outdated was removed in 0.2; run palm update --dry-run
+$ palm search tdd
+x palm search was removed in 0.2; palm has no registry. Install from a repository you name: palm install mattpocock/skills tdd

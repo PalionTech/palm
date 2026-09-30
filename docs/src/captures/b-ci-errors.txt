@@ -1,0 +1,25 @@
+$ palm install
+i trailofbits/skills is not in palm.lock.yaml yet; resolving ^2.1
+This install adds 1 program that will run on your machine.
+
+  1. hook gh-cli  from trailofbits/skills  (commit 924ffa8, v2.1.0, 2026-09-28)
+     SessionStart          bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/persist-session-id.sh
+     PreToolUse  Bash      bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/intercept-github-curl.sh
+     targets: claude (.claude/settings.json)
+     scripts: 3 files, 646 B  ->  .palm/assets/trailofbits__skills/gh-cli/  (committed with your repo)
+       hooks/hooks.json                644   498 B   sha256:5d1c0e7a
+       hooks/intercept-github-curl.sh  755   104 B   sha256:77d0a9f1
+       hooks/persist-session-id.sh     755   44 B    sha256:1b9e04c2
+
+x 1 program needs your consent and there is no terminal
+  review:  palm install --dry-run --review
+  then:    palm install --allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911
+$ palm install mattpocock/skills tdd-coach --json
+{
+  "error": {
+    "code": "E_NOT_FOUND",
+    "message": "mattpocock/skills has no tdd-coach. Did you mean tdd?",
+    "hint": "palm install mattpocock/skills tdd"
+  },
+  "warnings": []
+}

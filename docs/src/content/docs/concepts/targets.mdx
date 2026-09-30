@@ -1,88 +1,94 @@
 ---
 title: Targets
-description: A target is palm's identifier for a harness. It decides which harnesses get files, and in which format.
+description: A target is palm's identifier for a harness. palm.yaml declares the project's targets once, and each entry can narrow them.
 ---
 
 import Capture from '../../../components/Capture.astro';
 
 A **harness** is the program that runs a coding agent, such as Claude Code or Codex.
 A **target** is palm's identifier for a harness, such as `claude` or `codex`.
-Flags and config values use targets. Prose about the tools uses harnesses.
+Flags and `palm.yaml` use targets. Prose about the tools uses harnesses.
 
 <Capture name="a-targets" title="~/project" />
 
-The install wrote the skill for Claude Code and Codex, and saved `targets: [claude, codex]` to `palm.yaml`.
-`palm get targets` shows the active targets and where the set came from.
+This project has no `targets:` yet, so palm detected Claude Code and Cursor from their folders.
+`palm describe target cursor` prints where each kind goes for Cursor in this project.
 
 ## The six targets
 
-| Target | Harness | Detected in a project by |
-| --- | --- | --- |
-| `claude` | Claude Code | `.claude/` or `CLAUDE.md` |
-| `codex` | Codex | `.codex/` or `AGENTS.md` |
-| `copilot` | GitHub Copilot | `.github/copilot-instructions.md`, `.github/agents/` or `.vscode/mcp.json` |
-| `cursor` | Cursor | `.cursor/` |
-| `gemini` | Gemini CLI | `.gemini/` or `GEMINI.md` |
-| `opencode` | OpenCode | `.opencode/`, `opencode.json` or `opencode.jsonc` |
+| Target | Harness | Detected in a project by | Status |
+| --- | --- | --- | --- |
+| `claude` | Claude Code | `.claude/` or `CLAUDE.md` | tested |
+| `codex` | Codex | `.codex/` or `AGENTS.md` | tested |
+| `copilot` | GitHub Copilot | `.github/copilot-instructions.md`, `.github/agents/` or `.vscode/mcp.json` | tested |
+| `cursor` | Cursor | `.cursor/` | tested |
+| `gemini` | Gemini CLI | `.gemini/` or `GEMINI.md` | unverified |
+| `opencode` | OpenCode | `.opencode/`, `opencode.json` or `opencode.jsonc` | unverified |
 
-For the global scope, palm detects a harness by its home directory.
-Those are `~/.claude`, `~/.codex`, `~/.copilot`, `~/.cursor`, `~/.gemini` and `~/.config/opencode`.
+For the global scope, palm detects a harness by its home directory, such as `~/.claude` or `~/.config/opencode`.
 
-## How palm picks targets
+The Gemini CLI and OpenCode placements follow each harness's documentation and source, checked on 2026-09-28.
+Neither has run against a live CLI in palm's tests yet. palm 1.0 adds an end-to-end job for all six, and a target that fails it is dropped.
 
-palm takes the first of these that gives an answer.
+## Declared once in palm.yaml
 
-1. The `--target` flag.
-2. `targets:` in the project's `palm.yaml`.
-3. `targets:` in `~/.palm/config.yaml`, your global default.
-4. The harness markers in the table above.
-5. A prompt, when a terminal is attached.
+`targets:` in `palm.yaml` is the project's set.
+When it is missing, the first install that places something writes the detected set and prints one line.
 
-Without a terminal and without an answer, palm stops and suggests `--target claude,codex`.
+```text
+targets: claude   (detected from .claude/; change targets: in palm.yaml)
+```
 
-## Saved targets
+`palm init --target claude,codex` writes the list before you install anything.
+Commit it, and every clone installs for the same harnesses, whatever each machine has.
+palm never asks which targets to use. With nothing declared and nothing detected, it stops with `E_TARGET` and names `palm init --target`.
 
-The first project install saves the resolved set to `palm.yaml` when it has no `targets:`, and prints one line that says so.
-`palm init --target claude,codex` writes the list before you install anything, and changes it later.
-For `-g`, set your default with `palm config set targets claude,codex`. A global install never writes it.
+To add a harness later, edit `targets:` and run `palm install`.
+The bare install writes the new harness's files for every entry.
+To drop one, remove it from `targets:`, and the next `palm install` deletes that harness's files and merged entries.
 
-Commit `palm.yaml` with its `targets:`.
-Every clone then installs for the same harnesses, whatever each machine detects.
+## Narrowed per entry
 
-A `--target` on one install applies to the entities you name and leaves the saved set alone.
-palm prints a note when the flag differs from the saved set.
-A bare `palm install` puts every entry on at least the saved targets and keeps targets a `--target` added.
-When you remove a target from `targets:`, the next bare `palm install` deletes that harness's files and merged entries.
+An entry can limit itself to some of the project's targets with `targets:`.
 
-## Where one target writes
+```yaml title="palm.yaml"
+targets: [claude, codex, cursor]
 
-`palm describe target <id>` lists where each kind goes in the current scope.
+sources:
+  acme-kit:
+    url: https://gitlab.acme.com/platform/agent-kit.git
+    instructions:
+      - { name: db-conventions, targets: [claude, codex] }
+```
 
-<Capture name="a-describe-target" title="~/project" />
+`palm install <source> <name> --targets claude,codex` writes the same thing from the command line.
+An entry can only narrow. A target that is not in the project's set is a parse error.
 
-The paths come from a dry run of each kind, so they include any home-directory override you set.
-Add `-g` to see the global paths.
+## One copy per harness
 
-## One shared skill folder
+Several harnesses read the same folders, and palm writes each file once.
 
-Codex, GitHub Copilot, Cursor, Gemini CLI and OpenCode all read skills from `.agents/skills`.
-palm writes that folder once, however many of the five are active.
-Claude Code reads only `.claude/skills`, so a skill for `claude` gets its own copy.
+- Codex, Copilot, Gemini CLI and OpenCode read skills from `.agents/skills`. palm writes that folder once, however many of them are active.
+- Claude Code reads only `.claude/skills`. Cursor reads both folders and removes duplicates by name, so with `claude` and `cursor` palm writes one copy, in `.claude/skills`.
+- With `claude` and `codex`, a skill has two copies, and the lock notes why.
+
+`palm check` warns when a harness would still load one entity twice, for example from `AGENTS.md` and `.cursor/rules`.
 
 ## What a harness does not support
 
 Some harnesses have no place for a kind at one scope.
 
-- Codex has no project-level prompts, so a project `command` skips `codex`.
-- Copilot has no user-level prompt files, so a global `command` skips `copilot`.
-- Cursor keeps user rules in its settings, so a global `instruction` skips `cursor`.
-- OpenCode hooks are JavaScript plugins, so palm skips hooks for `opencode`.
+| Kind | Harness | Scope | What palm does |
+| --- | --- | --- | --- |
+| hook | OpenCode | both | skips it: OpenCode hooks are JavaScript plugins |
+| instruction | Cursor | global | skips it: Cursor keeps user rules in its settings |
 
-palm says so in the install summary and writes nothing the harness would ignore.
-The [targets matrix](/palm/reference/targets-matrix/) marks each combination.
+palm prints `⊘ skipped` with the reason, records the note in the lock, and writes nothing the harness would ignore.
+`palm describe <name>` shows the note later.
 
 ## Related
 
 - [Targets matrix](/palm/reference/targets-matrix/)
+- [Install for six harnesses](/palm/guides/six-harnesses/)
 - [Project and global scope](/palm/concepts/scopes/)
 - [Why native files per harness](/palm/explanation/why-native-files/)
