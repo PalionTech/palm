@@ -139,7 +139,7 @@ describe('sources and versions', () => {
       });
       const sync = await other.palm(p, 'install', '-g');
       expect(sync.code, sync.all).toBe(0);
-      expect(sync.stdout, sync.all).toMatch(/^[~↺] skill  tdd/m);
+      expect(sync.stdout, sync.all).toMatch(/^[~↺] skill {2}tdd/m);
       expect(sync.all).not.toContain('modified');
       const file = join(other.home, '.claude/skills/tdd/SKILL.md');
       expect(readFileSync(file, 'utf8')).toContain('two');

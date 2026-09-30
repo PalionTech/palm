@@ -72,7 +72,10 @@ function printBlocks(out: Output, blocks: NonNullable<EntityInfo['blocks']>): vo
 }
 
 function printFiles(out: Output, info: EntityInfo): void {
-  if (info.blocks) return printBlocks(out, info.blocks);
+  if (info.blocks) {
+    printBlocks(out, info.blocks);
+    return;
+  }
   for (const t of TARGET_IDS) {
     const files = info.files[t];
     if (files?.length) field(out, t, files.map(displayLockPath).join(', '));
