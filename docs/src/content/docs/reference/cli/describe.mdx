@@ -9,6 +9,7 @@ import Capture from '../../../../components/Capture.astro';
 
 ```sh
 palm describe <[kind:]name | path>
+palm describe <source> <[kind:]name>
 palm describe source <name>
 palm describe target <target>
 ```
@@ -19,8 +20,10 @@ Alias: `palm info`.
 | --- | --- |
 | `palm describe tdd` | one installed entity |
 | `palm describe hook:gh-cli` | the same, when a name means two kinds |
+| `palm describe mattpocock/skills handoff` | an entity of a source, installed or not, read from the index |
 | `palm describe mcp docs` | an MCP server, with the block each harness received |
 | `palm describe .claude/skills/tdd/SKILL.md` | the entity that wrote this file |
+| `palm describe setup.sh` | a bare file name, found under `.palm/assets` and the output folders |
 | `palm describe .mcp.json` | every entity with an entry merged into this file |
 | `palm describe source mattpocock/skills` | a source: URL, ref, commit, detection rule, counts and index warnings |
 | `palm describe target codex` | where each kind goes for Codex in this scope |
@@ -53,15 +56,21 @@ The [global options](/palm/reference/cli/#global-options) also apply.
 | selected by | `palm.yaml`, or `plugin:<name>` when a plugin selected it |
 | files per harness | every generated path and merged entry, per target |
 | notes | what install printed once: dropped fields, skipped targets, "from command", shared folders |
+| activation | for an instruction: the activation the source declared, and where a harness widened it until 0.3 |
+| at | the placement root from `palm.yaml`, when set; placed at the root until 0.3 |
 | program | for a hook or stdio server: every command, the hash, and whether it is trusted |
 | scripts | the asset folder and its file count; for a skill, the scripts it cites |
 | needs | for an MCP server: every variable, and whether it is set |
+
+An entity that is not installed yet shows what the index knows, from its source, when you name the source first.
+When a bare name exists in two sources, the hint is `palm describe <source> <name>`.
 
 `palm describe mcp <name>` adds the rendered block for each harness, so you see exactly what Codex got in TOML.
 
 ## A path
 
 Given a path, absolute, relative or starting with `~`, palm names the entity that wrote it.
+palm compares real paths, so a path behind a symlink works, and a bare file name such as `setup.sh` is looked up in `.palm/assets` and the output folders.
 
 | Match | Meaning |
 | --- | --- |
@@ -73,9 +82,11 @@ A path no entity wrote prints so and exits 1.
 
 ## A source or a target
 
-`palm describe source <name>` shows the URL or path, ref, commit, root, layout, the scan rule that matched, the counts per kind and the index warnings. [Scanning](/palm/concepts/scanning/) shows an example.
+`palm describe source <name>` shows the URL or path, ref, commit, root, layout as YAML, the scan rule that matched, the counts per kind and the index warnings. [Scanning](/palm/concepts/scanning/) shows an example.
+For a source pinned to a tag or a commit, it also prints the latest release tag.
 
-`palm describe target <target>` renders a sample entity of every kind for that harness in the current scope, so the paths include any home-directory override you set.
+`palm describe target <target>` prints the project root, then renders a sample entity of every kind for that harness in the current scope, so the paths include any home-directory override you set.
+Under `-g`, paths print as `~/...`.
 
 ## Reads and writes
 

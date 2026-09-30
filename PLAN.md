@@ -610,6 +610,15 @@ cost in `get`, `migrate` removed. Acceptance: one instruction for four harnesses
 once each; a shared baseline plus uncommitted personal extras; Brad's monorepo without a
 1 MB `AGENTS.md`; Marco with no double load.
 
+Candidates for 0.3 from the 0.2 persona rerun, decided when the phase is planned:
+`palm check --recursive` over every nested `palm.yaml` in one worktree (B10); "source is the
+target", an in-repo source that is its own carrier for a harness that reads the directory, so
+an authored skill is not in git three times (C26); overlay sources outside the project, for a
+live loop from a sibling checkout (K21); a `palm:` key in palm.yaml naming the minimum palm
+version, next to the pinned CI install the docs show (D18); minimal JSON edits that keep a
+merged file's formatting instead of printing it anew (J13); a generated-file marker, with
+`.gitattributes` `linguist-generated` help and a header where the format allows (E10).
+
 1.0, verified. Every placement row and hook mapping row carries the harness version it
 was tested against, with an end-to-end job that runs the real CLIs for all six targets;
 Gemini and OpenCode leave the unverified tier or are dropped; the docs are rewritten

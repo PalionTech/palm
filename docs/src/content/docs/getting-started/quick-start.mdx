@@ -23,7 +23,7 @@ palm check
 - You are inside a git repository.
 
 palm treats the nearest directory with a `palm.yaml`, or else the nearest `.git`, as the project root.
-It refuses to treat your home directory as a project, so run these steps inside one.
+It refuses to treat your home directory, `~/.palm` or a harness home such as `~/.claude` as a project, so run these steps inside one.
 
 ## Steps
 
@@ -36,7 +36,7 @@ It refuses to treat your home directory as a project, so run these steps inside 
 
    palm writes `targets: [claude, codex]` to `palm.yaml`.
    It adds `.palm/local/` and `palm.local.yaml` to `.gitignore`, the only palm paths you do not commit.
-   Without `--target`, palm detects the harnesses from folders such as `.claude/` and `.cursor/`.
+   Without `--target`, palm detects the harnesses from folders such as `.claude/` and `.cursor/`, and prints what it found.
 
 2. See what the repository offers.
 
@@ -84,7 +84,7 @@ The session created these files.
 - Claude Code reads the copy in `.claude/skills/grill-me/`.
 - Codex reads the copy in `.agents/skills/grill-me/`. Copilot, Gemini CLI and OpenCode read that folder too.
 - `palm.yaml` now declares `mattpocock/skills` with `ref: ^1.2`, the newest tag's minor range, and lists `grill-me` under it.
-- `palm.lock.yaml` records the commit, one render hash per harness and the four file paths.
+- `palm.lock.yaml` records the commit, one render hash per harness and every file path.
 
 Start a new Claude Code or Codex session in the project, and the skill is available.
 `palm describe grill-me` shows the source, the version and the files per harness.
@@ -93,7 +93,7 @@ Start a new Claude Code or Codex session in the project, and the skill is availa
 
 <Capture name="a-quick-start-remove" title="~/project" />
 
-`palm remove` deleted the four files and every folder it emptied, and removed the entry from `palm.yaml` and the lock.
+`palm remove` deleted the skill's files and every folder it emptied, and removed the entry from `palm.yaml` and the lock.
 The source had nothing left, so palm removed it from `palm.yaml` too.
 Only these two files changed.
 

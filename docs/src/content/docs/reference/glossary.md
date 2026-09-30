@@ -16,16 +16,16 @@ This line installs every **entity** the **plugin** `superpowers` selects from th
 
 | Term | Meaning |
 | --- | --- |
-| activation | When a harness loads an instruction: `always`, `on-request`, `paths` or `manual`. palm records it from the source format. |
+| activation | When a harness loads an instruction: `always`, `on-request`, `paths` or `manual`. palm records it from the source format, and prints a notice where a harness widens it to always-on until 0.3. |
 | agent | A subagent: one file with a system prompt, a delegation description, tools and a model. A kind. |
 | alias | An optional short name for a source, set with `alias:` in `palm.yaml`. |
 | applied record | `~/.palm/applied.yaml`: what the global scope last wrote on this machine, with real paths. The global counterpart of a git checkout. |
 | asset folder | `.palm/assets/<source>/<entity>/`: the scripts a hook or stdio MCP server runs, copied from a git source and committed. |
 | bare install | `palm install` with no arguments. It makes the disk match `palm.yaml` and the lock. |
 | carrier | The one file through which an entity reaches a harness. palm 0.3 records it per target. |
-| closure | The files a hook or server needs: the folder of its definition plus every file a command names. |
+| closure | The files a hook or server needs: the folder of its definition, every file a command names, and every file a script reads through a literal path. |
 | consent | The yes a person gives before a hook or stdio MCP server lands. Recorded as a `trust:` hash in the lock. See [consent](/palm/concepts/consent/). |
-| content hash | `content:` in the lock: sha256 of an entity's content in its source. |
+| content hash | `content:` in the lock: sha256 of an entity's content in its source. For an in-repo source it is the drift signal `palm check` compares. |
 | entity | One skill, agent, instruction, hook or MCP server, named within its source. |
 | exec unit | One hook entry or stdio server, with its commands, events, matchers and closure, hashed as one program. |
 | generated file | Any file palm writes. Every path is listed in the lock, and in a project you commit it. |
@@ -52,7 +52,7 @@ This line installs every **entity** the **plugin** `superpowers` selects from th
 | source | A git repository, a folder in one at a ref, or a directory inside the project, declared in `palm.yaml`. |
 | target | palm's identifier for a harness: `claude`, `codex`, `copilot`, `cursor`, `gemini` or `opencode`. |
 | token | A placeholder for a home folder in the global lock, such as `<claude>` or `<home>`. |
-| tree hash | `tree:` in the lock: the hash of an in-repo source's files at the last render. |
+| tree hash | `tree:` in an entry's `exec.closure`: the hash of every file in a program's closure, mode bits included. |
 | trust | The list of program hashes a person consented to, stored on the lock entry. |
 
 ## Words palm does not use

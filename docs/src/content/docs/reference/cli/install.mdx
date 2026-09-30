@@ -8,7 +8,8 @@ import Capture from '../../../../components/Capture.astro';
 `palm install` has four forms: list a source, install from it, sync the whole scope, or declare an MCP server.
 
 ```sh
-palm install <source> [[kind:]name...] [--all] [--as <name>] [--targets <ids>] [--at <dir>]
+palm install <source> [--grep <text>]
+palm install <source> [[kind:]name...] [--all] [--as <name>] [--targets <ids>] [--layout <kind=glob>]... [--at <dir>]
 palm install
 palm install mcp <name> --url <url> [--header <K=V>]... [--transport http|sse]
 palm install mcp <name> --command <program> [--arg <value>]... [--env <K=V>]...
@@ -20,11 +21,13 @@ Aliases: `palm add`, `palm i`.
 | Command | What it does |
 | --- | --- |
 | `palm install mattpocock/skills` | Fetch and index the source, list what it offers with a pasteable next line, save nothing. |
+| `palm install github/awesome-copilot --grep review` | List only the entities whose name or description holds `review`. |
 | `palm install mattpocock/skills tdd grill-me` | Install two skills, declare the source in `palm.yaml`, pin it in the lock. |
 | `palm install obra/superpowers --all` | Install every entity that runs no program. Hooks and stdio servers are listed with the command that installs each. |
 | `palm install obra/superpowers plugin:superpowers` | Install every member of a plugin and record the plugin in `palm.yaml`. |
 | `palm install acme-kit db-conventions --targets claude,codex` | Install for some of the project's targets only. |
 | `palm install https://gitlab.acme.com/platform/agent-kit.git reviewer --as acme-kit` | Declare a URL under a name you choose. |
+| `palm install acme/kit reviewer --layout 'agents=people/*.md'` | Declare a source with a layout descriptor, for a repository auto-detection misreads. |
 | `palm install` | Make the disk match `palm.yaml` and the lock. |
 | `pbpaste \| palm install mcp --snippet -` | Declare every MCP server in a README snippet. |
 
@@ -67,8 +70,13 @@ The [global options](/palm/reference/cli/#global-options) also apply.
 ## List a source
 
 With a source and no names, palm fetches the source, indexes it and prints every entity with its kind, name, description and version.
-Hooks and stdio MCP servers are marked `(a program; asks before installing)`.
-The listing ends with `Nothing written. Install some:` and two commands you can paste.
+It asks the remote for its current tags first, so the listing never shows a stale version.
+Hooks and stdio MCP servers are marked `(a program; asks before installing)`, and a name that means two kinds is marked too.
+The listing ends with `Nothing written. Install some:` and two commands you can paste, with the `#ref` you typed.
+
+`--grep <text>` keeps the entities whose name or description contains the text, and the paste line takes the first two matches.
+Index warnings show as one count line; `palm describe source` prints them in full.
+A source that overlaps an output folder is refused at listing time, before it offers `--all`.
 
 The first word is a source when it is a name or alias declared in `palm.yaml`, `owner/repo`, a URL, a path, or the word `mcp`.
 Anything else is a usage error whose first line is the fix.
@@ -80,36 +88,45 @@ x "superpowers" is not a repository. palm installs from git repositories:
 ```
 
 palm consults no registry for a name, so nothing times out and no unrelated server appears.
+The hint tries the word against the project first: a folder becomes `./<word>`, and a name a declared source offers gets that source.
+[Troubleshooting](/palm/reference/troubleshooting/#a-name-instead-of-a-repository) lists every case.
 
 ## Install from a source
 
 With names or `--all`, palm installs and records.
 
-1. It resolves the source. An undeclared source is declared in `palm.yaml` on this first install, as [Sources](/palm/concepts/sources/#declared-on-first-use) describes.
-2. It matches each name within that source, ignoring case. A name that matches nothing fails with `E_NOT_FOUND`, and the hint is the closest name as a pasteable command.
-3. It takes the targets from `palm.yaml`. With none there, it detects them, writes them, and prints one line.
-4. It renders every entity for every target without writing, and computes the render hashes.
-5. It shows every program the install adds and asks for [consent](/palm/concepts/consent/). A trusted hash passes silently.
-6. It applies each target as a transaction. A failure on one target restores that target's files and leaves the others.
-7. It saves `palm.yaml` and the lock after every entity, and again at the end.
+1. It resolves the source, asking the remote for its current tags. An undeclared source is declared in `palm.yaml` once something installs, as [Sources](/palm/concepts/sources/#declared-on-first-use) describes.
+2. It matches each name within that source, ignoring case. A name that matches nothing fails with `E_NOT_FOUND`, and the hint is the closest name as a pasteable command. A name that means two kinds is asked about on a terminal, and `E_AMBIGUOUS` without one.
+3. It refuses an entity whose kind and name another source already installed in this scope, with `E_CONFLICT` naming the owner.
+4. It takes the targets from `palm.yaml`. With none there, it detects them, writes them, and prints one line.
+5. It renders every entity for every target without writing, and computes the render hashes.
+6. It shows every program the install adds and asks for [consent](/palm/concepts/consent/). A trusted hash passes silently.
+7. It applies each target as a transaction. A failure on one target restores that target's files and leaves the others.
+8. It saves `palm.yaml` and the lock after every entity that installed, and again at the end. When nothing installs, both files keep their bytes.
 
 A plugin name, or `plugin:<name>`, expands to its members and records the plugin under `plugins:`.
 An agent's `skills:` and `mcpServers:` are not installed. palm prints one line with the command that installs them.
+`--at <dir>` is recorded and printed as `i at <dir> (placed at the root until 0.3)`.
+Ctrl-C stops between entities: palm finishes the current one, saves both files, and exits 130 with the count installed so far.
 
-The report has one status line per entity and target, then every failure with its hint, then the warnings, then a summary.
+The report has one status line per entity, then every failure with its hint, then the warnings, then a summary.
+Unchanged entities collapse into one count line, and a note shared by many rows prints once.
 On the first install in a project, the summary names the files and folders to commit together.
+A multi-name install where nothing installs ends with `Nothing installed.`
 
 | Status | Meaning |
 | --- | --- |
 | `+ installed` | written on every target |
 | `~ updated` | a new commit or new content |
-| `~ re-rendered` | same content, another render, such as a new target |
+| `~ re-rendered` | same content, another render, such as a new target or an edited in-repo source |
 | `↺ restored` | a missing generated file put back |
-| `= unchanged` | the render equals the lock and the disk equals the render, on every target |
+| `= unchanged` | the render equals the lock and the disk equals the render, on every target; counted in one line |
 | `! modified (kept)` | you changed a generated file; palm kept it; `--force` restores |
-| `! partial` | one target refused or failed; the lock keeps what succeeded; exit 1 |
-| `⊘ skipped` | a target has nothing for this kind; noted in the lock |
+| `! partial` | the targets ended differently, such as one refused or kept; the lock keeps every target of the entry; exit 1 |
+| `⊘ skipped` | a target has nothing for this kind, or you declined a plugin's program; noted in the lock or in `palm.yaml` |
 | `x failed` | nothing written |
+
+When you decline a changed program you trusted before, the line says the previous version stays active, with its hash and the `palm remove` command.
 
 ## Sync the scope
 
@@ -117,8 +134,10 @@ On the first install in a project, the summary names the files and folders to co
 It installs entries new to `palm.yaml`, removes entries `palm.yaml` dropped, restores missing files, re-renders changed in-repo sources and keeps files you edited.
 [palm.yaml and palm.lock.yaml](/palm/concepts/manifest-and-lockfile/#a-bare-install-syncs) has the full table.
 
-On a clean clone with a current lock, it writes nothing and prints `= unchanged` per entry.
+On a clean clone with a current lock, it writes nothing and prints one `unchanged` count line.
+A `ref:` edited by hand in `palm.yaml` makes it an update: palm prints the plan, asks for consent when a program changes, and needs `--yes` without a terminal.
 Under `-g`, it compares the lock with `~/.palm/applied.yaml`, so a removal that arrives through your dotfiles reaches this machine.
+`--dry-run` shows that removal as `would remove` lines, one per file.
 
 ## MCP servers
 
@@ -126,8 +145,10 @@ Under `-g`, it compares the lock with `~/.palm/applied.yaml`, so a removal that 
 
 - `--snippet -` reads a `{ "mcpServers": { ... } }` block, the flat form, or VS Code's `servers` form from stdin. `--snippet server.json` reads a file.
 - `--url` with `--header` declares a remote server. `--command` with `--arg` and `--env` declares a stdio server.
-- A literal secret in a snippet becomes `${NAME}`, with a notice. A literal you type needs `--secrets literal`.
-- An existing name stops with `E_CONFLICT` unless you pass `--force`.
+- `palm install mcp <name>` with neither prints both forms and `--snippet -`, for pasting the block from the server's README.
+- A literal secret or a fill-in placeholder in a snippet becomes `${NAME}`, with a notice, and so does VS Code's `${input:name}`.
+- A value you type with `--env K=V` or `--header K=V` is written as `${K}`, and palm prints the `export` line. Only `--secrets literal` writes the value.
+- An existing name stops with `E_CONFLICT` unless you pass `--force`. An identical entry you already wrote by hand is adopted.
 - A stdio server asks for consent. A remote server does not.
 
 `--json` after `mcp` takes a file argument. As a global option, `--json` switches the output to JSON.
@@ -147,20 +168,22 @@ Under `-g`, it compares the lock with `~/.palm/applied.yaml`, so a removal that 
 
 ## What it refuses
 
-- A file that exists and that palm did not write, when it differs from the render. `--force` replaces it. An identical file is adopted silently.
-- A file you changed since palm wrote it. The entity stays as it was. `--force` restores the render.
+- A file that exists and that palm did not write, when it differs from the render. `--force` replaces it. A file that matches the render is adopted: palm compares parsed frontmatter and ignores trailing whitespace.
+- A file you changed since palm wrote it. The entity stays as it was. `--force` restores the render. To keep your change instead, move it into your own source with `palm create`.
+- An entity another source already installed under the same kind and name. The message names the owner; `--force` does not apply.
 - Hidden Unicode of critical severity, an unresolvable hook reference, or a literal secret from a source. No flag overrides these.
-- A source that overlaps an output directory, and a local path outside the project.
+- A skill folder above 200 files or 5 MB, and a managed block that would push `AGENTS.md` or `GEMINI.md` past the harness's cap. `--force` overrides these.
+- A source that overlaps an output directory, also through a symlinked output folder, and a local path outside the git worktree.
 - A `palm.yaml` in the 0.1 format. The hint is `palm migrate`.
 
 ## Exit codes
 
 | Code | When |
 | --- | --- |
-| `0` | Every entity is installed, updated, restored, re-rendered, unchanged or skipped. Also a listing. |
-| `1` | A name matches nothing or two kinds, a source cannot be fetched, a program needs consent without a terminal, or any entity failed, was kept as modified, or installed only partly. |
-| `2` | The first word is not a source, an option is unknown, `--local` is used, or `palm.yaml` is in the 0.1 format. |
-| `130` | You declined a prompt or pressed Ctrl-C. palm finishes the current entity and saves both files first; a second Ctrl-C ends it at once. |
+| `0` | Every entity is installed, updated, restored, re-rendered, unchanged or skipped, including a plugin program you declined. Also a listing. |
+| `1` | A name matches nothing or two kinds, a source cannot be fetched, another source owns the name, a program needs consent without a terminal, or any entity failed, was kept as modified, or installed only partly. |
+| `2` | The first word is not a source, an option is unknown, `--targets` is used without names, `--local` is used, or `palm.yaml` is in the 0.1 format. |
+| `130` | You declined a program you named or a ref change, or pressed Ctrl-C. palm finishes the current entity and saves both files first; a second Ctrl-C saves the lock and stops at once. |
 
 ## Related
 

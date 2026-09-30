@@ -45,15 +45,18 @@ It compares three things for each entry: what `palm.yaml` asks for, what the loc
 | --- | --- | --- |
 | In `palm.yaml`, not in the lock | resolves, renders, writes, adds it to the lock | `+ installed` |
 | In the lock, not in `palm.yaml` | deletes its files and merged entries, drops it from the lock | `- removed` |
-| In both, files match the render | nothing | `= unchanged` |
+| In both, files match the render | nothing | one `unchanged` count line for all of them |
 | A generated file is missing | writes it again from the locked commit | `↺ restored` |
 | A generated file differs from the render | keeps your file, exits 1 | `! modified (kept)` |
 | The render changed, such as an edited in-repo source | writes the new render, updates the lock | `~ re-rendered` |
-| `ref:` in `palm.yaml` differs from the lock | resolves the new ref | `~ updated` |
+| `ref:` in `palm.yaml` differs from the lock | prints the update plan, asks for consent when a program changes, then resolves the new ref | `~ updated` |
 
 A bare install needs no network when the cache holds every locked commit.
 On a clean clone with a current lock, it writes neither `palm.yaml` nor the lock.
-`--dry-run` prints `would install` and `would restore` lines and writes nothing.
+`--dry-run` prints `would install`, `would restore` and `would remove` lines and writes nothing.
+
+A run that installs nothing writes nothing.
+When no entity installs, because it failed, was refused or was declined, `palm.yaml` and the lock keep their bytes.
 
 ## Edits are detected by hash
 
@@ -75,6 +78,8 @@ Entries are sorted by kind and name, and saving the same lock twice gives the sa
 
 Merged entries, such as a hook inside `.claude/settings.json`, carry an identity independent of their value.
 An edited hook is "changed", not "missing", and removing one plugin can never take another plugin's hook.
+
+palm writes `palm.yaml` with `targets:` first, and switches a list longer than three entries to block style, one entry per line.
 
 ## Related
 

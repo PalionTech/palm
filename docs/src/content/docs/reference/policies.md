@@ -12,7 +12,7 @@ palm check --offline
 
 | Topic | Policy |
 | --- | --- |
-| Versions | Semantic versioning, still on 0.x |
+| Versions | Semantic versioning, still on 0.x; pin an exact version in CI |
 | Platforms | macOS and Linux; Windows unsupported |
 | Runtime | Node 22 or later, and git |
 | Telemetry | None, and no update check |
@@ -25,6 +25,8 @@ palm follows semantic versioning and is on 0.x.
 Before 1.0, a minor release may change commands, options or file formats, and the changelog says so.
 A patch release fixes bugs without such changes.
 Only the latest release receives fixes.
+Pin the version your CI installs, such as `npm install -g @paliontech/palm@0.2.0`, and move it in a pull request.
+A `palm:` key in `palm.yaml` that names the minimum version is planned for 0.3.
 
 | Release | Focus |
 | --- | --- |
@@ -37,7 +39,8 @@ Only the latest release receives fixes.
 The lock carries `version: 3`.
 palm 0.2 reads versions 1 and 2 only through `palm migrate`, and every other command names that command.
 `palm.yaml` has no version key. palm detects the 0.1 format by its shape.
-palm keeps keys it does not know in `palm.yaml`, together with your comments and key order.
+palm keeps your comments and key order in `palm.yaml`.
+An unknown key on a source, an entry or an MCP server is a parse error that suggests the nearest key, so a typo never widens an entry in silence.
 
 The old command grammar works for one release as hidden aliases, and removed commands print their replacement.
 
@@ -57,7 +60,7 @@ Its only connections are git to the hosts of the sources you declare.
 
 | Command | Connects when |
 | --- | --- |
-| `palm install <source>` | the source is new, or its commit is not cached |
+| `palm install <source>` | always, to read the remote's current tags for the listing or the first install; then to fetch a commit that is not cached |
 | `palm install` | a locked commit is not cached, or a `ref:` changed |
 | `palm update` | always, to read the remote's tags and branches |
 | `palm check` | a locked commit is not cached |

@@ -41,7 +41,8 @@ mcp:                                    # hand-declared servers, keyed by config
     args: [-y, xcodebuildmcp@latest]
 ```
 
-palm keeps your comments, your key order and keys it does not know when it saves the file.
+palm keeps your comments and your key order when it saves the file.
+It writes `targets:` first, and a list longer than three entries in block style, one entry per line.
 This is the file palm wrote for a recorded session.
 
 <Capture name="c-manifest" title="~/project" />
@@ -61,7 +62,7 @@ The key is the source's name. How palm reads it depends on its shape.
 | Key shape | Meaning |
 | --- | --- |
 | `owner/repo`, with no `url:` or `path:` | a GitHub repository |
-| `./dir`, `../dir` or `/dir` | a directory, stored project-relative; outside the project it is refused |
+| `./dir`, `../dir` or `/dir` | a directory, stored relative to the project root; outside the project's git worktree it is refused |
 | any other name | needs `url:` or `path:` |
 
 | Key | Type | Meaning |
@@ -69,12 +70,14 @@ The key is the source's name. How palm reads it depends on its shape.
 | `url` | string | a git URL: `https://`, `ssh://`, `user@host:path` or `file://`; `http://` and `git://` warn |
 | `path` | string | a directory, for a source whose name is not a path |
 | `root` | string | a folder inside the repository that is the source's root |
-| `ref` | string | a tag, branch, commit or semver range; the only place a version lives; refused for a directory |
+| `ref` | string | a tag, branch, commit or semver range; the only place a version lives; refused for a directory; written on the first install when missing |
 | `alias` | string | a shorter name for the command line |
-| `layout` | map | a [layout descriptor](/palm/reference/layout/) that replaces auto-detection |
+| `layout` | map | a [layout descriptor](/palm/reference/layout/) that replaces auto-detection; `palm install <source> --layout <kind>=<glob>` writes it |
 | `skills`, `agents`, `instructions`, `hooks`, `mcp`, `plugins` | list of entries | what to install from the source, by kind |
 
 Names and aliases are unique within one `palm.yaml`, ignoring case. A clash is a parse error that names both.
+Two sources may point at the same repository when their refs differ, such as a second key made with `--as`.
+An unknown key on a source is a parse error that suggests the nearest key.
 
 ## Entries
 
@@ -97,10 +100,11 @@ sources:
 | --- | --- |
 | `name` | the entity name within the source |
 | `targets` | narrows the scope's targets for this entry; a target outside the scope's set is a parse error |
-| `only`, `exclude` | for a plugin entry: members as `kind:name`, such as `skill:tdd` or `hook:superpowers` |
-| `at` | a placement root; stored and shown in 0.2, honoured in 0.3 |
+| `only`, `exclude` | for a plugin entry: members as `kind:name`, such as `skill:tdd` or `hook:superpowers`; a hook you declined at the consent prompt lands in `exclude:` |
+| `at` | a placement root; stored and shown in 0.2, honoured in 0.3; install prints `i at <dir> (placed at the root until 0.3)` |
 | `render` | reserved |
 
+An unknown key on an entry is a parse error with a suggestion, so `target: [codex]` fails with `did you mean targets?` instead of widening the entry to every target.
 The same name may appear under two sources only with different kinds.
 When a bare name is ambiguous on the command line, palm asks for the source, as in `palm remove <source> <name>`.
 
@@ -114,20 +118,24 @@ When a bare name is ambiguous on the command line, palm asks for the source, as 
 | `cwd` | a stdio server's working directory |
 | `url`, `headers` | a remote server, with `${NAME}` references in headers |
 | `targets` | narrows the scope's targets for this server |
+| `secrets` | `literal` when you installed it with `--secrets literal`; later bare installs keep the policy |
 
 A literal secret in `palm.yaml` needs `--secrets literal`, and `palm check` fails on it. Write `${NAME}` instead.
+An unknown key on a server is a parse error with a suggestion.
 
 ## Rules palm applies
 
-- A section emptied by `palm remove` is dropped. A source with no entries left is dropped, with its lock entry.
-- A `ref:` you edit by hand is resolved fresh on the next bare `palm install`.
+- A section emptied by `palm remove` is dropped. A source whose last entry `palm remove` took is dropped, with its lock entry.
+- A source you wrote by hand with no entries yet, such as one with a `url:` and a `layout:`, stays until you remove it.
+- A command that installs nothing leaves `palm.yaml` byte for byte as it was.
+- A `ref:` you edit by hand is an update: the next bare `palm install` prints the plan and asks as `palm update` does.
 - An entry you add by hand is installed by the next bare `palm install`, and an entry you delete is removed.
 - The 0.1 format, with a top-level `origins:` list, kind lists at the top level or `name@alias` strings, stops every command except `palm migrate` with `x palm.yaml is in the 0.1 format`.
 
 ## The global manifest
 
 `~/.palm/palm.yaml` has the same shape.
-Its `targets:` is the global set, the only remaining global setting.
+Its `targets:` is the global set, the only remaining global setting, and `palm init -g --target <ids>` writes it.
 Project sources are invisible under `-g`.
 
 ## Related

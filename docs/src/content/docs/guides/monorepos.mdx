@@ -14,7 +14,12 @@ cd ~/work/carbon
 palm install acme/agent-kit db-conventions --at packages/database
 ```
 
-palm 0.2 stores `at: packages/database` in `palm.yaml` and in the lock, and installs at the root for now.
+palm 0.2 stores `at: packages/database` in `palm.yaml` and in the lock, installs at the root for now, and says so.
+
+```text
+i at packages/database (placed at the root until 0.3)
+```
+
 When you upgrade to 0.3, the next `palm install` moves the entry into the package without an edit to `palm.yaml`.
 
 ## What works in 0.2
@@ -29,6 +34,27 @@ x packages/jobs is inside project /work/carbon (palm.yaml). Add entries with --a
 
 `palm init --here` makes the package a project of its own.
 Use it only for a package that should not share the root setup, because two projects in one repository install and check separately.
+A nested project may still use an in-repo source anywhere in the same git worktree, such as the root's kit as `../../agent-kit`.
+`palm get targets` and `palm describe target` print the project root, so you always see which `palm.yaml` a command used.
+
+## Narrow package rules per entry
+
+Until `at:` works, per-entry `targets:` is the 0.2 tool for a rule that one package needs.
+Codex reads every instruction from the root `AGENTS.md`, for every package.
+Claude Code and Cursor read rule files that carry path globs, so a globbed rule loads only for that package's files.
+
+```yaml title="palm.yaml"
+targets: [claude, codex, cursor]
+
+sources:
+  acme/agent-kit:
+    ref: ^1.0
+    instructions:
+      - { name: db-conventions, targets: [claude, cursor], at: packages/database }
+```
+
+`palm install acme/agent-kit db-conventions --targets claude,cursor --at packages/database` writes the same entry.
+The rule then stays out of the root `AGENTS.md`, which palm keeps below the size at which Codex stops reading.
 
 ## What 0.3 adds
 
@@ -39,7 +65,9 @@ Use it only for a package that should not share the root setup, because two proj
 | One carrier per harness | An entity reaches each harness through exactly one file, so Cursor never loads a rule from both `AGENTS.md` and `.cursor/rules`. |
 | Version check across projects | `palm check` warns when one entity is installed at two versions in nested projects or scopes. |
 
-Until then, keep package-specific rules small, or scope them with globs, so the root `AGENTS.md` stays under the 24 KiB at which `palm check` starts to warn.
+Until then, keep package-specific rules small, or narrow them as above, so the root `AGENTS.md` stays under 24 KiB.
+Above that, `palm install` and `palm check` warn. Above Codex's cap, the install refuses without `--force`, and the hint names `targets:`.
+Nested projects install and check one at a time; a `palm check --recursive` over every `palm.yaml` in the worktree is a candidate for 0.3.
 
 ## Related
 

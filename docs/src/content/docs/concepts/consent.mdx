@@ -22,7 +22,8 @@ palm install trailofbits/skills plugin:gh-cli --dry-run
 | --- | --- | --- |
 | hook commands, per event and matcher | yes | the harness runs them on every matching event |
 | stdio MCP servers: command, arguments, working directory, environment keys | yes | the harness starts the program |
-| the scripts those reach, copied to `.palm/assets/` | yes, as part of the unit | a changed script byte changes what runs |
+| the scripts those reach, and the files a script reads, copied to `.palm/assets/` | yes, as part of the unit | a changed script byte changes what runs |
+| the scripts of an in-repo source, which run in place | yes, hashed in the working tree | an edit changes what runs |
 | prompt hooks (`type: prompt`) | no | text sent to the model; listed, never called a command |
 | remote MCP servers (a URL) | no | nothing runs on your machine; the review says which is which |
 | skills that cite scripts, such as `scripts/find-polluter.sh` | no | the harness asks before the model runs a shell command; `palm describe` lists them |
@@ -59,25 +60,41 @@ Allow these 2 programs to run?  [y/N/v=view scripts]
 
 Each block names the source, the commit, the tag and its date.
 It shows every command as the harness will run it, the file it lands in per target, and the scripts with mode, size and a short hash.
+A script that reads another file of the source by a literal relative path, such as `../skills/x/SKILL.md`, gets a `reads:` line.
+palm copies that file too, and a read it cannot resolve prints a warning at install.
 
 | Key | Does |
 | --- | --- |
 | `y` | allows every program in the list |
 | `n` or Enter | declines; the default |
 | `v` | pages every script body from the pinned commit |
-| `d` | during `palm update`, pages a unified diff against the version you trusted |
+| `d` | during `palm update`, pages a unified diff against the version you trusted, fetching that commit when the cache lacks it |
+
+Every yes or no question palm asks uses the same `[y/N]` prompt.
 
 ## One hash per program
 
 palm hashes each program as one unit.
 The hash covers the commands before per-harness rendering, with their events and matchers.
-It also covers the environment keys, the working directory, and a tree hash of every script the unit reaches, mode bits included.
+It also covers the environment keys, the working directory, and a tree hash of every script the unit reaches or reads, mode bits included.
+
+An in-repo source's scripts run in place, so an edit is live at once.
+palm still hashes them from the working tree, and `v` shows them from there.
+The next `palm install` asks again, and `palm check` fails until someone consents.
 
 | Asks again | Does not ask again |
 | --- | --- |
 | a new hook or stdio server | the same hash at a newer commit |
 | any changed command, script byte, mode bit, environment key or working directory | a target you add |
 | a trust entry removed from the lock | a newer palm version |
+
+## What the hash does not pin
+
+The hash covers the command text and the files in the source.
+It cannot cover what a command downloads each time it runs.
+`npx -y <package>` runs whichever version npm resolves when the harness starts it, so one trusted hash can run different code over time.
+`uvx <package>` and `docker run` with a tag instead of a digest behave the same way.
+Pin the version in the command, such as `npx -y <package>@1.4.2`. A new version then changes the hash and asks again.
 
 ## Consent lives in the lock
 
@@ -104,12 +121,25 @@ x 2 programs need your consent and there is no terminal
 palm prints the full hash; a prefix of at least 16 hex characters is accepted too.
 It pins the exact program you reviewed, so a changed script fails again instead of slipping through.
 `--allow-exec all` works only on a terminal.
+Values you typed with `--env` or `--header` are redacted in the `review:` and `then:` lines.
 
-## Declining
+## Leaving a program out
 
-Declining a plugin's hook installs the rest of the plugin and records the hook as declined.
-Later bare installs stay quiet about it.
+`palm install <source> --all` leaves every hook and stdio server out without asking.
+It prints a `see it:` and an `install it:` line for each one, and exits 0.
+
+At the prompt, what you decline decides what palm writes.
+
+| You decline | palm writes | Exit |
+| --- | --- | --- |
+| a program you named, such as `palm install <source> hook:<name>` | nothing | `130` |
+| a hook that arrives with a plugin | the rest of the plugin, and `exclude: [hook:<name>]` on the plugin entry in `palm.yaml` | `0`, with a `⊘ skipped` line |
+
+The `exclude:` line goes through review like any other change, and later bare installs keep the hook out.
 `palm install <source> hook:<name>` asks again.
+
+Declining a changed version of a program you trusted before writes nothing new.
+The previous version stays active, and palm prints its trusted hash and the `palm remove` command that takes it out.
 
 ## Related
 

@@ -58,8 +58,19 @@ palm has no command kind.
 A `commands/*.md`, `commands/*.toml` or `prompts/*.prompt.md` file in a source is indexed as a skill of the same name and installed to the skill paths, with a note.
 
 `$ARGUMENTS` keeps working in Claude Code and Cursor.
-Where a harness does not expand it, the install note says so.
 When a skill and a command in one source share a name, the skill wins and palm warns.
+
+The conversion has a cost, and the install note names it.
+A harness without skill commands loses the `/name` call: OpenCode, for example, no longer offers `/inbound`.
+Where a harness does not expand `$ARGUMENTS`, the text stays literal.
+A command without a description gets its first body line as the skill's description, so the model can still pick it.
+
+## Instructions and activation
+
+An instruction keeps its **activation** from the source: always on, scoped to paths, on request, or manual.
+Claude Code and OpenCode have no on-request or manual rule, so palm 0.2 installs such a rule always-on there.
+palm prints one notice per widened rule, such as `! rule x: on-request in the source, always-on for claude until 0.3`.
+`palm describe <name>` shows the activation. palm 0.3 maps those rules to skills instead.
 
 ## Naming an entity
 
@@ -72,8 +83,12 @@ palm remove anthropics/claude-plugins-official mcp:context7
 ```
 
 The prefix is needed only when one name means two kinds in that source, such as a plugin and an MCP server both called `context7`.
-palm then stops with `E_AMBIGUOUS` and lists the `kind:name` forms.
+The listing marks such names. On a terminal palm asks which one you mean, and without one it stops with `E_AMBIGUOUS` and lists the `kind:name` forms.
 `--all` takes every entity except those that run a program.
+
+One scope holds one entity per kind and name.
+Installing an entity whose kind and name another source already installed stops with `E_CONFLICT`.
+The message names the owner and the `palm remove <source> <kind:name>` command that frees the name. `--force` does not apply.
 
 An entity name is one path segment of letters, digits, `.`, `_` and `-`, starting with a letter or a digit.
 A skill takes the `name` in its `SKILL.md`, else its folder name. An agent takes its file name without `.md` or `.agent.md`.
@@ -89,6 +104,8 @@ i agent agent-sdk-verifier-py names sdk-helper, context7: palm install anthropic
 ```
 
 palm never installs dependencies you did not name, so a removal never takes something another entry needs.
+When an agent's `skills:` names a skill that is not installed, `palm check` warns with the install command.
+`palm update` and `palm remove` print the same notice when such a skill appears or leaves.
 
 ## Related
 

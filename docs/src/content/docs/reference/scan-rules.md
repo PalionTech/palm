@@ -37,6 +37,7 @@ palm takes the first that exists.
 4. `.agents/plugins/marketplace.json`
 
 An entry with a remote source becomes a warning that ends in the command declaring it, such as `remote plugin "x" (<source>) not fetched: declare it: palm install owner/repo[/path][#ref] <names>`.
+An entry that resolves to the source itself is skipped without a warning.
 A single entry with source `./` collapses into the root plugin.
 An entry with `strict: false` and a `skills` list is exactly that subset.
 
@@ -62,15 +63,19 @@ With Claude semantics, `skills` adds to the default `skills/` scan, while `agent
 | skill, from a command | `commands/*.md`, `commands/*.toml`, `prompts/*.prompt.md` |
 | hook | `hooks/hooks.json`, `hooks/*/hooks.json` |
 | mcp | `.mcp.json` or `mcp.json`, wrapped in `mcpServers` or flat |
-| instruction | `rules/*.mdc`, `*.instructions.md`, `instructions/*.md` |
+| instruction | `rules/*.mdc`, `rules/*.md`, `*.instructions.md`, `instructions/*.md` |
 
-A `SKILL.md` below another skill's folder is a sub-skill of that skill, and a nested `references/*/SKILL.md` is content.
+Only the top-most `SKILL.md` in a folder tree is a skill. Everything below a skill's folder is its content, including a nested `references/*/SKILL.md`.
 `agents/openai.yaml` and README files are never agents.
+
+Files that look like agents, hooks or MCP configs outside these patterns are not indexed.
+palm prints one line per group with the `layout:` that indexes them, such as `i 2 agent-shaped files not indexed: people/*.md; add layout: { agents: [people/*.md] }`.
 
 ## What palm ignores
 
-Auto-detection skips these everywhere in the tree.
+Auto-detection skips these everywhere in the tree, and any output folder it reaches through a symlink.
 A layout descriptor skips only `.git`, `node_modules` and its own `exclude` globs.
+A `SKILL.md` under an ignored folder name is listed as skipped, with the layout that includes it, such as `skipped (ignored name "test"; add layout: { skills: [skills/*] })`.
 
 | Group | Paths |
 | --- | --- |
@@ -111,7 +116,9 @@ palm takes the version from the first of frontmatter `metadata.version`, frontma
 | `.claude/rules` with `paths:` | paths, else always |
 
 palm 0.2 records the activation and keeps today's placement per harness.
-palm 0.3 turns an on-request or manual rule into a skill where a harness lacks the concept, with a note, and never widens it silently.
+Claude Code and OpenCode have no on-request or manual rule, so such a rule is always-on there.
+palm prints a notice for each one, such as `! rule x: on-request in the source, always-on for claude until 0.3`, and `palm describe` shows the activation.
+palm 0.3 turns an on-request or manual rule into a skill where a harness lacks the concept, with a note.
 
 ## Checks on every file
 
@@ -121,10 +128,16 @@ palm 0.3 turns an on-request or manual rule into a skill where a harness lacks t
 | zero-width and other invisible format characters | warning | installed, with a warning |
 | a hook or MCP reference that resolves to nothing in the source | critical | the entity is refused, with the offending line |
 | a secret-shaped literal in an MCP value or hook command | critical | never written; palm writes `${NAME}` |
-| a secret-shaped literal inside a script | warning | installed, with a warning |
+| a secret-shaped literal in a file a skill copies | critical | the skill is refused |
+| a secret-shaped literal inside a hook or server script | warning | installed, with a warning |
+| a skill folder above 200 files or 5 MB | limit | installed only with `--force`; the message gives the count |
 
-palm checks a skill's whole folder, the file of an agent, instruction, MCP config or hook set, and every file a hook or server runs.
+palm checks a skill's whole folder, the file of an agent, instruction, MCP config or hook set, and every file a hook or server runs or reads.
+A skill copy leaves out harness folders such as `.cursor`, `.git`, `node_modules` and palm's own files, so a root `SKILL.md` never copies the repository's own agent setup.
 Binary files and files over 1 MB are skipped. The index stores `<redacted sha256:8>` in place of a secret value.
+
+A value counts as secret-shaped under a key only when the key holds a whole word such as `key`, `api_key`, `token`, `secret`, `password` or `authorization`.
+`x-api-key` counts, `keywords` does not.
 
 ## Related
 

@@ -18,6 +18,15 @@ sources:
 This descriptor indexes only the curated ones.
 palm records the layout in the lock, so every machine builds the same index from the same commit.
 
+You can write it from the command line when you first declare the source.
+
+```sh
+palm install openai/skills gh-address-comments --layout 'skills=skills/.curated/*'
+```
+
+`--layout <kind>=<glob>` is repeatable, and palm writes each glob under `layout:` in `palm.yaml`.
+Quote the glob, so your shell does not expand it.
+
 ## Keys
 
 | Key | Type | Matches |
@@ -27,7 +36,7 @@ palm records the layout in the lock, so every machine builds the same index from
 | `commands` | glob or list | command and prompt files, indexed as skills |
 | `instructions` | glob or list | instruction and rule files |
 | `hooks` | glob or list | `hooks.json` files |
-| `mcp` | glob or list | `.mcp.json` or `mcp.json` files |
+| `mcp` | glob or list | JSON files with a `mcpServers` object, whatever their name, such as `.mcp.json` or `servers/mcp.json` |
 | `exclude` | list | paths to skip in every scan; a folder excludes everything below it |
 | `include` | list | entity names to keep; everything else is dropped from the index |
 | `nameFrom` | `frontmatter` or `dirname` | where a skill's name comes from; the default is `frontmatter` |
@@ -42,6 +51,7 @@ A descriptor with only `exclude`, `include` or `nameFrom` keeps auto-detection a
 - Dot folders match. `skills/.curated/*` works as written.
 - palm skips only `.git`, `node_modules` and your `exclude` globs. The ignore list of [auto-detection](/palm/reference/scan-rules/#what-palm-ignores) does not apply.
 - A glob never matches anything outside the source.
+- A glob that matches nothing prints a warning, so a typo does not empty a kind in silence.
 
 ## More examples
 
@@ -66,6 +76,7 @@ sources:
 - Skill names in frontmatter clash, and folder names are unique.
 
 Otherwise, let auto-detection read the repository as published.
+When auto-detection misses agent-, hook- or MCP-shaped files, the listing says so and names the `layout:` that indexes them.
 There is no author-side palm file. The descriptor is always the consumer's choice, in the consumer's `palm.yaml`.
 
 ## Related

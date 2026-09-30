@@ -41,14 +41,17 @@ It lists every script with its mode, size and hash.
 - The default answer is no. Enter declines.
 - `--yes` never consents. It covers plan confirmations only.
 - Consent is a hash over the commands, events, matchers, environment keys, working directory and every script byte and mode bit. Any change asks again.
+- The hash covers the scripts of an in-repo source too, read from the working tree, and every file a script reads through a literal path.
 - The hash goes into the lock as `trust:`. Teammates and CI install the same program without a prompt, and a changed one fails CI until someone reviews it.
 - Without a terminal, only an `--allow-exec` line with the exact hash consents.
+- The hash pins the command text, not what `npx -y <package>` downloads at run time. Pin a version in the command to pin the code.
 
 [Consent and executable content](/palm/concepts/consent/) shows the prompt and the lock record.
 
 ## Scripts are committed
 
 palm copies what a hook runs into `.palm/assets/<source>/<entity>/`, and you commit it.
+An in-repo source's scripts are not copied, because they already live in the repository.
 A reviewer reads the script in the same pull request as the hook command.
 A clone without palm never runs a command that points at a missing file.
 palm does not mark the folder as generated for GitHub's diff view, because reviewers should read it.
@@ -60,11 +63,14 @@ palm does not mark the folder as generated for GitHub's diff view, because revie
 | Names that escape | An entity name is one path segment of letters, digits, `.`, `_` and `-`, never `..`. |
 | Symlinks that escape | palm follows a symlink inside a source only when its real target stays inside the source. A skill cannot carry `~/.ssh/id_rsa` into `.claude/skills`. |
 | Writes outside the scope | Every write and delete checks the real path. A path that resolves outside the project, or outside your home and harness homes with `-g`, is refused, naming the link. |
-| Sources that overlap outputs | A source that contains, equals or sits inside an output folder or `.palm/assets` is refused on real paths. |
+| Project scope in the wrong place | Your home directory, `~/.palm` and every harness home refuse project scope, so a forgotten `-g` never turns your dotfiles into a project. |
+| Sources that overlap outputs | A source that contains, equals or sits inside an output folder or `.palm/assets` is refused on real paths, also when the output folder is a symlink into the source. |
 | Deleting source files | palm never deletes or overwrites a path inside a declared source, `--force` included. |
+| Two owners for one name | A second source cannot install an entity whose kind and name another source already installed, `--force` included. |
 | Unresolvable commands | A hook or server command that names a script not in the source is refused, with the line. palm never merges a command it could not resolve. |
 | Hidden Unicode | Bidirectional overrides and isolates, tag characters and rare variation selectors refuse the entity, including in a hook's scripts. There is no override. |
-| Secrets from a source | A literal secret that arrives from a source is never written. palm writes `${NAME}` instead, and `--force` does not change that. |
+| Secrets from a source | A literal secret that arrives from a source is never written. palm writes `${NAME}` instead, and `--force` does not change that. A skill whose files hold one is refused. |
+| Oversized skills | A skill copy leaves out harness folders, `.git` and `node_modules`, and one above 200 files or 5 MB needs `--force`. |
 | Unsafe git transports | `ext::`, `fd::` and every other `<x>::` transport, a leading `-` and control characters in URLs. `http://` and `git://` warn. |
 | Files it does not own | A file palm did not write that differs from the render stops the install until you pass `--force`. |
 | Files you changed | palm compares each file with the lock's render hash before it overwrites or deletes it. |
@@ -85,7 +91,8 @@ git is the only program palm starts, apart from your pager.
 ## What palm never does
 
 - It never runs what it installs.
-- It never writes a secret that came from a source, and never a typed one into a tracked file without `--secrets literal` and a warning.
+- It never writes a secret that came from a source. A value you type becomes an environment reference unless you pass `--secrets literal`.
+- It never writes a literal into a file inside a git worktree under `-g`, `--force` included, and warns before a project file git would commit.
 - It never stores a secret value in the index or the lock. Both hold redacted hashes.
 - It never sends telemetry, checks for updates or queries a registry.
 

@@ -49,7 +49,8 @@ Searches timed out after ten seconds, ranked unrelated servers first, invented v
 A census of the registry counted 25,125 servers, hundreds of them unreachable.
 
 palm 0.2 asks you for the repository instead.
-The error for a bare name puts the fix on its first line, and a GitHub code search link finds the repository when you do not know it.
+The error for a bare name puts the fix on its first line.
+When a source you declared offers that name, the fix uses it. Otherwise a GitHub code search link finds the repository.
 MCP servers come from a source, from the JSON snippet in their README, from flags or from `palm.yaml`, all without a lookup.
 
 ## What this costs

@@ -36,6 +36,7 @@ The session on this page ran against palm's fixture that mirrors `obra/superpowe
 
    A marketplace lists plugins. palm indexes each plugin kept in the same repository and lists its members.
    A plugin hosted elsewhere gets a warning with the `palm install` line that declares its repository as a source of its own. palm never fetches it by itself.
+   A name that belongs to both a plugin and a member, such as a skill, is marked in the listing. On a terminal palm asks which one you mean; without one, write `plugin:<name>` or `skill:<name>`.
 
 2. Install the plugin.
 
@@ -52,6 +53,9 @@ The session on this page ran against palm's fixture that mirrors `obra/superpowe
    palm shows the command, the targets and every script, and asks. Without a terminal it stops and prints the `--allow-exec` line.
 
    <Capture name="b-plugin" title="~/project" />
+
+   If you answer no, palm installs the rest of the plugin and exits 0.
+   It writes the hook into the plugin's `exclude:` list in `palm.yaml`, so the decline shows up in review, and bare installs keep it out.
 
 4. Drop a member for everyone.
 
@@ -71,8 +75,9 @@ Press `v` at the prompt to read every script before you answer. The default is n
 
 ## Where hook scripts go
 
-palm copies what a hook runs into `.palm/assets/<source>/<hook>/`. That is the folder that holds the hook definition, plus every file a command names.
-It never copies `SKILL.md`, `AGENTS.md` or plugin manifests, so no harness finds a second copy of anything there.
+palm copies what a hook runs into `.palm/assets/<source>/<hook>/`. That is the folder that holds the hook definition, plus every file a command names or a script reads.
+The review lists the files a script reads as `reads:`, so a hook that loads a skill's text at session start works in every harness.
+It never copies `AGENTS.md` or plugin manifests, and `.palm/assets` is no folder a harness scans, so no harness finds a second copy there.
 Commands point at the copy through each harness's project directory variable, such as `"$CLAUDE_PROJECT_DIR"`, never through an absolute path.
 You commit the folder, so a clone without palm has working hooks.
 
@@ -88,9 +93,12 @@ palm get
 palm remove obra/superpowers plugin:superpowers
 ```
 
-`palm get` shows each member with `plugin:superpowers` in the `via` column.
+`palm get` lists each member, and `palm describe <member>` shows `selected by plugin:superpowers`.
 `palm remove ... plugin:superpowers` removes every member, the merged hook entries and the asset folder.
 A member that another installed plugin also declares stays, and palm says which command removes both.
+
+When a plugin you installed starts to ship a new hook or MCP server, `palm update` lists it as `i new program available`, with the command that installs it.
+Nothing that runs a program joins your setup without your naming it.
 
 ## Next steps
 

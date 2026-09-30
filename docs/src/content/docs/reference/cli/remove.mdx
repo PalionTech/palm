@@ -49,8 +49,13 @@ It then undoes exactly what the lock lists.
 - Merged entries by identity: a hook inside `.claude/settings.json`, a server inside `.mcp.json`, a block in `AGENTS.md`. Your own entries in the same file stay. A JSON, TOML or Markdown file left empty is deleted.
 - The entity's `.palm/assets/<source>/<entity>/` folder.
 
-palm then removes the entry from `palm.yaml` and the lock.
+palm then checks that every merged entry is gone, and prints `! could not remove` for one that stays.
+It removes the entry from `palm.yaml` and the lock.
 A source with no entries left is dropped from both.
+
+palm deletes only what it wrote for that entry, and the report counts what it kept.
+A file another entry also owns stays, and the line says `kept, owned by` that entry.
+A file whose real path lies inside a declared source stays too, with a line such as `kept 42 files inside source ./skill (palm never deletes inside a source)`.
 
 In a project, the result is a set of deleted and edited files that you commit.
 A teammate's `git pull` removes the entity for them, with no palm run.
@@ -66,6 +71,7 @@ x brainstorming belongs to plugin superpowers: exclude it for the team (palm rem
 
 `--exclude` adds `skill:brainstorming` to the plugin entry's `exclude:` list and removes the member.
 Removing a plugin removes its members, except a member another installed plugin still declares. That member stays, and a warning names the command that removes both.
+When a plugin member was also edited, the hint names both flags at once, as in `palm remove obra/superpowers brainstorming --exclude --force`.
 
 ## Reads and writes
 
@@ -85,7 +91,7 @@ x skill tdd: .claude/skills/tdd/SKILL.md was modified since install
     palm remove mattpocock/skills tdd --force
 ```
 
-`--force` deletes the changed file too.
+`--force` deletes the changed file too. To keep your change, move it into your own source with `palm create <kind> <name> --in <dir>` first.
 palm never deletes a path whose real path is inside a declared source, `--force` included.
 
 Removing something that is not installed prints `i <name> is not installed` and exits 0.

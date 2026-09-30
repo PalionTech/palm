@@ -25,7 +25,7 @@ Aliases: `palm list`, `palm ls`.
 | `palm get mcp` | MCP servers with the variables each needs and whether they are set |
 | `palm get --files` | every generated path with its entry |
 | `palm get sources` | the declared sources |
-| `palm get targets` | each harness, whether it is active and its config folder |
+| `palm get targets` | the project root, then each harness, whether it is active and its config folder |
 | `palm get all` | entries, sources and targets |
 | `palm get -g` | the global scope |
 
@@ -55,13 +55,17 @@ The [global options](/palm/reference/cli/#global-options) also apply.
 | --- | --- |
 | `kind`, `name` | the entry |
 | `source` | the declared source name, or `palm.yaml` for a hand-declared MCP server |
-| `ref` | the version: `v1.2.3` for an exact tag, `^1.2 → v1.2.3` for a range and what it resolved to, `main` for a branch, `tree 10934f8` for an in-repo source |
+| `ref` | the version: `v1.2.3` for an exact tag, `^1.2 → v1.2.3` for a range and what it resolved to, `main` for a branch; empty for an in-repo source, which has no ref |
+| `sha` | the locked commit |
 | `targets` | the targets the entry is on |
-| `files` | how many files palm wrote for it |
-| `via` | `plugin:<name>` when a plugin selected it |
+| `files` | how many files palm wrote for it, and how many entries it merged |
 
-`palm get sources` shows each source's name, alias, kind (`github`, `git` or `local`), ref, commit or tree hash, and the number of entries.
-`palm get targets` shows every target, whether it is active in this scope, and where its config lives.
+`palm describe <name>` shows whether a plugin selected the entry, and its `at:` when `palm.yaml` sets one.
+`palm get sources` shows each source's name, alias, kind (`github`, `git` or `local`), ref, commit, and the number of entries.
+`palm get targets` prints the project root first, then every target, whether it is active in this scope, and where its config lives.
+Under `-g`, paths print as `~/...`.
+
+`-s <source>` with a name that is not declared fails with `E_NOT_FOUND` and suggests the nearest declared source.
 
 `--files` replaces a search of the harness folders. Pipe it to `grep` to find who wrote a file, or use `palm describe <path>`.
 
@@ -69,7 +73,9 @@ palm 0.3 adds a footer with the bytes each harness loads at every session start,
 
 ## JSON
 
-`palm get --json` prints `{ "items": [...] }`, one object per entry with `kind`, `name`, `source`, `ref`, `resolved`, `sha`, `targets`, `files` and `layer`.
+`palm get --json` prints `{ "items": [...] }`, one object per entry with `kind`, `name`, `source`, `ref`, `resolved`, `sha`, `targets`, `files` and `layer`, which is always `team` in 0.2.
+`palm get mcp --json` adds `variables`: each variable a server needs, and whether it is set.
+`palm get targets --json` carries the project root.
 See [JSON output](/palm/reference/cli/#json-output).
 
 ## Reads and writes
@@ -81,7 +87,7 @@ See [JSON output](/palm/reference/cli/#json-output).
 | Code | When |
 | --- | --- |
 | `0` | The list printed, even when it is empty. |
-| `1` | `-s` names a source that is not declared. |
+| `1` | `-s` names a source that is not declared. The message suggests the nearest one. |
 | `2` | An unknown kind word or option. |
 
 ## Related

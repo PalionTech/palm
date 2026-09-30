@@ -5,7 +5,7 @@ description: A source is a git repository, a folder in one, or a directory in yo
 
 import Capture from '../../../components/Capture.astro';
 
-A **source** is a git repository, optionally a folder inside it at a ref, or a directory inside your project.
+A **source** is a git repository, optionally a folder inside it at a ref, or a directory inside your project's git worktree.
 palm installs entities from sources, and every source is declared in `palm.yaml`, so it is a dependency of the project and never a per-user setting.
 
 <Capture name="a-sources" title="~/project" />
@@ -24,12 +24,17 @@ The first word after `palm install` is the source.
 | `github:owner/repo` | the same as `owner/repo` | `palm install github:obra/superpowers --all` |
 | an `https://`, `ssh://` or `user@host:path` URL | a named source with `url:` | `palm install https://gitlab.acme.com/platform/agent-kit.git reviewer` |
 | any of these plus `#ref` | the source with that `ref:` | `palm install mattpocock/skills#v1.2.3 tdd` |
-| `./dir` | an in-repo source, rendered from the working tree | `palm install ./agent-kit review` |
+| `./dir` or `../dir` | an in-repo source, rendered from the working tree | `palm install ./agent-kit review` |
 | a name already in `palm.yaml`, or its `alias` | that source | `palm install kit reviewer` |
 
 palm also accepts `file://` URLs, and `http://` and `git://` with a warning.
 It refuses every other scheme, `ext::` style transports and a leading `-`.
-A local path outside the project is refused, because a teammate's clone would not have it.
+A directory may sit anywhere in the same git worktree, so a nested project can use the root's kit as `../../agent-kit`.
+A local path outside the worktree is refused, because a teammate's clone would not have it.
+
+A bare word is a source only when `palm.yaml` declares it.
+For any other word, the error suggests a command you can paste: `./<word>` for a folder in the project, a declared source that offers that name, or the repository form.
+A repository that `git ls-remote` cannot reach prints `repository not found or private`, with the command to try yourself.
 
 ## Declared on first use
 
@@ -39,8 +44,13 @@ A repository you only list is fetched and indexed, and nothing is saved.
 - GitHub shorthand is keyed by `owner/repo`.
 - A URL is keyed by the repository name, or `owner-repo` when that name is taken. `--as <name>` picks the key yourself.
 - A directory is keyed by its project-relative path, such as `./agent-kit`.
+- `--layout <kind>=<glob>`, repeatable, writes a [layout descriptor](/palm/reference/layout/) with the new source.
+
+Until a source is declared, every hint palm prints uses the form you typed, such as the URL or `owner/repo`, never a key that does not exist yet.
+A listing's paste lines keep the `#ref` you typed.
 
 palm always writes the `ref:` it used, so the intent is visible in review.
+A source you wrote into `palm.yaml` by hand without a `ref:` gets one on its first install, with the same line.
 
 | The repository has | palm writes | and prints |
 | --- | --- | --- |
@@ -48,7 +58,9 @@ palm always writes the `ref:` it used, so the intent is visible in review.
 | semver tags | a caret range on the newest tag | `i ref ^1.2 saved to palm.yaml (latest tag v1.2.3)` |
 | no tags | the default branch, by name | `i ref main saved to palm.yaml; edit ref: to pin a tag` |
 
-Declaring the same URL under another name prints `~ source acme → kit (renamed)`.
+Declaring the same URL and ref under another name prints `~ source acme → kit (renamed)`.
+The rename happens only after the install succeeds.
+`--as <name>` with a different `#ref` declares a second source for the same repository, so two skills can follow two refs.
 A different ref for a declared source prints `~ source acme: ref ^1.2 → main` and needs a confirmation or `--yes`.
 
 ## Refs and ranges
@@ -69,18 +81,22 @@ A branch or tag named exactly like the range wins, such as a `2.x` maintenance b
 Tags may carry a `v` prefix. Prereleases match only when the range names one.
 
 The lock records the range, the tag it resolved to and the commit.
-A bare `palm install` always uses the locked commit.
+A listing, a first install and `palm update` ask the remote for its current tags, so they never show a stale version.
+A bare `palm install` uses the locked commit.
 `palm update` moves the commit within the range, and `palm update --to <ref>` changes the range itself.
+
+A `ref:` you edit by hand is an update too.
+The next bare `palm install` prints the update plan, asks for consent when a program changes, and needs `--yes` without a terminal.
 
 ## In-repo sources
 
 A directory inside the project, such as `./agent-kit`, is a source like any other.
 palm renders it from the working tree, so the directory is the truth.
 
-- The lock stores a tree hash of the directory instead of a commit.
+- The lock stores no commit for it. Each entry's content hash covers that entry's own files, so two pull requests that change two skills do not conflict in the lock.
 - A bare `palm install` re-renders every entry whose files changed and reports `~ re-rendered`.
-- `palm check` fails when the directory changed since the lock was written, and names the command that fixes it.
-- Hook scripts run in place, from the directory, so a script edit is live at once.
+- `palm check` fails for each entry whose files changed since the lock was written, and for a directory that is missing or renamed.
+- Hook scripts run in place, from the directory, so a script edit is live at once. palm hashes them, so after an edit the next install asks for consent again.
 - An in-repo source has no `ref:`. For a tagged checkout, use a `file://` URL instead.
 
 `palm create` writes templates into `./agent-kit` and declares it for you. See [Publish your own source](/palm/guides/publish-your-own/).
@@ -104,8 +120,12 @@ Names and aliases are unique within one `palm.yaml`, ignoring case.
 ## What palm refuses
 
 - A source that overlaps an output directory, such as `./.claude`. The error names both paths and suggests `./agent-kit`.
+- An output directory that is a symlink into a declared source, such as `.claude/skills -> ../skill`. palm checks real paths on both sides, at listing and at install.
 - A source missing on disk, or a renamed in-repo directory, on every command until you fix `palm.yaml`.
-- A project source under `-g`. The global scope has its own sources in `~/.palm/palm.yaml`, and the error says so.
+- A project source under `-g`. The error says `acme is a project source; -g uses ~/.palm/palm.yaml sources only`.
+- A second source for an entity of the same kind and name in one scope. `E_CONFLICT` names the owner and the `palm remove` command.
+
+Any other symlinked output directory prints one notice per run, such as `i .claude/skills is a symlink to ../shared; palm writes through it`.
 
 A marketplace or plugin manifest inside a source is only a hint for finding entities.
 It never registers anything, and palm never fetches another repository on its own. [Scanning](/palm/concepts/scanning/) explains what palm reads.
