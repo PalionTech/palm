@@ -21,6 +21,7 @@ import {
   notApplicable,
   skipped,
 } from './check-kit.js';
+import { scopesTwice } from './check-scopes.js';
 import { findOverlaps, overlapMessage } from './scope.js';
 
 /** git questions asked at once. */
@@ -287,9 +288,10 @@ async function agentsTwice(c: CheckContext, f: Found): Promise<void> {
 }
 
 /** A harness that would load one entity twice. */
-export function doubleLoad(c: CheckContext): CheckRun {
+export async function doubleLoad(c: CheckContext): Promise<CheckRun> {
   const f = found();
   instructionsTwice(c, f);
+  await scopesTwice(c, f);
   return checkRun(
     'double-load',
     {

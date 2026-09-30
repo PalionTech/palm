@@ -3,7 +3,8 @@
  */
 import './fakes.js';
 
-import { chmod } from 'node:fs/promises';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { CheckRun } from '../../src/core/types.js';
 import { checkScope } from '../../src/engine/check.js';
@@ -212,6 +213,31 @@ describe('B2 targets dropped from palm.yaml', () => {
       'codex removed from targets in palm.yaml: 1 file is removed by the next palm install',
     );
     expect(report.ok).toBe(false);
+  });
+});
+
+describe('X13 M9 one entity in two scopes', () => {
+  it('X13 M9 a skill installed in the project and with -g warns in both checks', async () => {
+    const { w, url } = await world(['tdd']);
+    await mkdir(w.palmHome, { recursive: true });
+    await writeFile(join(w.palmHome, 'palm.yaml'), 'targets: [claude]\n');
+    const global = await installFromSource(
+      w.ctx,
+      { source: url, names: [{ name: 'tdd' }] },
+      { scope: 'global' },
+      w.deps,
+    );
+    expect(global.failures).toEqual([]);
+    const { r } = await check(w);
+    expect(r['double-load']?.status).toBe('warn');
+    expect(r['double-load']?.problems[0]).toMatchObject({
+      message:
+        'skill tdd is installed here and globally (-g); a harness that reads both lists it twice',
+      fix: 'keep one: palm remove kit skill:tdd -g, or remove it here',
+    });
+    const g = await checkScope(w.ctx, { scope: 'global' }, w.deps);
+    const twice = g.checks.find((x) => x.id === 'double-load');
+    expect(twice?.problems[0]?.message).toContain('is installed here and in this project');
   });
 });
 
