@@ -1,18 +1,21 @@
 $ palm init --target claude,codex
-+ palm.yaml   targets: claude, codex
-+ .gitignore  .palm/local/ and palm.local.yaml
++ wrote palm.yaml: targets claude, codex
++ wrote .gitignore: .palm/local/, palm.local.yaml
+next: see what a source offers, for example palm install mattpocock/skills
 $ palm install mattpocock/skills
-mattpocock/skills  v1.2.3 (2c0db90)   5 skills, 1 plugin
-  plugin  mattpocock-skills   Matt Pocock's agent skills for real engineering.
-  skill   git-guardrails      Block dangerous git commands.
-  skill   grill-me            Interview the user relentlessly about a plan.
-  skill   handoff             Write a handoff note for the next session.
-  skill   old-thing           An old skill kept for reference.
-  skill   tdd                 Test-driven development with red-green-refactor.
+mattpocock/skills  v1.2.3 (2c0db90)   5 skills
+  skill  tdd              Test-driven development with red-green-refactor.
+  skill  grill-me         Interview the user relentlessly about a plan.
+  skill  handoff          Write a handoff note for the next session.
+  skill  old-thing        An old skill kept for reference.
+  skill  git-guardrails   Block dangerous git commands.
 Nothing written. Install some:
-    palm install mattpocock/skills git-guardrails grill-me
+    palm install mattpocock/skills tdd grill-me
     palm install mattpocock/skills --all
+
+Warnings
+  ! plugin "mattpocock-skills" at . does not declare 2 skills (old-thing, git-guardrails); indexed standalone
 $ palm install mattpocock/skills grill-me
-i ref ^1.2 saved to palm.yaml (latest tag v1.2.3)
-+ skill  grill-me   .claude/skills/grill-me/, .agents/skills/grill-me/   4 files   from mattpocock/skills v1.2.3
-1 installed. Commit palm.yaml, palm.lock.yaml, .claude/ and .agents/ together.
+i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
++ skill  grill-me   .agents/skills/grill-me/, .claude/skills/grill-me/   4 files   from mattpocock/skills v1.2.3   (claude gets its own copy in .claude/skills)
+1 installed. Commit palm.yaml, palm.lock.yaml, .agents/ and .claude/ together.

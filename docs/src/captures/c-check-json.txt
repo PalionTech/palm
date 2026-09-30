@@ -5,18 +5,22 @@ $ palm check --json
     {
       "id": "manifest-lock",
       "label": "manifest and lock agree",
-      "status": "pass",
+      "status": "ok",
       "problems": []
     },
     {
       "id": "lock-disk",
-      "label": "1 file differs from the lock",
+      "label": "1 generated file differs from the lock",
       "status": "fail",
       "problems": [
         {
-          "entity": "skill:tdd",
+          "entity": {
+            "kind": "skill",
+            "name": "tdd",
+            "source": "mattpocock/skills"
+          },
           "file": ".agents/skills/tdd/references/mocking.md",
-          "message": "missing",
+          "message": ".agents/skills/tdd/references/mocking.md is missing",
           "fix": "palm install"
         }
       ]
@@ -24,65 +28,73 @@ $ palm check --json
     {
       "id": "local-sources",
       "label": "in-repo sources match the lock",
-      "status": "pass",
+      "status": "ok",
       "problems": []
     },
     {
       "id": "exec-trusted",
-      "label": "every program is trusted",
-      "status": "pass",
+      "label": "every program palm installed is trusted",
+      "status": "ok",
       "problems": []
     },
     {
       "id": "hook-scripts",
-      "label": "every hook script exists and is executable",
-      "status": "pass",
+      "label": "every hook script exists",
+      "status": "ok",
       "problems": []
     },
     {
       "id": "secrets",
-      "label": "no secret literals in tracked files",
-      "status": "pass",
-      "problems": []
+      "label": "1 secret problem",
+      "status": "warn",
+      "problems": [
+        {
+          "entity": {
+            "kind": "mcp",
+            "name": "docs",
+            "source": "manifest"
+          },
+          "message": "needs DOCS_TOKEN, which is not set",
+          "fix": "export DOCS_TOKEN"
+        }
+      ]
     },
     {
       "id": "git-ignored",
-      "label": "generated files are not ignored by git",
-      "status": "pass",
+      "label": "output directories are committed",
+      "status": "ok",
       "problems": []
     },
     {
       "id": "sources-declared",
       "label": "every source is declared",
-      "status": "pass",
+      "status": "ok",
       "problems": []
     },
     {
       "id": "links",
-      "label": "no path leaves the project",
-      "status": "pass",
+      "label": "no link leaves the scope",
+      "status": "ok",
       "problems": []
     },
     {
       "id": "hidden-unicode",
       "label": "no hidden Unicode in generated files",
-      "status": "pass",
+      "status": "ok",
       "problems": []
     },
     {
       "id": "double-load",
       "label": "no harness loads an entity twice",
-      "status": "pass",
+      "status": "ok",
       "problems": []
     },
     {
       "id": "block-size",
-      "label": "instruction blocks are within size limits",
-      "status": "pass",
+      "label": "instruction files are within harness limits",
+      "status": "ok",
       "problems": []
     }
   ],
-  "warnings": [
-    "DOCS_TOKEN is not set; mcp docs needs it (export DOCS_TOKEN)"
-  ]
+  "warnings": []
 }

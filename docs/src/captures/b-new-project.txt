@@ -1,18 +1,18 @@
 $ palm init --target claude,codex
-+ palm.yaml   targets: claude, codex
-~ .gitignore  added .palm/local/ and palm.local.yaml
++ wrote palm.yaml: targets claude, codex
++ wrote .gitignore: .palm/local/, palm.local.yaml
+next: see what a source offers, for example palm install mattpocock/skills
 $ palm install mattpocock/skills tdd grill-me
-i ref ^1.2 saved to palm.yaml (latest tag v1.2.3)
-+ skill  tdd        .claude/skills/tdd/, .agents/skills/tdd/             6 files   from mattpocock/skills v1.2.3
-+ skill  grill-me   .claude/skills/grill-me/, .agents/skills/grill-me/   4 files   from mattpocock/skills v1.2.3
-2 installed. Commit palm.yaml, palm.lock.yaml, .claude/ and .agents/ together.
+i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
++ skill  tdd        .agents/skills/tdd/, .claude/skills/tdd/   6 files   from mattpocock/skills v1.2.3   (claude gets its own copy in .claude/skills)
++ skill  grill-me   .agents/skills/grill-me/, .claude/skills/grill-me/   4 files   from mattpocock/skills v1.2.3   (claude gets its own copy in .claude/skills)
+2 installed. Commit palm.yaml, palm.lock.yaml, .agents/ and .claude/ together.
 $ palm install anthropics/claude-plugins-official agent-sdk-verifier-py
+i agent agent-sdk-verifier-py mentions sdk-helper, mcp:context7; palm installs only what you name: palm install anthropics/claude-plugins-official sdk-helper mcp:context7
 i ref main saved to palm.yaml; edit ref: to pin a tag
-+ agent  agent-sdk-verifier-py   .claude/agents/, .codex/agents/   2 files   from anthropics/claude-plugins-official main (bc94689)
-i agent agent-sdk-verifier-py names sdk-helper, context7: palm install anthropics/claude-plugins-official sdk-helper mcp:context7
-i codex: .codex/agents/agent-sdk-verifier-py.toml: dropped model, tools and color (no Codex field)
++ agent  agent-sdk-verifier-py   .claude/agents/agent-sdk-verifier-py.md, .codex/agents/agent-sdk-verifier-py.toml   2 files   from anthropics/claude-plugins-official main
+    .codex/agents/agent-sdk-verifier-py.toml: dropped model (sonnet), tools, skills, mcpServers, color (not supported by Codex)
 1 installed.
 $ palm install mcp docs --url https://docs.example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
-+ mcp  docs   .mcp.json, .codex/config.toml   http   needs DOCS_TOKEN (not set)
-i export DOCS_TOKEN before starting Claude Code or Codex
++ mcp  docs   .mcp.json, .codex/config.toml   merged   (needs DOCS_TOKEN in the environment)
 1 installed.

@@ -1,15 +1,16 @@
 $ palm update --dry-run
 Update plan (project scope)
-mattpocock/skills   ^1.2   v1.2.3 (2c0db90) → v1.3.0 (9d41e7a)
-~ updated    skill   tdd
-= unchanged  skill   grill-me
-dry run: nothing written
+mattpocock/skills   ^1.2   v1.2.3 (2c0db90) → v1.3.0 (3f63d4d)
+~ updated     skill   tdd        mattpocock/skills   v1.2.3 (2c0db90) → v1.3.0 (3f63d4d)
+= unchanged   skill   grill-me   mattpocock/skills
+dry run: nothing written.
 $ palm update --yes
 Update plan (project scope)
-mattpocock/skills   ^1.2   v1.2.3 (2c0db90) → v1.3.0 (9d41e7a)
-~ updated    skill   tdd
-= unchanged  skill   grill-me
-~ updated  skill  tdd   .claude/skills/tdd/, .agents/skills/tdd/   6 files   from mattpocock/skills v1.3.0
+mattpocock/skills   ^1.2   v1.2.3 (2c0db90) → v1.3.0 (3f63d4d)
+~ updated     skill   tdd        mattpocock/skills   v1.2.3 (2c0db90) → v1.3.0 (3f63d4d)
+= unchanged   skill   grill-me   mattpocock/skills
+~ updated    skill  tdd        .agents/skills/tdd/, .claude/skills/tdd/   6 files   (claude gets its own copy in .claude/skills)
+= unchanged  skill  grill-me   .agents/skills/grill-me/, .claude/skills/grill-me/   4 files   (claude gets its own copy in .claude/skills)
 1 updated, 1 unchanged.
  .agents/skills/tdd/SKILL.md | 2 ++
  .claude/skills/tdd/SKILL.md | 2 ++

@@ -1,0 +1,59 @@
+$ palm install --help
+Usage: palm install|add [source] [[kind:]name...] [options]
+
+Install from a source; bare, sync with palm.yaml.
+
+Arguments:
+  source               owner/repo, a git URL, a directory, or a source in
+                       palm.yaml
+  names                [kind:]name of what to install
+
+Options:
+  --all                everything the source offers
+  --as <name>          the name a URL source gets in palm.yaml
+  --targets <ids>      only these targets for these entries (recorded per entry)
+  --at <dir>           placement directory for these entries (recorded; honoured
+                       in 0.3)
+  --review             print the scripts of every program first; with --dry-run,
+                       only print
+  -h, --help           display help for command
+
+MCP servers (palm install mcp):
+  --url <url>          a remote server
+  --header <K=V>       an HTTP header (repeatable)
+  --command <cmd>      a local (stdio) server: the program
+  --arg <arg>          an argument for --command (repeatable)
+  --env <K=V>          an environment variable (repeatable)
+  --transport <t>      stdio, http or sse, when palm cannot tell
+  --cwd <dir>          working directory for --command
+  --snippet <file>     the mcpServers block of a README: a file, or - for stdin
+
+Global Options:
+  -g, --global         use ~/.palm/palm.yaml and the harness home directories
+  --dry-run            show what would change; write nothing
+  --force              replace files you changed or that palm does not own
+  -y, --yes            accept plan confirmations (never consents to programs)
+  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
+  --offline            use the cache only; no network
+  --json               one JSON document on stdout; everything else on stderr
+  --secrets <policy>   env-ref (default) or literal, for secrets you type
+  -V, --version        print the palm version
+
+Forms:
+  palm install <source>                       list what the source offers; saves nothing
+  palm install <source> [kind:]name...        install those and record them in palm.yaml
+  palm install <source> --all                 everything the source offers
+  palm install                                make the disk match palm.yaml and the lock
+  palm install mcp <name> --url <url> [--header K=V]...
+  palm install mcp <name> --command <cmd> [--arg a]... [--env K=V]...
+  palm install mcp --snippet <file or ->      the mcpServers block from a README
+
+A source is owner/repo, owner/repo/sub/dir, a git URL (#ref pins it), a directory in this
+project, or the name or alias of a source in palm.yaml.
+
+Examples:
+  palm install obra/superpowers
+  palm install mattpocock/skills tdd handoff
+  palm install obra/superpowers --all -g
+  palm install mcp docs --url https://example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
+  pbpaste | palm install mcp --snippet -

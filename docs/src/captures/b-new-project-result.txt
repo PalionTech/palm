@@ -1,6 +1,5 @@
 $ cat palm.yaml
 targets: [claude, codex]
-
 sources:
   mattpocock/skills:
     ref: ^1.2
@@ -8,26 +7,22 @@ sources:
   anthropics/claude-plugins-official:
     ref: main
     agents: [agent-sdk-verifier-py]
-
 mcp:
   docs:
     url: https://docs.example.com/mcp
-    headers:
-      Authorization: Bearer ${DOCS_TOKEN}
+    headers: {Authorization: "Bearer ${DOCS_TOKEN}"}
 $ palm check
 ✓ manifest and lock agree
 ✓ generated files match the lock
 ✓ in-repo sources match the lock
-✓ every program is trusted
-✓ every hook script exists and is executable
-✓ no secret literals in tracked files (DOCS_TOKEN: not set)
-✓ generated files are not ignored by git
+✓ every program palm installed is trusted
+✓ every hook script exists
+! 1 secret problem
+✓ output directories are committed
 ✓ every source is declared
-✓ no path leaves the project
+✓ no link leaves the scope
 ✓ no hidden Unicode in generated files
 ✓ no harness loads an entity twice
-✓ instruction blocks are within size limits
-no failures, 1 warning
+✓ instruction files are within harness limits
 
-Warnings
-! DOCS_TOKEN is not set; mcp docs needs it (export DOCS_TOKEN)
+! mcp docs: needs DOCS_TOKEN, which is not set; fix: export DOCS_TOKEN

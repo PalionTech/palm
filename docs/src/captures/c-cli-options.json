@@ -1,0 +1,758 @@
+{
+  "usage": "palm <verb> [arguments] [options]",
+  "globalOptions": [
+    {
+      "flags": "-g, --global",
+      "short": "-g",
+      "long": "--global",
+      "description": "use ~/.palm/palm.yaml and the harness home directories"
+    },
+    {
+      "flags": "--dry-run",
+      "long": "--dry-run",
+      "description": "show what would change; write nothing"
+    },
+    {
+      "flags": "--force",
+      "long": "--force",
+      "description": "replace files you changed or that palm does not own"
+    },
+    {
+      "flags": "-y, --yes",
+      "short": "-y",
+      "long": "--yes",
+      "description": "accept plan confirmations (never consents to programs)"
+    },
+    {
+      "flags": "--allow-exec <list>",
+      "long": "--allow-exec",
+      "argument": "<list>",
+      "description": "allow programs: hook:x@source=sha256:hash,... or all"
+    },
+    {
+      "flags": "--offline",
+      "long": "--offline",
+      "description": "use the cache only; no network"
+    },
+    {
+      "flags": "--json",
+      "long": "--json",
+      "description": "one JSON document on stdout; everything else on stderr"
+    },
+    {
+      "flags": "--secrets <policy>",
+      "long": "--secrets",
+      "argument": "<policy>",
+      "description": "env-ref (default) or literal, for secrets you type"
+    },
+    {
+      "flags": "-V, --version",
+      "short": "-V",
+      "long": "--version",
+      "description": "print the palm version"
+    },
+    {
+      "flags": "-h, --help",
+      "short": "-h",
+      "long": "--help",
+      "description": "display help for command"
+    }
+  ],
+  "kinds": [
+    {
+      "name": "skill",
+      "short": "sk",
+      "words": [
+        "skill",
+        "skills",
+        "sk",
+        "command",
+        "commands",
+        "cmd",
+        "prompt",
+        "prompts"
+      ]
+    },
+    {
+      "name": "agent",
+      "short": "ag",
+      "words": [
+        "agent",
+        "agents",
+        "ag",
+        "subagent",
+        "subagents"
+      ]
+    },
+    {
+      "name": "instruction",
+      "short": "ins",
+      "words": [
+        "instruction",
+        "instructions",
+        "ins",
+        "rule",
+        "rules"
+      ]
+    },
+    {
+      "name": "hook",
+      "short": "hk",
+      "words": [
+        "hook",
+        "hooks",
+        "hk"
+      ]
+    },
+    {
+      "name": "mcp",
+      "words": [
+        "mcp",
+        "mcps",
+        "mcp-server",
+        "mcp-servers",
+        "server",
+        "servers"
+      ]
+    },
+    {
+      "name": "plugin",
+      "short": "pl",
+      "words": [
+        "plugin",
+        "plugins",
+        "pl",
+        "bundle",
+        "bundles"
+      ]
+    },
+    {
+      "name": "source",
+      "short": "src",
+      "words": [
+        "source",
+        "sources",
+        "src",
+        "origin",
+        "origins",
+        "orig"
+      ]
+    },
+    {
+      "name": "target",
+      "short": "tg",
+      "words": [
+        "target",
+        "targets",
+        "tg"
+      ]
+    },
+    {
+      "name": "all",
+      "words": [
+        "all"
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "name": "init",
+      "group": "verb",
+      "aliases": [],
+      "args": "",
+      "summary": "write palm.yaml with the targets found here",
+      "usage": "palm init [options]",
+      "description": "Write palm.yaml with the targets found here.",
+      "arguments": [],
+      "optionGroups": [
+        {
+          "title": "Options",
+          "options": [
+            {
+              "flags": "--target <ids>",
+              "long": "--target",
+              "argument": "<ids>",
+              "description": "comma-separated: claude, codex, copilot, cursor, gemini, opencode"
+            },
+            {
+              "flags": "--here",
+              "long": "--here",
+              "description": "start a separate project in this directory"
+            },
+            {
+              "flags": "-h, --help",
+              "short": "-h",
+              "long": "--help",
+              "description": "display help for command"
+            }
+          ]
+        }
+      ],
+      "kindWords": [],
+      "subcommands": []
+    },
+    {
+      "name": "install",
+      "group": "verb",
+      "aliases": [
+        "add",
+        "i"
+      ],
+      "args": "",
+      "summary": "install from a source; bare, sync with palm.yaml",
+      "usage": "palm install|add [source] [[kind:]name...] [options]",
+      "description": "Install from a source; bare, sync with palm.yaml.",
+      "arguments": [
+        {
+          "name": "source",
+          "description": "owner/repo, a git URL, a directory, or a source in palm.yaml"
+        },
+        {
+          "name": "names",
+          "description": "[kind:]name of what to install"
+        }
+      ],
+      "optionGroups": [
+        {
+          "title": "Options",
+          "options": [
+            {
+              "flags": "--all",
+              "long": "--all",
+              "description": "everything the source offers"
+            },
+            {
+              "flags": "--as <name>",
+              "long": "--as",
+              "argument": "<name>",
+              "description": "the name a URL source gets in palm.yaml"
+            },
+            {
+              "flags": "--targets <ids>",
+              "long": "--targets",
+              "argument": "<ids>",
+              "description": "only these targets for these entries (recorded per entry)"
+            },
+            {
+              "flags": "--at <dir>",
+              "long": "--at",
+              "argument": "<dir>",
+              "description": "placement directory for these entries (recorded; honoured in 0.3)"
+            },
+            {
+              "flags": "--review",
+              "long": "--review",
+              "description": "print the scripts of every program first; with --dry-run, only print"
+            },
+            {
+              "flags": "-h, --help",
+              "short": "-h",
+              "long": "--help",
+              "description": "display help for command"
+            }
+          ]
+        },
+        {
+          "title": "MCP servers (palm install mcp)",
+          "options": [
+            {
+              "flags": "--url <url>",
+              "long": "--url",
+              "argument": "<url>",
+              "description": "a remote server"
+            },
+            {
+              "flags": "--header <K=V>",
+              "long": "--header",
+              "argument": "<K=V>",
+              "description": "an HTTP header (repeatable)"
+            },
+            {
+              "flags": "--command <cmd>",
+              "long": "--command",
+              "argument": "<cmd>",
+              "description": "a local (stdio) server: the program"
+            },
+            {
+              "flags": "--arg <arg>",
+              "long": "--arg",
+              "argument": "<arg>",
+              "description": "an argument for --command (repeatable)"
+            },
+            {
+              "flags": "--env <K=V>",
+              "long": "--env",
+              "argument": "<K=V>",
+              "description": "an environment variable (repeatable)"
+            },
+            {
+              "flags": "--transport <t>",
+              "long": "--transport",
+              "argument": "<t>",
+              "description": "stdio, http or sse, when palm cannot tell"
+            },
+            {
+              "flags": "--cwd <dir>",
+              "long": "--cwd",
+              "argument": "<dir>",
+              "description": "working directory for --command"
+            },
+            {
+              "flags": "--snippet <file>",
+              "long": "--snippet",
+              "argument": "<file>",
+              "description": "the mcpServers block of a README: a file, or - for stdin"
+            }
+          ]
+        }
+      ],
+      "kindWords": [
+        "mcp"
+      ],
+      "subcommands": []
+    },
+    {
+      "name": "remove",
+      "group": "verb",
+      "aliases": [
+        "uninstall",
+        "rm"
+      ],
+      "args": "",
+      "summary": "delete exactly what palm wrote for some entities",
+      "usage": "palm remove|uninstall [source] <[kind:]name...> [options]",
+      "description": "Delete exactly what palm wrote for some entities.",
+      "arguments": [
+        {
+          "name": "names",
+          "description": "an optional source, then [kind:]name of what to remove"
+        }
+      ],
+      "optionGroups": [
+        {
+          "title": "Options",
+          "options": [
+            {
+              "flags": "--exclude",
+              "long": "--exclude",
+              "description": "a plugin member: exclude it for the team in palm.yaml"
+            },
+            {
+              "flags": "-h, --help",
+              "short": "-h",
+              "long": "--help",
+              "description": "display help for command"
+            }
+          ]
+        }
+      ],
+      "kindWords": [],
+      "subcommands": []
+    },
+    {
+      "name": "update",
+      "group": "verb",
+      "aliases": [
+        "up"
+      ],
+      "args": "",
+      "summary": "move sources to newer commits within their refs",
+      "usage": "palm update|up [sources...] [options]",
+      "description": "Move sources to newer commits within their refs.",
+      "arguments": [
+        {
+          "name": "sources",
+          "description": "sources to update (default: all)"
+        }
+      ],
+      "optionGroups": [
+        {
+          "title": "Options",
+          "options": [
+            {
+              "flags": "--to <ref>",
+              "long": "--to",
+              "argument": "<ref>",
+              "description": "move the ref in palm.yaml (a tag, branch, sha or range such as ^2)"
+            },
+            {
+              "flags": "--review",
+              "long": "--review",
+              "description": "print changed scripts and entities as diffs before asking"
+            },
+            {
+              "flags": "--strict",
+              "long": "--strict",
+              "description": "with --dry-run: exit 1 when a source is behind its ref"
+            },
+            {
+              "flags": "-h, --help",
+              "short": "-h",
+              "long": "--help",
+              "description": "display help for command"
+            }
+          ]
+        }
+      ],
+      "kindWords": [],
+      "subcommands": []
+    },
+    {
+      "name": "check",
+      "group": "verb",
+      "aliases": [],
+      "args": "",
+      "summary": "verify palm.yaml, the lock and the files (CI gate)",
+      "usage": "palm check [options]",
+      "description": "Verify palm.yaml, the lock and the files (CI gate).",
+      "arguments": [],
+      "optionGroups": [
+        {
+          "title": "Options",
+          "options": [
+            {
+              "flags": "-h, --help",
+              "short": "-h",
+              "long": "--help",
+              "description": "display help for command"
+            }
+          ]
+        }
+      ],
+      "kindWords": [],
+      "subcommands": []
+    },
+    {
+      "name": "get",
+      "group": "verb",
+      "aliases": [
+        "list",
+        "ls"
+      ],
+      "args": "",
+      "summary": "list what is installed, the sources or the targets",
+      "usage": "palm get|list [kind] [names...] [options]",
+      "description": "List what is installed, the sources or the targets.",
+      "arguments": [
+        {
+          "name": "kind",
+          "description": "skill, agent, instruction, hook, mcp, plugin; source, target or all"
+        },
+        {
+          "name": "names",
+          "description": "only these names"
+        }
+      ],
+      "optionGroups": [
+        {
+          "title": "Options",
+          "options": [
+            {
+              "flags": "-s, --source <source>",
+              "short": "-s",
+              "long": "--source",
+              "argument": "<source>",
+              "description": "only what came from this source"
+            },
+            {
+              "flags": "--files",
+              "long": "--files",
+              "description": "every file palm wrote, with its entry"
+            },
+            {
+              "flags": "-h, --help",
+              "short": "-h",
+              "long": "--help",
+              "description": "display help for command"
+            }
+          ]
+        }
+      ],
+      "kindWords": [
+        "skill",
+        "skills",
+        "sk",
+        "command",
+        "commands",
+        "cmd",
+        "prompt",
+        "prompts",
+        "agent",
+        "agents",
+        "ag",
+        "subagent",
+        "subagents",
+        "instruction",
+        "instructions",
+        "ins",
+        "rule",
+        "rules",
+        "hook",
+        "hooks",
+        "hk",
+        "mcp",
+        "mcps",
+        "mcp-server",
+        "mcp-servers",
+        "server",
+        "servers",
+        "plugin",
+        "plugins",
+        "pl",
+        "bundle",
+        "bundles",
+        "source",
+        "sources",
+        "src",
+        "origin",
+        "origins",
+        "orig",
+        "target",
+        "targets",
+        "tg",
+        "all"
+      ],
+      "subcommands": []
+    },
+    {
+      "name": "describe",
+      "group": "verb",
+      "aliases": [
+        "info"
+      ],
+      "args": "",
+      "summary": "show one entity, source, target or file",
+      "usage": "palm describe|info <name or path> [options]",
+      "description": "Show one entity, source, target or file.",
+      "arguments": [
+        {
+          "name": "what",
+          "description": "[kind:]name, a path, source <name> or target <id>"
+        }
+      ],
+      "optionGroups": [
+        {
+          "title": "Options",
+          "options": [
+            {
+              "flags": "-s, --source <source>",
+              "short": "-s",
+              "long": "--source",
+              "argument": "<source>",
+              "description": "the entity from this source"
+            },
+            {
+              "flags": "-h, --help",
+              "short": "-h",
+              "long": "--help",
+              "description": "display help for command"
+            }
+          ]
+        }
+      ],
+      "kindWords": [
+        "skill",
+        "skills",
+        "sk",
+        "command",
+        "commands",
+        "cmd",
+        "prompt",
+        "prompts",
+        "agent",
+        "agents",
+        "ag",
+        "subagent",
+        "subagents",
+        "instruction",
+        "instructions",
+        "ins",
+        "rule",
+        "rules",
+        "hook",
+        "hooks",
+        "hk",
+        "mcp",
+        "mcps",
+        "mcp-server",
+        "mcp-servers",
+        "server",
+        "servers",
+        "plugin",
+        "plugins",
+        "pl",
+        "bundle",
+        "bundles",
+        "source",
+        "sources",
+        "src",
+        "origin",
+        "origins",
+        "orig",
+        "target",
+        "targets",
+        "tg"
+      ],
+      "subcommands": []
+    },
+    {
+      "name": "create",
+      "group": "verb",
+      "aliases": [
+        "new"
+      ],
+      "args": "",
+      "summary": "write a template into your own source and install it",
+      "usage": "palm create|new <kind> <name> [options]",
+      "description": "Write a template into your own source and install it.",
+      "arguments": [
+        {
+          "name": "kind",
+          "description": "skill, agent, instruction or hook"
+        },
+        {
+          "name": "name",
+          "description": "the new entity"
+        }
+      ],
+      "optionGroups": [
+        {
+          "title": "Options",
+          "options": [
+            {
+              "flags": "--in <dir>",
+              "long": "--in",
+              "argument": "<dir>",
+              "description": "the source directory (default ./agent-kit; ~/.palm/kit with -g)"
+            },
+            {
+              "flags": "--description <text>",
+              "long": "--description",
+              "argument": "<text>",
+              "description": "the description in the template"
+            },
+            {
+              "flags": "-h, --help",
+              "short": "-h",
+              "long": "--help",
+              "description": "display help for command"
+            }
+          ]
+        }
+      ],
+      "kindWords": [
+        "skill",
+        "agent",
+        "instruction",
+        "hook"
+      ],
+      "subcommands": []
+    },
+    {
+      "name": "migrate",
+      "group": "utility",
+      "aliases": [],
+      "args": "",
+      "summary": "convert a palm 0.1 project to the palm 0.2 files",
+      "usage": "palm migrate [options]",
+      "description": "Convert palm 0.1 files (palm.yaml, palm.lock.yaml, ~/.palm/config.yaml).",
+      "arguments": [],
+      "optionGroups": [
+        {
+          "title": "Options",
+          "options": [
+            {
+              "flags": "-h, --help",
+              "short": "-h",
+              "long": "--help",
+              "description": "display help for command"
+            }
+          ]
+        }
+      ],
+      "kindWords": [],
+      "subcommands": []
+    },
+    {
+      "name": "completion",
+      "group": "utility",
+      "aliases": [],
+      "args": "<shell>",
+      "summary": "print a shell completion script",
+      "usage": "palm completion [options] <shell>",
+      "description": "Print a completion script for bash, zsh or fish.",
+      "arguments": [
+        {
+          "name": "shell",
+          "description": "bash, zsh or fish"
+        }
+      ],
+      "optionGroups": [
+        {
+          "title": "Options",
+          "options": [
+            {
+              "flags": "-h, --help",
+              "short": "-h",
+              "long": "--help",
+              "description": "display help for command"
+            }
+          ]
+        }
+      ],
+      "kindWords": [
+        "bash",
+        "zsh",
+        "fish"
+      ],
+      "subcommands": []
+    },
+    {
+      "name": "cache",
+      "group": "utility",
+      "aliases": [],
+      "args": "clean",
+      "summary": "delete the cache of checkouts and indexes",
+      "usage": "palm cache [options] [command]",
+      "description": "Manage the cache under ~/.palm/cache.",
+      "arguments": [],
+      "optionGroups": [
+        {
+          "title": "Options",
+          "options": [
+            {
+              "flags": "-h, --help",
+              "short": "-h",
+              "long": "--help",
+              "description": "display help for command"
+            }
+          ]
+        }
+      ],
+      "kindWords": [],
+      "subcommands": [
+        {
+          "name": "clean",
+          "args": "",
+          "summary": "Delete every checkout and index (sources stay declared).",
+          "usage": "palm cache clean [options]",
+          "description": "Delete every checkout and index (sources stay declared).",
+          "arguments": [],
+          "optionGroups": [
+            {
+              "title": "Options",
+              "options": [
+                {
+                  "flags": "-h, --help",
+                  "short": "-h",
+                  "long": "--help",
+                  "description": "display help for command"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

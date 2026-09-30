@@ -1,8 +1,9 @@
 $ palm cache clean --yes
-- removed ~/.palm/cache (1 checkout, 1 index, 96 KB)
+- ~/.palm/cache (36 KB)
+sources stay declared; the next install fetches what it needs
 $ palm install --offline
-x mattpocock/skills at 2c0db90 is not in the cache, and --offline allows no fetch
-    palm install
+x source mattpocock/skills: source "mattpocock/skills" at 2c0db90 is not in the cache and --offline is set
+  run the command again without --offline to fetch it
 $ palm install
-= unchanged  skill  tdd   mattpocock/skills v1.2.3
-1 unchanged. Nothing written.
+= skill  tdd   .claude/skills/tdd/   3 files
+1 unchanged.

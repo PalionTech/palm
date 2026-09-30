@@ -1,16 +1,27 @@
 $ palm describe mcp docs
-mcp docs  (project)
-  source     palm.yaml (mcp:)
-  transport  http, a remote server: no program runs on your machine, no consent needed
-  url        https://docs.example.com/mcp
-  needs      DOCS_TOKEN (not set)
-
-  claude  .mcp.json  /mcpServers/docs
-    { "type": "http", "url": "https://docs.example.com/mcp",
-      "headers": { "Authorization": "Bearer ${DOCS_TOKEN}" } }
-  codex   .codex/config.toml  [mcp_servers.docs]
-    url = "https://docs.example.com/mcp"
-    bearer_token_env_var = "DOCS_TOKEN"
-  cursor  .cursor/mcp.json  /mcpServers/docs
-    { "url": "https://docs.example.com/mcp",
-      "headers": { "Authorization": "Bearer ${env:DOCS_TOKEN}" } }
+mcp docs  (installed, project scope)
+  source      manifest
+  path        mcp/docs
+  selected by palm.yaml
+  claude      .mcp.json /mcpServers/docs
+      {
+        "type": "http",
+        "url": "https://docs.example.com/mcp",
+        "headers": {
+          "Authorization": "Bearer ${DOCS_TOKEN}"
+        }
+      }
+  codex       .codex/config.toml /mcp_servers/docs
+      {
+        "url": "https://docs.example.com/mcp",
+        "bearer_token_env_var": "DOCS_TOKEN"
+      }
+  cursor      .cursor/mcp.json /mcpServers/docs
+      {
+        "url": "https://docs.example.com/mcp",
+        "headers": {
+          "Authorization": "Bearer ${env:DOCS_TOKEN}"
+        }
+      }
+  note        needs DOCS_TOKEN in the environment
+  variables   DOCS_TOKEN (not set)

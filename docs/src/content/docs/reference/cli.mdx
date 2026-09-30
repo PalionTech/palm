@@ -28,14 +28,14 @@ palm <verb> [source] [[kind:]name...] [options]
 
 | Verb | Aliases | Meaning |
 | --- | --- | --- |
-| [`init`](/palm/reference/cli/init/) |  | write palm.yaml with the targets for this project |
-| [`install`](/palm/reference/cli/install/) | `add`, `i` | list a source, install from it, or sync the disk with palm.yaml |
-| [`remove`](/palm/reference/cli/remove/) | `uninstall`, `rm` | delete exactly what an entity wrote |
-| [`update`](/palm/reference/cli/update/) | `up` | move sources to the newest commit their ref allows |
-| [`check`](/palm/reference/cli/check/) |  | read-only gate: palm.yaml, lock, files and sources agree |
-| [`get`](/palm/reference/cli/get/) | `list`, `ls` | list installed entities, sources or targets |
-| [`describe`](/palm/reference/cli/describe/) | `info` | show one entity, source, target or file owner |
-| [`create`](/palm/reference/cli/create/) | `new` | write a template into the in-repo source and install it |
+| [`init`](/palm/reference/cli/init/) |  | write palm.yaml with the targets found here |
+| [`install`](/palm/reference/cli/install/) | `add`, `i` | install from a source; bare, sync with palm.yaml |
+| [`remove`](/palm/reference/cli/remove/) | `uninstall`, `rm` | delete exactly what palm wrote for some entities |
+| [`update`](/palm/reference/cli/update/) | `up` | move sources to newer commits within their refs |
+| [`check`](/palm/reference/cli/check/) |  | verify palm.yaml, the lock and the files (CI gate) |
+| [`get`](/palm/reference/cli/get/) | `list`, `ls` | list what is installed, the sources or the targets |
+| [`describe`](/palm/reference/cli/describe/) | `info` | show one entity, source, target or file |
+| [`create`](/palm/reference/cli/create/) | `new` | write a template into your own source and install it |
 
 {/* /cli-reference */}
 
@@ -45,9 +45,9 @@ palm <verb> [source] [[kind:]name...] [options]
 
 | Utility | Arguments | Meaning |
 | --- | --- | --- |
-| [`migrate`](/palm/reference/cli/migrate/) |  | convert palm 0.1 files to the 0.2 format |
+| [`migrate`](/palm/reference/cli/migrate/) |  | convert a palm 0.1 project to the palm 0.2 files |
 | [`completion`](/palm/reference/cli/completion/) | `<shell>` | print a shell completion script |
-| [`cache`](/palm/reference/cli/cache/) |  | remove cached checkouts and indexes |
+| [`cache`](/palm/reference/cli/cache/) | `clean` | delete the cache of checkouts and indexes |
 
 {/* /cli-reference */}
 
@@ -63,13 +63,13 @@ palm <verb> [source] [[kind:]name...] [options]
 
 | Kind | Short name | Other words | Verbs |
 | --- | --- | --- | --- |
-| `skill` | `sk` | `skills` | `get`, `describe` |
-| `agent` | `ag` | `agents` | `get`, `describe` |
-| `instruction` | `ins` | `instructions` | `get`, `describe` |
-| `hook` | `hk` | `hooks` | `get`, `describe` |
-| `mcp` |  |  | `get`, `describe` |
-| `plugin` | `pl` | `plugins` | `get`, `describe` |
-| `source` | `src` | `sources` | `get`, `describe` |
+| `skill` | `sk` | `skills`, `command`, `commands`, `cmd`, `prompt`, `prompts` | `get`, `describe`, `create` |
+| `agent` | `ag` | `agents`, `subagent`, `subagents` | `get`, `describe`, `create` |
+| `instruction` | `ins` | `instructions`, `rule`, `rules` | `get`, `describe`, `create` |
+| `hook` | `hk` | `hooks` | `get`, `describe`, `create` |
+| `mcp` |  | `mcps`, `mcp-server`, `mcp-servers`, `server`, `servers` | `install`, `get`, `describe` |
+| `plugin` | `pl` | `plugins`, `bundle`, `bundles` | `get`, `describe` |
+| `source` | `src` | `sources`, `origin`, `origins`, `orig` | `get`, `describe` |
 | `target` | `tg` | `targets` | `get`, `describe` |
 | `all` |  |  | `get` |
 
@@ -86,15 +86,14 @@ Every command accepts these options.
 
 | Option | Meaning |
 | --- | --- |
-| `-g, --global` | use the global scope (~/.palm/palm.yaml and the harness homes) |
+| `-g, --global` | use ~/.palm/palm.yaml and the harness home directories |
 | `--dry-run` | show what would change; write nothing |
-| `--force` | replace files palm does not own or you changed |
-| `-y, --yes` | accept defaults for prompts that are not consent |
-| `--allow-exec <list>` | consent to programs by key and hash: kind:name@source=sha256:hash, comma-separated |
+| `--force` | replace files you changed or that palm does not own |
+| `-y, --yes` | accept plan confirmations (never consents to programs) |
+| `--allow-exec <list>` | allow programs: hook:x@source=sha256:hash,... or all |
 | `--offline` | use the cache only; no network |
 | `--json` | one JSON document on stdout; everything else on stderr |
-| `--secrets <policy>` | env-ref (default) or literal |
-| `--local` | reserved for palm.local.yaml (palm 0.3) |
+| `--secrets <policy>` | env-ref (default) or literal, for secrets you type |
 | `-V, --version` | print the palm version |
 | `-h, --help` | display help for command |
 

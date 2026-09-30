@@ -1,10 +1,12 @@
 $ palm remove grill-me
-- removed  skill  grill-me   4 files
+- skill  grill-me   .agents/skills/grill-me/, .claude/skills/grill-me/   4 files
+1 removed.
 $ palm remove grill-me
 i grill-me is not installed
+i grill-me is not installed
 $ palm remove tdd
-x skill tdd: .claude/skills/tdd/SKILL.md was modified since install
-    palm remove mattpocock/skills tdd --force
+x skill tdd from mattpocock/skills: .claude/skills/tdd/SKILL.md was modified since install
+  palm remove mattpocock/skills tdd --force
 $ palm remove mattpocock/skills tdd --force
-- removed  skill  tdd   6 files, 1 of them modified
-i source mattpocock/skills has no entries left; removed it from palm.yaml
+- skill  tdd   .agents/skills/tdd/, .claude/skills/tdd/   6 files
+1 removed.

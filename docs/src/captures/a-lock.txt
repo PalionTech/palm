@@ -1,5 +1,5 @@
 $ cat palm.lock.yaml
-# Written by palm. Commit it with palm.yaml and the files it lists.
+# palm lockfile: written by palm, do not edit by hand.
 version: 3
 sources:
   mattpocock/skills:
@@ -13,10 +13,8 @@ entries:
     name: tdd
     source: mattpocock/skills
     path: skills/engineering/tdd
-    content: sha256:7f69d19eee8872271042cef4f776cc8490025eff15918e72b6141f350515b7bf
-    render:
-      claude: sha256:0cf83a0572061a7a7b929c6fc1227ea85871fcdd840e14e2e406c087e690f61a
-      codex: sha256:35b0f9aae99469e2d8e11713144988983412db4f182c5f282a3948a76e6d9496
+    content: sha256:e751ad1a5bc7e0600cfc571ddb396bcec66547a02c03ce1d3b8b5bc6d5a2069e
+    render: {claude: sha256:f994697008c9de615b88e7bbc1fe68e796f8a5fb61d5ee62a50923044d47768a, codex: sha256:c3bb4f3b844914d883e9628da120269fb927a582796e4dce255fc07d4e01d1f7}
     files:
       - .agents/skills/tdd/SKILL.md
       - .agents/skills/tdd/agents/openai.yaml
@@ -25,21 +23,21 @@ entries:
       - .claude/skills/tdd/agents/openai.yaml
       - .claude/skills/tdd/references/mocking.md
     notes:
-      - "claude reads .claude/skills, codex reads .agents/skills: two copies"
+      - claude gets its own copy in .claude/skills
 $ palm install
-= unchanged  skill  tdd   mattpocock/skills v1.2.3
-1 unchanged. Nothing written.
+= skill  tdd   .agents/skills/tdd/, .claude/skills/tdd/   6 files   (claude gets its own copy in .claude/skills)
+1 unchanged.
 $ palm check
 ✓ manifest and lock agree
 ✓ generated files match the lock
 ✓ in-repo sources match the lock
-✓ every program is trusted
-✓ every hook script exists and is executable
-✓ no secret literals in tracked files
-✓ generated files are not ignored by git
+✓ every program palm installed is trusted
+✓ every hook script exists
+✓ no literal secret in generated files
+✓ output directories are committed
 ✓ every source is declared
-✓ no path leaves the project
+✓ no link leaves the scope
 ✓ no hidden Unicode in generated files
 ✓ no harness loads an entity twice
-✓ instruction blocks are within size limits
+✓ instruction files are within harness limits
 no problems

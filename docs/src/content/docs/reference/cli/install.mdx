@@ -36,27 +36,29 @@ Aliases: `palm add`, `palm i`.
 
 | Argument | Meaning |
 | --- | --- |
-| `source` | owner/repo, owner/repo/sub/dir, a git URL, ./dir, a declared name or alias, or the word mcp |
-| `names` | entity names, with a kind: prefix when one name means two kinds |
+| `source` | owner/repo, a git URL, a directory, or a source in palm.yaml |
+| `names` | [kind:]name of what to install |
 
 | Option | Meaning |
 | --- | --- |
-| `--all` | install every entity of the source that runs no program |
-| `--as <name>` | the palm.yaml key for a URL source |
-| `--targets <ids>` | narrow this entry to some of the scope's targets (comma-separated) |
-| `--at <dir>` | placement root for this entry (stored in 0.2, honoured in 0.3) |
+| `--all` | everything the source offers |
+| `--as <name>` | the name a URL source gets in palm.yaml |
+| `--targets <ids>` | only these targets for these entries (recorded per entry) |
+| `--at <dir>` | placement directory for these entries (recorded; honoured in 0.3) |
+| `--review` | print the scripts of every program first; with --dry-run, only print |
 
-### MCP server options
+### MCP servers (palm install mcp)
 
 | Option | Meaning |
 | --- | --- |
 | `--url <url>` | a remote server |
 | `--header <K=V>` | an HTTP header (repeatable) |
-| `--command <program>` | a stdio server |
-| `--arg <value>` | one argument of the command (repeatable) |
+| `--command <cmd>` | a local (stdio) server: the program |
+| `--arg <arg>` | an argument for --command (repeatable) |
 | `--env <K=V>` | an environment variable (repeatable) |
-| `--transport <t>` | http, sse or stdio, when palm cannot infer it |
-| `--json <file>` | read an mcpServers snippet from a file, or - for stdin |
+| `--transport <t>` | stdio, http or sse, when palm cannot tell |
+| `--cwd <dir>` | working directory for --command |
+| `--snippet <file>` | the mcpServers block of a README: a file, or - for stdin |
 
 The [global options](/palm/reference/cli/#global-options) also apply.
 
@@ -122,7 +124,7 @@ Under `-g`, it compares the lock with `~/.palm/applied.yaml`, so a removal that 
 
 `palm install mcp` declares a server under `mcp:` in `palm.yaml` and renders it into every target's config file.
 
-- `--json -` reads a `{ "mcpServers": { ... } }` block, the flat form, or VS Code's `servers` form from stdin. `--json server.json` reads a file.
+- `--snippet -` reads a `{ "mcpServers": { ... } }` block, the flat form, or VS Code's `servers` form from stdin. `--snippet server.json` reads a file.
 - `--url` with `--header` declares a remote server. `--command` with `--arg` and `--env` declares a stdio server.
 - A literal secret in a snippet becomes `${NAME}`, with a notice. A literal you type needs `--secrets literal`.
 - An existing name stops with `E_CONFLICT` unless you pass `--force`.

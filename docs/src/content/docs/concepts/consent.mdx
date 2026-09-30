@@ -97,11 +97,11 @@ A program without a trusted hash stops the command with `E_UNTRUSTED_EXEC`, and 
 ```text
 x 2 programs need your consent and there is no terminal
   review:  palm install --dry-run --review
-  then:    palm install --allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911,mcp:team-helper@acme-kit=sha256:75aafd9b
+  then:    palm install --allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911f2bd0a61d9686cbc62fcfb17c8e8276fa2ea5aa0c69e646a0b23ad60,mcp:team-helper@acme-kit=sha256:75aafd9baefdaaee905cd992fe17dbe17b4fa390f7f487399d6a57f282682c79
 ```
 
 `--allow-exec` takes `<kind>:<name>@<source>=<hash>`, comma-separated for several.
-The hash may be a prefix of at least eight hex characters.
+palm prints the full hash; a prefix of at least 16 hex characters is accepted too.
 It pins the exact program you reviewed, so a changed script fails again instead of slipping through.
 `--allow-exec all` works only on a terminal.
 

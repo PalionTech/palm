@@ -31,13 +31,13 @@ Alias: `palm up`.
 
 | Argument | Meaning |
 | --- | --- |
-| `sources` | declared source names or aliases; all when none |
+| `sources` | sources to update (default: all) |
 
 | Option | Meaning |
 | --- | --- |
-| `--to <ref>` | move the ref in palm.yaml for the named sources |
-| `--strict` | with --dry-run: exit 1 when anything is behind its ref |
-| `--review` | print changed scripts as diffs against the trusted version before asking |
+| `--to <ref>` | move the ref in palm.yaml (a tag, branch, sha or range such as ^2) |
+| `--review` | print changed scripts and entities as diffs before asking |
+| `--strict` | with --dry-run: exit 1 when a source is behind its ref |
 
 The [global options](/palm/reference/cli/#global-options) also apply.
 

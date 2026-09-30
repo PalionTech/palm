@@ -1,4 +1,4 @@
-$ palm install mcp --json - <<'JSON'
+$ palm install mcp --snippet - <<'JSON'
 {
   "mcpServers": {
     "github": {
@@ -8,10 +8,10 @@ $ palm install mcp --json - <<'JSON'
   }
 }
 JSON
-+ mcp  github   .mcp.json, .codex/config.toml, .vscode/mcp.json, .cursor/mcp.json, .gemini/settings.json, opencode.json   http   needs GITHUB_PAT (not set)
-i export GITHUB_PAT before starting your harnesses
-1 installed. Commit palm.yaml, palm.lock.yaml and the six MCP config files together.
++ mcp  github   .mcp.json, .codex/config.toml +4   merged   (needs GITHUB_PAT in the environment)
+1 installed. Commit palm.yaml, palm.lock.yaml, .mcp.json, .codex/, .vscode/, .cursor/, .gemini/ and opencode.json together.
 $ palm get mcp
-name    transport  source     targets  needs
-──────  ─────────  ─────────  ───────  ────────────────────
-github  http       palm.yaml  6        GITHUB_PAT (not set)
+kind  name    source    ref  sha  targets                                      files        layer
+────  ──────  ────────  ───  ───  ───────────────────────────────────────────  ───────────  ─────
+mcp   github  manifest            claude,codex,copilot,cursor,gemini,opencode  0 +6 merged  team
+github needs GITHUB_PAT (not set)

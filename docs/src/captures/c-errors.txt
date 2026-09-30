@@ -2,7 +2,7 @@ $ palm install tdd
 x "tdd" is not a repository. palm installs from git repositories:
     palm install <owner/repo> tdd             for example  palm install mattpocock/skills tdd
 $ palm install mattpocock/skills tdd-coach
-x mattpocock/skills has no tdd-coach. Did you mean tdd?
-    palm install mattpocock/skills tdd
+x "tdd-coach" is not in source mattpocock/skills; did you mean tdd?
+  palm install mattpocock/skills tdd
 $ palm doctor
-x palm doctor was removed in 0.2; run palm check
+x palm doctor is now: palm check

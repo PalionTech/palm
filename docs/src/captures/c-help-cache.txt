@@ -1,0 +1,22 @@
+$ palm cache --help
+Usage: palm cache [options] [command]
+
+Manage the cache under ~/.palm/cache.
+
+Options:
+  -h, --help           display help for command
+
+Global Options:
+  -g, --global         use ~/.palm/palm.yaml and the harness home directories
+  --dry-run            show what would change; write nothing
+  --force              replace files you changed or that palm does not own
+  -y, --yes            accept plan confirmations (never consents to programs)
+  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
+  --offline            use the cache only; no network
+  --json               one JSON document on stdout; everything else on stderr
+  --secrets <policy>   env-ref (default) or literal, for secrets you type
+  -V, --version        print the palm version
+
+Commands:
+  clean                Delete every checkout and index (sources stay declared).
+  help [command]       display help for command

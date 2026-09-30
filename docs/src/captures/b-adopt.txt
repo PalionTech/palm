@@ -1,16 +1,16 @@
 $ palm install mattpocock/skills tdd
-i ref ^1.2 saved to palm.yaml (latest tag v1.2.3)
-+ skill  tdd   .claude/skills/tdd/   3 files   from mattpocock/skills v1.2.3   (3 identical files adopted; Cursor reads .claude/skills)
+i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
++ skill  tdd   .claude/skills/tdd/   3 files   from mattpocock/skills v1.2.3   (cursor reads .claude/skills; no second copy)
 1 installed. Commit palm.yaml, palm.lock.yaml and .claude/ together.
 $ palm install cursor/plugins/pstack comment-sicko
-x agent comment-sicko from cursor/plugins → cursor: .cursor/agents/comment-sicko.md exists and differs from what palm would write
-    palm install cursor/plugins/pstack comment-sicko --force
-0 installed, 1 failed.
-$ palm install cursor/plugins/pstack comment-sicko --force
 i ref main saved to palm.yaml; edit ref: to pin a tag
-+ agent  comment-sicko   .claude/agents/comment-sicko.md, .cursor/agents/comment-sicko.md   2 files   from cursor/plugins main (e2d6520)
-i replaced .cursor/agents/comment-sicko.md; your version is in git
-1 installed.
+! agent  comment-sicko   .claude/agents/comment-sicko.md   1 file   from cursor/plugins/pstack main   (claude: installed; cursor: failed)
+x agent comment-sicko from cursor/plugins/pstack → cursor: refusing to overwrite .cursor/agents/comment-sicko.md
+  palm install cursor/plugins/pstack comment-sicko --force
+1 partial.
+$ palm install cursor/plugins/pstack comment-sicko --force
+~ agent  comment-sicko   .claude/agents/comment-sicko.md, .cursor/agents/comment-sicko.md   2 files   from cursor/plugins/pstack main
+1 re-rendered.
 $ git status --short
  M .cursor/agents/comment-sicko.md
 ?? .claude/agents/

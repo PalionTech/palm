@@ -7,12 +7,13 @@ copilot   GitHub Copilot  no      .github/
 cursor    Cursor          yes     .cursor/
 gemini    Gemini CLI      no      .gemini/
 opencode  OpenCode        no      .opencode/
-i palm.yaml has no targets:; claude and cursor are detected from .claude/ and .cursor/
 $ palm describe target cursor
-target cursor  Cursor, active (detected from .cursor/)
-  skill         .claude/skills/<name>/          Cursor reads .claude/skills; claude is a target, so no second copy
-  agent         .cursor/agents/<name>.md
-  instruction   .cursor/rules/<name>.mdc
-  hook          .cursor/hooks.json              merged
-  mcp           .cursor/mcp.json                merged
-  hook scripts  .palm/assets/<source>/<entity>/  run as "$CURSOR_PROJECT_DIR"/.palm/assets/...
+target cursor  (Cursor)
+  active      yes
+  config dir  .cursor/
+  skill       .claude/skills/<name>/
+  agent       .cursor/agents/<name>.md
+  instruction .cursor/rules/<name>.mdc
+  hook        merged into .cursor/hooks.json
+  mcp         merged into .cursor/mcp.json (mcpServers)
+  writes to   .agents/skills, .claude/skills, .cursor

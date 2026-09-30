@@ -18,7 +18,7 @@ sources:
     ref: ^4
     plugins:
       - name: superpowers
-        exclude: [skill:brainstorming, hook:session-start]
+        exclude: [skill:brainstorming, hook:superpowers]
   acme-kit:                             # a chosen name: url: or path: is required
     url: https://gitlab.acme.com/platform/agent-kit.git
     root: kit
@@ -86,7 +86,7 @@ sources:
     ref: ^4
     skills: [writing-skills]
     plugins:
-      - { name: superpowers, only: [skill:test-driven-development, hook:session-start] }
+      - { name: superpowers, only: [skill:test-driven-development, hook:superpowers] }
   acme-kit:
     url: https://gitlab.acme.com/platform/agent-kit.git
     instructions:
@@ -97,7 +97,7 @@ sources:
 | --- | --- |
 | `name` | the entity name within the source |
 | `targets` | narrows the scope's targets for this entry; a target outside the scope's set is a parse error |
-| `only`, `exclude` | for a plugin entry: members as `kind:name`, such as `skill:tdd` or `hook:session-start` |
+| `only`, `exclude` | for a plugin entry: members as `kind:name`, such as `skill:tdd` or `hook:superpowers` |
 | `at` | a placement root; stored and shown in 0.2, honoured in 0.3 |
 | `render` | reserved |
 

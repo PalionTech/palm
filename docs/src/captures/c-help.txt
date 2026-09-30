@@ -1,0 +1,42 @@
+$ palm --help
+Usage: palm <verb> [arguments] [options]
+
+palm installs agent configuration from git repositories into Claude Code, Codex,
+GitHub Copilot, Cursor, Gemini CLI and OpenCode.
+
+Verbs:
+  init                    write palm.yaml with the targets found here
+  install (add, i)        install from a source; bare, sync with palm.yaml
+  remove (uninstall, rm)  delete exactly what palm wrote for some entities
+  update (up)             move sources to newer commits within their refs
+  check                   verify palm.yaml, the lock and the files (CI gate)
+  get (list, ls)          list what is installed, the sources or the targets
+  describe (info)         show one entity, source, target or file
+  create (new)            write a template into your own source and install it
+
+Utilities:
+  migrate                 convert a palm 0.1 project to the palm 0.2 files
+  completion <shell>      print a shell completion script
+  cache clean             delete the cache of checkouts and indexes
+  help [command]          show help for a verb or utility
+
+Options:
+  -g, --global            use ~/.palm/palm.yaml and the harness home directories
+  --dry-run               show what would change; write nothing
+  --force                 replace files you changed or that palm does not own
+  -y, --yes               accept plan confirmations (never consents to programs)
+  --allow-exec <list>     allow programs: hook:x@source=sha256:hash,... or all
+  --offline               use the cache only; no network
+  --json                  one JSON document on stdout; everything else on stderr
+  --secrets <policy>      env-ref (default) or literal, for secrets you type
+  -V, --version           print the palm version
+  -h, --help              display help for command
+
+Kinds: skill (sk), agent (ag), instruction (ins), hook (hk), mcp, plugin (pl),
+       source (src), target (tg), all. Plurals work too: palm get skills.
+
+Examples:
+  palm install obra/superpowers               list what a source offers
+  palm install mattpocock/skills tdd          install one skill and record it in palm.yaml
+  palm install                                make the disk match palm.yaml (a clone, CI)
+  palm check                                  fail when the files drift from the lock

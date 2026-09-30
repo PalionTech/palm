@@ -1,18 +1,19 @@
 $ palm create agent reviewer --description 'Review a diff for bugs before merge.'
-+ agent-kit/agents/reviewer.md
++ wrote agent-kit/agents/reviewer.md
 + source ./agent-kit → palm.yaml
-+ agent  reviewer   .claude/agents/reviewer.md   1 file   from ./agent-kit
++ agent  reviewer   .claude/agents/reviewer.md   1 file
 1 installed. Commit palm.yaml, palm.lock.yaml, agent-kit/ and .claude/ together.
+edit agent-kit/agents/reviewer.md; palm install renders the change
 $ palm create instruction commit-style
-+ agent-kit/instructions/commit-style.md
-+ instruction  commit-style   .claude/rules/commit-style.md   1 file   from ./agent-kit
++ wrote agent-kit/instructions/commit-style.md
++ instruction  commit-style   .claude/rules/commit-style.md   1 file
 1 installed.
+edit agent-kit/instructions/commit-style.md; palm install renders the change
 $ find agent-kit -type f | sort
 agent-kit/agents/reviewer.md
 agent-kit/instructions/commit-style.md
 $ cat palm.yaml
 targets: [claude]
-
 sources:
   ./agent-kit:
     agents: [reviewer]

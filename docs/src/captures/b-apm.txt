@@ -1,38 +1,42 @@
 $ palm install acme/standards
-acme/standards  v1.0.0 (7584649)   APM package my-apm-pkg: 2 skills, 1 agent, 1 instruction, 1 hook
-  skill        lint-fix         Fix lint errors in the changed files
-  skill        release          Cut a release   (from command .apm/prompts/release.prompt.md)
+acme/standards  v1.0.0 (30fa2b0)   2 skills, 1 agent, 1 instruction, 1 hook
+  skill        lint-fix         Fix lint errors.
+  skill        release          Cut a release
   agent        reviewer         Reviews pull requests
   instruction  typescript       TS style
-  hook         format-on-save   claude: PostToolUse Write|Edit -> npx prettier --write "$CLAUDE_FILE_PATHS"   (a program; asks before installing)
+  hook         format-on-save   claude: PostToolUse -> npx prettier   (a program; asks before installing)
 Nothing written. Install some:
     palm install acme/standards lint-fix release
     palm install acme/standards --all
 
 Warnings
-! apm.yml lists dependencies palm does not follow: mcp io.github.github/github-mcp-server. Add it from its README: palm install mcp --json -
+  ! apm.yml: 2 dependencies are not installed; declare what you need: palm install microsoft/apm-sample-package, palm install github/awesome-copilot/skills/review-and-refactor#v1.2.0
 $ palm install acme/standards --all
-i ref ^1.0 saved to palm.yaml (latest tag v1.0.0)
-+ skill        lint-fix         .claude/skills/lint-fix/, .agents/skills/lint-fix/   2 files
-+ skill        release          .claude/skills/release/, .agents/skills/release/     2 files   (from command)
-+ agent        reviewer         .claude/agents/, .github/agents/                     2 files
-+ instruction  typescript       .claude/rules/, .github/instructions/                2 files
+i ref ^1.0 saved to palm.yaml (latest tag v1.0.0); edit ref: to track main
++ skill        lint-fix         .agents/skills/lint-fix/, .claude/skills/lint-fix/   2 files   (claude gets its own copy in .claude/skills)
++ skill        release          .agents/skills/release/, .claude/skills/release/   2 files
+    from command release.prompt.md
+    claude gets its own copy in .claude/skills
++ agent        reviewer         .claude/agents/reviewer.md, .github/agents/reviewer.agent.md   2 files
++ instruction  typescript       .claude/rules/typescript.md, .github/instructions/typescript.instructions.md   2 files
 ! hook         format-on-save   runs a program on your machine; not installed
     see it:      palm install acme/standards format-on-save --dry-run
     install it:  palm install acme/standards format-on-save
-4 installed. Commit palm.yaml, palm.lock.yaml, .claude/, .agents/ and .github/ together.
+4 installed. Commit palm.yaml, palm.lock.yaml, .agents/, .claude/ and .github/ together.
 $ palm install acme/standards format-on-save
 This install adds 1 program that will run on your machine.
 
-  1. hook format-on-save  from acme/standards  (commit 7584649, v1.0.0, 2026-09-28)
-     PostToolUse  Write|Edit   npx prettier --write "$CLAUDE_FILE_PATHS"
+  1. hook format-on-save  from acme/standards  (commit 30fa2b0, v1.0.0, 2026-09-28)
+     PostToolUse  Write|Edit  npx prettier --write "$CLAUDE_FILE_PATHS"
      targets: claude (.claude/settings.json), copilot (.github/hooks/format-on-save.json)
-     scripts: none
+     scripts: 1 file, 249 B  ->  .palm/assets/acme__standards/format-on-save/  (committed with your repo)
+       .apm/hooks/format-on-save.json  644   249 B  sha256:161d35f7
 
+palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
+so teammates and CI install it without being asked; any change asks again.
 x 1 program needs your consent and there is no terminal
   review:  palm install acme/standards format-on-save --dry-run --review
-  then:    palm install acme/standards format-on-save --allow-exec hook:format-on-save@acme/standards=sha256:3e01a9f2
-$ palm install acme/standards format-on-save --allow-exec hook:format-on-save@acme/standards=sha256:3e01a9f2
-+ hook  format-on-save   .claude/settings.json, .github/hooks/format-on-save.json   from acme/standards v1.0.0
-i trusted hook format-on-save (sha256:3e01a9f2): teammates and CI install it without asking while the hash matches
+  then:    palm install acme/standards format-on-save --allow-exec hook:format-on-save@acme/standards=sha256:c9da7ff0d7bf85ec182618dfe63abbeaa8feeb63c5eb5c2a16355f15e4b3ff90
+$ palm install acme/standards format-on-save --allow-exec hook:format-on-save@acme/standards=sha256:c9da7ff0d7bf85ec182618dfe63abbeaa8feeb63c5eb5c2a16355f15e4b3ff90
++ hook  format-on-save   .github/hooks/format-on-save.json, .palm/assets/acme__standards/format-on-save/ +1   2 files   from acme/standards v1.0.0
 1 installed.

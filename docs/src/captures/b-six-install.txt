@@ -1,10 +1,13 @@
 $ palm install anthropics/claude-plugins-official agent-sdk-verifier-py sdk-helper
+i agent agent-sdk-verifier-py mentions sdk-helper, mcp:context7; palm installs only what you name: palm install anthropics/claude-plugins-official sdk-helper mcp:context7
 i ref main saved to palm.yaml; edit ref: to pin a tag
-+ agent  agent-sdk-verifier-py   claude, codex, copilot, cursor, gemini, opencode   6 files
-+ skill  sdk-helper              .claude/skills/sdk-helper/, .agents/skills/sdk-helper/   2 files
-i agent agent-sdk-verifier-py names context7: palm install anthropics/claude-plugins-official mcp:context7
-i codex: .codex/agents/agent-sdk-verifier-py.toml: dropped model, tools and color (no Codex field)
-i copilot: Bash(python -m pytest:*) became execute; Copilot has no argument restrictions
-i gemini: tools mapped to read_file, search_file_content, glob and run_shell_command; dropped color
-i opencode: tools became a permission map that denies everything else; dropped color
++ skill  sdk-helper              .agents/skills/sdk-helper/, .claude/skills/sdk-helper/   2 files   from anthropics/claude-plugins-official main
+    claude gets its own copy in .claude/skills
+    cursor reads .claude/skills; no second copy
++ agent  agent-sdk-verifier-py   .claude/agents/agent-sdk-verifier-py.md, .codex/agents/agent-sdk-verifier-py.toml +4   6 files   from anthropics/claude-plugins-official main
+    .codex/agents/agent-sdk-verifier-py.toml: dropped model (sonnet), tools, skills, mcpServers, color (not supported by Codex)
+    .github/agents/agent-sdk-verifier-py.agent.md: dropped model (sonnet), tools: Bash(python -m pytest:*) restriction (all of execute), mcpServers, skills, color (not supported by GitHub Copilot)
+    .cursor/agents/agent-sdk-verifier-py.md: dropped model (sonnet), tools (mapped to readonly: true), skills, mcpServers, color (not supported by Cursor)
+    .gemini/agents/agent-sdk-verifier-py.md: dropped model (sonnet), tools: Bash(python -m pytest:*) restriction (all of run_shell_command), skills, color (not supported by Gemini CLI)
+    .opencode/agents/agent-sdk-verifier-py.md: dropped model (sonnet), color (green), tools: Bash(python -m pytest:*) restriction (all of bash), skills (not supported by OpenCode)
 2 installed. Commit palm.yaml, palm.lock.yaml, .agents/, .claude/, .codex/, .cursor/, .gemini/, .github/ and .opencode/ together.

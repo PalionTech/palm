@@ -1,13 +1,20 @@
 $ palm init --target claude,codex,copilot,cursor,gemini,opencode
-+ palm.yaml   targets: claude, codex, copilot, cursor, gemini, opencode
-+ .gitignore  .palm/local/ and palm.local.yaml
++ wrote palm.yaml: targets claude, codex, copilot, cursor, gemini, opencode
++ wrote .gitignore: .palm/local/, palm.local.yaml
+next: see what a source offers, for example palm install mattpocock/skills
 $ palm install anthropics/claude-plugins-official agent-sdk-verifier-py
+i agent agent-sdk-verifier-py mentions sdk-helper, mcp:context7; palm installs only what you name: palm install anthropics/claude-plugins-official sdk-helper mcp:context7
 i ref main saved to palm.yaml; edit ref: to pin a tag
-+ agent  agent-sdk-verifier-py   6 files, one per harness   from anthropics/claude-plugins-official main (bc94689)
-i agent agent-sdk-verifier-py names sdk-helper, context7: palm install anthropics/claude-plugins-official sdk-helper mcp:context7
-i codex: .codex/agents/agent-sdk-verifier-py.toml: dropped model, tools and color (no Codex field)
++ agent  agent-sdk-verifier-py   .claude/agents/agent-sdk-verifier-py.md, .codex/agents/agent-sdk-verifier-py.toml +4   6 files   from anthropics/claude-plugins-official main
+    .codex/agents/agent-sdk-verifier-py.toml: dropped model (sonnet), tools, skills, mcpServers, color (not supported by Codex)
+    .github/agents/agent-sdk-verifier-py.agent.md: dropped model (sonnet), tools: Bash(python -m pytest:*) restriction (all of execute), mcpServers, skills, color (not supported by GitHub Copilot)
+    .cursor/agents/agent-sdk-verifier-py.md: dropped model (sonnet), tools (mapped to readonly: true), skills, mcpServers, color (not supported by Cursor)
+    .gemini/agents/agent-sdk-verifier-py.md: dropped model (sonnet), tools: Bash(python -m pytest:*) restriction (all of run_shell_command), skills, color (not supported by Gemini CLI)
+    .opencode/agents/agent-sdk-verifier-py.md: dropped model (sonnet), color (green), tools: Bash(python -m pytest:*) restriction (all of bash), skills (not supported by OpenCode)
 1 installed. Commit palm.yaml, palm.lock.yaml, .claude/, .codex/, .cursor/, .gemini/, .github/ and .opencode/ together.
 $ palm install mattpocock/skills tdd
-i ref ^1.2 saved to palm.yaml (latest tag v1.2.3)
-+ skill  tdd   .claude/skills/tdd/, .agents/skills/tdd/   6 files   from mattpocock/skills v1.2.3
+i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
++ skill  tdd   .agents/skills/tdd/, .claude/skills/tdd/   6 files   from mattpocock/skills v1.2.3
+    claude gets its own copy in .claude/skills
+    cursor reads .claude/skills; no second copy
 1 installed.

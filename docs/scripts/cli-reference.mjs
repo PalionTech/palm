@@ -151,9 +151,18 @@ function parseCommandTerm(term) {
 
 const HELP_FLAG = '-h, --help';
 
+/** A section of options: titled so (`Options:`), or listing only flags (`MCP servers (palm install mcp):`). */
+function isOptionSection(help, title) {
+  if (typeof title !== 'string' || title === 'Global Options') return false;
+  const items = help.sections[title]?.items ?? [];
+  return (
+    /\boptions\b/i.test(title) || (items.length > 0 && items.every((i) => i.term.startsWith('-')))
+  );
+}
+
 function optionGroups(help) {
   return help.order
-    .filter((t) => typeof t === 'string' && /\boptions\b/i.test(t) && t !== 'Global Options')
+    .filter((t) => isOptionSection(help, t))
     .map((title) => ({
       title,
       options: help.sections[title].items.map(parseOption),

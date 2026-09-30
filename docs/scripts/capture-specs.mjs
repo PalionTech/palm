@@ -1,10 +1,5 @@
 // Terminal sessions recorded by scripts/capture.mjs for the docs.
 //
-// REGENERATE BEFORE RELEASE. The palm 0.2 docs were rewritten before the 0.2 CLI existed, so every
-// src/captures/*.txt was written by hand from the contract (DESIGN.md, PLAN.md section 4.9). Build
-// the CLI and run `npm run capture` to replace them with real output, then delete this note.
-// `npm run capture:check` fails until then.
-//
 // A spec runs in a fresh sandbox home (printed as ~) with an empty git project at ~/project:
 //   name       output file: src/captures/<name>.txt (and <name>.files.txt with `files: true`)
 //   sources    git repositories served as https://github.com/<repo> (see capture.mjs):

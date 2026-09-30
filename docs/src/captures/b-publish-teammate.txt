@@ -1,8 +1,8 @@
 $ palm install acme/agent-kit release-notes
-i ref ^1.0 saved to palm.yaml (latest tag v1.0.0)
-+ skill  release-notes   .claude/skills/release-notes/, .agents/skills/release-notes/   2 files   from acme/agent-kit v1.0.0
-1 installed. Commit palm.yaml, palm.lock.yaml, .claude/ and .agents/ together.
+i ref ^1.0 saved to palm.yaml (latest tag v1.0.0); edit ref: to track main
++ skill  release-notes   .agents/skills/release-notes/, .claude/skills/release-notes/   2 files   from acme/agent-kit v1.0.0   (claude gets its own copy in .claude/skills)
+1 installed. Commit palm.yaml, palm.lock.yaml, .agents/ and .claude/ together.
 $ palm get
-kind   name           source          ref            targets       files  via
-─────  ─────────────  ──────────────  ─────────────  ────────────  ─────  ───
-skill  release-notes  acme/agent-kit  ^1.0 → v1.0.0  claude,codex  2
+kind   name           source          ref            sha      targets       files  layer
+─────  ─────────────  ──────────────  ─────────────  ───────  ────────────  ─────  ─────
+skill  release-notes  acme/agent-kit  ^1.0 → v1.0.0  8dcea2c  claude,codex  2      team

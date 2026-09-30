@@ -8,5 +8,6 @@
 .github/agents/reviewer.agent.md
 .github/hooks/format-on-save.json
 .github/instructions/typescript.instructions.md
+.palm/assets/acme__standards/format-on-save/.apm/hooks/format-on-save.json
 palm.lock.yaml
 palm.yaml

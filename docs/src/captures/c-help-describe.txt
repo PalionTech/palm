@@ -1,0 +1,29 @@
+$ palm describe --help
+Usage: palm describe|info <name or path> [options]
+
+Show one entity, source, target or file.
+
+Arguments:
+  what                   [kind:]name, a path, source <name> or target <id>
+
+Options:
+  -s, --source <source>  the entity from this source
+  -h, --help             display help for command
+
+Global Options:
+  -g, --global           use ~/.palm/palm.yaml and the harness home directories
+  --dry-run              show what would change; write nothing
+  --force                replace files you changed or that palm does not own
+  -y, --yes              accept plan confirmations (never consents to programs)
+  --allow-exec <list>    allow programs: hook:x@source=sha256:hash,... or all
+  --offline              use the cache only; no network
+  --json                 one JSON document on stdout; everything else on stderr
+  --secrets <policy>     env-ref (default) or literal, for secrets you type
+  -V, --version          print the palm version
+
+Examples:
+  palm describe tdd
+  palm describe mcp:docs
+  palm describe .claude/skills/tdd/SKILL.md   the entity that wrote a file
+  palm describe source mattpocock/skills
+  palm describe target cursor

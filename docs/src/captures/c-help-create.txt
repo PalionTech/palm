@@ -1,0 +1,34 @@
+$ palm create --help
+Usage: palm create|new <kind> <name> [options]
+
+Write a template into your own source and install it.
+
+Arguments:
+  kind                  skill, agent, instruction or hook
+  name                  the new entity
+
+Options:
+  --in <dir>            the source directory (default ./agent-kit; ~/.palm/kit
+                        with -g)
+  --description <text>  the description in the template
+  -h, --help            display help for command
+
+Global Options:
+  -g, --global          use ~/.palm/palm.yaml and the harness home directories
+  --dry-run             show what would change; write nothing
+  --force               replace files you changed or that palm does not own
+  -y, --yes             accept plan confirmations (never consents to programs)
+  --allow-exec <list>   allow programs: hook:x@source=sha256:hash,... or all
+  --offline             use the cache only; no network
+  --json                one JSON document on stdout; everything else on stderr
+  --secrets <policy>    env-ref (default) or literal, for secrets you type
+  -V, --version         print the palm version
+
+Kinds: skill, agent, instruction, hook. The template goes into ./agent-kit (~/.palm/kit
+under -g), which is declared in palm.yaml on first use, and is installed at once.
+
+Examples:
+  palm create skill release-notes
+  palm create agent reviewer --description "Reviews diffs before a merge"
+  palm create hook session-log --in tools/agent-kit
+  palm create instruction db-conventions -g

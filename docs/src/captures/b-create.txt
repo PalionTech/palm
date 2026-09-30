@@ -1,41 +1,35 @@
 $ palm create skill release-notes --description 'Write release notes from the pull requests merged since the last tag.'
-+ agent-kit/skills/release-notes/SKILL.md
++ wrote agent-kit/skills/release-notes/SKILL.md
 + source ./agent-kit → palm.yaml
-+ skill  release-notes   .claude/skills/release-notes/, .agents/skills/release-notes/   2 files   from ./agent-kit
-1 installed. Commit palm.yaml, palm.lock.yaml, agent-kit/, .claude/ and .agents/ together.
++ skill  release-notes   .agents/skills/release-notes/, .claude/skills/release-notes/   2 files   (claude gets its own copy in .claude/skills)
+1 installed. Commit palm.yaml, palm.lock.yaml, agent-kit/, .agents/ and .claude/ together.
+edit agent-kit/skills/release-notes/SKILL.md; palm install renders the change
 $ cat agent-kit/skills/release-notes/SKILL.md
 ---
 name: release-notes
 description: Write release notes from the pull requests merged since the last tag.
 ---
 
-# release-notes
+# Release notes
 
-## When to use
-
-Say which requests this skill is for, and when not to use it.
-
-## Steps
-
-1. First step.
-2. Second step.
-3. Third step.
+Write the steps the agent follows when this skill applies.
 $ printf '\n4. Group the entries by label.\n' >> agent-kit/skills/release-notes/SKILL.md
+
 $ palm check
 ✓ manifest and lock agree
 ✓ generated files match the lock
-x 1 in-repo source changed since palm.lock.yaml
-✓ every program is trusted
-✓ every hook script exists and is executable
-✓ no secret literals in tracked files
-✓ generated files are not ignored by git
+x 1 in-repo source changed since the lock
+✓ every program palm installed is trusted
+✓ every hook script exists
+✓ no literal secret in generated files
+✓ output directories are committed
 ✓ every source is declared
-✓ no path leaves the project
+✓ no link leaves the scope
 ✓ no hidden Unicode in generated files
 ✓ no harness loads an entity twice
-✓ instruction blocks are within size limits
-x source ./agent-kit changed since palm.lock.yaml (tree 10934f8 → f18c42f); run palm install and commit palm.lock.yaml
-1 problem
+✓ instruction files are within harness limits
+
+x source ./agent-kit changed since palm.lock.yaml (tree d44197d → 25cac45); fix: palm install and commit palm.lock.yaml
 $ palm install
-~ re-rendered  skill  release-notes   ./agent-kit (tree f18c42f)   2 files
+~ skill  release-notes   .agents/skills/release-notes/, .claude/skills/release-notes/   2 files   (claude gets its own copy in .claude/skills)
 1 re-rendered.

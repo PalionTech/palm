@@ -2,18 +2,19 @@ $ palm check
 ✓ manifest and lock agree
 ✓ generated files match the lock
 ✓ in-repo sources match the lock
-✓ every program is trusted
-✓ every hook script exists and is executable
-✓ no secret literals in tracked files
-✓ generated files are not ignored by git
+✓ every program palm installed is trusted
+✓ every hook script exists
+✓ no literal secret in generated files
+✓ output directories are committed
 ✓ every source is declared
-✓ no path leaves the project
+✓ no link leaves the scope
 ✓ no hidden Unicode in generated files
 ✓ no harness loads an entity twice
-✓ instruction blocks are within size limits
+✓ instruction files are within harness limits
 no problems
 $ palm remove grill-me
-- removed  skill  grill-me   4 files
-i source mattpocock/skills has no entries left; removed it from palm.yaml
+- skill  grill-me   .agents/skills/grill-me/, .claude/skills/grill-me/   4 files
+1 removed.
 $ palm get
-nothing installed in this project (palm.yaml lists no entries)
+No entities installed in the project scope.
+see what a source offers, for example: palm install mattpocock/skills
