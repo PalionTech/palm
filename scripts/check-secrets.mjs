@@ -18,7 +18,9 @@ const PATTERNS = [
 ];
 const SKIP = /\.(png|jpg|jpeg|gif|ico|woff2?|ttf|zip|tgz|pdf)$/i;
 
-const files = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean);
+const files = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' })
+  .split('\0')
+  .filter(Boolean);
 const hits = [];
 for (const file of files) {
   if (SKIP.test(file) || file === 'scripts/check-secrets.mjs') continue;

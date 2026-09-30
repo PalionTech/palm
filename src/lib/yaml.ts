@@ -34,7 +34,7 @@ export function parseYaml<T = unknown>(text: string, source?: string): T | undef
 export type YamlPath = ReadonlyArray<string | number>;
 
 /** Whether the collection at `path`, holding `value`, is written in flow style (`[a, b]`, `{ a: 1 }`). */
-export type FlowRule = (path: YamlPath, value: unknown) => boolean;
+type FlowRule = (path: YamlPath, value: unknown) => boolean;
 
 export interface StringifyYamlOptions {
   /** Collections this accepts are written in flow style. */

@@ -37,8 +37,11 @@ jobs:
 
       - run: npm ci
 
-      - name: Lint (format check + lint ratchet)
+      - name: Lint (format check + lint ratchet + no provider-shaped secret literal)
         run: npm run lint
+
+      - name: No provider-shaped secret literal in a tracked file
+        run: node scripts/check-secrets.mjs
 
       - name: Typecheck
         run: npm run typecheck
