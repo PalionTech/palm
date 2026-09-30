@@ -11,6 +11,7 @@
 import { readFile } from 'node:fs/promises';
 import type { LockEntry } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
+import { fragmentKey } from '../domain/merged-record.js';
 import { parseJson } from '../lib/json.js';
 import { formatPointer } from '../lib/json-pointer.js';
 import { isRecord } from '../lib/object.js';
@@ -126,26 +127,33 @@ function lockCommands(c: CheckContext): Set<string> {
   return out;
 }
 
-async function findingsIn(
-  c: CheckContext,
-  arr: HookArray,
-  disk: unknown[],
-  explained: Set<string>,
-): Promise<HookFinding[]> {
+/** What palm explains: command lines, and the `file#at#key` of every item the lock records. */
+interface Known {
+  commands: Set<string>;
+  items: Set<string>;
+}
+
+/**
+ * E6': an item the lock records by its key is palm's own even when palm now renders another
+ * command there (an in-repo source changed; `local-sources` reports that).
+ */
+function recordedItem(known: Known, arr: HookArray, item: unknown): boolean {
+  return known.items.has(`${arr.file}#${arr.at}#${fragmentKey(arr.at, item)}`);
+}
+
+function findingsIn(c: CheckContext, arr: HookArray, disk: unknown[], known: Known): HookFinding[] {
   const onDisk = new Set(disk.flatMap(commandsIn));
   const gone = arr.palm.filter((p) => commandsIn(p.value).some((cmd) => !onDisk.has(cmd)));
   const event = arr.at.slice('/hooks/'.length);
   const out: HookFinding[] = [];
-  for (const item of disk)
+  for (const item of disk.filter((i) => !recordedItem(known, arr, i)))
     for (const command of commandsIn(item)) {
-      if (explained.has(command)) continue;
+      if (known.commands.has(command)) continue;
       const owner = gone.find((p) => matcherOf(p.value) === matcherOf(item))?.entry;
       const finding: HookFinding = { file: arr.file, event, command };
+      const missing = owner ? undefined : missingScript(c.run.state.paths, command);
       if (owner) finding.owner = owner;
-      else {
-        const missing = await missingScript(c.run.state.paths, command);
-        if (missing) finding.missing = missing;
-      }
+      if (missing) finding.missing = missing;
       out.push(finding);
     }
   return out;
@@ -166,16 +174,22 @@ export function hookFindings(c: CheckContext): Promise<HookFinding[]> {
 async function findAll(c: CheckContext): Promise<HookFinding[]> {
   const palm = arrays(c);
   const blind = unrendered(c);
-  const explained = lockCommands(c);
+  const known: Known = {
+    commands: lockCommands(c),
+    items: new Set(
+      c.run.state.lock.entries.flatMap((e) =>
+        (e.merged ?? []).map((m) => `${m.file}#${m.at}#${m.key}`),
+      ),
+    ),
+  };
   for (const arr of palm.values())
-    for (const p of arr.palm) for (const cmd of commandsIn(p.value)) explained.add(cmd);
+    for (const p of arr.palm) for (const cmd of commandsIn(p.value)) known.commands.add(cmd);
   const out: HookFinding[] = [];
   for (const file of await hookFiles(c))
     for (const { at, items } of await eventArrays(c.run.state.paths.abs(file))) {
       const key = `${file}#${at}`;
       if (blind.has(key)) continue;
-      const arr = palm.get(key) ?? { file, at, palm: [] };
-      out.push(...(await findingsIn(c, arr, items, explained)));
+      out.push(...findingsIn(c, palm.get(key) ?? { file, at, palm: [] }, items, known));
     }
   return out;
 }

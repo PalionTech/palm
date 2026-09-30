@@ -7,7 +7,9 @@ import { chmod, mkdir, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PalmError } from '../../src/core/errors.js';
-import type { CheckRun } from '../../src/core/types.js';
+import type { CheckRun, LockEntry } from '../../src/core/types.js';
+import { Lock } from '../../src/domain/lock.js';
+import { fragmentKey } from '../../src/domain/merged-record.js';
 import { checkScope } from '../../src/engine/check.js';
 import { installFromSource } from '../../src/engine/install.js';
 import { setGitRunner } from '../../src/lib/git-query.js';
@@ -364,6 +366,35 @@ describe("Y12' R6' check without palm.yaml", () => {
     expect(messages(r.secrets)).not.toContain(key);
     expect(r['lock-disk']?.status).toBe('skipped');
     expect(report.checks.map((c) => c.id)).toContain('foreign-servers');
+  });
+});
+
+describe("E6' an item palm wrote earlier is palm's after a render move", () => {
+  it("E6' a hook item the lock records by key is never foreign, whatever palm renders now", async () => {
+    const { w } = await world(['guard']);
+    const old = {
+      matcher: '',
+      hooks: [{ type: 'command', command: 'bash "$CURSOR_PROJECT_DIR"/old/guard.sh' }],
+    };
+    const lock = await Lock.load(w.path('palm.lock.yaml'));
+    const guard = lock.find({ kind: 'hook', name: 'guard' }, 'kit') as LockEntry;
+    const record = {
+      file: '.claude/settings.json',
+      at: '/hooks/Stop',
+      id: 'palm:hook:guard:1',
+      key: fragmentKey('/hooks/Stop', old),
+    };
+    await lock
+      .upsert({ ...guard, merged: [...(guard.merged ?? []), record] })
+      .save(w.path('palm.lock.yaml'));
+    await handAdded(w, {});
+    const settings = JSON.parse((await w.read('.claude/settings.json')) ?? '{}');
+    settings.hooks.Stop.push(old, command('echo mine')[0]);
+    await w.write('.claude/settings.json', JSON.stringify(settings));
+    const { r } = await check(w);
+    expect(messages(r['foreign-hooks'])).toBe(
+      'foreign hook command in .claude/settings.json (Stop): echo mine',
+    );
   });
 });
 
