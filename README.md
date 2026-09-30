@@ -5,9 +5,10 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
 
-palm is a package manager for agent resources. It installs skills, subagents, instructions,
-commands, hooks, MCP servers and plugins from git repositories into the native files of six
-coding harnesses, records every file it wrote in a lockfile, and removes them again cleanly.
+palm installs skills, subagents, instructions, hooks and MCP servers from git repositories into
+the native files of six coding harnesses. You commit what it writes, a lock pins every source to a
+commit, and `palm check` proves in CI that the committed files still match. Nothing that runs a
+program lands without a review you can read, and your yes is pinned by hash.
 Documentation: <https://paliontech.github.io/palm>.
 
 ## Install
@@ -20,53 +21,81 @@ git clone https://github.com/PalionTech/palm && cd palm && npm ci && npm run bui
 
 ## Quick start
 
-Every command has the same shape: `palm <verb> [kind] [names...] [flags]`.
+The source comes first, as in `palm install <owner/repo> [names...]`.
 
 ```sh
-palm install origin mattpocock/skills        # a repository becomes an origin (alias: mattpocock)
-palm get skills --available                  # what your origins offer
-palm search tdd                              # search every origin and the MCP registry
-palm install skill tdd                       # several origins have it: a picker asks which one
-palm install skill tdd@mattpocock            # name@origin picks directly (no terminal needed)
-palm install plugin superpowers -g           # -g: into your home directory instead of the project
-palm install agent comment-sicko             # plus the skills and MCP servers the agent names
-palm install mcp io.github.upstash/context7  # from the MCP registry
-palm get                                     # what is installed here
-palm install                                 # on another machine: install what palm.yaml lists
-palm uninstall skill tdd
+palm init --target claude,codex              # palm.yaml with the harnesses for this project
+palm install mattpocock/skills               # list what the repository offers; writes nothing
+palm install mattpocock/skills tdd grill-me  # install two skills, declare the source in palm.yaml
+palm install obra/superpowers plugin:superpowers   # every member of a plugin; its hook asks first
+pbpaste | palm install mcp --json -          # an MCP server from the JSON snippet in its README
+palm check                                   # read-only: palm.yaml, lock, files and sources agree
+git add -A && git commit -m "Add agent setup"
 ```
 
-Without a terminal an ambiguous name stops with `E_AMBIGUOUS`, listing the `name@origin` forms.
+A teammate's clone needs no palm run. The files are committed, and the harnesses read them.
+`palm install` with no arguments makes the disk match `palm.yaml` and the lock, and `palm update`
+moves sources to the newest commit their range allows.
 
 ## Commands
 
 | Verb | Aliases | What it does |
 |---|---|---|
-| `install [kind] <name[@origin][#ref]>...` | `add`, `i` | Install entities. With no names, install what `palm.yaml` lists (`--prune` removes extras, `--frozen` fails when palm.yaml, the lockfile, the files palm wrote or the fragments it merged into shared configs differ, and writes nothing but missing files, for CI). `install origin <spec>` registers an origin. |
-| `uninstall [kind] <name>...` | `remove`, `rm`, `delete` | Remove entities, reverse merged config, drop dependencies nothing else needs. `uninstall origin <alias>` unregisters one. |
-| `get [kind] [name...]` | `list`, `ls` | What is installed. `--available` lists what origins offer; `get origins`, `get targets`, `get all`. |
-| `describe <kind> <name>` | `info` | One entity, origin (`describe origin <alias>`) or target (`describe target <id>`). |
-| `update [kind] [name...]` | `up` | Prints a plan (`~` updated, `+` added, `-` removed, `=` unchanged, files you edited), then asks once. That one confirmation also covers the hook and stdio MCP commands the update writes. `--yes` for scripts, `--dry-run` for the plan only. `update origins` refreshes indexes. |
-| `create <kind> [name]` | `new` | Write a skill, agent, instruction or command into your local `mine` origin, then install it. |
-| `search [kind] <query>` | | Search names and descriptions across origins and the MCP registry. |
+| `init [--target ids] [--here]` | | Write `palm.yaml` with the detected or given targets, and add `.palm/local/` and `palm.local.yaml` to `.gitignore`. |
+| `install <source> [[kind:]name...] [--all]` | `add`, `i` | Without names, list what the source offers and save nothing. With names or `--all`, render every entity for every target, declare the source in `palm.yaml` and pin it in the lock. `--all` leaves out hooks and stdio servers and prints the command for each. |
+| `install` | | Sync: make the disk match `palm.yaml` and the lock. Installs new entries, removes dropped ones, restores missing files, re-renders changed in-repo sources, keeps files you edited (exit 1). Offline when the cache holds every commit. |
+| `install mcp <name> [flags]`, `install mcp --json <file or ->` | | Declare an MCP server from flags or from a README snippet, rendered into every harness. |
+| `remove [source] <[kind:]name...> [--exclude]` | `uninstall`, `rm` | Delete exactly the files and merged entries the lock lists, and update both files. `--exclude` drops one plugin member for the team. |
+| `update [sources...] [--to ref] [--dry-run] [--review]` | `up` | Re-resolve refs within their ranges, print a plan with every changed entity and every new or changed program, ask (default no), then install. `--dry-run` is the outdated report. |
+| `check [--json]` | | Read-only CI gate. Fails when `palm.yaml`, the lock, the generated files or an in-repo source disagree, when a program is untrusted, when a tracked file holds a secret, or when git ignores an output folder. Prints the fix for every problem. |
+| `get [kind] [names...] [-s source] [--files]` | `list`, `ls` | What is installed, with source, ref, targets and file counts. `get sources`, `get targets`, `get all`. |
+| `describe <[kind:]name or path>` | `info` | One entity: source, version, files per harness, notes, program trust. Given a path, the entity that wrote it. `describe source <s>`, `describe target <t>`. |
+| `create <kind> <name> [--in dir]` | `new` | Write a template skill, agent, instruction or hook into `./agent-kit`, declare it in `palm.yaml`, install it. No prompts, no editor. |
 
-| Utility | What it does |
-|---|---|
-| `palm init` | Write `palm.yaml` with the targets for this project. |
-| `palm doctor` | Check git, Node, harness directories, lockfile drift, files you edited and origin reachability. |
-| `palm config get\|set <key> [value]` | Global settings: `targets`, `secrets.project`, `secrets.global`, `mcpRegistryUrl`. |
-| `palm outdated [kind]` | Current, wanted and latest ref per installed entry. |
-| `palm why <kind> <name>` | Who pulled an entity in, and what still needs it. |
-| `palm find <path>` | Which entity wrote a file, or the files under a directory. |
-| `palm audit [kind] [names...]` | Scan installed files for hidden Unicode and edits; `--strip` removes the characters. |
-| `palm completion bash\|zsh\|fish` | Print a shell completion script. |
-| `palm cache info\|clean` | Size of the origin cache, or remove it. |
+Utilities: `palm migrate` (palm 0.1 files to 0.2; removed in 0.3), `palm completion bash|zsh|fish`,
+`palm cache clean`.
 
-Kinds: `skill` (`sk`), `agent` (`ag`), `instruction` (`ins`), `command` (`cmd`), `hook` (`hk`),
-`mcp`, `plugin` (`pl`), `origin` (`orig`), `target` (`tg`), and `all` for `get`. Plurals work.
+Global flags: `-g`, `--dry-run`, `--force`, `-y/--yes` (never consents to a program),
+`--allow-exec <kind:name@source=sha256:hash,...>`, `--offline`, `--json`,
+`--secrets env-ref|literal`. Colour follows the terminal, and `NO_COLOR` turns it off.
 
-Global flags: `-g`, `-t/--target <ids>`, `--dry-run`, `--force` (overwrite files palm does not
-own or you changed), `-y/--yes`, `--offline`, `--verbose`, `--json`, `--no-color`.
+## Files
+
+| File | Holds | Commit it |
+|---|---|---|
+| `palm.yaml` | targets; sources with `ref:`; entries with filters; hand-declared MCP servers | yes |
+| `palm.lock.yaml` | per source the URL, range, resolved tag and commit; per entry one content hash, one render hash per target, the file list, merged-entry identities, program hashes and trust | yes |
+| generated files | every harness file palm wrote | yes |
+| `.palm/assets/<source>/<entity>/` | the scripts hooks and stdio MCP servers run | yes |
+| `.palm/local/`, `palm.local.yaml` | reserved for personal additions in 0.3 | no, ignored |
+| `~/.palm/palm.yaml`, `~/.palm/palm.lock.yaml` | the global scope (`-g`), same format, paths as tokens such as `<claude>/skills/x` | your dotfiles, if you like |
+| `~/.palm/applied.yaml`, `~/.palm/cache/` | what `-g` wrote on this machine; checkouts and indexes | never |
+
+```yaml
+# palm.yaml
+targets: [claude, cursor]
+
+sources:
+  mattpocock/skills:                    # GitHub shorthand: the name is owner/repo
+    ref: ^1.2                           # tag, branch, sha or range: the one home of version intent
+    skills: [tdd, handoff]
+  obra/superpowers:
+    ref: ^4
+    plugins:
+      - name: superpowers
+        exclude: [skill:brainstorming]
+  ./agent-kit:                          # in-repo source, rendered from the working tree
+    skills: [release-notes]
+
+mcp:
+  docs:
+    url: https://example.com/mcp
+    headers: { Authorization: "Bearer ${DOCS_TOKEN}" }
+```
+
+The lock holds no absolute path, hostname, timestamp or secret, so a newcomer's lock equals a
+veteran's. Edits are detected against the render hash, so palm never overwrites or deletes a file
+you changed without `--force`, and a pull that moves the lock is an upgrade, not "your edits".
 
 ## Where files go
 
@@ -79,146 +108,104 @@ are honoured).
 | skill | `.claude/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/<n>/` |
 | agent | `.claude/agents/<n>.md` | `.codex/agents/<n>.toml` | `.github/agents/<n>.agent.md` |
 | instruction | `.claude/rules/<n>.md` | block in `AGENTS.md` | `.github/instructions/<n>.instructions.md` |
-| command | `.claude/commands/<n>.md` | `~/.codex/prompts/<n>.md` (global only) | `.github/prompts/<n>.prompt.md` (project only) |
 | hook | merged into `.claude/settings.json` | merged into `.codex/hooks.json` | `.github/hooks/<n>.json` |
 | mcp | `.mcp.json` | `.codex/config.toml` | `.vscode/mcp.json` |
 
-| kind | cursor | gemini | opencode |
+| kind | cursor | gemini (unverified) | opencode (unverified) |
 |---|---|---|---|
-| skill | `.agents/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/<n>/` |
+| skill | `.claude/skills/<n>/` with claude, else `.agents/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/<n>/` |
 | agent | `.cursor/agents/<n>.md` | `.gemini/agents/<n>.md` | `.opencode/agents/<n>.md` |
 | instruction | `.cursor/rules/<n>.mdc` (project only) | block in `GEMINI.md` | `.opencode/instructions/<n>.md` + `opencode.json` |
-| command | `.cursor/commands/<n>.md` | `.gemini/commands/<n>.toml` | `.opencode/commands/<n>.md` |
-| hook | merged into `.cursor/hooks.json` | merged into `.gemini/settings.json` | not supported (skipped with a note) |
+| hook | merged into `.cursor/hooks.json` | merged into `.gemini/settings.json` | skipped with a note |
 | mcp | `.cursor/mcp.json` | `.gemini/settings.json` | `opencode.json` |
 
-The shared `.agents/skills` directory is written once. Claude Code does not read it, so skills
-for Claude also go to `.claude/skills`. Hook scripts are copied to `.palm/hooks/<n>/` (gitignored
-by `palm init`) or `~/.palm/hooks/<n>/`.
+`.agents/skills` is written once. A command file in a source installs as a skill. Hook scripts go
+to `.palm/assets/<source>/<entity>/` and commands reach them through each harness's project folder
+variable, such as `"$CLAUDE_PROJECT_DIR"`, never an absolute path. Gemini CLI and OpenCode follow
+their documentation and source and have not yet run against a live CLI in palm's tests.
 
-## palm.yaml and palm.lock.yaml
+## Sources
 
-`palm.yaml` lists what you asked for. Commit it.
+A source is a git repository (optionally a folder at a ref) or a directory inside the project,
+declared in `palm.yaml`. There is no per-user registry, so a clone carries everything it needs.
+`palm install` accepts `owner/repo`, `owner/repo/sub/dir`, `github:owner/repo`, any `https://`,
+`ssh://` or `user@host:path` URL with an optional `#ref`, and `./dir`. On the first install from a
+source, palm declares it with a caret range on the newest tag, or the default branch by name, and
+says so. `palm update` moves the commit within the range, and `palm update --to <ref>` moves the
+range. An in-repo source such as `./agent-kit` is rendered from the working tree. A bare install
+re-renders what changed, and `palm check` fails on drift.
 
-```yaml
-targets: [claude, codex]
-skills:
-  - tdd@mattpocock
-plugins:
-  - superpowers@superpowers
-mcp:
-  - name: context7
-    registry: io.github.upstash/context7
-```
+palm reads repositories as they are published: Claude Code, Cursor and Codex plugins,
+marketplaces, APM packages and plain `SKILL.md` folders. A `layout:` on the source overrides
+detection when a repository needs it.
 
-`palm.lock.yaml` records what palm wrote. Commit it too.
+## MCP servers
 
-```yaml
-version: 2
-entries:
-  - kind: skill
-    name: tdd
-    origin: mattpocock
-    ref: v1.2.3
-    sha: 6acc160…
-    contentHash: sha256:…
-    transform: 2                 # rendering version; a newer palm re-renders older entries
-    targets: [claude, codex]
-    files:
-      - { path: .claude/skills/tdd/SKILL.md, hash: "sha256:…" }
-```
+An MCP server is declared once and rendered into every target's file and syntax, with environment
+references instead of secrets. Four ways in, none of them a registry:
 
-The lock has no timestamps, so the same install gives the same file on every machine. Each file
-carries the hash palm wrote: palm refuses to overwrite or delete a file you changed since then,
-unless you pass `--force` (an uninstall then leaves the whole entity installed and says how to
-remove it anyway). A bare `palm install` deploys the locked commit, not the newest tag, and puts
-back what went missing: deleted files, and MCP servers, hook entries or instruction blocks
-removed from a shared config. `palm doctor` reports both kinds of drift.
+- `palm install <source> mcp:<name>` takes a server a source ships in its `.mcp.json`.
+- `pbpaste | palm install mcp --json -` reads the JSON snippet from the server's README.
+- `palm install mcp docs --url https://example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'`
+  declares a remote server by flags, and
+  `palm install mcp xcodebuild --command npx --arg -y --arg xcodebuildmcp@latest` a stdio one.
+- An entry you write under `mcp:` in `palm.yaml` installs with a bare `palm install`.
 
-## Targets
+## Consent
 
-palm picks targets in this order: `--target claude,codex`, `targets:` in `palm.yaml`, `targets`
-in `~/.palm/config.yaml`, the harness directories it finds, then a picker. At project scope the
-first successful install saves the result to `palm.yaml`, so the next developer gets the same
-harnesses. After that `--target` applies to one install only (it adds harnesses to the entities
-it names and never removes any); change the project's set with `palm init --target claude,codex`,
-and the next `palm install` removes what a dropped harness had. At global scope only
-`palm config set targets claude,codex` saves `targets` to `config.yaml`; detected targets are never
-saved there. `palm get targets` shows the result and where it came from.
+Hooks and stdio MCP servers run programs on your machine. Before palm writes one, it prints the
+source and commit, every command as each harness will run it, the files it lands in, and every
+script with its mode, size and hash. `v` pages the script bodies, and on update `d` pages a diff.
 
-## Origins
+- The default answer is no, and `--yes` never consents.
+- Your yes is a hash over the commands and every script byte, recorded as `trust:` in the lock.
+  Teammates and CI replay it silently; any change asks again.
+- Without a terminal, palm stops with `E_UNTRUSTED_EXEC` and prints the exact
+  `--allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911` line to consent.
+- palm refuses hidden Unicode (bidi overrides, tag characters) in any file of an entity, including
+  hook scripts, and refuses a hook command that names a script the source does not have.
+- palm never runs what it installs.
 
-An **origin** is a git repository (optionally a subdirectory, at a ref) or a local directory.
-`palm install origin` accepts `owner/repo`, `owner/repo/sub/dir`, `github:owner/repo`, any
-`https://` or `git@` URL with an optional `#ref`, a local path, or a `marketplace.json` (each
-plugin it lists becomes an origin). palm fetches and indexes the origin before it saves it, so a
-typo is reported and never stored. Without a ref palm uses the latest semver tag, else the
-default branch; `#^1.2` style ranges resolve against the tags. The alias is the repository name,
-or the owner when the name is generic (`mattpocock/skills` becomes `mattpocock`).
+## Secrets
 
-palm detects the layout: APM packages, marketplaces, plugin manifests, then conventions
-(`**/SKILL.md`, `agents/*.md`, `*.instructions.md`, `rules/*.mdc`, `hooks/hooks.json`,
-`.mcp.json`). When a repository needs help, give it a layout descriptor:
-
-```sh
-palm install origin openai/skills --alias openai-curated --layout 'skills=skills/.curated/*'
-```
-
-palm stores it with the origin in `~/.palm/config.yaml` as
-`layout: { skills: ["skills/.curated/*"] }` (other keys: `agents`, `commands`, `instructions`,
-`hooks`, `mcp`, `exclude`, `include`, `nameFrom`).
-
-## Secrets in MCP servers
-
-`${VAR}` placeholders in an MCP server's env, headers, URL or args are secrets.
-
-- Project scope (default `env-ref`): palm writes each harness's own environment reference and
-  tells you which variables to export. No secret value lands in a project file.
-- Global scope (default `literal`): palm reads the value from your environment or asks for it
-  (masked) before it writes anything, and writes it into the user-level config, kept at mode
-  0600. Without a terminal an unset required secret stops the install before anything is
-  written, and the hint repeats the command with `--secrets env-ref`.
-- `--secrets env-ref|literal` overrides the default for one run; `palm config set secrets.project
-  literal` changes it for good. The lockfile only ever holds the `${VAR}` placeholder.
-
-## Consent and safety
-
-Before palm writes a hook or a stdio MCP server, it lists every command it would allow to run
-and asks once. Without a terminal it needs `--yes`; `--dry-run` lists them without asking. Text
-entities (skills, agents, instructions, commands) are never gated. palm refuses entities that
-contain hidden Unicode such as bidi overrides or tag characters, including in the scripts a hook
-runs from its plugin: review the origin's files, and install with `--force` to accept them;
-`palm audit` then shows them (`--strip` removes them).
+- A literal secret that arrives from a source or a pasted snippet is never written. palm writes
+  `${NAME}`, in each harness's syntax, and names the variable to export.
+- A literal you type needs `--secrets literal`, and palm warns when git tracks the destination.
+  Under `-g`, a literal is written only outside every git worktree, into a file with mode `0600`.
+- The index and the lock store redacted hashes, never values.
+- `palm check` fails on a literal in a tracked file and lists every variable the installed servers
+  need and whether it is set.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| 0 | success |
-| 1 | failure, including an install where one target failed |
-| 2 | usage error |
-| 70 | internal error (`--verbose` prints the stack trace) |
+| 0 | success; warnings never change it |
+| 1 | a refusal, a failed or partial install, a modified file palm kept, a failed check |
+| 2 | usage error, including a removed 0.1 command or a 0.1 `palm.yaml` (run `palm migrate`) |
 | 130 | cancelled at a prompt |
 
 ## How palm differs from Microsoft APM
 
-- palm installs repositories as they are: Claude, Cursor and Codex plugin repos, marketplaces and
-  plain skill collections, as well as APM packages (`apm.yml`).
+- Sources and entries live in `palm.yaml` with one `ref:` per source, and palm installs from
+  repositories as they are: plugins, marketplaces, APM packages (`apm.yml`) and plain skill folders.
 - palm writes each harness's native format (Codex `.toml` agents, Copilot `.agent.md`, Cursor
-  `.mdc` rules) and merges hooks and MCP servers into its config; there is no compile step.
-- Installing an agent installs the skills, MCP servers and instructions it names; uninstalling it
-  removes them unless something else still needs them.
-- MCP servers come from origins, the official MCP registry or ad hoc definitions, with a secret
-  policy per scope.
-- Project and global scope use the same commands (`-g`), and `palm create` writes to a local `mine`
-  origin.
+  `.mdc` rules) and merges hooks and MCP servers into its config. There is no compile step.
+- The generated files are committed, and `palm check` recomputes each one from the lock in CI.
+- Consent for hooks and stdio servers is shown, default no, and pinned by hash in the lock; a
+  changed script asks again.
+- palm follows no dependencies. An APM package's `dependencies:` and an agent's skills are listed
+  with the command that installs them.
+- MCP servers come from a source, a README snippet, flags or `palm.yaml`, never a registry, and a
+  literal secret from a source is never written.
 
 ## What palm does not do
 
-- Windows: untested; macOS and Linux are supported.
-- Telemetry: none, and no update check. palm only talks to your origins (git), the MCP registry,
-  and a `marketplace.json` URL you pass to `palm install origin`.
-- A central registry: origins are git repositories you pick; the MCP registry is for MCP servers.
+- palm does not support Windows. macOS and Linux are supported.
+- palm sends no telemetry and checks for no updates. It talks to the git hosts of the sources you
+  declare and nothing else.
+- palm has no registry and no search. You name the repository, and `palm install tdd` fails with
+  the command that works.
 
 ## Links
 

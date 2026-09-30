@@ -1,108 +1,146 @@
-# Concepts: what the agent-resource ecosystem actually consists of
+# Concepts
 
-Checked against the official docs of Claude Code, Codex CLI, GitHub Copilot,
-Cursor, Gemini CLI and OpenCode, the Agent Skills spec (agentskills.io), the
-Agent Plugins spec (agent-plugins.org), the MCP spec and registry, A2A and the
-AGENTS.md convention, on 2026-09-27.
-
-## The two-level picture
-
-There are **primitives** (leaf content a harness loads) and **composites**
-(bundles of primitives). Most confusion comes from mixing the levels.
+palm 0.2 uses five words the same way in its commands, its files and its docs: source, entity,
+target, scope and generated file. Two more follow from them, the lock and consent. The harness
+facts below were checked against the official docs of Claude Code, Codex CLI, GitHub Copilot,
+Cursor, Gemini CLI and OpenCode, the Agent Skills spec (agentskills.io), the Agent Plugins spec
+(agent-plugins.org), the MCP spec and the AGENTS.md convention, on 2026-09-27.
 
 ```
-composites   plugin ─────────────┐        agent bundle ────────┐
-             │ manifest          │        │ agent definition   │
-             │ skills/           │        │ + skills it uses   │
-             │ agents/           │        │ + MCP servers      │
-             │ commands/         │        │ + instructions     │
-             │ hooks/            │        │ + hooks            │
-             │ .mcp.json         │        └────────────────────┘
-             └───────────────────┘
-primitives   instruction · skill · command · agent definition · hook · MCP server config
+source (palm.yaml)          entities                 targets            generated files (committed)
+mattpocock/skills  ──────►  skill tdd  ──────────►  claude  ─────────►  .claude/skills/tdd/
+  ref: ^1.2                                          codex   ─────────►  .agents/skills/tdd/
+obra/superpowers   ──────►  plugin superpowers
+  ref: ^4                     selects skill ...
+                              and hook session-start ► claude ───────►  .claude/settings.json (merged)
+                                                                         .palm/assets/obra__superpowers/...
+                            palm.lock.yaml: commit per source, render hash per entry and target, trust
 ```
 
-## Primitives
+## Sources
 
-**Instruction.** Always-on or path-scoped markdown that a harness injects as
-context. `CLAUDE.md`, `.claude/rules/*.md`, `AGENTS.md`, `GEMINI.md`,
-`.github/copilot-instructions.md`, `*.instructions.md` (`applyTo` globs),
-`.cursor/rules/*.mdc` (`globs`, `alwaysApply`). It is advisory: it shapes
-behaviour, it enforces nothing. Only hooks enforce. `AGENTS.md` is a Linux
-Foundation convention read by Codex, Copilot, Cursor, OpenCode; Claude Code
-reads it only when no `CLAUDE.md` exists.
+A **source** is a git repository, optionally a folder inside it at a ref, or a directory inside the
+project. It is declared in the `palm.yaml` of its scope, so it is a dependency of the project and
+never a per-user registration. A GitHub repository is written `owner/repo`; any other repository
+gets a name and a `url:`; an in-repo directory is `./dir`. A source may carry an optional `alias:`.
 
-**Skill.** A directory with a `SKILL.md` whose frontmatter has `name` (slug,
-must equal the directory name) and `description` (up to 1024 chars, decides
-when the model loads it), plus optional `scripts/`, `references/`, `assets/`.
-Loaded in stages: name + description at startup, body on activation, extra
-files on demand. So a skill **already can carry scripts and assets**; that is
-not what makes something a plugin. Every harness now reads the Agent Skills
-format; all except Claude Code also read the shared `.agents/skills/` folder.
+A source has one `ref:`, a tag, branch, commit or semver range, and that is the only place a version
+lives. The lock records what the ref resolved to. `palm update` moves the commit within the range,
+and `palm update --to` moves the range.
 
-**Command (prompt).** A `/name` template the user invokes: `.claude/commands/*.md`,
-`.github/prompts/*.prompt.md`, Gemini `commands/*.toml`. Claude Code and Cursor
-have folded commands into skills; Codex and Copilot mark prompt files as
-deprecated. New work should be a skill.
+An in-repo source, such as `./agent-kit`, is rendered from the working tree and is the truth. A bare
+`palm install` re-renders what changed, and `palm check` fails on drift. `palm create` writes
+templates into it.
 
-**Agent definition (subagent).** One file = system prompt + a `description`
-that tells the main agent when to delegate + tool allow/deny list + model. It
-runs in its own context and returns a summary. Claude Code `.claude/agents/*.md`,
-Codex `.codex/agents/*.toml`, Copilot `.github/agents/*.agent.md`, Cursor
-`.cursor/agents/*.md`. Claude, Codex, Copilot and Gemini agent files can
-*reference* skills and MCP servers by name; none of them *contain* them. That
-is the key correction to "an agent is a package of skills + MCP + instructions":
-in the harnesses an agent is a primitive that points at other primitives. palm
-treats those references as dependencies, which gives you the bundle behaviour
-you wanted without inventing a new file format.
+A marketplace or plugin manifest inside a source is only a hint palm uses to find entities. palm
+never fetches another repository on its own and has no registry to look a name up in.
 
-**Hook.** Lifecycle event (session start, before/after tool use, stop, prompt
-submit) + matcher → handler, usually a shell command. This is executable code
-that runs on your machine, so treat installing hooks like installing software.
-The schemas differ per harness: Claude and Codex use PascalCase events in
-`settings.json` / `hooks.json`; Cursor and Copilot use camelCase with `version: 1`.
+## Entities
 
-**MCP server.** A connection spec, not content: a stdio command or an HTTP URL,
-plus env/headers. The server exposes tools, resources and prompts. Config
-shapes differ per harness (`.mcp.json`, `config.toml [mcp_servers.x]`,
-`.vscode/mcp.json` with `servers`, `.cursor/mcp.json`). Auth: stdio servers
-take credentials from env vars; HTTP servers use OAuth 2.1, which the harness
-performs on first connect, so a package manager only needs to place the URL
-and any static header secrets sensibly.
+An **entity** is one item palm installs, named within its source. There are five kinds, and a
+plugin selects several of them.
 
-## Composites
+### Skill
 
-**Plugin.** A distributable bundle: a manifest plus any of the primitives above
-(Claude `.claude-plugin/plugin.json`, Cursor `.cursor-plugin/plugin.json`,
-Codex `.codex-plugin/plugin.json`, Gemini `gemini-extension.json`, and the new
-cross-vendor `plugin.json` from agent-plugins.org that Codex, Cursor and
-Copilot read). A plugin is the unit repos publish; it is *not* a different kind
-of skill. Plugins do not nest.
+A folder with a `SKILL.md` whose frontmatter has `name` (a slug that matches the folder)
+and `description` (which decides when the model loads it), plus optional `scripts/`, `references/`
+and `assets/`. The harness loads the name and description at startup, the body on activation and
+the other files on demand. Every harness reads the Agent Skills format; all except Claude Code also
+read the shared `.agents/skills/` folder.
 
-**Agent bundle.** Your concept. In harness terms it is an agent definition plus
-everything it references. Platforms that host agents (Claude Managed Agents,
-the Agent SDK, A2A agent cards) do define an agent this way: model + system
-prompt + tools + MCP servers + skills. palm implements it as "agent definition
-with dependencies": `palm install agent reviewer` installs the file and then
-resolves and installs the skills and MCP servers it names.
+### Agent (subagent)
 
-**Marketplace / registry.** An index that points at plugins or servers:
-`marketplace.json` (Claude, Cursor, Copilot and Codex each have a slightly
-different schema) and the MCP Registry (`server.json` entries, servers only).
-In palm an **origin** is one repo or directory that gets scanned; a
-**registry** is a named list of origins.
+One file with a system prompt, a `description` that tells the main agent when
+to delegate, a tool list and a model. It runs in its own context and returns a summary. Claude
+Code `.claude/agents/*.md`, Codex `.codex/agents/*.toml`, Copilot `.github/agents/*.agent.md`,
+Cursor `.cursor/agents/*.md`. An agent file may name skills and MCP servers it uses; it does not
+contain them. palm installs the agent and prints the command for what it names, and never installs
+dependencies you did not ask for.
 
-## Not a packaging concept
+### Instruction
 
-**Capability.** In MCP it is protocol feature negotiation (`tools`,
-`resources`, `prompts`, `sampling`, `elicitation`). In A2A agent cards it lists
-protocol features like `streaming`. No harness has a "capability" file. If you
-want to express "this agent can do X", that is the agent's `description` or a
-skill; if you want "this needs Y", that is a dependency.
+Markdown context a harness injects: always on, scoped to paths, or loaded on
+request. `.claude/rules/*.md`, a block in `AGENTS.md` or `GEMINI.md`, `*.instructions.md` with
+`applyTo`, `.cursor/rules/*.mdc` with `globs` or `alwaysApply`. It shapes behaviour and enforces
+nothing; only hooks enforce. palm never edits `CLAUDE.md`.
 
-## Target (harness)
+### Hook
 
-The host program that discovers primitives at well-known paths and runs the
-loop: Claude Code, Codex CLI, Copilot (CLI and VS Code differ), Cursor,
-Gemini CLI, OpenCode, Windsurf. A package manager's job is to write the same
-primitive into each target's paths and formats, at project or user scope.
+Lifecycle events and matchers with shell commands: session start, before and after tool
+use, stop, prompt submit. This is code that runs on your machine, so palm treats it like
+installing software (see consent below). The scripts a hook runs are copied to
+`.palm/assets/<source>/<entity>/` and committed.
+
+### MCP server
+
+A connection, not content: a stdio command or a URL, with environment variables and
+headers. The server exposes tools, resources and prompts. Each harness keeps servers in its own
+file and syntax (`.mcp.json`, `config.toml [mcp_servers.x]`, `.vscode/mcp.json` with `servers`,
+`.cursor/mcp.json`, `.gemini/settings.json`, `opencode.json`). A stdio server takes credentials from
+environment variables; an HTTP server usually uses OAuth, which the harness performs on first
+connect, so palm only places the URL and references to any static header secrets.
+
+### Plugins select entities
+
+A plugin is a distributable bundle with a manifest (Claude
+`.claude-plugin/plugin.json`, Cursor `.cursor-plugin/plugin.json`, Codex `.codex-plugin/plugin.json`,
+Gemini `gemini-extension.json`, the cross-vendor `plugin.json`). In palm it is a selector over a
+source's entities, recorded as `plugins:` with `only:` or `exclude:`, and never something that lands
+in a harness as a unit. Each member gets its own lock entry with `via: plugin:<name>`.
+
+### Commands install as skills
+
+A `/name` prompt template (`commands/*.md`, `prompts/*.prompt.md`,
+Gemini `commands/*.toml`) is indexed as a skill of the same name, with a note. Claude Code and Cursor
+merged commands into skills, and Codex and Copilot deprecate prompt files. `$ARGUMENTS` survives in
+Claude Code and Cursor; where a harness does not expand it, the note says so.
+
+## Targets
+
+A **target** is palm's identifier for a harness: `claude`, `codex`, `copilot`, `cursor`, `gemini`,
+`opencode`. The scope's set is declared once as `targets:` in `palm.yaml` and narrowed per entry with
+`targets:`. palm writes each entity where each target reads it, in its native format, once per
+harness. Cursor reads `.claude/skills` when `claude` is a target, and `.agents/skills` is written
+once for everyone else. Where a harness has no place for a kind, palm skips it with a note. The
+Gemini CLI and OpenCode placements follow their docs and source and are marked unverified until an
+end-to-end job runs the real CLIs.
+
+## Scopes
+
+A **scope** is `project` (the directory holding `palm.yaml`, found by walking up to the nearest
+`.git`) or `global` (`-g`, your home directory and the harness homes). Both use the same files and
+verbs. The global lock writes paths as tokens such as `<claude>/skills/x`, so `~/.palm/palm.yaml`
+and its lock can live in a dotfiles repository; `~/.palm/applied.yaml` records what this machine
+holds.
+
+## Generated files
+
+A **generated file** is anything palm writes. Every path is listed in the lock. In a project,
+generated files are committed, so git carries them to teammates and CI, the diff is the review, and
+a clone works without palm. palm keeps no machine state in a project. The only palm paths git ignores
+are `.palm/local/` and `palm.local.yaml`, reserved for personal additions in 0.3.
+
+## The lock
+
+`palm.lock.yaml` records per source the URL, range, resolved tag, commit and layout, and per entry
+one content hash, one render hash per target, the file list, the identities of merged fragments,
+program hashes and trust. It holds no absolute path, hostname, timestamp or secret, so every
+machine writes the same bytes. Every generated file is a function of `palm.yaml`, the lock and the
+sources; `palm check` recomputes each one and fails on any difference, and a bare `palm install`
+makes the disk match.
+
+## Consent
+
+Hooks and stdio MCP servers run programs. Before palm writes one, it shows the source and commit,
+every command as each harness will run it, the files it lands in, and every script with its mode,
+size and hash. The default answer is no, and `--yes` never consents. A yes is a hash over the
+commands and the script bytes, recorded as `trust:` in the lock and replayed silently on every
+machine while it matches; any change asks again. Without a terminal, only an
+`--allow-exec <kind>:<name>@<source>=<hash>` line consents. palm never runs what it installs.
+
+## Not palm words
+
+"Origin", "registry" and "capability" are not palm words. A source is where entities come from.
+palm has no registry; you name the repository. In MCP, a capability is protocol feature negotiation
+(`tools`, `resources`, `prompts`, `sampling`); no harness has a capability file, and "this agent can
+do X" is an agent's `description` or a skill.
