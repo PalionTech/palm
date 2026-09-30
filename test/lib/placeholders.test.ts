@@ -96,7 +96,9 @@ describe('runtime variables and fill-in values', () => {
     }
     expect(isRuntimeVar('GITHUB_TOKEN')).toBe(false);
     expect(isRuntimeVar('home')).toBe(false);
-    expect(RUNTIME_VARS.size).toBe(15);
+    for (const v of ['CURSOR_PROJECT_DIR', 'GEMINI_PROJECT_DIR', 'extensionPath'])
+      expect(isRuntimeVar(v)).toBe(true);
+    expect(RUNTIME_VARS.size).toBe(18);
   });
 
   it.each([

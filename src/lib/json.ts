@@ -46,15 +46,18 @@ export function stringifyJson(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-/** Deterministic JSON for hashing: object keys sorted, undefined-valued keys dropped, no spaces. */
-export function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+/**
+ * Canonical JSON for hashing: object keys sorted by code point, undefined-valued keys dropped,
+ * no whitespace. Equal plain data always gives equal text, whatever its key order.
+ */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
     const keys = Object.keys(obj)
       .filter((k) => obj[k] !== undefined)
       .sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(',')}}`;
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`;
   }
   return JSON.stringify(value) ?? 'null';
 }

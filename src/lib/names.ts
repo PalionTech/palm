@@ -1,6 +1,6 @@
 /**
- * Name rules: canonical slugs (Agent Skills spec), safe single path segments, origin aliases
- * and file stems.
+ * Name rules: canonical slugs (Agent Skills spec), safe single path segments, source aliases,
+ * asset directory segments and file stems.
  */
 import { basename } from 'node:path';
 
@@ -47,6 +47,22 @@ export function slugify(text: string): string {
  */
 export function isSafeName(s: string): boolean {
   return SAFE_NAME_RE.test(s) && !s.includes('..');
+}
+
+/**
+ * The directory segment for a source name under `.palm/assets/`: a leading `./` dropped and `/`
+ * replaced by `__` (`owner/repo` → `owner__repo`, `./agent-kit` → `agent-kit`). Anything that
+ * would not pass `isSafeName` is replaced, so the result is always one safe path segment.
+ */
+export function sanitizeSourceDir(name: string): string {
+  const s = name
+    .replace(/^\.\//, '')
+    .replace(/\/+$/, '')
+    .replaceAll('/', '__')
+    .replace(/[^A-Za-z0-9._-]/g, '-')
+    .replace(/\.{2,}/g, '.')
+    .replace(/^[^A-Za-z0-9]+/, '');
+  return s || 'source';
 }
 
 /** True when `s` matches ALIAS_RE. */

@@ -15,7 +15,7 @@ describe('walkFiles', () => {
     await write(join(root, 'a-c.md'), 'c');
     const { files, skipped } = await walkFiles(root);
     expect(files.map((f) => f.rel)).toEqual(['a/y/x.sh', 'a/z.md', 'a-c.md', 'b.md']);
-    expect(files[0]).toEqual({ rel: 'a/y/x.sh', abs: join(root, 'a/y/x.sh'), mode: 0o755 });
+    expect(files[0]).toEqual({ rel: 'a/y/x.sh', abs: join(root, 'a/y/x.sh'), mode: 0o755, size: 1 });
     expect(skipped).toEqual([]);
   });
 
@@ -54,6 +54,7 @@ describe('walkFiles', () => {
     expect(inOrigin.files.map((f) => f.rel)).toEqual(['SKILL.md', 'ref.md', 'shared/ref.md']);
     expect(inOrigin.files.find((f) => f.rel === 'ref.md')?.abs).toBe(join(skill, 'ref.md'));
     expect(inOrigin.skipped).toEqual(['broken', 'leak.md', 'out']);
+    expect(inOrigin.symlinksOutside).toEqual(['leak.md', 'out']);
 
     // Default boundary: the root itself, so links to siblings in the origin are not followed.
     const own = await walkFiles(skill);
@@ -69,6 +70,7 @@ describe('walkFiles', () => {
     expect(await walkFiles(join(origin, 'link'), { boundary: origin })).toEqual({
       files: [],
       skipped: ['.'],
+      symlinksOutside: ['.'],
     });
     // Without a boundary a symlinked root is its own boundary.
     expect((await walkFiles(join(origin, 'link'))).files.map((f) => f.rel)).toEqual(['x.md']);
