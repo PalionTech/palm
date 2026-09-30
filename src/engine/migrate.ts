@@ -188,7 +188,7 @@ function sourceLines(ctx: PalmContext, m: Migration): string[] {
     if (!s.fromConfig) continue;
     added.push(s.source.name);
     ctx.log.info(
-      `palm.yaml: source ${s.source.name} added from ~/.palm/config.yaml, needed by ${s.entries} entries; commit it`,
+      `palm.yaml: source ${s.source.name} added from ~/.palm/config.yaml, needed by ${s.entries} ${s.entries === 1 ? 'entry' : 'entries'}; commit it`,
     );
   }
   return added;
@@ -260,7 +260,7 @@ export async function migrateScope(
   await manifest.save(paths.manifestFile);
   await lock.save(paths.lockFile);
   const ignore = opts.scope === 'project' ? await ensureIgnoreLines(paths.root, false) : undefined;
-  if (ignore) report.gitignore = ignore;
+  if (ignore) report.gitignore = ignore.replace(/^\.gitignore: /, '');
   const installed = await install(ctx, opts.scope, deps);
   report.exec = installed.units;
   report.failures = installed.failures;

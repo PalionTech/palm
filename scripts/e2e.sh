@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# End-to-end check of palm against real public repositories (network required).
+# End-to-end check of palm 0.2 against real public repositories (network required).
 #
 #   scripts/e2e.sh
 #
 # Every run builds dist/ (unless PALM_BIN is set), creates a fresh sandbox and points HOME /
 # PALM_HOME into it, so the real ~/.palm, ~/.claude, ~/.codex, ~/.copilot, ~/.cursor, ~/.gemini,
-# ~/.config/opencode and ~/.claude.json are never touched. Prints PASS/FAIL per step; exits 1 when any step failed.
+# ~/.config/opencode and ~/.claude.json are never touched. Prints PASS/FAIL per step; exits 1
+# when any step failed.
+#
+# Sources: mattpocock/skills, obra/superpowers, trailofbits/skills, anthropics/skills, the APM
+# package microsoft/apm-sample-package, and one in-repo source (./agent-kit). The last steps
+# commit a project, clone it into a machine that never ran palm, and run the CI gate there.
 #
 # Environment:
 #   PALM_E2E_ROOT     where run-XXXXXX sandboxes are created   (default: ${TMPDIR:-/tmp}/palm-e2e)
-#   PALM_E2E_CATALOG  marketplace.json for the import step     (no default; skipped when unset)
 #   PALM_BIN          palm executable to test, e.g. `palm` from a global install of the packed
 #                     tarball (resolved via PATH); step 00 then smoke-tests it instead of building
 #   PALM_E2E_KEEP=1   keep the sandbox after a fully passing run
@@ -18,7 +22,6 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 REAL_HOME="$HOME"
-CATALOG="${PALM_E2E_CATALOG:-}"
 PALM_BIN="${PALM_BIN:-}"
 if [[ -n "$PALM_BIN" ]]; then
   PALM_BIN="$(command -v "$PALM_BIN")" || { echo "PALM_BIN not found on PATH" >&2; exit 99; }
@@ -31,21 +34,25 @@ SB="$(cd "$(mktemp -d "$ROOT/run-XXXXXX")" && pwd -P)"
 export HOME="$SB/home"
 export PALM_HOME="$SB/home/.palm"
 unset CLAUDE_CONFIG_DIR CODEX_HOME COPILOT_HOME XDG_CONFIG_HOME GEMINI_CLI_HOME OPENCODE_DISABLE_EXTERNAL_SKILLS
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 export CI=1 NO_COLOR=1 GIT_TERMINAL_PROMPT=0
+export GIT_AUTHOR_NAME=palm-e2e GIT_AUTHOR_EMAIL=e2e@palm.invalid
+export GIT_COMMITTER_NAME=palm-e2e GIT_COMMITTER_EMAIL=e2e@palm.invalid
 if [[ "$HOME" == "$REAL_HOME" || "$HOME" != "$SB/"* ]]; then
   echo "refusing to run: HOME=$HOME is not inside the sandbox $SB" >&2
   exit 99
 fi
-P1="$SB/proj"    # claude + codex project
+P1="$SB/proj"    # claude + codex project (the team project that CI checks)
 P4="$SB/proj4"   # claude + codex + copilot + cursor project
 P5="$SB/proj5"   # gemini + opencode project
+C1="$SB/clone"   # P1 cloned on a machine that never ran palm
 mkdir -p "$HOME" "$P1/.claude" "$P1/.codex" "$P4/.claude" "$P4/.codex" "$P4/.cursor" "$P4/.github"
 mkdir -p "$P5/.gemini" "$P5/.opencode"
 : >"$P4/.github/copilot-instructions.md"
 # Each project is its own git root, so palm never climbs into an enclosing repository.
-git init -q "$P1"
-git init -q "$P4"
-git init -q "$P5"
+git init -q -b main "$P1"
+git init -q -b main "$P4"
+git init -q -b main "$P5"
 
 LOG="$SB/e2e.log"
 : >"$LOG"
@@ -54,7 +61,7 @@ echo "log: $LOG"
 
 # --- helpers -----------------------------------------------------------------------------
 palm() {
-  if [[ "$HOME" != "$SB/home" || "$PALM_HOME" != "$SB/home/.palm" ]]; then
+  if [[ "$HOME" != "$SB/home"* || "$PALM_HOME" != "$HOME/.palm" ]]; then
     echo "unsafe environment: HOME=$HOME PALM_HOME=$PALM_HOME" >&2
     exit 99
   fi
@@ -75,16 +82,15 @@ run() {
   OUT="$(cd "$dir" && palm "$@" 2>&1)" || { echo "$OUT"; fail "palm $* exited non-zero"; }
   echo "$OUT"
 }
-# Like run, but the command must fail; $OUT has its output.
-run_fails() {
-  local dir="$1"
-  shift
-  echo "\$ (cd ${dir#"$SB"/} && palm $*)   # expected to fail"
-  if OUT="$(cd "$dir" && palm "$@" 2>&1)"; then
-    echo "$OUT"
-    fail "palm $* succeeded but should have failed"
-  fi
+# Like run, but the command must exit with the given code; $OUT has its output.
+run_exit() {
+  local want="$1" dir="$2"
+  shift 2
+  echo "\$ (cd ${dir#"$SB"/} && palm $*)   # expected to exit $want"
+  local rc=0
+  OUT="$(cd "$dir" && palm "$@" 2>&1)" || rc=$?
   echo "$OUT"
+  [[ $rc -eq $want ]] || fail "palm $* exited $rc, expected $want"
 }
 fail() {
   echo "ASSERTION FAILED: $*" >&2
@@ -92,14 +98,27 @@ fail() {
 }
 has() { grep -qF -- "$1" <<<"$OUT" || fail "output lacks: $1"; }
 lacks() { if grep -qF -- "$1" <<<"$OUT"; then fail "output unexpectedly contains: $1"; fi; }
+first_line() { [[ "$(head -1 <<<"$OUT")" == "$1" ]] || fail "first line is: $(head -1 <<<"$OUT")"; }
 file() { [[ -f "$1" ]] || fail "missing file ${1#"$SB"/}"; }
 nofile() { [[ ! -e "$1" ]] || fail "should not exist: ${1#"$SB"/}"; }
 contains() { grep -qF -- "$2" "$1" || fail "${1#"$SB"/} does not contain: $2"; }
+lacks_in() { if grep -qF -- "$2" "$1"; then fail "${1#"$SB"/} contains: $2"; fi; }
+# The --allow-exec value an E_UNTRUSTED_EXEC error printed on its `then:` line.
+allow_exec() { sed -n 's/^ *then: .*--allow-exec \([^ ]*\).*$/\1/p' <<<"$OUT" | tail -1; }
 # js FILE 'expression over d' — d is the parsed JSON (or TOML with js_toml, YAML with js_yaml).
 js() { node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if(!(eval(process.argv[2]))) process.exit(1)' "$1" "$2" || fail "${1#"$SB"/}: expected $2"; }
 js_toml() { (cd "$REPO" && node --input-type=module -e 'import {parse} from "smol-toml"; import fs from "node:fs"; const d=parse(fs.readFileSync(process.argv[1],"utf8")); if(!(eval(process.argv[2]))) process.exit(1)' "$1" "$2") || fail "${1#"$SB"/}: expected $2"; }
 js_yaml() { (cd "$REPO" && node --input-type=module -e 'import {parse} from "yaml"; import fs from "node:fs"; const d=parse(fs.readFileSync(process.argv[1],"utf8")); if(!(eval(process.argv[2]))) process.exit(1)' "$1" "$2") || fail "${1#"$SB"/}: expected $2"; }
 mode_of() { stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"; }
+# Invariant 1: no absolute path, home directory or hostname in palm.yaml or the lock.
+portable() {
+  local f
+  for f in "$@"; do
+    [[ -f "$f" ]] || continue
+    lacks_in "$f" "$SB"
+    lacks_in "$f" "$(hostname)"
+  done
+}
 
 RESULTS=()
 FAILED=0
@@ -124,10 +143,6 @@ step() {
     tail -25 "$SB/step.out" | sed 's/^/      /'
   fi
 }
-skip() {
-  RESULTS+=("SKIP  $1 ($2)")
-  echo "SKIP  $1 ($2)"
-}
 
 # --- steps -------------------------------------------------------------------------------
 s00_build() {
@@ -135,345 +150,295 @@ s00_build() {
     (cd "$REPO" && npm run build --silent >/dev/null 2>&1) || fail "npm run build failed"
     head -1 "$REPO/dist/cli.js" | grep -qx '#!/usr/bin/env node' || fail "dist/cli.js has no shebang"
     [[ -x "$REPO/dist/cli.js" ]] || fail "dist/cli.js is not executable"
-    OUT="$("$REPO/node_modules/.bin/tsx" "$REPO/src/cli.ts" --version)"
-    [[ -n "$OUT" ]] || fail "tsx src/cli.ts --version printed nothing"
   fi
   local bin="${PALM_BIN:-$REPO/dist/cli.js}"
   OUT="$("$bin" --version)"
   [[ "$OUT" == "$(node -p "require('$REPO/package.json').version")" ]] || fail "$bin --version printed $OUT"
   OUT="$(palm --help)"
   has "install (add, i)"
+  has "remove (uninstall, rm)"
   has "Verbs:"
   has "Utilities:"
+  has "Kinds:"
+  lacks "origin"
   OUT="$(palm install --help)"
-  has "palm install mcp fs -- npx"
-  has "--url https://example.com/mcp"
-  has "name[@origin][#ref]"
+  has "--all"
+  has "--snippet"
   palm completion bash | bash -n || fail "palm completion bash is not valid bash"
 }
 
-s01_origins() {
-  run "$P1" install origin mattpocock/skills
-  has "+ origin mattpocock"
-  run "$P1" install origin obra/superpowers
-  has "+ origin superpowers"
-  run "$P1" install origin cursor/plugins/pstack --alias pstack
-  has "+ origin pstack"
-  run "$P1" install origin anthropics/skills
-  has "+ origin anthropics"
-  run "$P1" install origin openai/skills
-  has "+ origin openai"
-  # Auto-detection must see skills/.curated (a dot directory)...
-  run "$P1" describe skill gh-fix-ci@openai
-  has "skills/.curated/gh-fix-ci"
-  # ...and a layout descriptor narrows an origin to exactly what it names.
-  run "$P1" install origin openai/skills --alias openai-curated --layout 'skills=skills/.curated/*'
-  has "detected: descriptor"
-  js_yaml "$PALM_HOME/config.yaml" 'd.origins.find(o => o.alias === "openai-curated").layout.skills[0] === "skills/.curated/*"'
-  # A repository that cannot be fetched is never saved (fetch and index come first).
-  run_fails "$P1" install origin anthropic/palm-e2e-no-such-repo
-  has "was not added"
-  js_yaml "$PALM_HOME/config.yaml" '!d.origins.some(o => o.alias === "palm-e2e-no-such-repo" || o.alias === "anthropic")'
-  run "$P1" get skills --available --json
-  node -e '
-    const g = JSON.parse(process.argv[1]).items; const n = (a) => g.find((x) => x.origin === a).entities.length;
-    if (!(n("openai-curated") > 30 && n("openai-curated") < n("openai"))) process.exit(1);
-    if (!g.find((x) => x.origin === "openai-curated").entities.every((e) => e.path.startsWith("skills/.curated/"))) process.exit(1);
-  ' "$OUT" || fail "openai-curated should hold only skills/.curated/* (fewer than auto-detected openai)"
-  run "$P1" get origins
-  has "mattpocock"
-  has "v1."   # latest semver tag of mattpocock/skills
-  run "$P1" get origins --verbose
-  has "detected: marketplace"
-  has "detected: descriptor"
-  run "$P1" describe origin mattpocock
-  has "https://github.com/mattpocock/skills.git"
-  has "index file"
-  # the old grammar still works
-  run "$P1" origin list
-  has "pstack"
+s01_onboarding_errors() {
+  # PLAN.md 4.9: a word that is no repository fails with the fix on line one; no network.
+  run_exit 2 "$P1" install superpowers
+  first_line 'x "superpowers" is not a repository. palm installs from git repositories:'
+  has "palm install obra/superpowers"
+  run_exit 2 "$P1" install tdd
+  has "palm install mattpocock/skills tdd"
+  lacks "origin"
+  nofile "$P1/palm.yaml"
 }
 
-s02_import() {
-  local before after
-  before="$(cd "$(dirname "$(dirname "$CATALOG")")" && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 shasum)"
-  run "$P1" install origin "$CATALOG" -y
-  has "local-skills"
-  has "caveman-skill"
-  has "last30days-skill"
-  has "superpowers: already registered as superpowers"
-  has "mattpocock-skills: already registered as mattpocock"
-  has "pstack: already registered as pstack"
-  js_yaml "$PALM_HOME/config.yaml" 'd.origins.find(o => o.alias === "local-skills").type === "local" && d.origins.find(o => o.alias === "local-skills").path === "'"$(dirname "$(dirname "$CATALOG")")"'"'
-  js_yaml "$PALM_HOME/config.yaml" 'd.origins.find(o => o.alias === "caveman-skill").root === "skills/caveman"'
-  js_yaml "$PALM_HOME/config.yaml" '!d.origins.some(o => o.alias === "mattpocock-skills")'
-  run "$P1" get origins
-  has "local-skills"
-  lacks "not indexed"
-  after="$(cd "$(dirname "$(dirname "$CATALOG")")" && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 shasum)"
-  [[ "$before" == "$after" ]] || fail "the local catalog directory was modified"
+s02_list_saves_nothing() {
+  run "$P1" install obra/superpowers
+  has "Nothing written. Install some:"
+  has "palm install obra/superpowers --all"
+  has "(a program; asks before installing)"
+  run "$P1" install anthropics/skills
+  has "skill  pdf"
+  run "$P1" install microsoft/apm-sample-package
+  has "agent        design-reviewer"
+  has "apm.yml: 1 dependency is not installed"
+  nofile "$P1/palm.yaml"
+  nofile "$P1/palm.lock.yaml"
 }
 
-s03_search() {
-  run "$P1" search tdd
-  has "mattpocock"
-  has "pstack"
-  run "$P1" search unslop
-  has "unslop"
-  has "pstack"
-  run "$P1" search mcp context7
-  has "io.github.upstash/context7"
-  run "$P1" get --available
-  has "mattpocock ("
-  has "pstack ("
-  has "superpowers ("
-}
-
-s04_install_skill() {
-  run "$P1" install skill unslop -y
-  has "installed"
-  file "$P1/.claude/skills/unslop/SKILL.md"
-  file "$P1/.agents/skills/unslop/SKILL.md"
-  js_yaml "$P1/palm.lock.yaml" 'd.entries.some(e => e.kind === "skill" && e.name === "unslop" && e.origin === "pstack")'
-}
-
-s05_ambiguous() {
-  run_fails "$P1" install skill tdd -y --json
-  has '"code": "E_AMBIGUOUS"'
-  has "tdd@mattpocock"
-  has "tdd@pstack"
-  run "$P1" install skill tdd@mattpocock -y
+s03_named_skills() {
+  run "$P1" install mattpocock/skills tdd grill-with-docs
+  has "saved to palm.yaml (latest tag"
+  has "targets: claude, codex"
+  has "+ skill  tdd"
   file "$P1/.claude/skills/tdd/SKILL.md"
-  contains "$P1/palm.yaml" "tdd@mattpocock"
+  file "$P1/.agents/skills/tdd/SKILL.md"
+  file "$P1/.claude/skills/grill-with-docs/SKILL.md"
+  js_yaml "$P1/palm.yaml" 'd.sources["mattpocock/skills"].ref.startsWith("^") && d.sources["mattpocock/skills"].skills.includes("tdd")'
+  js_yaml "$P1/palm.lock.yaml" 'd.version === 3 && /^[0-9a-f]{40}$/.test(d.sources["mattpocock/skills"].sha)'
+  js_yaml "$P1/palm.lock.yaml" 'd.entries.find(e => e.name === "tdd").render.claude.startsWith("sha256:")'
+  portable "$P1/palm.yaml" "$P1/palm.lock.yaml"
+  # A second run is a no-op.
+  run "$P1" install mattpocock/skills tdd
+  has "= skill  tdd"
 }
 
-s06_plural() {
-  run "$P1" install skills grill-me wayfinder -y
-  file "$P1/.claude/skills/grill-me/SKILL.md"
-  file "$P1/.claude/skills/wayfinder/SKILL.md"
-  file "$P1/.agents/skills/wayfinder/SKILL.md"
-}
-
-s07_agent() {
-  run "$P1" install agent comment-sicko -y
-  file "$P1/.claude/agents/comment-sicko.md"
-  file "$P1/.codex/agents/comment-sicko.toml"
-  js_toml "$P1/.codex/agents/comment-sicko.toml" 'd.name === "comment-sicko" && d.developer_instructions.length > 100'
-  js_yaml "$P1/palm.lock.yaml" 'd.entries.some(e => e.kind === "agent" && e.name === "comment-sicko" && e.origin === "pstack")'
-}
-
-s08_plugin_hooks() {
-  printf '{"permissions":{"allow":["Bash(ls:*)"]}}\n' >"$P1/.claude/settings.json"
-  run "$P1" install plugin superpowers -y
-  js "$P1/.claude/settings.json" 'd.permissions.allow[0] === "Bash(ls:*)"'
-  js "$P1/.claude/settings.json" 'd.hooks.SessionStart[0].hooks[0].command.includes("$CLAUDE_PROJECT_DIR/.palm/hooks/superpowers/")'
-  [[ -x "$P1/.palm/hooks/superpowers/hooks/run-hook.cmd" ]] || fail "hook script missing or not executable"
-  nofile "$P1/.palm/hooks/superpowers/tests"
-  nofile "$P1/.palm/hooks/superpowers/docs"
-  js "$P1/.codex/hooks.json" 'd.hooks.SessionStart[0].hooks[0].type === "command"'
-  js_yaml "$P1/palm.lock.yaml" 'd.entries.filter(e => e.via === "plugin:superpowers").length >= 10'
-  js_yaml "$P1/palm.lock.yaml" 'd.entries.find(e => e.kind === "plugin" && e.name === "superpowers").deps.length >= 10'
-  # Run the installed SessionStart hook the way Claude Code would: it must find its skill file.
-  local cmd
-  cmd="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).hooks.SessionStart[0].hooks[0].command)' "$P1/.claude/settings.json")"
-  OUT="$(cd "$P1" && CLAUDE_PROJECT_DIR="$P1" bash -c "$cmd")" || fail "the SessionStart hook failed"
-  has "hookSpecificOutput"
-  lacks "Error reading"
-}
-
-s09_mcp() {
-  run "$P1" install mcp context7 -y
-  js "$P1/.mcp.json" 'd.mcpServers.context7.url.startsWith("https://")'
-  # An optional secret must not break Claude's config loading when unset.
-  js "$P1/.mcp.json" '!JSON.stringify(d.mcpServers.context7).match(/\$\{[A-Z0-9_]+\}/)'
-  js_toml "$P1/.codex/config.toml" 'd.mcp_servers.context7.url.startsWith("https://")'
-  contains "$P1/palm.yaml" "io.github.upstash/context7"
-  # a stdio server runs a command on this machine: without a terminal it needs --yes
-  run_fails "$P1" install mcp fs -- npx -y @modelcontextprotocol/server-filesystem .
-  has "then run: palm install mcp fs --yes -- npx -y @modelcontextprotocol/server-filesystem ."
-  js "$P1/.mcp.json" '!d.mcpServers.fs'
-  run "$P1" install mcp fs -y -- npx -y @modelcontextprotocol/server-filesystem .
-  js "$P1/.mcp.json" 'd.mcpServers.fs.command === "npx" && d.mcpServers.fs.args.join(" ") === "-y @modelcontextprotocol/server-filesystem ."'
-  js_toml "$P1/.codex/config.toml" 'd.mcp_servers.fs.command === "npx"'
-  run "$P1" install mcp docs -y --url https://example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
-  has "requires secret DOCS_TOKEN: export it before starting the harness"
-  js "$P1/.mcp.json" 'd.mcpServers.docs.headers.Authorization === "Bearer ${DOCS_TOKEN}"'
-  js_toml "$P1/.codex/config.toml" 'd.mcp_servers.docs.bearer_token_env_var === "DOCS_TOKEN"'
-}
-
-s10_get_describe() {
-  run "$P1" get
-  has "comment-sicko"
-  has "plugin:superpowers"
-  run "$P1" get skills
-  has "unslop"
-  lacks "comment-sicko"
-  run "$P1" describe skill unslop
-  has "installed (project)"
-  has ".claude/skills/unslop/SKILL.md"
-  run "$P1" describe agent comment-sicko
-  has ".codex/agents/comment-sicko.toml"
-  run "$P1" describe target codex
-  has ".codex/agents/<name>.toml"
-  run "$P1" get all --json
-  node -e 'const d = JSON.parse(process.argv[1]); if (!(d.installed.length && d.origins.length && d.targets.active.includes("codex"))) process.exit(1)' "$OUT" || fail "get all --json lacks installed entities, origins or targets"
-  run "$P1" cache info
-  has "checkouts"
-}
-
-s11_sync() {
+s04_all_leaves_programs_out() {
+  run "$P1" install obra/superpowers --all
+  has "! hook"
+  has "runs a program on your machine; not installed"
+  has "see it:      palm install obra/superpowers"
+  has "install it:  palm install obra/superpowers"
+  file "$P1/.claude/skills/brainstorming/SKILL.md"
+  nofile "$P1/.claude/settings.json"
+  js_yaml "$P1/palm.lock.yaml" 'd.entries.some(e => e.kind === "hook" && e.declined === true)'
+  js_yaml "$P1/palm.yaml" 'd.sources["obra/superpowers"].plugins.length === 1'
+  # Declined stays quiet: a bare install does not ask again and changes nothing.
   run "$P1" install
-  lacks "installed  "
-  lacks "updated"
-  has "unchanged"
-  rm -rf "$P1/.claude/skills/unslop"
+  lacks "not installed"
+  lacks "consent"
+}
+
+s05_program_consent() {
+  # No terminal: the prompt is an error naming the review command and the full-hash line.
+  run_exit 1 "$P1" install trailofbits/skills hook:gh-cli
+  has "This install adds 1 program that will run on your machine."
+  has "x 1 program needs your consent and there is no terminal"
+  has "review:  palm install trailofbits/skills hook:gh-cli --dry-run --review"
+  local allow
+  allow="$(allow_exec)"
+  [[ "$allow" =~ ^hook:gh-cli@trailofbits/skills=sha256:[0-9a-f]{64}$ ]] || fail "no full-hash --allow-exec line: $allow"
+  # --yes never consents.
+  run_exit 1 "$P1" install trailofbits/skills hook:gh-cli --yes
+  nofile "$P1/.claude/settings.json"
+  run "$P1" install trailofbits/skills hook:gh-cli --allow-exec "$allow"
+  has "+ hook  gh-cli"
+  local assets="$P1/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks"
+  file "$assets/persist-session-id.sh"
+  [[ "$(mode_of "$assets/persist-session-id.sh")" == 755 ]] || fail "hook script lost its mode"
+  js "$P1/.claude/settings.json" 'JSON.stringify(d.hooks.SessionStart).includes(".palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh")'
+  js_yaml "$P1/palm.lock.yaml" '(e => e.trust.includes(e.exec.hash))(d.entries.find(e => e.name === "gh-cli"))'
+  # Trusted: replayed silently.
   run "$P1" install
-  has "restored missing files"
-  file "$P1/.claude/skills/unslop/SKILL.md"
-  contains "$P1/palm.yaml" "targets: [claude, codex]"
-  js_yaml "$P1/palm.lock.yaml" 'd.version === 2 && d.entries.every(e => e.transform > 0 && !("installedAt" in e) && e.files.every(f => f.hash.startsWith("sha256:")))'
-  # --frozen: nothing to do; a hand edit is a difference; a deleted file is restored from the lock
-  run "$P1" install --frozen
-  has "unchanged"
-  echo "local edit" >>"$P1/.claude/skills/unslop/SKILL.md"
-  run_fails "$P1" install --frozen
-  has "changed since palm wrote it"
-  rm -rf "$P1/.claude/skills/unslop"
-  cp "$P1/palm.lock.yaml" "$SB/lock.before"
-  run "$P1" install --frozen
-  file "$P1/.claude/skills/unslop/SKILL.md"
-  cmp -s "$P1/palm.lock.yaml" "$SB/lock.before" || fail "--frozen rewrote palm.lock.yaml"
+  has "= hook   gh-cli"
 }
 
-s12_update_doctor() {
-  run "$P1" update --dry-run
-  run "$P1" update --dry-run --json
-  node -e '
-    const r = JSON.parse(process.argv[1]); const keys = r.outcomes.map((o) => `${o.entry.kind} ${o.entry.name} ${o.entry.origin}`);
-    if (new Set(keys).size !== keys.length) process.exit(1);
-  ' "$OUT" || fail "update --dry-run lists an entity twice"
-  run "$P1" doctor
-  has "no problems"
-  lacks "warning"
-}
-
-s13_uninstall() {
-  run "$P1" uninstall plugin superpowers
-  js "$P1/.claude/settings.json" 'JSON.stringify(d) === JSON.stringify({ permissions: { allow: ["Bash(ls:*)"] } })'
-  nofile "$P1/.codex/hooks.json"
-  nofile "$P1/.claude/skills/brainstorming"
-  nofile "$P1/.palm"
-  js_yaml "$P1/palm.lock.yaml" '!d.entries.some(e => e.via === "plugin:superpowers" || e.name === "superpowers")'
-  run "$P1" uninstall agent comment-sicko
-  nofile "$P1/.claude/agents/comment-sicko.md"
-  nofile "$P1/.codex/agents"
-  run "$P1" uninstall mcp docs
-  js "$P1/.mcp.json" '!d.mcpServers.docs && !!d.mcpServers.fs'
-  js_toml "$P1/.codex/config.toml" '!d.mcp_servers.docs && !!d.mcp_servers.fs'
-  run "$P1" uninstall skill unslop tdd
-  nofile "$P1/.claude/skills/unslop"
-  nofile "$P1/.agents/skills/tdd"
-  file "$P1/.claude/skills/wayfinder/SKILL.md"
-  js_yaml "$P1/palm.yaml" '!d.plugins && !d.agents && d.skills.length === 2'
-  run "$P1" doctor --offline
-  has "no problems"
-  lacks "warning"
-}
-
-s14_global() {
-  mkdir -p "$HOME/.claude" "$HOME/.codex"
-  run "$P1" install -g skill unslop -y
-  # Detected global targets are used, never saved: config.yaml `targets` would become the
-  # default of every project without its own.
-  lacks "saved targets"
-  js_yaml "$PALM_HOME/config.yaml" '!d.targets'
-  file "$HOME/.claude/skills/unslop/SKILL.md"
-  file "$HOME/.agents/skills/unslop/SKILL.md"
-  nofile "$P1/.claude/skills/unslop"
-  run "$P1" install -g mcp fs -y -- npx -y @modelcontextprotocol/server-filesystem /tmp
-  js "$HOME/.claude.json" 'd.mcpServers.fs.args.includes("/tmp")'
-  js_toml "$HOME/.codex/config.toml" 'd.mcp_servers.fs.args.includes("/tmp")'
-  [[ "$(mode_of "$HOME/.claude.json")" == 600 ]] || fail "~/.claude.json should be 0600"
-  run "$P1" get -g
-  has "unslop"
-  has "fs"
-  run "$P1" uninstall -g skill unslop
-  nofile "$HOME/.claude/skills/unslop"
-  nofile "$HOME/.agents"
-  file "$HOME/.claude.json"
-}
-
-s15_four_targets() {
-  run "$P4" get targets
-  has "claude"
-  has "copilot"
-  has "cursor"
-  # Detected here (step 14's -g run saved nothing global) and saved to this project's palm.yaml.
-  run "$P4" install skill unslop@pstack -y
-  has "saved targets claude, codex, copilot, cursor to palm.yaml"
-  contains "$P4/palm.yaml" "targets: [claude, codex, copilot, cursor]"
-  file "$P4/.claude/skills/unslop/SKILL.md"
-  file "$P4/.agents/skills/unslop/SKILL.md"
-  run "$P4" install agent comment-sicko@pstack -y
-  file "$P4/.github/agents/comment-sicko.agent.md"
-  file "$P4/.cursor/agents/comment-sicko.md"
-  file "$P4/.claude/agents/comment-sicko.md"
-  file "$P4/.codex/agents/comment-sicko.toml"
-  run "$P4" install origin github/awesome-copilot
-  run "$P4" install instruction playwright-typescript@awesome-copilot -y
-  file "$P4/.claude/rules/playwright-typescript.md"
-  file "$P4/.cursor/rules/playwright-typescript.mdc"
-  file "$P4/.github/instructions/playwright-typescript.instructions.md"
-  contains "$P4/AGENTS.md" "<!-- palm:begin instruction:playwright-typescript -->"
-  run "$P4" install mcp docs -y --url https://example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
+s06_four_targets() {
+  run "$P4" install anthropics/skills pdf
+  has "targets: claude, codex, copilot, cursor"
+  file "$P4/.claude/skills/pdf/SKILL.md"
+  file "$P4/.agents/skills/pdf/SKILL.md"
+  nofile "$P4/.cursor/skills"
+  run "$P4" install mcp docs --url https://example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
   js "$P4/.vscode/mcp.json" 'd.servers.docs.headers.Authorization === "Bearer ${env:DOCS_TOKEN}"'
   js "$P4/.cursor/mcp.json" 'd.mcpServers.docs.headers.Authorization === "Bearer ${env:DOCS_TOKEN}"'
   js "$P4/.mcp.json" 'd.mcpServers.docs.headers.Authorization === "Bearer ${DOCS_TOKEN}"'
-  run "$P4" uninstall instruction playwright-typescript
-  nofile "$P4/AGENTS.md"
-  nofile "$P4/.cursor/rules"
+  js_toml "$P4/.codex/config.toml" 'd.mcp_servers.docs.bearer_token_env_var === "DOCS_TOKEN"'
+  js_yaml "$P4/palm.yaml" 'd.mcp.docs.url === "https://example.com/mcp"'
+  # A README snippet from stdin; a stdio server is a program and needs consent.
+  OUT="$(cd "$P4" && printf '%s' '{ "mcpServers": { "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "."] } } }' | palm install mcp --snippet - 2>&1)" && fail "a stdio server installed without consent"
+  echo "$OUT"
+  has "mcp:fs@manifest="
+  local allow
+  allow="$(allow_exec)"
+  OUT="$(cd "$P4" && printf '%s' '{ "mcpServers": { "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "."] } } }' | palm install mcp --snippet - --allow-exec "$allow" 2>&1)" || { echo "$OUT"; fail "install mcp --snippet failed"; }
+  echo "$OUT"
+  js "$P4/.mcp.json" 'd.mcpServers.fs.command === "npx"'
+  run "$P4" get mcp
+  has "docs"
+  has "DOCS_TOKEN"
+  run "$P4" remove docs
+  js "$P4/.mcp.json" '!d.mcpServers.docs && !!d.mcpServers.fs'
+  lacks_in "$P4/palm.yaml" "docs:"
+  portable "$P4/palm.yaml" "$P4/palm.lock.yaml"
 }
 
-# Frontmatter keys of a markdown file, comma-joined (for key allowlist checks).
-fm_keys() { (cd "$REPO" && node --input-type=module -e 'import {parse} from "yaml"; import fs from "node:fs"; const t=fs.readFileSync(process.argv[1],"utf8"); console.log(Object.keys(parse(t.split(/^---$/m)[1])).join(","))' "$1"); }
-
-s16_gemini_opencode() {
-  # Needs the pstack origin (step 01) and awesome-copilot (step 15).
-  run "$P5" install skill unslop@pstack --target gemini,opencode -y
-  has "gemini,opencode"
-  file "$P5/.agents/skills/unslop/SKILL.md"
-  nofile "$P5/.claude"
-  run "$P5" install agent comment-sicko@pstack --target gemini,opencode -y
-  file "$P5/.gemini/agents/comment-sicko.md"
-  file "$P5/.opencode/agents/comment-sicko.md"
-  # Gemini rejects agent files with unknown keys; OpenCode passes them to the model provider.
-  local keys
-  keys="$(fm_keys "$P5/.gemini/agents/comment-sicko.md")"
-  node -e 'const ok=new Set(["kind","name","description","display_name","tools","mcp_servers","model","temperature","max_turns","timeout_mins"]); if (!process.argv[1].split(",").every((k)=>ok.has(k))) process.exit(1)' "$keys" || fail "gemini agent has non-schema keys: $keys"
-  keys="$(fm_keys "$P5/.opencode/agents/comment-sicko.md")"
-  node -e 'const ok=new Set(["description","mode","model","color","permission","temperature","top_p","steps","variant","hidden"]); if (!process.argv[1].split(",").every((k)=>ok.has(k))) process.exit(1)' "$keys" || fail "opencode agent has stray keys: $keys"
-  contains "$P5/.opencode/agents/comment-sicko.md" "mode: subagent"
-  run "$P5" install instruction playwright-typescript@awesome-copilot --target gemini,opencode -y
-  contains "$P5/GEMINI.md" "<!-- palm:begin instruction:playwright-typescript -->"
-  file "$P5/.opencode/instructions/playwright-typescript.md"
-  js "$P5/opencode.json" 'd.instructions.includes(".opencode/instructions/playwright-typescript.md")'
-  run "$P5" install mcp docs --target gemini,opencode -y --url https://example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
-  js "$P5/.gemini/settings.json" 'd.mcpServers.docs.type === "http" && d.mcpServers.docs.headers.Authorization === "Bearer ${DOCS_TOKEN}"'
-  js "$P5/opencode.json" 'd.mcp.docs.type === "remote" && d.mcp.docs.headers.Authorization === "Bearer {env:DOCS_TOKEN}" && d.mcp.docs.oauth === false'
-  run "$P5" describe target opencode
-  has ".opencode/commands/<name>.md"
-  has "OpenCode hooks are JS plugins"
-  run "$P5" uninstall instruction playwright-typescript
+s07_apm_gemini_opencode() {
+  run "$P5" install microsoft/apm-sample-package --all
+  has "targets: gemini, opencode"
+  file "$P5/.agents/skills/accessibility-audit/SKILL.md"
+  file "$P5/.gemini/agents/design-reviewer.md"
+  file "$P5/.opencode/agents/design-reviewer.md"
+  contains "$P5/.opencode/agents/design-reviewer.md" "mode: subagent"
+  contains "$P5/GEMINI.md" "<!-- palm:begin instruction:design-standards -->"
+  file "$P5/.opencode/instructions/design-standards.md"
+  js "$P5/opencode.json" 'd.instructions.includes(".opencode/instructions/design-standards.md")'
+  # The package installed as a plugin: a member leaves it for the team with --exclude.
+  run_exit 1 "$P5" remove design-standards
+  has "palm remove microsoft/apm-sample-package design-standards --exclude"
+  run "$P5" remove microsoft/apm-sample-package design-standards --exclude
   nofile "$P5/GEMINI.md"
   nofile "$P5/.opencode/instructions"
-  js "$P5/opencode.json" '!d.instructions && !!d.mcp.docs'
-  run "$P5" uninstall mcp docs
   nofile "$P5/opencode.json"
-  nofile "$P5/.gemini/settings.json"
 }
 
-s17_real_home_untouched() {
-  # The sandbox never leaked: nothing palm-shaped appeared under the real home during this run.
+s08_in_repo_source() {
+  run "$P1" create skill review
+  has "+ source ./agent-kit → palm.yaml"
+  file "$P1/agent-kit/skills/review/SKILL.md"
+  file "$P1/.claude/skills/review/SKILL.md"
+  run_exit 1 "$P1" create hook quality
+  local allow
+  allow="$(allow_exec)"
+  run "$P1" create hook quality --allow-exec "$allow"
+  js "$P1/.claude/settings.json" 'JSON.stringify(d.hooks.SessionStart).includes("agent-kit/hooks/quality/scripts/quality.sh")'
+  nofile "$P1/.palm/assets/agent-kit"
+  # The source is the truth: an edit fails check until a bare install re-renders it.
+  echo "Be thorough." >>"$P1/agent-kit/skills/review/SKILL.md"
+  run_exit 1 "$P1" check
+  has "changed since palm.lock.yaml"
+  run "$P1" install
+  has "~ re-rendered"
+  contains "$P1/.claude/skills/review/SKILL.md" "Be thorough."
+  run "$P1" check
+  has "no problems"
+}
+
+s09_get_describe() {
+  run "$P1" get
+  has "tdd"
+  has "gh-cli"
+  run "$P1" get sources
+  has "mattpocock/skills"
+  has "./agent-kit"
+  run "$P1" get targets
+  has "claude"
+  run "$P1" get --files
+  has ".claude/skills/tdd/SKILL.md"
+  run "$P1" describe skill tdd
+  has "mattpocock/skills"
+  run "$P1" describe .claude/skills/tdd/SKILL.md
+  has "tdd"
+  run "$P1" describe hook gh-cli
+  has "trusted"
+  run "$P1" check --json
+  node -e 'const d=JSON.parse(process.argv[1]); if (!d.ok || !Array.isArray(d.checks)) process.exit(1)' "$OUT" || fail "check --json is not one ok document"
+}
+
+s10_update() {
+  run "$P1" update --dry-run
+  run "$P1" update mattpocock/skills --to v1.2.0 --yes
+  js_yaml "$P1/palm.yaml" 'd.sources["mattpocock/skills"].ref === "v1.2.0"'
+  js_yaml "$P1/palm.lock.yaml" 'd.sources["mattpocock/skills"].ref === "v1.2.0"'
+  run "$P1" update mattpocock/skills --to ^1.2 --yes
+  js_yaml "$P1/palm.yaml" 'd.sources["mattpocock/skills"].ref === "^1.2"'
+  run "$P1" check
+  has "no problems"
+}
+
+s11_ci_clean_clone() {
+  (cd "$P1" && git add -A && git commit -q -m "palm setup") || fail "commit failed"
+  git clone -q "$P1" "$C1"
+  # A machine that never ran palm: another home, no cache.
+  HOME="$SB/home2" PALM_HOME="$SB/home2/.palm"
+  export HOME PALM_HOME
+  mkdir -p "$HOME"
+  run "$C1" check
+  has "no problems"
+  # Invariant 3: on a clean clone a bare install writes neither palm.yaml nor the lock.
+  run "$C1" install
+  lacks "+ "
+  [[ -z "$(cd "$C1" && git status --porcelain)" ]] || fail "bare install on a clean clone changed files: $(cd "$C1" && git status --porcelain)"
+  # Drift is caught; a bare install restores a deleted file.
+  rm "$C1/.claude/skills/tdd/SKILL.md"
+  run_exit 1 "$C1" check
+  has "is missing"
+  run "$C1" install
+  has "↺"
+  file "$C1/.claude/skills/tdd/SKILL.md"
+  [[ -z "$(cd "$C1" && git status --porcelain)" ]] || fail "restore left changes: $(cd "$C1" && git status --porcelain)"
+  # An edited file is kept and fails.
+  echo "edited" >>"$C1/.claude/skills/tdd/SKILL.md"
+  run_exit 1 "$C1" install
+  has "modified (kept)"
+  contains "$C1/.claude/skills/tdd/SKILL.md" "edited"
+  (cd "$C1" && git checkout -q -- .)
+}
+
+s12_remove() {
+  run_exit 1 "$P1" remove brainstorming
+  has "--exclude"
+  run "$P1" remove obra/superpowers brainstorming --exclude
+  nofile "$P1/.claude/skills/brainstorming"
+  js_yaml "$P1/palm.yaml" 'd.sources["obra/superpowers"].plugins[0].exclude.includes("skill:brainstorming")'
+  run "$P1" remove gh-cli
+  nofile "$P1/.palm/assets/trailofbits__skills"
+  lacks_in "$P1/.claude/settings.json" "gh-cli"
+  run "$P1" remove gh-cli
+  has "is not installed"
+  run "$P1" remove quality review
+  nofile "$P1/.claude/skills/review"
+  run "$P1" check
+  has "no problems"
+}
+
+s13_global() {
+  # No harness home yet: the error names the init line; with ~/.claude, claude is detected.
+  run_exit 2 "$P1" install -g mattpocock/skills tdd
+  has "palm init --target claude -g"
+  mkdir -p "$HOME/.claude"
+  run "$P1" install -g mattpocock/skills tdd
+  file "$HOME/.claude/skills/tdd/SKILL.md"
+  file "$PALM_HOME/palm.yaml"
+  file "$PALM_HOME/applied.yaml"
+  contains "$PALM_HOME/palm.lock.yaml" "<claude>/skills/tdd/SKILL.md"
+  portable "$PALM_HOME/palm.yaml" "$PALM_HOME/palm.lock.yaml"
+  run "$P1" check -g
+  has "no problems"
+  run "$P1" remove -g tdd
+  nofile "$HOME/.claude/skills/tdd"
+}
+
+s14_old_format() {
+  # A palm 0.1 project on a machine with the 0.1 ~/.palm/config.yaml.
+  HOME="$SB/home3" PALM_HOME="$SB/home3/.palm"
+  export HOME PALM_HOME
+  local old="$SB/old" sha
+  mkdir -p "$old/.claude" "$PALM_HOME"
+  git init -q -b main "$old"
+  sha="$(git ls-remote https://github.com/mattpocock/skills.git 'refs/tags/v1.2.3^{}' | cut -f1)"
+  printf 'origins:\n  - alias: mattpocock\n    type: git\n    url: https://github.com/mattpocock/skills.git\n' >"$PALM_HOME/config.yaml"
+  printf 'targets: [claude]\nskills:\n  - tdd@mattpocock\n' >"$old/palm.yaml"
+  printf 'version: 2\nentries:\n  - { kind: skill, name: tdd, origin: mattpocock, ref: v1.2.3, sha: %s, path: skills/engineering/tdd, targets: [claude] }\n' "$sha" >"$old/palm.lock.yaml"
+  run_exit 2 "$old" install
+  first_line "x palm.yaml is in the 0.1 format"
+  has "palm migrate"
+  run "$old" migrate --dry-run
+  has "mattpocock/skills"
+  run "$old" migrate
+  file "$old/.claude/skills/tdd/SKILL.md"
+  js_yaml "$old/palm.lock.yaml" 'd.version === 3'
+  run "$old" check
+  has "no problems"
+}
+
+s15_real_home_untouched() {
   [[ "$(find "$REAL_HOME/.palm" -newer "$LOG" -print -quit 2>/dev/null)" == "" ]] || fail "the real ~/.palm changed during the run"
 }
 
@@ -483,27 +448,21 @@ if [[ -n "$PALM_BIN" ]]; then
 else
   step "00 build + dist smoke (shebang, --version, --help, install --help)" s00_build
 fi
-step "01 install origin ×5, layout descriptor, unreachable origin not saved, get/describe origins" s01_origins
-if [[ -n "$CATALOG" && -f "$CATALOG" ]]; then
-  step "02 install origin marketplace.json (local origin read-only, dedupe)" s02_import
-else
-  skip "02 install origin marketplace.json" "PALM_E2E_CATALOG unset or missing: ${CATALOG:-none}"
-fi
-step "03 search tdd / unslop / mcp context7, get --available" s03_search
-step "04 install skill unslop → claude + codex" s04_install_skill
-step "05 install skill tdd → E_AMBIGUOUS, then tdd@mattpocock" s05_ambiguous
-step "06 install skills grill-me wayfinder" s06_plural
-step "07 install agent comment-sicko (valid Codex TOML)" s07_agent
-step "08 install plugin superpowers (hooks merged, script runs)" s08_plugin_hooks
-step "09 install mcp: registry context7, ad hoc stdio fs, ad hoc http docs" s09_mcp
-step "10 get, get skills, describe skill/agent/target, get all, cache info" s10_get_describe
-step "11 bare install is a no-op; restores a deleted skill; lock v2; --frozen" s11_sync
-step "12 update --dry-run (no duplicates), doctor clean" s12_update_doctor
-step "13 uninstall plugin/agent/mcp/skills; settings.json restored" s13_uninstall
-step "14 global scope: skill + mcp into sandbox home, uninstall" s14_global
-step "15 four targets: skill, agent, instruction, mcp" s15_four_targets
-step "16 gemini + opencode: skill, agent, instruction, mcp, uninstall" s16_gemini_opencode
-step "17 real home untouched" s17_real_home_untouched
+step "01 onboarding: a bare word fails with the fix on line one" s01_onboarding_errors
+step "02 install <source> lists and saves nothing (superpowers, anthropics, APM package)" s02_list_saves_nothing
+step "03 install mattpocock/skills tdd grill-with-docs → claude + codex" s03_named_skills
+step "04 install obra/superpowers --all leaves the program out; bare install quiet" s04_all_leaves_programs_out
+step "05 trailofbits gh-cli hook: consent error, --yes never consents, --allow-exec" s05_program_consent
+step "06 four targets: anthropics/skills pdf, mcp by flags and by --snippet" s06_four_targets
+step "07 APM package --all into gemini + opencode, remove an instruction" s07_apm_gemini_opencode
+step "08 in-repo source: create skill and hook, drift fails check, bare install re-renders" s08_in_repo_source
+step "09 get, get sources/targets/--files, describe, check --json" s09_get_describe
+step "10 update --dry-run, update --to moves the ref and back" s10_update
+step "11 CI: clean clone passes check, bare install writes nothing, restores, keeps edits" s11_ci_clean_clone
+step "12 remove: plugin member --exclude, hook with assets, absent, in-repo entities" s12_remove
+step "13 global scope: tokens in the lock, applied.yaml, remove" s13_global
+step "14 a 0.1 palm.yaml points at palm migrate" s14_old_format
+step "15 real home untouched" s15_real_home_untouched
 
 echo
 echo "== summary =="

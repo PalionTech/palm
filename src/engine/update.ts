@@ -36,6 +36,8 @@ type Scripts = { before: Map<string, Uint8Array>; after: Map<string, Uint8Array>
 interface PlanMemo {
   shas: Map<string, string>;
   scripts: Map<string, Scripts>;
+  /** Sources whose sha or ref intent the plan moves. */
+  moved: Set<string>;
 }
 
 const memos = new WeakMap<UpdatePlan, PlanMemo>();
@@ -122,6 +124,8 @@ async function execChange(
 ): Promise<UpdatePlanItem['exec']> {
   const unit = p.out.unit;
   if (!unit || p.previous?.exec?.hash === unit.hash) return undefined;
+  // A program declined earlier stays out; its unit is news only when asked for by name.
+  if (p.previous?.declined) return undefined;
   const before = lockSha && p.previous ? await renderedBefore(run, p.job, lockSha) : undefined;
   memo.scripts.set(unit.key, { before: scriptsOf(before), after: scriptsOf(p) });
   return before?.out.unit ? { unit, previous: before.out.unit } : { unit };
@@ -183,6 +187,8 @@ async function planGitSource(
   });
   plan.sources.push({ name: target.name, ref: target.source.ref ?? '', ...range });
   if (r.checkout.sha) memo.shas.set(target.name, r.checkout.sha);
+  const moved = r.checkout.sha !== ls?.sha || (target.source.ref ?? '') !== (ls?.ref ?? '');
+  if (moved) memo.moved.add(target.name);
   const m = manifestJobs(state, target, r);
   plan.failures.push(...m.failures);
   const kept = new Set(m.missing);
@@ -226,7 +232,7 @@ export async function planUpdate(
     failures: [],
     warnings: [],
   };
-  const memo: PlanMemo = { shas: new Map(), scripts: new Map() };
+  const memo: PlanMemo = { shas: new Map(), scripts: new Map(), moved: new Set() };
   for (const ref of selectSources(state, sources, opts.to)) {
     if (ref.isLocal) plan.items.push(...skippedItems(state, ref));
     else await planGitSource(run, plan, memo, intentOf(ref, opts.to));
@@ -236,11 +242,18 @@ export async function planUpdate(
   return plan;
 }
 
-/** How many changes the plan would apply (the `Apply N changes?` count). */
+/**
+ * How many changes the plan would apply (the `Apply N changes?` count): changed, added and
+ * removed entries, plus each source whose sha or ref intent moves with no entry changing (a
+ * re-pin still moves the lock, so `--dry-run` goes quiet after an update).
+ */
 export function planChanges(plan: UpdatePlan): number {
-  return plan.items.filter(
+  const changed = plan.items.filter(
     (i) => i.mark === 'updated' || i.mark === 'added' || i.mark === 'removed',
-  ).length;
+  );
+  const withItems = new Set(changed.map((i) => i.source));
+  const repins = [...(memos.get(plan)?.moved ?? [])].filter((name) => !withItems.has(name));
+  return changed.length + repins.length;
 }
 
 // ---------------------------------------------------------------------------
