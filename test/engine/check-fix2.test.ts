@@ -440,6 +440,37 @@ describe("O19 J13' warnings acknowledged in palm.yaml's ignore: list", () => {
   });
 });
 
+describe("Y13' a source change and a generated-file edit together", () => {
+  async function inRepo() {
+    const w = await makeWorld({ targets: ['claude'], interactive: true, consent: 'yes' });
+    const src = await w.local('agent-kit', {
+      'skills/local/SKILL.md': 'mine\n',
+      'skills/local/notes.md': 'notes\n',
+    });
+    const r0 = await installFromSource(
+      w.ctx,
+      { source: src, names: [{ name: 'local' }] },
+      { scope: 'project' },
+      w.deps,
+    );
+    expect(r0.failures).toEqual([]);
+    return w;
+  }
+
+  it("Y13' lock-disk keeps the edited file beside local-sources' source change", async () => {
+    const w = await inRepo();
+    await w.write('agent-kit/skills/local/SKILL.md', 'mine, changed upstream\n');
+    expect((await check(w)).r['lock-disk']?.status).toBe('ok');
+    await w.write('.claude/skills/local/notes.md', 'my own edit\n');
+    const { r } = await check(w);
+    expect(r['local-sources']?.status).toBe('fail');
+    expect(r['lock-disk']?.status).toBe('fail');
+    expect(messages(r['lock-disk'])).toContain(
+      'generated files of skill local were edited since palm wrote them, and its source changed too; palm cannot tell which of .claude/skills/local/SKILL.md, .claude/skills/local/notes.md holds the edit',
+    );
+  });
+});
+
 describe("E3' a stale process lock", () => {
   it("E3' check removes a lock a dead process of this host left; a live one stays", async () => {
     const { w } = await world(['tdd']);

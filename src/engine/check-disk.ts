@@ -6,6 +6,7 @@
 import { readFile } from 'node:fs/promises';
 import type { CheckProblem, CheckRun, LockEntry, Rendered, TargetId } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
+import type { RecordState } from '../domain/merged-record.js';
 import { scanHiddenUnicode } from '../lib/unicode.js';
 import { acknowledgeable, sourcePathOf } from './check-ignore.js';
 import {
@@ -18,7 +19,8 @@ import {
   rendersFiles,
   skipped,
 } from './check-kit.js';
-import { fileStates, fragmentStates, ownedFragments } from './diff.js';
+import { type FileState, fileStates, fragmentStates, ownedFragments } from './diff.js';
+import { knownEdits } from './edits.js';
 import { palmCommand } from './report.js';
 
 const MAX_TEXT_BYTES = 1024 * 1024;
@@ -88,6 +90,44 @@ async function entryDisk(c: CheckContext, e: LockEntry, f: Found): Promise<void>
 }
 
 /**
+ * Y13': an in-repo entry whose source changed (`local-sources`) may also have generated files
+ * someone edited. The disk is hashed as palm wrote it (`knownEdits`, check 1): what differs
+ * from that is listed here too, so fixing the source change does not silently drop the edit.
+ */
+async function driftedEdits(c: CheckContext, e: LockEntry, f: Found): Promise<void> {
+  const out = c.renders.get(lockId(e));
+  if (!out) return;
+  const { paths } = c.run.state;
+  const files = new Map<string, FileState>();
+  const fragments = new Map<string, RecordState>();
+  for (const r of Object.values(out.renders)) {
+    if (!r) continue;
+    for (const [k, v] of await fileStates(paths, r)) files.set(k, v);
+    for (const [k, v] of await fragmentStates(paths, r, ownedFragments(e))) fragments.set(k, v);
+  }
+  const edits = await knownEdits(c.run, { previous: e, out, files, fragments });
+  const edited = [...new Set([...(edits?.edited ?? [])].map((k) => k.split('#')[0] as string))];
+  if (!edited.length) return;
+  const [first = ''] = edited.sort();
+  const which = edits?.unchecked
+    ? `palm cannot tell which of ${listed(edited)} holds the edit`
+    : `${listed(edited)} ${edited.length === 1 ? 'holds' : 'hold'} the edit`;
+  f.fail.push(
+    problem(
+      e,
+      first,
+      `generated files of ${e.kind} ${e.name} were edited since palm wrote them, and its source changed too; ${which}`,
+      `keep your edit by copying it into the source, then ${fixes(c, e).restore}; or ${fixes(c, e).force} to discard it`,
+    ),
+  );
+}
+
+function listed(files: readonly string[]): string {
+  const head = files.slice(0, 3).join(', ');
+  return files.length > 3 ? `${head} and ${files.length - 3} more` : head;
+}
+
+/**
  * O12 X2 B5 E4': entries palm could not render because their commit is not cached (offline) were
  * not checked, so the check is never ✓: `skipped` with a line naming how many, or the failure
  * with the count beside it.
@@ -113,8 +153,11 @@ export async function lockDisk(c: CheckContext): Promise<CheckRun> {
   const fix = palmCommand('install', [], c.run.state.paths.scope);
   if (offline.length && offline.length === entries.length)
     return skipped('lock-disk', 'generated files', 'cache empty', fix);
-  for (const e of entries)
-    if (!c.drifted.has(lockId(e)) && !c.offline.has(lockId(e))) await entryDisk(c, e, f);
+  for (const e of entries) {
+    if (c.offline.has(lockId(e))) continue;
+    if (c.drifted.has(lockId(e))) await driftedEdits(c, e, f);
+    else await entryDisk(c, e, f);
+  }
   const run = checkRun(
     'lock-disk',
     {
