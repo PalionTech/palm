@@ -184,7 +184,8 @@ async function wholeSource(
       `nothing is installed from ${source}`,
       palmLine('get', ['sources'], state.paths.scope),
     );
-  const what = `${plural(entries.length, 'entry')} from ${name}`;
+  const n = entries.length;
+  const what = `${n} ${n === 1 ? 'entry' : 'entries'} from ${name}`;
   if (!ctx.flags.yes && !ctx.ui.isInteractive)
     throw new PalmError('E_NON_INTERACTIVE', `removing ${what} needs a yes`, 'confirm it', {
       retryWith: '--yes',

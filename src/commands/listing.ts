@@ -50,8 +50,10 @@ function versionOf(c: SourceCheckout): string {
   return c.tree ? `working tree (${shortHash(c.tree)})` : 'working tree';
 }
 
+/** `1 plugin, 15 skills, 1 hook`: plugins first (M5), then the kinds in KINDS order. */
 function countsOf(entities: Entity[]): string {
-  const counts = KINDS.map((k) => [k, entities.filter((e) => e.kind === k).length] as const);
+  const order = ['plugin' as const, ...KINDS.filter((k) => k !== 'plugin')];
+  const counts = order.map((k) => [k, entities.filter((e) => e.kind === k).length] as const);
   const shown = counts.filter(([, n]) => n > 0).map(([k, n]) => `${n} ${pluralize(k, n)}`);
   return shown.length ? shown.join(', ') : 'nothing palm can install';
 }
