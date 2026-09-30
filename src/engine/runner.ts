@@ -11,11 +11,12 @@
  */
 import { scopedPaths, withScopeLock } from '../core/context.js';
 import { PalmError } from '../core/errors.js';
-import type { EngineDeps, ExecUnit, PalmContext, Scope } from '../core/types.js';
+import type { EngineDeps, ExecUnit, LockEntry, PalmContext, Scope } from '../core/types.js';
 import { applyPrepared } from './apply.js';
 import { askForConsent, type Job, type Prepared, prepareJob, type Run } from './jobs.js';
-import { confirmMoves, holdBack, type Move } from './moves.js';
+import { confirmMoves, holdBack, type Move, missingAtMoves } from './moves.js';
 import { refuseConflicts } from './owners.js';
+import { dropWithMove } from './remove.js';
 import { failureOf } from './report.js';
 import { assertScope, openScope, type ScopeState, saveScope } from './scope.js';
 
@@ -128,19 +129,32 @@ export async function prepareRun(
   run: Run,
   jobs: Job[],
   plan: RunPlan = {},
-): Promise<{ prepared: Prepared[]; held: Set<string> }> {
+): Promise<{ prepared: Prepared[]; held: Set<string>; missing: LockEntry[] }> {
   const { prepared, failed } = await prepareAll(run, jobs);
   const { kept, refused } = refuseConflicts(run, prepared, plan.leaving);
   const moves = plan.moves ?? [];
-  if (!plan.confirmed) await confirmMoves(run, moves, kept);
+  const missing = missingAtMoves(run, moves, jobs, plan.leaving);
+  if (!plan.confirmed) await confirmMoves(run, moves, kept, missing);
   await askForConsent(run, kept, plan.previous);
-  return holdBack(run, moves, { prepared: kept, refused, failed });
+  const ready = holdBack(run, moves, { prepared: kept, refused, failed });
+  return { ...ready, missing: missing.filter((e) => !ready.held.has(e.source)) };
+}
+
+/**
+ * The write phase of a prepared run: the entries a moving source no longer has go with the
+ * move (R7'), then every prepared entity is applied.
+ */
+export async function applyRun(
+  run: Run,
+  ready: { prepared: Prepared[]; missing: readonly LockEntry[] },
+): Promise<void> {
+  await dropWithMove(run, ready.missing);
+  await applyAll(run, ready.prepared);
 }
 
 /** The whole pipeline: prepare, then apply. */
 export async function runJobs(run: Run, jobs: Job[], plan: RunPlan = {}): Promise<void> {
-  const { prepared } = await prepareRun(run, jobs, plan);
-  await applyAll(run, prepared);
+  await applyRun(run, await prepareRun(run, jobs, plan));
 }
 
 /**

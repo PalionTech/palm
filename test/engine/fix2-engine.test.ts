@@ -161,3 +161,43 @@ describe('X13 M9 the same entity in both scopes', () => {
     expect(await scopeTwins(w.ctx, state)).toEqual([]);
   });
 });
+
+describe("R7' a ref move lists the entries the new commit lacks", () => {
+  async function moved() {
+    const w = await makeWorld({ targets: ['claude'] });
+    const url = await w.remote('kit', {
+      'v1.0.0': KIT,
+      'v2.0.0': { 'skills/tdd/SKILL.md': 'Test first, always.\n' },
+    });
+    await installFromSource(
+      w.ctx,
+      { source: `${url}#v1.0.0`, names: [{ name: 'tdd' }, { name: 'review' }] },
+      project,
+      w.deps,
+    );
+    const yaml = (await w.manifestText()) ?? '';
+    await w.write('palm.yaml', yaml.replace(/ref: \S+/, 'ref: v2.0.0'));
+    return w;
+  }
+
+  it("R7' the confirmation says would remove; a dry run changes nothing", async () => {
+    const w = await moved();
+    const dry = w.context({ dryRun: true });
+    const plan = await syncScope(dry, project, w.deps);
+    expect(dry.log.text()).toMatch(
+      / {2}- skill review \(not in v2\.0\.0 \([0-9a-f]{7}\); would remove\)/,
+    );
+    expect(plan.failures).toEqual([]);
+    expect(w.exists('.claude/skills/review/SKILL.md')).toBe(true);
+  });
+
+  it("R7' the confirmed move removes the entry from disk, the lock and palm.yaml", async () => {
+    const w = await moved();
+    const r = await syncScope(w.context({ yes: true }), project, w.deps);
+    expect(r.failures).toEqual([]);
+    expect(r.outcomes.find((o) => o.entry.name === 'review')?.status).toBe('removed');
+    expect(w.exists('.claude/skills/review/SKILL.md')).toBe(false);
+    expect((await w.lock()).entries?.map((e) => e.name)).toEqual(['tdd']);
+    expect(await w.manifestText()).not.toContain('review');
+  });
+});

@@ -32,13 +32,12 @@ import { dedupeJobs, manifestJobs } from './entries.js';
 import { manifestMcpJob } from './install-mcp.js';
 import { type Job, type Run, runOf } from './jobs.js';
 import { type Move, moveOf } from './moves.js';
-import { noteRemovals, protectedPaths, sourceRoots, undeploy } from './remove.js';
-import { failureOf, logMark, palmCommand } from './report.js';
+import { noteRemovals, protectedPaths, sourceRoots, undeploy, withoutEdits } from './remove.js';
+import { failureOf, logMark } from './report.js';
 import { lockSourceOf, pinOf, type Resolved, resolveSource, rethrowCancel } from './resolve.js';
-import { applyAll, prepareRun, settle, withLockedScope } from './runner.js';
+import { applyRun, prepareRun, settle, withLockedScope } from './runner.js';
 import { type ScopeState, shownPath } from './scope.js';
 import { refuseLocal } from './targets.js';
-import { editedPaths } from './verify.js';
 
 interface Desired {
   jobs: Job[];
@@ -111,21 +110,6 @@ function goneEntries(run: Run, d: Desired): LockEntry[] {
   return run.state.lock.entries.filter(
     (e) => !want.has(lockId(e)) && !d.missing.has(lockId(e)) && !d.failedSources.has(e.source),
   );
-}
-
-/** The entry without what the person changed (or what palm cannot check): those stay on disk. */
-async function withoutEdits(run: Run, e: LockEntry): Promise<LockEntry> {
-  const edited = run.ctx.flags.force ? [] : await editedPaths(run, e);
-  const keep = new Set(edited ?? [...e.files, ...(e.merged ?? []).map(fragmentKey)]);
-  const cmd = palmCommand('remove', [e.source, e.name], run.state.paths.scope, '--force');
-  for (const p of keep)
-    run.result.warnings.push(
-      edited
-        ? `kept ${p}: you changed it since palm wrote it (${cmd})`
-        : `kept ${p}: palm cannot check it against source ${e.source}`,
-    );
-  const merged = (e.merged ?? []).filter((m) => !keep.has(fragmentKey(m)));
-  return { ...e, files: e.files.filter((f) => !keep.has(f)), merged };
 }
 
 /** In L, not in E: undeploy by the lock (edited files kept) and drop from the lock. */
@@ -288,10 +272,10 @@ export async function syncScope(
       const d = await desired(run);
       const gone = goneEntries(run, d);
       const leaving = new Set(gone.map(lockId));
-      const { prepared } = await prepareRun(run, d.jobs, { moves: d.moves, leaving });
+      const ready = await prepareRun(run, d.jobs, { moves: d.moves, leaving });
       await dropRemoved(run, gone);
       await dropUnapplied(run);
-      await applyAll(run, prepared);
+      await applyRun(run, ready);
       failed = false;
     } finally {
       if (await settle(run, failed)) reportRefs(ctx, state);

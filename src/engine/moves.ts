@@ -7,7 +7,8 @@
  * nothing of it is written, so the lock never points at a commit the disk does not hold.
  */
 import { PalmError } from '../core/errors.js';
-import type { InstallOutcome, LockSource, SourceCheckout } from '../core/types.js';
+import type { InstallOutcome, LockEntry, LockSource, SourceCheckout } from '../core/types.js';
+import { lockId } from '../domain/entity-key.js';
 import type { SourceRef } from '../domain/source.js';
 import { previousStaysActive } from '../exec/trust.js';
 import type { Job, Prepared, Run } from './jobs.js';
@@ -65,21 +66,50 @@ function entryLine(p: Prepared): string {
   return `  ~ ${what} (changes)`;
 }
 
-function printMoves(run: Run, moves: Move[], prepared: Prepared[]): void {
+function jobKey(j: Job): string {
+  return lockId({ kind: j.entity.kind, name: j.entity.name, source: j.source.name });
+}
+
+/**
+ * R7': the lock entries of a moving source that the commit it moves to no longer has (no job
+ * was made for them) and that the run does not remove anyway (`leaving`). They go with the move.
+ */
+export function missingAtMoves(
+  run: Run,
+  moves: readonly Move[],
+  jobs: readonly Job[],
+  leaving: ReadonlySet<string> = new Set(),
+): LockEntry[] {
+  const made = new Set(jobs.map(jobKey));
+  return moves.flatMap((m) =>
+    run.state.lock
+      .entriesOf(m.source)
+      .filter((e) => !made.has(lockId(e)) && !leaving.has(lockId(e))),
+  );
+}
+
+function printMoves(run: Run, moves: Move[], prepared: Prepared[], missing: LockEntry[]): void {
   for (const m of moves) {
     run.ctx.log.info(`source ${m.source}: ${m.from} → ${m.to}`);
     for (const p of prepared) if (p.job.source.name === m.source) run.ctx.log.info(entryLine(p));
+    for (const e of missing)
+      if (e.source === m.source) run.ctx.log.info(`  - ${label(e)} (not in ${m.to}; would remove)`);
   }
 }
 
 /**
- * Shows the moves with a line per entry and asks to apply them: `--yes` applies, a terminal
- * asks (No keeps everything as it is), no terminal is E_NON_INTERACTIVE naming `--yes`. A dry
- * run only shows them.
+ * Shows the moves with a line per entry (R7': `- would remove` for an entry the new commit no
+ * longer has) and asks to apply them: `--yes` applies, a terminal asks (No keeps everything as
+ * it is), no terminal is E_NON_INTERACTIVE naming `--yes`. A dry run only shows them.
  */
-export async function confirmMoves(run: Run, moves: Move[], prepared: Prepared[]): Promise<void> {
+export async function confirmMoves(
+  run: Run,
+  moves: Move[],
+  prepared: Prepared[],
+  missing: LockEntry[] = [],
+): Promise<void> {
   if (!moves.length) return;
-  printMoves(run, moves, prepared);
+  printMoves(run, moves, prepared, missing);
   const { ctx } = run;
   if (ctx.flags.dryRun || ctx.flags.yes) return;
   const what = moves.map((m) => `source ${m.source} to ${m.to}`).join(', ');

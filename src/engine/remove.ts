@@ -186,6 +186,58 @@ export function noteRemovals(run: Run, removed: readonly string[], list = false)
     for (const s of shown) logMark(run.ctx, '-', `would remove ${s}`);
 }
 
+/** The entry without what the person changed (or what palm cannot check): those stay on disk. */
+export async function withoutEdits(run: Run, e: LockEntry): Promise<LockEntry> {
+  const edited = run.ctx.flags.force ? [] : await editedPaths(run, e);
+  const keep = new Set(edited ?? [...e.files, ...(e.merged ?? []).map(fragmentKey)]);
+  const cmd = palmCommand('remove', [e.source, e.name], run.state.paths.scope, '--force');
+  for (const p of keep)
+    run.result.warnings.push(
+      edited
+        ? `kept ${p}: you changed it since palm wrote it (${cmd})`
+        : `kept ${p}: palm cannot check it against source ${e.source}`,
+    );
+  const merged = (e.merged ?? []).filter((m) => !keep.has(fragmentKey(m)));
+  return { ...e, files: e.files.filter((f) => !keep.has(f)), merged };
+}
+
+/** Withdraws the "no longer in source" failures of `entries`: they were removed instead. */
+function withdrawNotFound(run: Run, entries: readonly LockEntry[]): void {
+  const ids = new Set(entries.map((e) => lockId(e).toLowerCase()));
+  const stays = run.result.failures.filter(
+    (f) =>
+      f.code !== 'E_NOT_FOUND' ||
+      f.kind === 'source' ||
+      !ids.has(`${f.kind}:${f.name}@${f.source}`.toLowerCase()),
+  );
+  run.result.failures.splice(0, run.result.failures.length, ...stays);
+}
+
+/**
+ * R7': the entries a moving source's new commit no longer has go with the move (the person saw
+ * them as `- would remove` and confirmed): undeployed with edited files kept, dropped from the
+ * lock and palm.yaml, reported as removed.
+ */
+export async function dropWithMove(run: Run, entries: readonly LockEntry[]): Promise<void> {
+  if (!entries.length) return;
+  const { state, ctx, deps } = run;
+  const protect = protectedPaths(state.lock, entries);
+  const sources = await sourceRoots(state);
+  const views: LockEntry[] = [];
+  for (const e of entries) views.push(await withoutEdits(run, e));
+  const job = { paths: state.paths, entries: views, protect, dryRun: ctx.flags.dryRun, sources };
+  const report = await undeploy(ctx, deps, job);
+  if (!ctx.flags.dryRun) run.touched = true;
+  run.result.failures.push(...report.failures);
+  noteRemovals(run, report.removed);
+  withdrawNotFound(run, entries);
+  for (const e of entries) {
+    state.lock.remove(e);
+    if (!e.via) state.manifest.removeEntry(e.source, e.kind, e.name);
+    run.result.outcomes.push({ entry: e, status: 'removed', notes: [] });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // removeEntities
 // ---------------------------------------------------------------------------

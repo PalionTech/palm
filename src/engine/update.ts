@@ -32,7 +32,7 @@ import { type Move, moveOf, versionLabel } from './moves.js';
 import { noteRemovals, protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failureOf, palmCommand } from './report.js';
 import { lockSourceOf, type Resolved, resolveSource, rethrowCancel } from './resolve.js';
-import { applyAll, prepareRun, settle, withLockedScope } from './runner.js';
+import { applyRun, prepareRun, settle, withLockedScope } from './runner.js';
 import { openScope, type ScopeState } from './scope.js';
 import { describePin, newPreloads, newPrograms, refOnlyReason } from './update-notes.js';
 
@@ -210,8 +210,11 @@ async function planEntries(
   s: SourcePlan,
 ): Promise<Job[]> {
   const m = manifestJobs(run.state, s.target, s.r);
-  plan.failures.push(...m.failures);
-  const kept = new Set(m.missing);
+  // R7': on a move, an entry the new commit no longer has goes with it (a `removed` item).
+  plan.failures.push(
+    ...(s.moved ? m.failures.filter((f) => f.code !== 'E_NOT_FOUND') : m.failures),
+  );
+  const kept = new Set(s.moved ? [] : m.missing);
   for (const job of m.jobs) {
     kept.add(lockId({ kind: job.entity.kind, name: job.entity.name, source: s.target.name }));
     const p = await prepareJob(run, job);
@@ -393,7 +396,7 @@ export async function applyUpdate(
         run,
         gone.filter((e) => !ready.held.has(e.source)),
       );
-      await applyAll(run, ready.prepared);
+      await applyRun(run, ready);
       failed = false;
     } finally {
       await settle(run, failed);
