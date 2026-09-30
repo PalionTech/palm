@@ -1,5 +1,6 @@
 /**
- * Command (prompt template) parsing:
+ * Command (prompt template) parsing. A command installs as a skill (DESIGN §5), so the parser
+ * returns the skill's name and description plus the command itself for the SKILL.md render:
  *  - Claude Code / OpenCode `.md` (description, argument-hint)
  *  - Copilot `.prompt.md`
  *  - Gemini `.toml` (prompt, description)
@@ -8,7 +9,7 @@
 import { basename } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { messageOf, PalmError } from '../core/errors.js';
-import type { CommandDefinition } from '../core/types.js';
+import type { CommandAsSkill } from '../core/types.js';
 import { parseFrontmatter } from '../lib/frontmatter.js';
 import { stemOf } from '../lib/names.js';
 import { withoutUndefined } from '../lib/object.js';
@@ -17,7 +18,13 @@ import { asString, toSlug } from './util.js';
 /** Command file extensions; the file stem is the name without one of them. */
 const COMMAND_EXTS = ['.prompt.md', '.md', '.toml'];
 
-export function parseCommandFile(absPath: string, text: string): CommandDefinition {
+export interface ParsedCommand {
+  name: string;
+  description?: string;
+  command: CommandAsSkill;
+}
+
+export function parseCommandFile(absPath: string, text: string): ParsedCommand {
   const lower = absPath.toLowerCase();
   const name = toSlug(stemOf(absPath, COMMAND_EXTS));
 
@@ -31,11 +38,11 @@ export function parseCommandFile(absPath: string, text: string): CommandDefiniti
         `invalid TOML in command ${basename(absPath)}: ${messageOf(e).split('\n')[0]}`,
       );
     }
+    const body = typeof data.prompt === 'string' ? data.prompt : '';
     return withoutUndefined({
       name,
       description: asString(data.description),
-      body: typeof data.prompt === 'string' ? data.prompt : '',
-      sourceFormat: 'gemini-toml' as const,
+      command: { body, sourceFormat: 'gemini-toml' as const },
     });
   }
 
@@ -45,7 +52,7 @@ export function parseCommandFile(absPath: string, text: string): CommandDefiniti
   const argumentHint = Array.isArray(hintRaw)
     ? `[${hintRaw.map((x) => String(x)).join(', ')}]`
     : asString(hintRaw);
-  let sourceFormat: CommandDefinition['sourceFormat'];
+  let sourceFormat: CommandAsSkill['sourceFormat'];
   if (lower.endsWith('.prompt.md')) sourceFormat = 'prompt-md';
   else if (('agent' in data || 'subtask' in data) && argumentHint === undefined)
     sourceFormat = 'opencode-md';
@@ -53,8 +60,6 @@ export function parseCommandFile(absPath: string, text: string): CommandDefiniti
   return withoutUndefined({
     name,
     description: asString(data.description),
-    argumentHint,
-    body,
-    sourceFormat,
+    command: withoutUndefined({ body, argumentHint, sourceFormat }),
   });
 }

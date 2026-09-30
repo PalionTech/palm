@@ -1,4 +1,4 @@
-/** Which scan rule (DESIGN §5) applies to an origin. */
+/** Which scan rule (DESIGN §5) applies to a source. */
 
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';

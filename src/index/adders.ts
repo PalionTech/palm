@@ -1,6 +1,7 @@
 /**
  * Per-kind adders: parse one file (or skill directory) into an entity and register it. Shared by
- * every scan rule; the rules decide which files to hand in and for which plugin.
+ * every scan rule; the rules decide which files to hand in and for which plugin. Hook sets and
+ * MCP servers, which also get their references resolved, are in exec-adders.ts.
  */
 
 import { basename, join } from 'node:path';
@@ -8,13 +9,11 @@ import { messageOf } from '../core/errors.js';
 import type { AgentDefinition, Entity } from '../core/types.js';
 import { isRecord, withoutUndefined } from '../lib/object.js';
 import { type ParsedAgent, parseAgentFileDetailed } from './agents.js';
-import { parseCommandFile } from './commands.js';
-import { hasHooks, parseHooksJson } from './hooks.js';
+import { type ParsedCommand, parseCommandFile } from './commands.js';
 import { parseInstructionFile } from './instructions.js';
-import { parseMcpJson } from './mcp.js';
 import type { PluginContext, ScanContext } from './scan-context.js';
 import { type ParsedSkill, parseSkillMdDetailed } from './skills.js';
-import { asString, baseOf, dirOf, displayRel, joinRel, toSlug } from './util.js';
+import { asString, baseOf, displayRel, joinRel } from './util.js';
 
 interface Head {
   name: string;
@@ -37,7 +36,7 @@ export function makeEntity(
     description: head.description,
     version: ctx.versionOf(head.version, plugin),
     path: head.path,
-    origin: ctx.alias,
+    source: ctx.sourceName,
     plugin: plugin?.name,
     def,
   });
@@ -124,7 +123,7 @@ function acceptsUndeclaredAgent(rel: string, parsed: ParsedAgent): boolean {
   return parsed.hasFrontmatter && parsed.declaredName !== undefined && def.description !== '';
 }
 
-/** Source format from the origin-relative location (the absolute path may contain `.apm` itself). */
+/** Source format from the source-relative location (the absolute path may contain `.apm` itself). */
 function agentSourceFormat(
   rel: string,
   def: AgentDefinition,
@@ -186,27 +185,39 @@ export async function addAgent(
 // commands and instructions
 // ---------------------------------------------------------------------------
 
-export async function addCommand(
+async function parseCommandAt(ctx: ScanContext, rel: string): Promise<ParsedCommand | undefined> {
+  const text = await ctx.read(rel);
+  if (text === undefined) return undefined;
+  try {
+    const parsed = parseCommandFile(join(ctx.rootAbs, rel), text);
+    if (parsed.command.body.trim() !== '') return parsed;
+    ctx.warnings.push(`skipped ${rel}: empty command`);
+  } catch (e) {
+    ctx.warnings.push(`skipped ${rel}: ${messageOf(e)}`);
+  }
+  return undefined;
+}
+
+/**
+ * A command file (`commands/*.md`, `commands/*.toml`, `prompts/*.prompt.md`) indexed as a skill
+ * named after the file stem (DESIGN §5); a real skill with the same name wins.
+ */
+export async function addCommandAsSkill(
   ctx: ScanContext,
   rel: string,
   plugin: PluginContext | undefined,
 ): Promise<Entity | undefined> {
-  ctx.registry.claim('command', rel);
-  const text = await ctx.read(rel);
-  if (text === undefined) return undefined;
-  let def: ReturnType<typeof parseCommandFile>;
-  try {
-    def = parseCommandFile(join(ctx.rootAbs, rel), text);
-  } catch (e) {
-    ctx.warnings.push(`skipped ${rel}: ${messageOf(e)}`);
-    return undefined;
-  }
-  if (def.body.trim() === '') {
-    ctx.warnings.push(`skipped ${rel}: empty command`);
-    return undefined;
-  }
-  const head = { name: def.name, description: def.description, path: rel };
-  return ctx.registry.add(makeEntity(ctx, head, plugin, { kind: 'command', command: def }));
+  ctx.registry.claim('skill', rel);
+  const parsed = await parseCommandAt(ctx, rel);
+  if (!parsed) return undefined;
+  const { name, description, command } = parsed;
+  const skill = { name, description: description ?? '', fromCommand: command };
+  const entity = makeEntity(ctx, { name, description, path: rel }, plugin, {
+    kind: 'skill',
+    skill,
+  });
+  entity.notes = [`from command ${baseOf(rel)}`];
+  return ctx.registry.add(entity);
 }
 
 export async function addInstruction(
@@ -224,90 +235,4 @@ export async function addInstruction(
   }
   const head = { name: def.name, description: def.description, path: rel };
   return ctx.registry.add(makeEntity(ctx, head, plugin, { kind: 'instruction', instruction: def }));
-}
-
-// ---------------------------------------------------------------------------
-// MCP servers
-// ---------------------------------------------------------------------------
-
-/** One entity per server in an MCP JSON document (`pathRel`: the file it came from). */
-export function addMcpConfigs(
-  ctx: ScanContext,
-  json: unknown,
-  pathRel: string,
-  plugin: PluginContext | undefined,
-): Entity[] {
-  const version = ctx.versionOf(undefined, plugin);
-  return parseMcpJson(json).map((cfg) => {
-    const mcp = {
-      ...cfg,
-      source: withoutUndefined({ type: 'origin' as const, ref: ctx.alias, version }),
-    };
-    const head = { name: cfg.name, path: pathRel };
-    return ctx.registry.add(makeEntity(ctx, head, plugin, { kind: 'mcp', mcp }));
-  });
-}
-
-/** `declared`: named by a manifest or descriptor (an empty file is worth a warning). */
-export async function addMcpFile(
-  ctx: ScanContext,
-  rel: string,
-  plugin: PluginContext | undefined,
-  declared: boolean,
-): Promise<Entity[]> {
-  ctx.registry.claim('mcp', rel);
-  const { json, error } = await ctx.readJson(rel);
-  if (error) {
-    ctx.warnings.push(`skipped ${rel}: ${error}`);
-    return [];
-  }
-  const found = addMcpConfigs(ctx, json, rel, plugin);
-  if (found.length === 0 && declared) ctx.warnings.push(`${rel}: no MCP servers found`);
-  return found;
-}
-
-// ---------------------------------------------------------------------------
-// hooks
-// ---------------------------------------------------------------------------
-
-/** Hook set name + plugin root for a standalone hooks file. */
-function hookIdentity(ctx: ScanContext, rel: string): { name: string; pluginRootRel: string } {
-  const dir = dirOf(rel);
-  const file = baseOf(rel);
-  if (file === 'hooks.json' && baseOf(dir) === 'hooks') {
-    const owner = dirOf(dir);
-    return {
-      name: toSlug(owner === '' ? undefined : baseOf(owner), ctx.alias),
-      pluginRootRel: displayRel(owner),
-    };
-  }
-  if (file === 'hooks.json' && baseOf(dirOf(dir)) === 'hooks') {
-    return { name: toSlug(baseOf(dir), ctx.alias), pluginRootRel: dir };
-  }
-  const stem = file.replace(/\.json$/i, '');
-  return {
-    name: toSlug(stem === 'hooks' ? baseOf(dir) : stem, ctx.alias),
-    pluginRootRel: displayRel(dir),
-  };
-}
-
-export async function addHookFile(
-  ctx: ScanContext,
-  rel: string,
-  plugin: PluginContext | undefined,
-  nameOverride?: string,
-): Promise<Entity | undefined> {
-  ctx.registry.claim('hook', rel);
-  const { json, error } = await ctx.readJson(rel);
-  if (error) {
-    ctx.warnings.push(`skipped ${rel}: ${error}`);
-    return undefined;
-  }
-  if (!hasHooks(json)) return undefined;
-  const id = hookIdentity(ctx, rel);
-  const rootRel = plugin ? displayRel(plugin.rootRel) : id.pluginRootRel;
-  const set = parseHooksJson(nameOverride ?? plugin?.name ?? id.name, json, rootRel);
-  if (set.dialect === 'unknown') ctx.warnings.push(`${rel}: unrecognised hooks dialect`);
-  const head = { name: set.name, path: rel };
-  return ctx.registry.add(makeEntity(ctx, head, plugin, { kind: 'hook', hooks: set }));
 }

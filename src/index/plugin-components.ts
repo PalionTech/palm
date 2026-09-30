@@ -6,7 +6,8 @@
 
 import type { Entity } from '../core/types.js';
 import { isDocFile } from '../domain/ignore.js';
-import { addMcpConfigs, addMcpFile, makeEntity, parseSkill } from './adders.js';
+import { parseSkill } from './adders.js';
+import { addMcpConfigs, addMcpFile, hookEntity } from './exec-adders.js';
 import { byDepthThenPath } from './files.js';
 import {
   detectHookDialect,
@@ -82,7 +83,7 @@ async function resolveGlobDecl(
   return out;
 }
 
-/** Plugin-relative first, then origin-relative; agents also try the `.agent.md` spelling. */
+/** Plugin-relative first, then source-relative; agents also try the `.agent.md` spelling. */
 function declCandidates(rootRel: string, v: string, kind: ResolveKind): string[] {
   const candidates = [joinRel(rootRel, v)];
   if (rootRel !== '') candidates.push(normRel(v));
@@ -108,7 +109,7 @@ async function resolvePathDecl(
   return undefined;
 }
 
-/** Resolve declared file/dir/glob paths of a plugin to origin-relative files. */
+/** Resolve declared file/dir/glob paths of a plugin to source-relative files. */
 export async function resolveFiles(
   scope: PluginScope,
   values: string[],
@@ -122,7 +123,7 @@ export async function resolveFiles(
     }
     if (escapesRoot(joinRel(scope.rootRel, v))) {
       scope.ctx.warnings.push(
-        `plugin ${scope.name}: path "${v}" points outside the origin; ignored`,
+        `plugin ${scope.name}: path "${v}" points outside the source; ignored`,
       );
       continue;
     }
@@ -233,7 +234,7 @@ export async function pluginSkillDirs(
 // hooks and MCP servers
 // ---------------------------------------------------------------------------
 
-/** A declared hooks/MCP file, plugin-relative first, then origin-relative. */
+/** A declared hooks/MCP file, plugin-relative first, then source-relative. */
 async function findDeclaredFile(scope: PluginScope, p: string): Promise<string | undefined> {
   const candidates = [joinRel(scope.rootRel, p)];
   if (scope.rootRel !== '') candidates.push(normRel(p));
@@ -310,11 +311,11 @@ export async function addPluginHooks(
   const first = usable[0];
   if (!first) return undefined;
   const { raw, merged } = mergeHookSources(scope, usable);
-  const name = plugin.name ?? toSlug(baseOf(rootRel), ctx.alias);
+  const name = plugin.name ?? toSlug(baseOf(rootRel), ctx.fallbackName);
   const set = parseHooksJson(name, raw, displayRel(rootRel));
   if (set.dialect === 'unknown') ctx.warnings.push(`${first.path}: unrecognised hooks dialect`);
-  const head = { name, path: first.path };
-  const entity = makeEntity(ctx, head, plugin, { kind: 'hook', hooks: set });
+  const input = { path: first.path, files: merged, plugin, relativeToHooks: false };
+  const entity = hookEntity(ctx, set, input);
   if (merged.length > 1) ctx.extraSources.set(entity, merged.slice(1));
   return ctx.registry.add(entity);
 }

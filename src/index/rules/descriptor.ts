@@ -1,17 +1,11 @@
 /**
- * Rule 1 (DESIGN §5): a layout descriptor on the origin replaces detection. Its globs are matched
+ * Rule 1 (DESIGN §5): a layout descriptor on the source replaces detection. Its globs are matched
  * against the file index (walked with the descriptor's own ignore rules), not the disk again.
  */
 
 import type { LayoutDescriptor } from '../../core/types.js';
-import {
-  addAgent,
-  addCommand,
-  addHookFile,
-  addInstruction,
-  addMcpFile,
-  addSkill,
-} from '../adders.js';
+import { addAgent, addCommandAsSkill, addInstruction, addSkill } from '../adders.js';
+import { addHookFile, addMcpFile } from '../exec-adders.js';
 import { byDepthThenPath } from '../files.js';
 import { globIndex } from '../glob.js';
 import { minimalIgnoreGlobs } from '../ignore.js';
@@ -60,7 +54,7 @@ export async function scanDescriptor(ctx: ScanContext, layout: LayoutDescriptor)
   for (const d of await layoutSkillDirs(ctx, layout)) await addSkill(ctx, d);
   const files = (v: Globs) => layoutFiles(ctx, layout, v);
   for (const f of await files(layout.agents)) await addAgent(ctx, f, undefined, true);
-  for (const f of await files(layout.commands)) await addCommand(ctx, f, undefined);
+  for (const f of await files(layout.commands)) await addCommandAsSkill(ctx, f, undefined);
   for (const f of await files(layout.instructions)) await addInstruction(ctx, f, undefined);
   for (const f of await files(layout.hooks)) await addHookFile(ctx, f, undefined);
   for (const f of await files(layout.mcp)) await addMcpFile(ctx, f, undefined, true);

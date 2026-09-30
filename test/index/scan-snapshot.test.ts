@@ -1,14 +1,19 @@
 /**
- * Locks the complete `scanOrigin` output (entity order, every field, warnings, detected rule) of
- * every fixture origin under test/fixtures. A scanner refactor must leave these snapshots
+ * Locks the complete `scanSource` output (entity order, every field, warnings, detected rule) of
+ * every fixture source under test/fixtures. A scanner refactor must leave these snapshots
  * untouched; a deliberate behaviour change updates them with `vitest -u` in the same commit.
  */
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { LayoutDescriptor, ScanResult } from '../../src/core/types.js';
-import { scanOrigin } from '../../src/index/scan.js';
+import { scanSource } from './helpers.js';
+
+vi.mock('../../src/domain/ignore.js', async (original) => ({
+  ...(await original<object>()),
+  ...(await import('./contract-fakes.js')).domainIgnore,
+}));
 
 const FIXTURES = fileURLToPath(new URL('../fixtures/', import.meta.url));
 
@@ -37,11 +42,11 @@ function portable(r: ScanResult): unknown {
 
 async function scan(dir: string, layout?: LayoutDescriptor): Promise<unknown> {
   const root = join(FIXTURES, dir);
-  const alias = dir.replace(/-like$/, '');
-  return portable(await scanOrigin(root, { alias, type: 'local', path: root, layout }));
+  const name = dir.replace(/-like$/, '');
+  return portable(await scanSource(root, { name, type: 'local', path: root, layout }));
 }
 
-describe('scanOrigin snapshot per fixture', () => {
+describe('scanSource snapshot per fixture', () => {
   it.each(DIRS)('%s', async (dir) => {
     expect(await scan(dir)).toMatchSnapshot();
   });
