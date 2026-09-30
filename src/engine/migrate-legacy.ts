@@ -8,6 +8,7 @@
  */
 import { relative, resolve } from 'node:path';
 import type {
+  InstallFailure,
   Kind,
   LegacyConfig,
   LegacyLockEntry,
@@ -22,6 +23,7 @@ import type {
   TargetId,
 } from '../core/types.js';
 import { toPosix } from '../lib/fs.js';
+import { isValidAlias, slugify } from '../lib/names.js';
 import { isRecord } from '../lib/object.js';
 import { replacePlaceholders } from '../lib/placeholders.js';
 import { MANIFEST_SOURCE } from './sources.js';
@@ -37,11 +39,13 @@ export interface LegacyInput {
   palmHome?: string;
 }
 
-interface MigratedSource {
+export interface MigratedSource {
   source: Source;
   lock: LockSource;
   fromConfig: boolean;
   entries: number;
+  /** The 0.1 origin it came from (T6: hints name it while palm.yaml is still 0.1). */
+  origin: LegacyOriginSpec;
 }
 
 export interface LegacyItem {
@@ -58,6 +62,8 @@ export interface Migration {
   mcp: Array<{ name: string; entry: McpManifestEntry }>;
   legacy: LegacyItem[];
   warnings: string[];
+  /** S11: 0.1 entries the migration could not place, one each (the migration exits 1). */
+  dropped: InstallFailure[];
 }
 
 const SECTIONS: Record<string, Kind> = {
@@ -164,20 +170,22 @@ function gitFields(
   if (sha) lock.sha = sha;
 }
 
+/** The source of `entries`; a split-off pin (T4) keeps no alias, which stays with the main one. */
 function sourceOf(
   input: LegacyInput,
   key: string,
   origin: Origin,
-  entries: LegacyLockEntry[],
+  part: { entries: LegacyLockEntry[]; pinned: boolean },
 ): MigratedSource {
   const { spec } = origin;
   const src: Source = { name: key, type: spec.type };
   const lock: LockSource = {};
   if (spec.type === 'local' && spec.path) src.path = localDir(input, spec);
-  else gitFields(spec, entries, src, lock);
+  else gitFields(spec, part.entries, src, lock);
   if (spec.layout) src.layout = lock.layout = spec.layout;
-  if (spec.alias !== key && /^[a-z0-9][a-z0-9._-]*$/.test(spec.alias)) src.alias = spec.alias;
-  return { source: src, lock, fromConfig: origin.fromConfig, entries: entries.length };
+  if (!part.pinned && spec.alias !== key && isValidAlias(spec.alias)) src.alias = spec.alias;
+  const entries = part.entries.length;
+  return { source: src, lock, fromConfig: origin.fromConfig, entries, origin: spec };
 }
 
 /** The origin of a lock entry: the declared spec, else one rebuilt from the entry's url. */
@@ -269,9 +277,14 @@ function collectMcp(input: LegacyInput, origins: Map<string, Origin>, m: Migrati
       m.mcp.push({ name: e.name, entry: mcpEntryOf(raw) });
       m.legacy.push({ entry: e, source: MANIFEST_SOURCE, kind: 'mcp' });
     } else
-      m.warnings.push(
-        `mcp ${e.name}: palm found no config for it; declare it again: palm install mcp ${e.name} --url <url>`,
-      );
+      m.dropped.push({
+        kind: 'mcp',
+        name: e.name,
+        source: MANIFEST_SOURCE,
+        code: 'E_SOURCE',
+        message: `mcp ${e.name}: palm found no config for it; not migrated`,
+        hint: `palm install mcp ${e.name} --url <url>`,
+      });
     inline.delete(e.name.toLowerCase());
   }
   for (const [, raw] of inline) m.mcp.push({ name: raw.name as string, entry: mcpEntryOf(raw) });
@@ -373,33 +386,104 @@ function groups(
   return out;
 }
 
-function pinWarnings(key: string, group: LegacyLockEntry[], deps: Dep[], m: Migration): void {
-  const { top, others } = mostCommon(group.map((e) => refOf(deps, e)));
-  if (!top || !others.length) return;
-  for (const e of group)
-    if (others.includes(refOf(deps, e) ?? ''))
-      m.warnings.push(
-        `${e.name} was pinned to ${refOf(deps, e)}; ${key} now tracks ${top}; pin the source or split it`,
-      );
+interface GroupContext {
+  input: LegacyInput;
+  origins: Map<string, Origin>;
+  deps: Dep[];
+  taken: Set<string>;
+  m: Migration;
 }
 
-function addGroup(
-  ctx: {
-    input: LegacyInput;
-    origins: Map<string, Origin>;
-    deps: Dep[];
-    taken: Set<string>;
-    m: Migration;
-  },
-  group: LegacyLockEntry[],
-): void {
-  const { input, m } = ctx;
+/** One ref of an origin and the entries 0.1 installed at it (a plugin's members at the plugin's). */
+interface RefPart {
+  ref?: string;
+  entries: LegacyLockEntry[];
+}
+
+/** The ref an entry follows: its own, or its plugin's for a member. */
+function followedRef(e: LegacyLockEntry, group: LegacyLockEntry[]): string | undefined {
+  if (!e.via?.startsWith('plugin:')) return e.ref;
+  const plugin = group.find((x) => x.kind === 'plugin' && `plugin:${x.name}` === e.via);
+  return plugin ? plugin.ref : e.ref;
+}
+
+/**
+ * T4: the entries of a git origin by the ref they were installed at, the most common ref first.
+ * A local origin, or one ref for all, is one part.
+ */
+function refParts(spec: LegacyOriginSpec, group: LegacyLockEntry[]): RefPart[] {
+  const { top, others } = mostCommon(group.map((e) => followedRef(e, group)));
+  if (spec.type === 'local' || !others.length)
+    return [{ ...(top ? { ref: top } : {}), entries: group }];
+  const at = (ref: string | undefined) => group.filter((e) => followedRef(e, group) === ref);
+  const main = group.filter((e) => !others.includes(followedRef(e, group) ?? ''));
+  return [
+    { ...(top ? { ref: top } : {}), entries: main },
+    ...others.map((ref) => ({ ref, entries: at(ref) })),
+  ];
+}
+
+/** The repository's own name, for a split-off source's key (`kitcn` of `get-convex/kitcn`). */
+function baseName(spec: LegacyOriginSpec, key: string): string {
+  const alias = spec.alias.toLowerCase();
+  if (isValidAlias(alias)) return alias;
+  const repo = slugify(key.split('/').pop() ?? key);
+  return repo || 'source';
+}
+
+/**
+ * T4: the key of a source split off for another ref, as `--as` names one: `<name>-<short sha>`
+ * (the ref itself when 0.1 recorded no commit), unique in palm.yaml.
+ */
+function pinnedKey(ctx: GroupContext, spec: LegacyOriginSpec, part: RefPart, key: string): string {
+  const sha = mostCommon(part.entries.map((e) => e.sha)).top;
+  const tail = sha ? sha.slice(0, 7) : slugify(part.ref ?? '') || 'pinned';
+  const base = `${baseName(spec, key)}-${tail}`;
+  let name = base;
+  for (let n = 2; ctx.taken.has(name.toLowerCase()); n++) name = `${base}-${n}`;
+  ctx.taken.add(name.toLowerCase());
+  return name;
+}
+
+/** T4: what the split says, once per split-off source. */
+function pinnedLine(part: RefPart, name: string, main: { key: string; ref?: string }): string {
+  const direct = part.entries.filter((e) => !e.via?.startsWith('plugin:'));
+  const names = direct.map((e) => `${kindOf(e.kind)} ${e.name}`).join(', ');
+  const verb = direct.length === 1 ? 'was' : 'were';
+  const them = direct.length === 1 ? 'it' : 'them';
+  const tracks = main.ref ? `${main.key} tracks ${main.ref}` : `${main.key} tracks its default ref`;
+  return `${names} ${verb} pinned to ${part.ref}; palm.yaml declares source ${name} for ${them} at that ref (${tracks}), as --as ${name} would`;
+}
+
+/** S11: every entry of an alias palm cannot find again, as a failure naming it. */
+function unplaced(m: Migration, group: LegacyLockEntry[]): void {
   const first = group[0] as LegacyLockEntry;
-  const origin = originOf(ctx.origins, first);
+  for (const e of group)
+    m.dropped.push({
+      kind: kindOf(e.kind),
+      name: e.name,
+      source: e.origin,
+      code: 'E_SOURCE',
+      message: `${kindOf(e.kind)} ${e.name}: the 0.1 alias ${first.origin} has no url in palm.lock.yaml or ~/.palm/config.yaml; not migrated`,
+      hint: `palm install <owner/repo> ${e.name}`,
+    });
+}
+
+/** The entries of one part under `key`: every one in the lock record, the direct ones in palm.yaml. */
+function addEntries(m: Migration, key: string, part: RefPart, group: LegacyLockEntry[]): void {
+  for (const e of part.entries) {
+    const via = e.via?.startsWith('plugin:') ? e.via : undefined;
+    m.legacy.push({ entry: e, source: key, kind: kindOf(e.kind), ...(via ? { via } : {}) });
+    if (!via)
+      m.entries.push({ source: key, kind: kindOf(e.kind), entry: entryOf(e, group, m.targets) });
+  }
+}
+
+function addGroup(ctx: GroupContext, group: LegacyLockEntry[]): void {
+  const { input, m } = ctx;
+  const origin = originOf(ctx.origins, group[0] as LegacyLockEntry);
   if (!origin) {
-    m.warnings.push(
-      `the 0.1 alias ${first.origin} has no url in palm.lock.yaml or ~/.palm/config.yaml; declare its repository again: palm install <owner/repo> ${first.name}`,
-    );
+    unplaced(m, group);
     return;
   }
   const key = keyOf(input, origin.spec, ctx.taken);
@@ -408,19 +492,57 @@ function addGroup(
     ...e,
     ...(refOf(ctx.deps, e) ? { ref: refOf(ctx.deps, e) } : {}),
   }));
-  m.sources.push(sourceOf(input, key, origin, withRefs));
-  pinWarnings(key, group, ctx.deps, m);
-  for (const e of group) {
-    const via = e.via?.startsWith('plugin:') ? e.via : undefined;
-    m.legacy.push({ entry: e, source: key, kind: kindOf(e.kind), ...(via ? { via } : {}) });
-    if (!via)
-      m.entries.push({ source: key, kind: kindOf(e.kind), entry: entryOf(e, group, m.targets) });
+  const [main, ...pins] = refParts(origin.spec, withRefs) as [RefPart, ...RefPart[]];
+  m.sources.push(sourceOf(input, key, origin, { entries: main.entries, pinned: false }));
+  addEntries(m, key, main, withRefs);
+  for (const part of pins) {
+    const name = pinnedKey(ctx, origin.spec, part, key);
+    m.sources.push(sourceOf(input, name, origin, { entries: part.entries, pinned: true }));
+    m.warnings.push(pinnedLine(part, name, { key, ...(main.ref ? { ref: main.ref } : {}) }));
+    addEntries(m, name, part, withRefs);
   }
+}
+
+/**
+ * R5': the aliases in the order the 0.1 palm.yaml names them (its `origins:` list and its
+ * `name@alias` entries, as the file has them), so the 0.2 sources keep that order and the
+ * comments above them stay where they were.
+ */
+function mentionOrder(m: LegacyManifest): string[] {
+  const out: string[] = [];
+  for (const [key, list] of Object.entries(m as Record<string, unknown>))
+    for (const alias of Array.isArray(list) ? aliasesIn(key, list) : []) {
+      const a = alias?.toLowerCase();
+      if (a && !out.includes(a)) out.push(a);
+    }
+  return out;
+}
+
+/** The aliases one top-level list of the 0.1 palm.yaml names, in its order. */
+function aliasesIn(key: string, list: unknown[]): Array<string | undefined> {
+  if (key === 'origins') return list.map(originAlias);
+  return SECTIONS[key] ? list.map((raw) => parseDep(raw, 'skill')?.origin) : [];
+}
+
+/** The alias of an `origins:` item (a spec, or the alias alone). */
+function originAlias(o: unknown): string | undefined {
+  if (typeof o === 'string') return o;
+  return isRecord(o) && typeof o.alias === 'string' ? o.alias : undefined;
+}
+
+/** The groups in the 0.1 palm.yaml's order; aliases it never names follow in lock order. */
+function ordered(input: LegacyInput, byOrigin: Map<string, LegacyLockEntry[]>) {
+  const order = mentionOrder(input.manifest);
+  const rank = (alias: string) => {
+    const i = order.indexOf(alias);
+    return i < 0 ? order.length : i;
+  };
+  return [...byOrigin].sort((a, b) => rank(a[0]) - rank(b[0])).map(([, group]) => group);
 }
 
 /** The whole conversion: sources, entries, hand-declared servers, targets and warnings. */
 export function convertLegacy(input: LegacyInput): Migration {
-  const m: Migration = { sources: [], entries: [], mcp: [], legacy: [], warnings: [] };
+  const m: Migration = { sources: [], entries: [], mcp: [], legacy: [], warnings: [], dropped: [] };
   const origins = originMap(input);
   const deps = manifestDeps(input.manifest);
   collectMcp(input, origins, m);
@@ -429,6 +551,6 @@ export function convertLegacy(input: LegacyInput): Migration {
   const targets = scopeTargets(input, direct, m);
   if (targets) m.targets = targets;
   const ctx = { input, origins, deps, taken: new Set<string>(), m };
-  for (const group of byOrigin.values()) addGroup(ctx, group);
+  for (const group of ordered(input, byOrigin)) addGroup(ctx, group);
   return m;
 }
