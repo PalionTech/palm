@@ -89,7 +89,8 @@ palm merges its entry into the file and keeps your other servers.
 
 Add `-g` to any of these commands, and palm writes to the harness home files, such as `~/.claude.json` or `~/.codex/config.toml`, and declares the server in `~/.palm/palm.yaml`.
 The global scope writes environment references too.
-A literal secret is allowed there only with `--secrets literal` and only when the file's real path lies outside every git worktree, so it never lands in a dotfiles repository.
+A literal secret needs `--secrets literal` there.
+palm writes it only when the file's real path lies outside every git worktree, so it never lands in a dotfiles repository.
 
 ## Next steps
 

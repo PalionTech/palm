@@ -34,7 +34,9 @@ palm does not rank, scan for intent or sandbox what a source contains.
 
 ## Programs need a yes
 
-Before palm writes a hook or a stdio MCP server, it shows the source, the commit and its date, every command as the harness will run it, the files it lands in, and every script with its mode, size and hash.
+Before palm writes a hook or a stdio MCP server, it shows the source, the commit and its date.
+It shows every command as the harness will run it and the files it lands in.
+It lists every script with its mode, size and hash.
 
 - The default answer is no. Enter declines.
 - `--yes` never consents. It covers plan confirmations only.
@@ -47,7 +49,8 @@ Before palm writes a hook or a stdio MCP server, it shows the source, the commit
 ## Scripts are committed
 
 palm copies what a hook runs into `.palm/assets/<source>/<entity>/`, and you commit it.
-A reviewer reads the script in the same pull request as the hook command, and a clone without palm never runs a command that points at a missing file.
+A reviewer reads the script in the same pull request as the hook command.
+A clone without palm never runs a command that points at a missing file.
 palm does not mark the folder as generated for GitHub's diff view, because reviewers should read it.
 
 ## What palm refuses

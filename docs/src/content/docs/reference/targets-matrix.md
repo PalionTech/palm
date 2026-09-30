@@ -79,7 +79,8 @@ A root `AGENTS.md` or `GEMINI.md` whose managed blocks pass 24 KiB makes `palm c
 | `opencode` | skipped: OpenCode hooks are JavaScript plugins | skipped |
 
 Gemini CLI has its own event names and counts timeouts in milliseconds.
-palm 0.3 ships a table of documented one-to-one event and matcher equivalents, each row tagged with the harness version it was checked against, and skips anything without a row, with a note.
+palm 0.3 ships a table of documented one-to-one event and matcher equivalents.
+Each row names the harness version it was checked against, and anything without a row is skipped with a note.
 
 ## Hook scripts
 
