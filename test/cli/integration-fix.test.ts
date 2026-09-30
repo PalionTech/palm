@@ -354,7 +354,7 @@ describe('migrate guards', () => {
 
 describe('migrate and the files 0.1 copied', () => {
   it('a file 0.1 copied into a skill folder that 0.2 does not write there goes when it matches the source', async () => {
-    const tdd = {
+    const tdd: Files = {
       ...skill('tdd'),
       'skills/tdd/agents/openai.yaml': 'interface: {}\n',
     };
