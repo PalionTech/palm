@@ -1,349 +1,187 @@
-import { getIndex } from '../core/cache.js';
-import { messageOf, PalmError } from '../core/errors.js';
+/**
+ * Read-only questions about a scope: what is installed (`palm get`), one entity in detail
+ * (`palm describe`), and which entry wrote a path.
+ */
+import { homedir } from 'node:os';
+import { resolve } from 'node:path';
+import { PalmError } from '../core/errors.js';
 import type {
+  EngineDeps,
   Entity,
-  EntityRef,
+  EntityRefSpec,
   Kind,
   LockEntry,
-  OriginIndex,
-  OriginSpec,
+  LockExec,
+  LockSource,
   PalmContext,
   Scope,
+  TargetId,
 } from '../core/types.js';
-import { DepRef } from '../domain/dep-ref.js';
-import { Lock } from '../domain/lock.js';
-import { Origin } from '../domain/origin.js';
-import { ScopePaths } from '../domain/scope-paths.js';
-import { type EngineDeps, resolveEngineDeps } from './deps.js';
+import { sameName } from '../domain/entity-ref.js';
+import { findPlaceholders, isRuntimeVar } from '../lib/placeholders.js';
+import { resolveEngineDeps } from './deps.js';
+import { runOf } from './jobs.js';
+import type { RenderOutput } from './render.js';
+import { palmCommand } from './report.js';
+import { openScope, type ScopeState } from './scope.js';
+import { renderLocked } from './verify.js';
 
-// ---------------------------------------------------------------------------
-// Shared helpers (also used by install/update)
-// ---------------------------------------------------------------------------
-
-export interface SourcedIndex {
-  spec: OriginSpec;
-  index: OriginIndex;
-}
-
-/** Where a candidate entity lives. Absent `index` = synthesized (registry / ad hoc MCP). */
-export interface CandidateSource {
-  spec?: OriginSpec;
-  index?: OriginIndex;
-  /** Absolute origin root on disk. */
-  root?: string;
-  url?: string;
-  ref?: string;
-  sha?: string;
-}
-
-export interface Candidate {
-  entity: Entity;
-  source: CandidateSource;
-}
-
-/** Memoizes origin indexes for the duration of one engine operation. */
-export class IndexSession {
-  private readonly one = new Map<string, Promise<SourcedIndex>>();
-  private allP?: Promise<SourcedIndex[]>;
-
-  constructor(
-    private readonly ctx: PalmContext,
-    private readonly scan: EngineDeps['scan'],
-    private readonly refresh = false,
-  ) {}
-
-  get(spec: OriginSpec): Promise<SourcedIndex> {
-    const key = `${spec.alias}\0${new Origin(spec).id}\0${spec.ref ?? ''}`;
-    let p = this.one.get(key);
-    if (!p) {
-      p = getIndex(this.ctx, spec, { refresh: this.refresh, scan: this.scan }).then((index) => ({
-        spec,
-        index,
-      }));
-      this.one.set(key, p);
-    }
-    return p;
-  }
-
-  /** A registered origin by alias; throws E_ORIGIN when unknown. */
-  byAlias(alias: string, ref?: string): Promise<SourcedIndex> {
-    const spec = this.ctx.origins.byAlias(alias)?.spec;
-    if (!spec) {
-      const known = this.ctx.origins.specs().map((o) => o.alias);
-      throw new PalmError(
-        'E_ORIGIN',
-        `Unknown origin "${alias}"`,
-        known.length
-          ? `Known origins: ${known.join(', ')}. Add one: palm install origin <owner/repo>`
-          : 'Add one: palm install origin <owner/repo>',
-      );
-    }
-    return this.get(ref ? { ...spec, ref } : spec);
-  }
-
-  all(): Promise<SourcedIndex[]> {
-    this.allP ??= Promise.all(
-      this.ctx.origins.specs().map((o) =>
-        this.get(o).catch((e: unknown) => {
-          this.ctx.log.warn(`Skipping origin "${o.alias}": ${messageOf(e)}`);
-          return undefined;
-        }),
-      ),
-    ).then((r) => r.filter((x): x is SourcedIndex => !!x));
-    return this.allP;
-  }
-}
-
-function sourceOf(si: SourcedIndex): CandidateSource {
-  const s: CandidateSource = { spec: si.spec, index: si.index, root: si.index.root };
-  if (si.spec.type === 'git' && si.spec.url) s.url = si.spec.url;
-  if (si.index.ref) s.ref = si.index.ref;
-  if (si.index.sha) s.sha = si.index.sha;
-  return s;
-}
-
-export function candidatesIn(
-  pool: SourcedIndex[],
-  kind: Kind | undefined,
-  name: string,
-): Candidate[] {
-  const lower = name.toLowerCase();
-  const out: Candidate[] = [];
-  for (const si of pool) {
-    for (const e of si.index.entities) {
-      if ((kind === undefined || e.kind === kind) && e.name.toLowerCase() === lower)
-        out.push({ entity: e, source: sourceOf(si) });
-    }
-  }
-  return out;
-}
-
-function levenshtein(a: string, b: string): number {
-  if (a === b) return 0;
-  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    let diag = prev[0] ?? 0;
-    prev[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const tmp = prev[j] ?? 0;
-      prev[j] = Math.min(tmp + 1, (prev[j - 1] ?? 0) + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
-      diag = tmp;
-    }
-  }
-  return prev[b.length] ?? 0;
-}
-
-/** How close `name` is to the query `q` (lower-cased): edit distance, 0–1 for substrings; undefined when far. */
-function closeness(q: string, name: string): number | undefined {
-  const n = name.toLowerCase();
-  const d = levenshtein(q, n);
-  const sub = n.includes(q) || q.includes(n);
-  if (sub) return Math.min(d, 1);
-  return d <= 3 ? d : undefined;
-}
-
-/** Up to `limit` names close to `name` (edit distance ≤ 3 or substring). */
-export function suggestNames(
-  pool: SourcedIndex[],
-  kind: Kind | undefined,
-  name: string,
-  limit = 5,
-): string[] {
-  const q = name.toLowerCase();
-  const scored = new Map<string, number>();
-  const entities = pool.flatMap((si) => si.index.entities);
-  for (const e of entities) {
-    const score = kind === undefined || e.kind === kind ? closeness(q, e.name) : undefined;
-    const label = `${e.name}@${e.origin}`;
-    if (score !== undefined && (scored.get(label) ?? Number.POSITIVE_INFINITY) > score)
-      scored.set(label, score);
-  }
-  return [...scored.entries()]
-    .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
-    .slice(0, limit)
-    .map(([l]) => l);
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-export async function listInstalled(
-  ctx: PalmContext,
-  scope: Scope,
-  kind?: Kind,
-): Promise<LockEntry[]> {
-  const { entries } = await Lock.load(ScopePaths.of(ctx, scope).lockFile);
-  return kind ? entries.filter((e) => e.kind === kind) : entries;
-}
-
-/** What a user names on the command line: kind (optional), name, origin (optional). */
-export interface EntityQuery {
-  kind?: Kind | undefined;
-  name: string;
-  origin?: string | undefined;
-}
-
-/** E_NOT_FOUND for a query that names nothing installed in the scope, with the command that lists what is. */
-export function notInstalled(q: EntityQuery, scope: Scope): PalmError {
-  const what = q.kind ? `${q.kind} "${q.name}"` : `"${q.name}"`;
-  const from = q.origin ? ` from ${q.origin}` : '';
-  const where = scope === 'global' ? 'globally' : 'in this project';
-  const list = `palm get${q.kind ? ` ${q.kind}s` : ''}${scope === 'global' ? ' -g' : ''}`;
-  return new PalmError(
-    'E_NOT_FOUND',
-    `${what}${from} is not installed ${where}`,
-    `see what is installed: ${list}${scope === 'global' ? '' : ' (add -g for global installs)'}`,
-  );
-}
-
-async function poolFor(
-  session: IndexSession,
-  opts: { origin?: string; from?: OriginSpec },
-): Promise<SourcedIndex[]> {
-  if (opts.from) return [await session.get(opts.from)];
-  if (opts.origin) return [await session.byAlias(opts.origin)];
-  return session.all();
-}
-
-export async function findCandidates(
-  ctx: PalmContext,
-  query: { kind?: Kind | undefined; name: string },
-  opts: { origin?: string; from?: OriginSpec; refresh?: boolean },
-  deps?: Partial<EngineDeps>,
-): Promise<Entity[]> {
-  const d = await resolveEngineDeps(deps);
-  const session = new IndexSession(ctx, d.scan, !!opts.refresh);
-  return candidatesIn(await poolFor(session, opts), query.kind, query.name).map((c) => c.entity);
-}
-
-function scoreEntity(e: Entity, query: string): number {
-  const q = query.trim().toLowerCase();
-  if (!q) return 0;
-  const n = e.name.toLowerCase();
-  if (n === q) return 100;
-  if (n.startsWith(q)) return 80;
-  if (n.includes(q)) return 60;
-  if (e.description?.toLowerCase().includes(q)) return 40;
-  return 0;
-}
-
-export async function searchIndex(
-  ctx: PalmContext,
-  query: string,
-  opts: { kind?: Kind; origin?: string; refresh?: boolean },
-  deps?: Partial<EngineDeps>,
-): Promise<Array<{ entity: Entity; score: number }>> {
-  const d = await resolveEngineDeps(deps);
-  const session = new IndexSession(ctx, d.scan, !!opts.refresh);
-  const pool = await poolFor(session, { origin: opts.origin });
-  const hits: Array<{ entity: Entity; score: number }> = [];
-  for (const si of pool) {
-    for (const entity of si.index.entities) {
-      if (opts.kind && entity.kind !== opts.kind) continue;
-      const score = scoreEntity(entity, query);
-      if (score > 0) hits.push({ entity, score });
-    }
-  }
-  return hits.sort(
-    (a, b) =>
-      b.score - a.score ||
-      a.entity.name.localeCompare(b.entity.name) ||
-      a.entity.origin.localeCompare(b.entity.origin),
-  );
-}
-
-/** An agent's declared dependencies as `name[@origin][#ref]` specs: skills, MCP servers, instructions. */
-export function agentDepSpecs(entity: Entity): Array<{ kind: Kind; dep: DepRef }> {
-  if (entity.def.kind !== 'agent') return [];
-  const a = entity.def.agent;
-  const out: Array<{ kind: Kind; dep: DepRef }> = [];
-  const add = (kind: Kind, specs: string[] | undefined): void => {
-    for (const spec of specs ?? []) {
-      if (!spec.trim()) continue; // an empty entry: nothing to depend on
-      try {
-        out.push({ kind, dep: DepRef.parse(spec) });
-      } catch {
-        // `x@owner/repo`: kept verbatim, so it is reported as a dependency no origin provides
-        out.push({ kind, dep: DepRef.of(spec.trim()) });
-      }
-    }
-  };
-  add('skill', a.skills);
-  add('mcp', a.mcpServers);
-  add('instruction', a.instructions);
-  return out;
-}
-
-/** Direct dependencies of an entity (plugin members; agent skills, MCP servers and instructions). */
-export function entityDeps(entity: Entity): EntityRef[] {
-  if (entity.def.kind === 'plugin')
-    return entity.def.members.map((m) => ({ kind: m.kind, name: m.name }));
-  return agentDepSpecs(entity).map((d) => ({ kind: d.kind, name: d.dep.name }));
-}
-
-/** Scanner warnings about an entity whose name is taken twice in one origin (the first copy is indexed). */
-export function duplicateWarnings(
-  index: Pick<OriginIndex, 'warnings'>,
-  kind: Kind | undefined,
-  name?: string,
-): string[] {
-  return index.warnings.filter((w) => {
-    const m = /^duplicate (\w+) "([^"]+)"/.exec(w);
-    return (
-      !!m &&
-      (!kind || m[1] === kind) &&
-      (name === undefined || m[2]?.toLowerCase() === name.toLowerCase())
-    );
-  });
+export interface InstalledRow {
+  entry: LockEntry;
+  source: LockSource;
+  layer: 'team' | 'local';
 }
 
 export interface EntityInfo {
+  entry: LockEntry;
   entity?: Entity;
-  lock?: LockEntry;
-  deps: EntityRef[];
-  warnings: string[];
+  source: LockSource;
+  files: Partial<Record<TargetId, string[]>>;
+  notes: string[];
+  exec?: { commands: LockExec['commands']; hash: string; trusted: boolean };
+  secrets?: Array<{ name: string; set: boolean }>;
+  /** `manifest` (palm.yaml lists it) or `plugin:<name>`. */
+  selectedBy: string;
 }
 
-/** The indexed entity the query names (first origin that has it) and its duplicate-name warnings. */
-async function indexedEntity(
-  ctx: PalmContext,
-  query: { kind: Kind; name: string; origin?: string | undefined },
-  deps: Partial<EngineDeps> | undefined,
-): Promise<{ entity?: Entity; warnings: string[] }> {
-  const d = await resolveEngineDeps(deps);
-  const session = new IndexSession(ctx, d.scan);
-  const pool = await poolFor(session, query.origin ? { origin: query.origin } : {});
-  const first = candidatesIn(pool, query.kind, query.name)[0];
-  if (!first) return { warnings: [] };
-  const warnings = first.source.index
-    ? duplicateWarnings(first.source.index, query.kind, first.entity.name)
-    : [];
-  return { entity: first.entity, warnings };
+function sourceFilter(state: ScopeState, source?: string): string | undefined {
+  return source ? (state.sources.byName(source)?.name ?? source) : undefined;
 }
 
-export async function getEntityInfo(
+/** Installed entries from the lock, filtered by kind, names and source (name or alias). */
+export async function listInstalled(
   ctx: PalmContext,
-  query: { kind: Kind; name: string },
-  opts: { origin?: string | undefined; scope: Scope },
-  deps?: Partial<EngineDeps>,
-): Promise<EntityInfo> {
-  const { kind, name } = query;
-  const installed = await Lock.load(ScopePaths.of(ctx, opts.scope).lockFile);
-  const lock =
-    installed.find({ kind, name }, opts.origin) ??
-    installed.select({ kind, name, origin: opts.origin })[0];
-  const origin =
-    opts.origin ??
-    (lock && lock.origin !== 'registry' && lock.origin !== 'adhoc' ? lock.origin : undefined);
-  let found: { entity?: Entity; warnings: string[] } = { warnings: [] };
-  try {
-    found = await indexedEntity(ctx, { kind, name: lock?.name ?? name, origin }, deps);
-  } catch (e) {
-    if (!lock) throw e;
-    ctx.log.debug(`index lookup for ${kind} ${name} failed: ${messageOf(e)}`);
+  scope: Scope,
+  q: { kind?: Kind; names?: string[]; source?: string } = {},
+): Promise<InstalledRow[]> {
+  const state = await openScope(ctx, scope, { readOnly: true });
+  const source = sourceFilter(state, q.source);
+  return state.lock.entries
+    .filter((e) => !q.kind || e.kind === q.kind)
+    .filter((e) => !q.names?.length || q.names.some((n) => sameName(n, e.name)))
+    .filter((e) => !source || e.source === source)
+    .map((entry) => ({
+      entry,
+      source: state.lock.source(entry.source) ?? {},
+      layer: 'team' as const,
+    }));
+}
+
+function notInstalled(q: EntityRefSpec & { source?: string }, scope: Scope): PalmError {
+  const what = q.kind ? `${q.kind} ${q.name}` : `"${q.name}"`;
+  const where = scope === 'global' ? 'globally' : 'in this project';
+  return new PalmError(
+    'E_NOT_FOUND',
+    `${what} is not installed ${where}; list what is:`,
+    palmCommand('get', [], scope),
+  );
+}
+
+function pick(state: ScopeState, q: EntityRefSpec & { source?: string }): LockEntry {
+  const source = sourceFilter(state, q.source);
+  const hits = state.lock.select({
+    name: q.name,
+    ...(q.kind ? { kind: q.kind } : {}),
+    ...(source ? { source } : {}),
+  });
+  const [first, second] = hits;
+  if (!first) throw notInstalled(q, state.paths.scope);
+  if (second) {
+    const forms = hits.map((e) => `${e.kind}:${e.name} from ${e.source}`);
+    throw new PalmError(
+      'E_AMBIGUOUS',
+      `"${q.name}" names ${hits.length} installed entries: ${forms.join(', ')}`,
+      palmCommand('describe', [`${first.kind}:${first.name}`], state.paths.scope),
+    );
   }
-  const { entity, warnings } = found;
-  const depRefs = entity ? entityDeps(entity) : (lock?.deps ?? []);
-  return { ...(entity ? { entity } : {}), ...(lock ? { lock } : {}), deps: depRefs, warnings };
+  return first;
+}
+
+function filesPerTarget(entry: LockEntry, out?: RenderOutput): Partial<Record<TargetId, string[]>> {
+  const files: Partial<Record<TargetId, string[]>> = {};
+  for (const id of Object.keys(entry.render) as TargetId[]) {
+    const r = out?.renders[id];
+    files[id] = r
+      ? [...r.files.map((f) => f.path), ...new Set(r.fragments.map((f) => f.file))]
+      : [...entry.files];
+  }
+  return files;
+}
+
+function secretsOf(ctx: PalmContext, entity?: Entity): EntityInfo['secrets'] {
+  if (entity?.def.kind !== 'mcp') return undefined;
+  const names = new Set(
+    findPlaceholders(JSON.stringify(entity.def.mcp))
+      .map((p) => p.name)
+      .filter((n) => !isRuntimeVar(n)),
+  );
+  return [...names].map((name) => ({ name, set: ctx.env[name] !== undefined }));
+}
+
+/** `palm describe <name>`: one installed entity with its files per harness, notes, exec and secrets. */
+export async function describeEntity(
+  ctx: PalmContext,
+  q: EntityRefSpec & { source?: string },
+  opts: { scope: Scope },
+  depsIn?: Partial<EngineDeps>,
+): Promise<EntityInfo> {
+  const deps = await resolveEngineDeps(depsIn);
+  const quiet: PalmContext = { ...ctx, flags: { ...ctx.flags, dryRun: true } };
+  const state = await openScope(quiet, opts.scope, { readOnly: true });
+  const entry = pick(state, q);
+  const out = await renderLocked(runOf(quiet, deps, state), entry).catch(() => undefined);
+  const info: EntityInfo = {
+    entry,
+    source: state.lock.source(entry.source) ?? {},
+    files: filesPerTarget(entry, out),
+    notes: entry.notes ?? [],
+    selectedBy: entry.via ?? 'manifest',
+  };
+  const entity = out?.entity;
+  if (entity) info.entity = entity;
+  if (entry.exec)
+    info.exec = {
+      commands: entry.exec.commands,
+      hash: entry.exec.hash,
+      trusted: (entry.trust ?? []).includes(entry.exec.hash),
+    };
+  const secrets = secretsOf(ctx, entity);
+  if (secrets) info.secrets = secrets;
+  return info;
+}
+
+/** `palm describe <path>`: the entries that wrote the path, hold files inside it, or merged into it. */
+export async function ownerOfPath(
+  ctx: PalmContext,
+  query: string,
+  opts: { scope: Scope },
+): Promise<Array<{ entry: LockEntry; match: 'file' | 'inside' | 'merged'; file: string }>> {
+  const state = await openScope(ctx, opts.scope, { readOnly: true });
+  const expanded = query.startsWith('~/')
+    ? resolve(ctx.paths.home || homedir(), query.slice(2))
+    : query;
+  let lockPath: string;
+  try {
+    lockPath = state.paths.lockForm(resolve(ctx.paths.cwd, expanded));
+  } catch {
+    return [];
+  }
+  const out: Array<{ entry: LockEntry; match: 'file' | 'inside' | 'merged'; file: string }> = [];
+  for (const entry of state.lock.entries) {
+    const file = entry.files.find((f) => f === lockPath);
+    const inside = entry.files.find((f) => f.startsWith(`${lockPath}/`));
+    const merged = (entry.merged ?? []).find((m) => m.file === lockPath);
+    if (file) out.push({ entry, match: 'file', file });
+    else if (inside) out.push({ entry, match: 'inside', file: inside });
+    else if (merged) out.push({ entry, match: 'merged', file: merged.file });
+  }
+  return out;
+}
+
+/** 0.3: the bytes each harness loads at every session. 0.2 returns nothing (reserved). */
+export async function loadCost(
+  _ctx: PalmContext,
+  _scope: Scope,
+): Promise<Partial<Record<TargetId, { bytes: number; entries: number }>>> {
+  return {};
 }
