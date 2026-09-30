@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import type { InstructionDefinition } from '../../src/core/types.js';
-import { renderCommand } from '../../src/targets/convert-command.js';
 import { renderInstruction } from '../../src/targets/convert-instruction.js';
 
 const SCOPED: InstructionDefinition = {
@@ -8,9 +7,15 @@ const SCOPED: InstructionDefinition = {
   description: 'TS rules',
   globs: ['**/*.ts', 'src/**/*.tsx'],
   alwaysApply: false,
+  activation: 'paths',
   body: '\nUse strict.\n',
 };
-const ALWAYS: InstructionDefinition = { name: 'style', alwaysApply: true, body: 'Be terse.' };
+const ALWAYS: InstructionDefinition = {
+  name: 'style',
+  alwaysApply: true,
+  activation: 'always',
+  body: 'Be terse.',
+};
 
 describe('renderInstruction', () => {
   it('claude', () => {
@@ -47,33 +52,14 @@ describe('renderInstruction', () => {
     });
   });
 
-  it('codex managed block', () => {
+  it('codex and gemini: a managed block; opencode: a plain file', () => {
     expect(renderInstruction(SCOPED, 'codex')).toEqual({
       managedBlock: 'Applies to: **/*.ts, src/**/*.tsx\n\nUse strict.\n',
     });
-    expect(renderInstruction(ALWAYS, 'codex')).toEqual({ managedBlock: 'Be terse.\n' });
-  });
-});
-
-describe('renderCommand', () => {
-  const cmd = {
-    name: 'fix',
-    description: 'Fix an issue',
-    argumentHint: '[issue]',
-    body: 'Fix $ARGUMENTS\n',
-  };
-  it('renders per target', () => {
-    const fm = '---\ndescription: Fix an issue\nargument-hint: "[issue]"\n---\n\nFix $ARGUMENTS\n';
-    expect(renderCommand(cmd, 'claude')).toEqual({ fileName: 'fix.md', content: fm });
-    expect(renderCommand(cmd, 'cursor')).toEqual({ fileName: 'fix.md', content: fm });
-    expect(renderCommand(cmd, 'copilot')).toEqual({ fileName: 'fix.prompt.md', content: fm });
-    expect(renderCommand(cmd, 'codex')).toEqual({
-      fileName: 'fix.md',
-      content: 'Fix $ARGUMENTS\n',
-    });
-    expect(renderCommand({ name: 'bare', body: 'Do it' }, 'claude')).toEqual({
-      fileName: 'bare.md',
-      content: 'Do it\n',
+    expect(renderInstruction(ALWAYS, 'gemini')).toEqual({ managedBlock: 'Be terse.\n' });
+    expect(renderInstruction(ALWAYS, 'opencode')).toEqual({
+      fileName: 'style.md',
+      content: 'Be terse.\n',
     });
   });
 });

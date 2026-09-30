@@ -20,10 +20,9 @@ const SPECS: Record<TargetId, TargetSpec> = {
 };
 
 /**
- * Target bound to an environment. deploy()/undeploy() resolve CLAUDE_CONFIG_DIR,
+ * Target bound to an environment. render()/apply()/undeploy() resolve CLAUDE_CONFIG_DIR,
  * CODEX_HOME, COPILOT_HOME, GEMINI_CLI_HOME, XDG_CONFIG_HOME, OPENCODE_DISABLE_EXTERNAL_SKILLS
- * and PALM_HOME from, in order: `input.env` (deploy) or the 5th undeploy argument, this `env`,
- * then process.env.
+ * and PALM_HOME from, in order: the call's `env`, this `env`, then process.env.
  */
 export function createTarget(id: TargetId, env?: NodeJS.ProcessEnv): GenericTarget {
   const spec = SPECS[id];
@@ -45,4 +44,4 @@ export function allTargets(): Target[] {
 }
 
 export { GenericTarget } from './base.js';
-export type { TargetLayout } from './layout.js';
+export { PROJECT_DIR } from './relocate.js';

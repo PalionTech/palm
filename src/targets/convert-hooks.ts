@@ -10,28 +10,30 @@
  *                   ("`timeout` is in milliseconds", docs/hooks/reference.md)
  * - opencode:       none; OpenCode has no declarative hooks (the layout skips them)
  *
- * `${CLAUDE_PLUGIN_ROOT}`, `${CURSOR_PLUGIN_ROOT}`, `${PLUGIN_ROOT}` (and the unbraced
- * `$CLAUDE_PLUGIN_ROOT`) in command strings become `pluginRootAbs` at global scope. At project
- * scope the committed config must work in any clone, so they become the harness's project
- * directory followed by the root's project-relative path (`PROJECT_DIR`, DESIGN.md §2):
- * `$CLAUDE_PROJECT_DIR/.palm/hooks/<n>` (claude), `$CURSOR_PROJECT_DIR/.palm/hooks/<n>`
- * (cursor), `$GEMINI_PROJECT_DIR/.palm/hooks/<n>` (gemini), and the git top level for codex and
- * copilot, which set no such variable.
+ * Every command line goes through the injected `relocate` (relocate.ts): the harness runs the
+ * rendered command, and `exec` lists each one with its canonical form, keyed by
+ * `<event>//<matcher or ->` in Claude's event and tool names (a repeat gets `#2`, `#3`), so the
+ * same command has the same id on every target.
  *
- * Same-family conversions (claude→claude, claude→codex, cursor→cursor,
- * copilot→copilot, gemini→gemini) keep entries verbatim apart from the substitution; other
- * conversions go through a canonical `{ event, matcher, command, timeout }` form and
- * only `type: "command"` hooks survive. Events without an equivalent are reported
- * in `dropped`. Tool-event matchers (regexes over tool names) are translated both ways through
- * Claude's names (tool-names.ts `hookMatcher`): a Gemini `run_shell_command` or Cursor `Shell`
- * matcher becomes `Bash` for Claude and Codex, Claude `Edit|Write` becomes Cursor `Write`.
+ * Same-family conversions (claude→claude, claude→codex, cursor→cursor, copilot→copilot,
+ * gemini→gemini) keep entries verbatim apart from the commands; other conversions go through a
+ * canonical `{ event, matcher, command, timeout }` form and only `type: "command"` hooks survive.
+ * Events without an equivalent are reported in `dropped`. Tool-event matchers (regexes over tool
+ * names) are translated both ways through Claude's names (tool-names.ts `hookMatcher`): a Gemini
+ * `run_shell_command` or Cursor `Shell` matcher becomes `Bash` for Claude and Codex, Claude
+ * `Edit|Write` becomes Cursor `Write`.
  */
-import type { HookSet, TargetId } from '../core/types.js';
-import { PLUGIN_ROOT_TOKENS } from '../domain/ignore.js';
-import type { ScopePaths } from '../domain/scope-paths.js';
-import { isWithin } from '../lib/fs.js';
+import type { HookSet, Rendered, TargetId } from '../core/types.js';
 import { isRecord } from '../lib/object.js';
 import { hookMatcher, type ToolDialect } from './tool-names.js';
+
+/** Relocates one command line (relocate.ts `relocateCommand`, bound to a target and asset root). */
+export type Relocate = (
+  command: string,
+  opts?: { powershell?: boolean },
+) => { canonical: string; rendered: string };
+
+type ExecLine = Rendered['exec'][number];
 
 interface EventInfo {
   claude: string;
@@ -113,11 +115,18 @@ const GEMINI_EVENTS: Readonly<Record<string, string>> = Object.fromEntries(
   HOOK_EVENTS.flatMap((e) => (e.gemini ? [[e.gemini, e.claude]] : [])),
 );
 
-type Family = 'claude' | 'cursor' | 'copilot' | 'gemini';
+/** Keys of a hook entry that hold a command line. */
+const COMMAND_KEYS = ['command', 'bash', 'powershell'] as const;
+
+type Family = ToolDialect;
 
 /** The dialect a target's hooks file speaks (opencode has none: its hooks are skipped). */
 function familyOf(target: TargetId): Family {
   return target === 'codex' || target === 'opencode' ? 'claude' : target;
+}
+
+function sourceFamily(hooks: HookSet): Family | undefined {
+  return hooks.dialect === 'unknown' ? undefined : hooks.dialect;
 }
 
 /** Map a source event name (any dialect) to its canonical Claude name. */
@@ -150,82 +159,6 @@ function targetEvent(canonical: string, target: TargetId): string | undefined {
   }
 }
 
-/**
- * Codex and Copilot export no project-directory variable, and run hooks from the session's
- * working directory (Codex) or an undocumented default (Copilot), so project hooks resolve the
- * repository root themselves, as the Codex hook docs recommend; outside a git repository the
- * working directory stands in.
- */
-const GIT_TOP_LEVEL = '$(git rev-parse --show-toplevel 2>/dev/null || pwd)';
-
-/**
- * How a project-scope hook command names the project root, per harness:
- * - claude: `$CLAUDE_PROJECT_DIR` (https://code.claude.com/docs/en/hooks)
- * - cursor: `$CURSOR_PROJECT_DIR`, set for every hook (https://cursor.com/docs/agent/hooks)
- * - codex, copilot: the git top level (https://learn.chatgpt.com/docs/hooks,
- *   https://docs.github.com/en/copilot/reference/hooks-configuration)
- * - gemini: `$GEMINI_PROJECT_DIR`, which Gemini CLI sets and expands in hook commands
- *   (packages/core/src/hooks/hookRunner.ts, research R7 §6)
- * - opencode: unused (OpenCode hooks are JS plugins; palm installs none)
- */
-export const PROJECT_DIR: Readonly<Record<TargetId, string>> = {
-  claude: '$CLAUDE_PROJECT_DIR',
-  codex: GIT_TOP_LEVEL,
-  copilot: GIT_TOP_LEVEL,
-  cursor: '$CURSOR_PROJECT_DIR',
-  gemini: '$GEMINI_PROJECT_DIR',
-  opencode: GIT_TOP_LEVEL,
-};
-
-/**
- * What the plugin-root tokens become (see the module comment): the absolute root at global
- * scope, or for a root inside the project, the harness's project directory plus the root's
- * project-relative path, so no absolute path reaches a committed config.
- */
-function pluginRootReplacement(target: TargetId, pluginRootAbs: string, paths: ScopePaths): string {
-  if (paths.scope !== 'project' || !isWithin(pluginRootAbs, paths.root)) return pluginRootAbs;
-  const rel = paths.lockForm(pluginRootAbs);
-  return rel === '' ? PROJECT_DIR[target] : `${PROJECT_DIR[target]}/${rel}`;
-}
-
-/**
- * The variable a harness sets to the plugin root when it runs a plugin's hooks natively.
- * Gemini CLI sets no `CLAUDE_PLUGIN_ROOT` but exports `CLAUDE_PROJECT_DIR` "for compatibility"
- * (hookRunner.ts), and the hooks palm converts for it come from Claude plugins, so their
- * scripts get the variable they were written for.
- */
-const PLUGIN_ROOT_VAR: Partial<Record<TargetId, string>> = {
-  claude: 'CLAUDE_PLUGIN_ROOT',
-  codex: 'CLAUDE_PLUGIN_ROOT',
-  cursor: 'CURSOR_PLUGIN_ROOT',
-  gemini: 'CLAUDE_PLUGIN_ROOT',
-};
-
-function substitutePluginRoot(command: string, replacement: string): string {
-  return command.replace(PLUGIN_ROOT_TOKENS, () => replacement);
-}
-
-/**
- * A command that referenced the plugin root, with the root substituted and — for harnesses
- * that would have set it when running the plugin natively — the variable exported for the
- * script too (`CLAUDE_PLUGIN_ROOT="…" cmd` for claude/codex, `CURSOR_PLUGIN_ROOT="…"` for
- * cursor). Scripts such as superpowers' `session-start` read it to find sibling files and to
- * pick the output format the harness understands. PowerShell commands only get the substitution.
- */
-function rootedCommand(
-  command: string,
-  replacement: string,
-  target: TargetId,
-  shell?: unknown,
-): string {
-  if (!new RegExp(PLUGIN_ROOT_TOKENS.source).test(command)) return command;
-  const substituted = substitutePluginRoot(command, replacement);
-  const variable = PLUGIN_ROOT_VAR[target];
-  if (!variable || (typeof shell === 'string' && shell.toLowerCase() === 'powershell'))
-    return substituted;
-  return `${variable}="${replacement.replace(/(["\\`])/g, '\\$1')}" ${substituted}`;
-}
-
 /** Extract the `{ event: entries[] }` map from a hooks file (wrapped `{hooks:{...}}` or flat). */
 function eventMap(raw: unknown): Record<string, unknown[]> {
   if (isRecord(raw) && isRecord(raw.hooks)) {
@@ -242,23 +175,68 @@ function eventMap(raw: unknown): Record<string, unknown[]> {
   return {};
 }
 
-interface CanonHook {
-  event: string;
-  matcher?: string;
-  command: string;
-  timeout?: number;
-}
-
-function isGrouped(entries: unknown[]): boolean {
-  return entries.some((e) => isRecord(e) && Array.isArray(e.hooks));
-}
-
 function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v !== '' ? v : undefined;
+}
+
+function isPowershell(h: Record<string, unknown>): boolean {
+  return typeof h.shell === 'string' && h.shell.toLowerCase() === 'powershell';
+}
+
+/** One conversion: the relocation, and what it collects. */
+class Conversion {
+  readonly dropped: string[] = [];
+  readonly exec: ExecLine[] = [];
+  private readonly seen = new Map<string, number>();
+
+  constructor(
+    readonly hooks: HookSet,
+    readonly target: TargetId,
+    private readonly relocate: Relocate,
+  ) {}
+
+  get from(): Family {
+    return sourceFamily(this.hooks) ?? 'claude';
+  }
+
+  /** A matcher in Claude's tool names (tool events only), for exec ids. */
+  canonicalMatcher(matcher: string | undefined, event: string): string | undefined {
+    if (matcher === undefined || !TOOL_EVENTS.has(event)) return matcher;
+    return hookMatcher(matcher, this.from, 'claude');
+  }
+
+  /** Relocate one command line and list it; returns the rendered command. */
+  run(command: string, at: { event: string; matcher?: string }, powershell: boolean): string {
+    const r = this.relocate(command, powershell ? { powershell: true } : undefined);
+    const base = `${at.event}//${at.matcher ?? '-'}`;
+    const n = (this.seen.get(base) ?? 0) + 1;
+    this.seen.set(base, n);
+    this.exec.push({
+      id: n === 1 ? base : `${base}#${n}`,
+      canonical: r.canonical,
+      command: r.rendered,
+      file: '',
+      event: at.event,
+      ...(at.matcher !== undefined ? { matcher: at.matcher } : {}),
+    });
+    return r.rendered;
+  }
+}
+
+interface CanonHook {
+  event: string;
+  matcher?: string;
+  command: string;
+  timeout?: number;
+  powershell?: boolean;
+}
+
+function isGrouped(entries: unknown[]): boolean {
+  return entries.some((e) => isRecord(e) && Array.isArray(e.hooks));
 }
 
 interface CanonSource {
@@ -281,7 +259,7 @@ function fromGroup(group: unknown, src: CanonSource, out: CanonHook[], dropped: 
     }
     let timeout = num(h.timeout);
     if (timeout !== undefined && src.dialect === 'gemini') timeout = Math.ceil(timeout / 1000); // Gemini: ms
-    out.push({ event: src.event, matcher, command, timeout });
+    out.push({ event: src.event, matcher, command, timeout, powershell: isPowershell(h) });
   }
 }
 
@@ -312,45 +290,43 @@ function withMatcher(h: CanonHook, from: ToolDialect, to: ToolDialect): CanonHoo
 }
 
 /** Flatten any dialect into canonical command hooks (tool matchers in Claude's names). */
-function toCanonical(hooks: HookSet, dropped: string[]): CanonHook[] {
+function toCanonical(cx: Conversion): CanonHook[] {
   const out: CanonHook[] = [];
-  for (const [srcEvent, entries] of Object.entries(eventMap(hooks.raw))) {
-    const event = canonicalEvent(srcEvent, hooks.dialect);
+  for (const [srcEvent, entries] of Object.entries(eventMap(cx.hooks.raw))) {
+    const event = canonicalEvent(srcEvent, cx.hooks.dialect);
     if (!event) {
-      dropped.push(`${srcEvent}: no equivalent event`);
+      cx.dropped.push(`${srcEvent}: no equivalent event`);
       continue;
     }
-    const src = { srcEvent, event, dialect: hooks.dialect };
+    const src = { srcEvent, event, dialect: cx.hooks.dialect };
     const convert = isGrouped(entries) ? fromGroup : fromFlat;
-    for (const entry of entries) convert(entry, src, out, dropped);
+    for (const entry of entries) convert(entry, src, out, cx.dropped);
   }
-  const from = sourceFamily(hooks) ?? 'claude';
-  return out.map((h) => withMatcher(h, from, 'claude'));
+  return out.map((h) => withMatcher(h, cx.from, 'claude'));
 }
 
-function sourceFamily(hooks: HookSet): Family | undefined {
-  return hooks.dialect === 'unknown' ? undefined : hooks.dialect;
+/** A hook entry with each command line relocated (prompt hooks and other fields untouched). */
+function relocateFields(
+  h: unknown,
+  at: { event: string; matcher?: string },
+  cx: Conversion,
+): unknown {
+  if (!isRecord(h) || (str(h.type) ?? 'command') !== 'command') return h;
+  const out: Record<string, unknown> = { ...h };
+  for (const key of COMMAND_KEYS) {
+    const v = str(h[key]);
+    if (v) out[key] = cx.run(v, at, key === 'powershell' || isPowershell(h));
+  }
+  return out;
 }
 
-/** Deep-copy entries, substituting the plugin root in every command-like string (see rootedCommand). */
-function substituteEntry(entry: unknown, replacement: string, target: TargetId): unknown {
-  if (typeof entry === 'string') return substitutePluginRoot(entry, replacement);
-  if (Array.isArray(entry)) return entry.map((e) => substituteEntry(e, replacement, target));
-  if (isRecord(entry)) {
-    return Object.fromEntries(
-      Object.entries(entry).map(([k, v]) => {
-        if (k === 'command' && typeof v === 'string')
-          return [k, rootedCommand(v, replacement, target, entry.shell)];
-        return [
-          k,
-          ['command', 'bash', 'powershell', 'hooks'].includes(k)
-            ? substituteEntry(v, replacement, target)
-            : v,
-        ];
-      }),
-    );
-  }
-  return entry;
+/** A same-family entry (a `{ matcher?, hooks }` group or a flat entry) with its commands relocated. */
+function relocateEntry(entry: unknown, srcEvent: string, cx: Conversion): unknown {
+  if (!isRecord(entry)) return entry;
+  const event = canonicalEvent(srcEvent, cx.hooks.dialect) ?? srcEvent;
+  const at = { event, matcher: cx.canonicalMatcher(str(entry.matcher), event) };
+  if (!Array.isArray(entry.hooks)) return relocateFields(entry, at, cx);
+  return { ...entry, hooks: entry.hooks.map((h) => relocateFields(h, at, cx)) };
 }
 
 function wrap(target: TargetId, events: Record<string, unknown[]>): unknown {
@@ -359,31 +335,23 @@ function wrap(target: TargetId, events: Record<string, unknown[]>): unknown {
 }
 
 /** Target event for a same-family source event; unmapped events are native to the family. */
-function sameFamilyEvent(srcEvent: string, hooks: HookSet, target: TargetId): string | undefined {
-  const canonical = canonicalEvent(srcEvent, hooks.dialect);
-  if (canonical) return targetEvent(canonical, target);
+function sameFamilyEvent(srcEvent: string, cx: Conversion): string | undefined {
+  const canonical = canonicalEvent(srcEvent, cx.hooks.dialect);
+  if (canonical) return targetEvent(canonical, cx.target);
   // Events palm has no mapping for are native to this family: keep them (Codex: drop, unknown to it).
-  return target === 'codex' ? undefined : srcEvent;
+  return cx.target === 'codex' ? undefined : srcEvent;
 }
 
 /** Same family: keep entries verbatim (extra fields such as statusMessage survive). */
-function convertSameFamily(
-  hooks: HookSet,
-  target: TargetId,
-  replacement: string,
-  dropped: string[],
-): Record<string, unknown[]> {
+function convertSameFamily(cx: Conversion): Record<string, unknown[]> {
   const events: Record<string, unknown[]> = {};
-  for (const [srcEvent, entries] of Object.entries(eventMap(hooks.raw))) {
-    const out = sameFamilyEvent(srcEvent, hooks, target);
+  for (const [srcEvent, entries] of Object.entries(eventMap(cx.hooks.raw))) {
+    const out = sameFamilyEvent(srcEvent, cx);
     if (!out) {
-      dropped.push(`${srcEvent}: not supported by ${target}`);
+      cx.dropped.push(`${srcEvent}: not supported by ${cx.target}`);
       continue;
     }
-    events[out] = [
-      ...(events[out] ?? []),
-      ...(substituteEntry(entries, replacement, target) as unknown[]),
-    ];
+    events[out] = [...(events[out] ?? []), ...entries.map((e) => relocateEntry(e, srcEvent, cx))];
   }
   return events;
 }
@@ -402,7 +370,7 @@ function pushGrouped(list: unknown[], h: CanonHook, command: string): void {
   else list.push({ ...(h.matcher !== undefined ? { matcher: h.matcher } : {}), hooks: [item] });
 }
 
-/** Append canonical hook `h` (command already rooted) to `list` in the target family's shape. */
+/** Append canonical hook `h` (command already relocated) to `list` in the target family's shape. */
 function pushHook(list: unknown[], fam: Family, h: CanonHook, command: string): void {
   const matcher = h.matcher !== undefined ? { matcher: h.matcher } : {};
   if (fam === 'cursor') {
@@ -424,24 +392,16 @@ function pushHook(list: unknown[], fam: Family, h: CanonHook, command: string): 
 }
 
 /** Other families: through the canonical form; only command hooks survive. */
-function convertViaCanonical(
-  hooks: HookSet,
-  target: TargetId,
-  replacement: string,
-  dropped: string[],
-): Record<string, unknown[]> {
-  const fam = familyOf(target);
+function convertViaCanonical(cx: Conversion): Record<string, unknown[]> {
+  const fam = familyOf(cx.target);
   const events: Record<string, unknown[]> = {};
-  for (const h of toCanonical(hooks, dropped)) {
-    const ev = targetEvent(h.event, target);
+  for (const h of toCanonical(cx)) {
+    const ev = targetEvent(h.event, cx.target);
     if (!ev) {
-      dropped.push(`${h.event}: not supported by ${target}`);
+      cx.dropped.push(`${h.event}: not supported by ${cx.target}`);
       continue;
     }
-    const command =
-      fam === 'copilot'
-        ? substitutePluginRoot(h.command, replacement)
-        : rootedCommand(h.command, replacement, target);
+    const command = cx.run(h.command, h, h.powershell === true);
     const list = events[ev] ?? [];
     events[ev] = list;
     pushHook(list, fam, withMatcher(h, 'claude', fam), command);
@@ -450,19 +410,17 @@ function convertViaCanonical(
 }
 
 /**
- * `hooks` in `target`'s dialect, with plugin-root tokens pointing at `pluginRootAbs` (the
- * hook's asset dir in `paths`).
+ * `hooks` in `target`'s dialect, every command line relocated through `relocate`, with the exec
+ * lines it runs (`file` left empty: the caller knows where the entries land).
  */
 export function convertHooks(
   hooks: HookSet,
   target: TargetId,
-  pluginRootAbs: string,
-  paths: ScopePaths,
-): { hooks: unknown; dropped: string[] } {
-  const dropped: string[] = [];
-  const replacement = pluginRootReplacement(target, pluginRootAbs, paths);
+  relocate: Relocate,
+): { hooks: unknown; exec: Rendered['exec']; dropped: string[] } {
+  const cx = new Conversion(hooks, target, relocate);
   const convert =
     sourceFamily(hooks) === familyOf(target) ? convertSameFamily : convertViaCanonical;
-  const events = convert(hooks, target, replacement, dropped);
-  return { hooks: wrap(target, events), dropped };
+  const events = convert(cx);
+  return { hooks: wrap(target, events), exec: cx.exec, dropped: cx.dropped };
 }

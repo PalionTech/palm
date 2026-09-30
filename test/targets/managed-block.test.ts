@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type MdBlockRecord, toStored } from '../../src/domain/merged-record.js';
+import type { MergedRecord } from '../../src/domain/merged-record.js';
 import {
   type BlockEdit,
   removeManagedBlock,
@@ -10,9 +10,11 @@ import { applyText, cleanupTmp, exists, read, tmpDir, write } from './helpers.js
 
 afterEach(cleanupTmp);
 
+type MdBlockRecord = Extract<MergedRecord, { type: 'md-block' }>;
+
 const USER = '# Project\n\nUser text stays.\n';
 
-/** Plan-and-write a block the way a deploy does; the record the planner stores. */
+/** Upsert a block the way an apply does; the record its fragment names. */
 async function upsert(
   file: string,
   id: string,
@@ -20,19 +22,14 @@ async function upsert(
   opts: Partial<BlockEdit> = {},
 ): Promise<MdBlockRecord> {
   await applyText(file, (text) => upsertBlockText(text, { ...opts, file, id, content }));
-  return { type: 'md-block', file, id, content };
+  return { type: 'md-block', file, id: 'palm:instruction:x:0', key: id, content };
 }
 
 describe('managed blocks', () => {
   it('creates the file when missing and records the block', async () => {
     const file = path.join(await tmpDir(), 'AGENTS.md');
     const rec = await upsert(file, 'instruction:ts', 'Use strict.\n');
-    // lockfile form
-    expect(toStored(rec)).toEqual({
-      file,
-      pointer: 'block:instruction:ts',
-      value: 'Use strict.\n',
-    });
+    expect(rec.key).toBe('instruction:ts');
     expect(await read(file)).toBe(
       '<!-- palm:begin instruction:ts -->\nUse strict.\n<!-- palm:end instruction:ts -->\n',
     );

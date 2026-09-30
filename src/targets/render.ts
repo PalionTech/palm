@@ -1,0 +1,383 @@
+/**
+ * Rendering: one small strategy per entity kind (`RENDERERS`) fills a `RenderJob` with whole
+ * files (lock form, bytes, mode), fragments to merge into shared files (with id, key and value),
+ * the exec lines the harness will run, and notes. Nothing here writes, and nothing reads the
+ * destination: a render depends on the source, the closure and the scope's layout alone, so it
+ * is the same on every machine and `hash` (domain `renderHashOf`) is what the lock compares.
+ *
+ * Secret values never reach the hash: fragments are hashed with literal values replaced by their
+ * `${VAR}` placeholders, plus a marker naming the variables written literally, so a policy
+ * change re-renders and a rotated secret does not.
+ */
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import { isPalmError, messageOf, PalmError } from '../core/errors.js';
+import type {
+  Entity,
+  Kind,
+  Rendered,
+  RenderedFile,
+  RenderedFragment,
+  RenderInput,
+  TargetId,
+} from '../core/types.js';
+import { fragmentId, fragmentKey, renderHashOf } from '../domain/lock.js';
+import type { ScopePaths } from '../domain/scope-paths.js';
+import { isWithin, toPosix } from '../lib/fs.js';
+import { stringifyJson } from '../lib/json.js';
+import { formatPointer } from '../lib/json-pointer.js';
+import { gitMode, readClosure } from './assets.js';
+import { renderAgent } from './convert-agent.js';
+import { convertHooks, type Relocate } from './convert-hooks.js';
+import { renderInstruction } from './convert-instruction.js';
+import { renderCommandAsSkill } from './convert-skill.js';
+import { listCopyFiles } from './fs-utils.js';
+import type { TargetLayout } from './layout.js';
+import { renderMcp } from './mcp-config.js';
+import { redactSecrets } from './placeholder-match.js';
+import { relocateCommand, relocateMcp } from './relocate.js';
+
+/**
+ * A render request: the contract's `RenderInput` plus the targets active for the entry, which
+ * decide shared directories (cursor writes `.claude/skills` when claude is active).
+ */
+export type RenderRequest = RenderInput & { targets?: readonly TargetId[] };
+
+/**
+ * A fragment as the Applier consumes it. Beyond the contract: `mode` is set on the shared file
+ * even when it exists (it now holds a literal secret), `ensure` lists top-level keys the file
+ * needs (Cursor's `version: 1`), set when missing and never recorded.
+ */
+export type Fragment = RenderedFragment & FragmentExtra;
+
+interface FragmentExtra {
+  mode?: number;
+  ensure?: Record<string, unknown>;
+}
+
+/** Permission bits of a file that can hold secrets. */
+const PRIVATE_MODE = 0o600;
+
+/** Collects one render; `finish()` turns it into a `Rendered`. */
+export class RenderJob {
+  private readonly files = new Map<string, RenderedFile>();
+  private readonly fragments: Fragment[] = [];
+  private readonly exec: Rendered['exec'] = [];
+  private readonly notes: string[] = [];
+  private skipped = false;
+
+  constructor(
+    readonly input: RenderRequest,
+    readonly paths: ScopePaths,
+    readonly layout: TargetLayout,
+    readonly target: { id: TargetId; displayName: string },
+  ) {}
+
+  get entity(): Entity {
+    return this.input.entity;
+  }
+
+  lock(abs: string): string {
+    return this.paths.lockForm(abs);
+  }
+
+  note(msg: string): void {
+    if (!this.notes.includes(msg)) this.notes.push(msg);
+  }
+
+  /** The target has nothing to do for this entity (a documented gap), with the reason. */
+  skip(msg: string): void {
+    this.note(msg);
+    this.skipped = true;
+  }
+
+  file(abs: string, data: string | Uint8Array, mode?: number): void {
+    const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
+    const p = this.lock(abs);
+    this.files.set(p, { path: p, data: bytes, ...(mode !== undefined ? { mode } : {}) });
+  }
+
+  /**
+   * A fragment of the shared file `abs` at `at` (a JSON pointer, or `block:<id>`). At global
+   * scope a JSON or TOML file palm creates is private (0600): it can hold secrets.
+   */
+  fragment(abs: string, at: string, value: unknown, extra: FragmentExtra = {}): void {
+    const file = this.lock(abs);
+    const privateFile = this.input.scope === 'global' && /\.(json|toml)$/i.test(file);
+    this.fragments.push({
+      file,
+      at,
+      id: fragmentId(this.entity, this.fragments.length),
+      key: fragmentKey(at, value),
+      value,
+      ...(privateFile ? { createMode: PRIVATE_MODE } : {}),
+      ...extra,
+    });
+  }
+
+  execLine(line: Rendered['exec'][number]): void {
+    this.exec.push(line);
+  }
+
+  /** The fragments as the render hash sees them: secret values replaced by placeholders. */
+  private hashedFragments(): RenderedFragment[] {
+    const values = this.input.secretValues;
+    const out: RenderedFragment[] = this.fragments.map((f) => ({
+      file: f.file,
+      at: f.at,
+      id: f.id,
+      key: f.key,
+      value: redactSecrets(f.value, values),
+    }));
+    const literal = Object.keys(values ?? {}).sort();
+    if (this.input.secretPolicy === 'literal' && literal.length > 0)
+      out.push({ file: '', at: 'secrets', id: 'policy', key: 'literal', value: literal });
+    return out;
+  }
+
+  finish(): Rendered {
+    const files = [...this.files.values()].sort((a, b) => (a.path < b.path ? -1 : 1));
+    return {
+      files,
+      fragments: this.fragments,
+      exec: this.exec,
+      notes: this.notes,
+      ...(this.skipped ? { skipped: true } : {}),
+      hash: renderHashOf({ files, fragments: this.hashedFragments() }),
+    };
+  }
+}
+
+type Renderer = (job: RenderJob) => Promise<void>;
+
+function defOf<K extends Entity['def']['kind']>(
+  entity: Entity,
+  kind: K,
+): Extract<Entity['def'], { kind: K }> {
+  if (entity.def.kind !== kind)
+    throw new PalmError(
+      'E_INTERNAL',
+      `entity ${entity.name}: expected a ${kind} definition, got ${entity.def.kind}`,
+    );
+  return entity.def as Extract<Entity['def'], { kind: K }>;
+}
+
+/** A layout's gap note with the entity's name in place of `<name>`. */
+function skipNote(note: string, job: RenderJob): string {
+  return note.replaceAll('<name>', job.entity.name);
+}
+
+/**
+ * Where the copies of a skill are, when claude is active with another target: cursor reads
+ * `.claude/skills` (one copy); the others read only `.agents/skills` (two copies).
+ */
+function noteCopies(job: RenderJob, dir: string, active: readonly TargetId[]): void {
+  if (job.target.id === 'claude' || !active.includes('claude')) return;
+  if (isWithin(dir, job.paths.harnessHome('claude')))
+    job.note(`${job.target.id} reads .claude/skills; no second copy`);
+  else job.note(`${job.target.id} does not read .claude/skills; claude gets a second copy there`);
+}
+
+/** Every file of the skill directory, or the SKILL.md of a command, below `<skillsDir>/<name>/`. */
+async function renderSkill(job: RenderJob): Promise<void> {
+  const { skill } = defOf(job.entity, 'skill');
+  const active = job.input.targets ?? [job.target.id];
+  const dir = path.join(job.layout.skillsDir(active), job.entity.name);
+  noteCopies(job, dir, active);
+  if (skill.fromCommand) {
+    const r = renderCommandAsSkill({ ...skill, fromCommand: skill.fromCommand }, job.target.id);
+    job.file(path.join(dir, 'SKILL.md'), r.content);
+    for (const n of r.notes) job.note(n);
+    return;
+  }
+  await copySkillFiles(job, dir);
+}
+
+async function copySkillFiles(job: RenderJob, dir: string): Promise<void> {
+  const { absPath, sourceRoot } = job.input;
+  const name = job.entity.name;
+  // Links may point anywhere inside the source (shared references), never outside it.
+  const boundary = isWithin(absPath, sourceRoot) ? sourceRoot : absPath;
+  const { files, symlinksOutside } = await listCopyFiles(absPath, { boundary }).catch(
+    (e: unknown) => {
+      throw new PalmError('E_IO', `skill ${name}: cannot read ${absPath}: ${messageOf(e)}`);
+    },
+  );
+  if (symlinksOutside.length)
+    job.note(
+      `skill ${name}: not copied (a link leaving the source): ${symlinksOutside.join(', ')}`,
+    );
+  if (files.length === 0)
+    throw new PalmError('E_NOT_FOUND', `skill ${name}: no files in ${absPath}`);
+  for (const f of files)
+    job.file(path.join(dir, ...f.rel.split('/')), await fs.readFile(f.abs), gitMode(f.mode));
+}
+
+async function renderAgentKind(job: RenderJob): Promise<void> {
+  const { agent } = defOf(job.entity, 'agent');
+  const r = renderAgent({ ...agent, name: job.entity.name }, job.target.id);
+  const dest = path.join(job.layout.agentsDir, r.fileName);
+  job.file(dest, r.content);
+  const shown = job.lock(dest);
+  if (r.dropped.length)
+    job.note(
+      `${shown}: dropped ${r.dropped.join(', ')} (not supported by ${job.target.displayName})`,
+    );
+  for (const n of r.notes ?? []) job.note(`${shown}: ${n}`);
+}
+
+/**
+ * The entry an instruction file gets in a JSON list (OpenCode `instructions`): the project path,
+ * or at global scope `~/<path>` (OpenCode expands `~/`), so no machine path is rendered.
+ */
+function listedPath(job: RenderJob, dest: string): string {
+  if (job.input.scope === 'project') return job.lock(dest);
+  const home = job.paths.token('home');
+  return isWithin(dest, home, { strict: true }) ? `~/${toPosix(path.relative(home, dest))}` : dest;
+}
+
+async function renderInstructionKind(job: RenderJob): Promise<void> {
+  const where = job.layout.instructions;
+  if ('skip' in where) {
+    job.skip(skipNote(where.skip, job));
+    return;
+  }
+  const { instruction } = defOf(job.entity, 'instruction');
+  const r = renderInstruction({ ...instruction, name: job.entity.name }, job.target.id);
+  if ('managedBlock' in r) {
+    if (!('blockFile' in where))
+      throw new PalmError('E_INTERNAL', `${job.target.id}: no file for instruction blocks`);
+    job.fragment(where.blockFile, `block:instruction:${job.entity.name}`, r.managedBlock);
+    return;
+  }
+  if (!('dir' in where))
+    throw new PalmError('E_INTERNAL', `${job.target.id}: no instruction directory`);
+  const dest = path.join(where.dir, r.fileName);
+  job.file(dest, r.content);
+  if (where.list)
+    job.fragment(where.list.json, formatPointer(where.list.path), listedPath(job, dest));
+}
+
+/** Closure files below the asset root (git sources); in-place sources copy nothing. */
+async function renderClosure(job: RenderJob, closure: { paths: string[] }): Promise<void> {
+  if (job.input.inPlace || closure.paths.length === 0) return;
+  for (const f of await readClosure(job.input.sourceRoot, closure)) {
+    const lockPath = path.posix.join(job.input.assetsRoot, f.rel);
+    job.file(job.paths.abs(lockPath), f.data, f.mode);
+  }
+}
+
+/** `fn()` with an E_SOURCE refusal prefixed by the entity it refuses. */
+async function refusing<T>(job: RenderJob, fn: () => T | Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (!isPalmError(e) || e.code !== 'E_SOURCE') throw e;
+    const { kind, name, source } = job.entity;
+    throw new PalmError('E_SOURCE', `${kind} ${name} from ${source}: ${e.message}`, e.hint);
+  }
+}
+
+function hookRelocate(job: RenderJob): Relocate {
+  const { hooks } = defOf(job.entity, 'hook');
+  const { assetsRoot, scope, env } = job.input;
+  return (command, opts) =>
+    relocateCommand(command, hooks.references ?? [], job.target.id, {
+      assetsRoot,
+      scope,
+      env: env ?? job.paths.env,
+      powershell: opts?.powershell,
+    });
+}
+
+async function renderHook(job: RenderJob): Promise<void> {
+  const { hooks } = defOf(job.entity, 'hook');
+  const where = job.layout.hooks;
+  if ('skip' in where) {
+    job.skip(skipNote(where.skip, job));
+    return;
+  }
+  const converted = await refusing(job, () =>
+    convertHooks(hooks, job.target.id, hookRelocate(job)),
+  );
+  const { name } = job.entity;
+  if (converted.dropped.length)
+    job.note(
+      `hooks ${name}: dropped for ${job.target.displayName}: ${converted.dropped.join('; ')}`,
+    );
+  const events = (converted.hooks as { hooks: Record<string, unknown[]> }).hooks;
+  if (Object.values(events).every((items) => items.length === 0)) {
+    job.skip(`hooks ${name}: nothing ${job.target.displayName} can run`);
+    return;
+  }
+  const file = 'dir' in where ? path.join(where.dir, `${name}.json`) : where.mergeFile;
+  if ('dir' in where) job.file(file, stringifyJson(converted.hooks));
+  else mergeHookEntries(job, file, events, where.versioned);
+  for (const line of converted.exec) job.execLine({ ...line, file: job.lock(file) });
+  await refusing(job, () => renderClosure(job, hooks.closure ?? { paths: [] }));
+}
+
+/** One fragment per converted hook entry, in the shared hooks file. */
+function mergeHookEntries(
+  job: RenderJob,
+  file: string,
+  events: Record<string, unknown[]>,
+  versioned?: boolean,
+): void {
+  const extra = versioned ? { ensure: { version: 1 } } : {};
+  for (const [event, items] of Object.entries(events))
+    for (const item of items) job.fragment(file, formatPointer(['hooks', event]), item, extra);
+}
+
+/** The MCP config file and the pointer of the server's key or table. */
+function mcpSlot(layout: TargetLayout, key: string): { file: string; at: string } {
+  const { mcp } = layout;
+  if ('toml' in mcp) return { file: mcp.toml, at: formatPointer(['mcp_servers', key]) };
+  return { file: mcp.json, at: formatPointer([...mcp.path, key]) };
+}
+
+async function renderMcpKind(job: RenderJob): Promise<void> {
+  const def = defOf(job.entity, 'mcp');
+  const { secretPolicy, secretValues, scope, assetsRoot } = job.input;
+  const key = def.mcp.name || job.entity.name;
+  const relocated = await refusing(job, () =>
+    relocateMcp({ ...def.mcp, name: key }, def.references ?? [], job.target.id, {
+      assetsRoot,
+      scope,
+      absolute: (p) => job.paths.abs(p),
+      home: job.paths.token('home'),
+    }),
+  );
+  const values = secretValues ?? {};
+  const r = renderMcp(relocated.cfg, job.target.id, secretPolicy, { values, scope });
+  for (const n of r.notes) job.note(n);
+  if (!r.entry) {
+    job.skip(`MCP ${key}: nothing ${job.target.displayName} can run`);
+    return;
+  }
+  const slot = mcpSlot(job.layout, key);
+  const literal = secretPolicy === 'literal' && Object.keys(values).length > 0;
+  job.fragment(slot.file, slot.at, r.entry, literal ? { mode: PRIVATE_MODE } : {});
+  if (r.envRefs.length)
+    job.note(
+      `MCP ${key}: export ${r.envRefs.join(', ')} in the environment ${job.target.displayName} runs in`,
+    );
+  if (def.mcp.transport === 'stdio') {
+    const { canonical, rendered: command } = relocated;
+    job.execLine({ id: 'stdio', canonical, command, file: job.lock(slot.file) });
+  }
+  await refusing(job, () => renderClosure(job, def.closure ?? { paths: [] }));
+}
+
+async function renderPlugin(job: RenderJob): Promise<void> {
+  job.skip(`plugin ${job.entity.name}: members are installed individually`);
+}
+
+export const RENDERERS: Record<Kind, Renderer> = {
+  skill: renderSkill,
+  agent: renderAgentKind,
+  instruction: renderInstructionKind,
+  hook: renderHook,
+  mcp: renderMcpKind,
+  plugin: renderPlugin,
+};

@@ -27,7 +27,6 @@
  */
 import { stringify as tomlStringify } from 'smol-toml';
 import type { AgentDefinition, TargetId } from '../core/types.js';
-import { DepRef } from '../domain/dep-ref.js';
 import { normalizeBody, stringifyFrontmatter } from '../lib/frontmatter.js';
 import { withoutUndefined } from '../lib/object.js';
 import {
@@ -364,18 +363,17 @@ const RENDERERS: Record<TargetId, (def: AgentDefinition, lists: AgentLists) => R
 };
 
 /**
- * Dependencies as the harness knows them: palm resolves `tdd@mattpocock#v1` (engine), the
- * harness only sees the installed name `tdd`.
+ * Dependencies as the harness knows them: a source may write `tdd@mattpocock#v1` or
+ * `skill:tdd`; the harness only sees the installed name `tdd`.
  */
 function bareNames(refs: string[] | undefined): string[] | undefined {
-  const names = (refs ?? []).map((r) => {
-    try {
-      return DepRef.parse(r).name;
-    } catch {
-      return r.trim();
-    }
-  });
-  return nonEmpty([...new Set(names)]);
+  const names = (refs ?? []).map((r) =>
+    r
+      .trim()
+      .replace(/[@#].*$/, '')
+      .replace(/^[a-z]+:/, ''),
+  );
+  return nonEmpty([...new Set(names.filter((n) => n !== ''))]);
 }
 
 export function renderAgent(def: AgentDefinition, target: TargetId): RenderedAgent {

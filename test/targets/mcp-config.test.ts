@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { McpServerConfig } from '../../src/core/types.js';
-import { OAUTH_NOTE, renderMcp, renderMcpEntry } from '../../src/targets/mcp-config.js';
+import { OAUTH_NOTE, renderMcp } from '../../src/targets/mcp-config.js';
+
+/** The rendered entry alone. */
+function renderMcpEntry(...args: Parameters<typeof renderMcp>): unknown {
+  return renderMcp(...args).entry;
+}
 
 const STDIO: McpServerConfig = {
   name: 'gh',
@@ -15,6 +20,50 @@ const HTTP: McpServerConfig = {
   url: 'https://example.com/mcp',
   headers: { Authorization: 'Bearer ${DOCS_TOKEN}', 'X-Team': 'core' },
 };
+
+describe('env-reference syntax, one per harness', () => {
+  it('claude ${VAR} (optional ${VAR:-}), codex env_vars and bearer_token_env_var, copilot ${env:VAR} (CLI: ${VAR}), cursor ${env:VAR}, gemini ${VAR}, opencode {env:VAR}', () => {
+    const cfg: McpServerConfig = {
+      name: 'x',
+      transport: 'stdio',
+      command: 'x',
+      env: { TOKEN: '${TOKEN}', OPT: '${OPT:-}' },
+    };
+    const envOf = (e: unknown) =>
+      (e as { env?: unknown; environment?: unknown }).env ??
+      (e as { environment?: unknown }).environment;
+    expect(envOf(renderMcpEntry(cfg, 'claude', 'env-ref'))).toEqual({
+      TOKEN: '${TOKEN}',
+      OPT: '${OPT:-}',
+    });
+    expect(renderMcpEntry(cfg, 'codex', 'env-ref')).toEqual({
+      command: 'x',
+      env_vars: ['TOKEN', 'OPT'],
+    });
+    expect(envOf(renderMcpEntry(cfg, 'copilot', 'env-ref'))).toEqual({
+      TOKEN: '${env:TOKEN}',
+      OPT: '${env:OPT}',
+    });
+    expect(envOf(renderMcpEntry(cfg, 'copilot', 'env-ref', { scope: 'global' }))).toEqual({
+      TOKEN: '${TOKEN}',
+      OPT: '${OPT}',
+    });
+    expect(envOf(renderMcpEntry(cfg, 'cursor', 'env-ref'))).toEqual({
+      TOKEN: '${env:TOKEN}',
+      OPT: '${env:OPT}',
+    });
+    expect(envOf(renderMcpEntry(cfg, 'gemini', 'env-ref'))).toEqual({
+      TOKEN: '${TOKEN}',
+      OPT: '${OPT:-}',
+    });
+    expect(envOf(renderMcpEntry(cfg, 'opencode', 'env-ref'))).toEqual({
+      TOKEN: '{env:TOKEN}',
+      OPT: '{env:OPT}',
+    });
+    const bearer = renderMcpEntry(HTTP, 'codex', 'env-ref') as Record<string, unknown>;
+    expect(bearer.bearer_token_env_var).toBe('DOCS_TOKEN');
+  });
+});
 
 describe('renderMcp env-ref', () => {
   it('claude uses ${VAR}', () => {
