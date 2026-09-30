@@ -41,8 +41,9 @@ Quote the glob, so your shell does not expand it.
 | `include` | list | entity names to keep; everything else is dropped from the index |
 | `nameFrom` | `frontmatter` or `dirname` | where a skill's name comes from; the default is `frontmatter` |
 
-A kind you leave out is not indexed for that source.
+A kind you leave out is not indexed for that source, except as a member of a plugin: the plugins a root plugin manifest or a marketplace declares stay indexed with their members, and the globs add what they name.
 A descriptor with only `exclude`, `include` or `nameFrom` keeps auto-detection and adjusts it.
+A layout change that no longer indexes an installed entry keeps the entry and names the layout in the report; nothing is removed.
 
 ## Glob rules
 
@@ -76,7 +77,8 @@ sources:
 - Skill names in frontmatter clash, and folder names are unique.
 
 Otherwise, let auto-detection read the repository as published.
-When auto-detection misses agent-, hook- or MCP-shaped files, the listing says so and names the `layout:` that indexes them.
+When auto-detection misses agent-, hook- or MCP-shaped files, the listing and the install say so and name the `layout:` that indexes them, merged with what the scan already found: for a source `palm.yaml` does not declare yet, as the install line with `--layout` flags.
+Asking for such a file by name fails with `people/reviewer.md looks like an agent but is not indexed` and the same line.
 There is no author-side palm file. The descriptor is always the consumer's choice, in the consumer's `palm.yaml`.
 
 ## Related

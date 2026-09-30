@@ -1,22 +1,19 @@
 $ palm update --dry-run
 Update plan (project scope)
 acme/agent-kit   ^1.0   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
-~ updated     skill         ci-watch     acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
-= unchanged   agent         ci-watcher   acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)  same content
-= unchanged   instruction   typescript   acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)  same content
+~ updated   skill   ci-watch   acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
+= 2 re-pinned (same content)
 dry run: nothing written.
 $ palm update --yes
 Update plan (project scope)
 acme/agent-kit   ^1.0   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
-~ updated     skill         ci-watch     acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
-= unchanged   agent         ci-watcher   acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)  same content
-= unchanged   instruction   typescript   acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)  same content
+~ updated   skill   ci-watch   acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
+= 2 re-pinned (same content)
 ~ skill  ci-watch   .agents/skills/ci-watch/, .claude/skills/ci-watch/   2 files   (claude gets its own copy in .claude/skills)
 1 updated, 2 unchanged.
- .agents/skills/ci-watch/SKILL.md | 2 ++
- .claude/skills/ci-watch/SKILL.md | 2 ++
- palm.lock.yaml                   | 8 ++++----
- 3 files changed, 8 insertions(+), 4 deletions(-)
+ M .agents/skills/ci-watch/SKILL.md
+ M .claude/skills/ci-watch/SKILL.md
+ M palm.lock.yaml
 $ git status --short
  M .agents/skills/ci-watch/SKILL.md
  M .claude/skills/ci-watch/SKILL.md

@@ -54,7 +54,7 @@ This is the file palm wrote for a recorded session.
 | `targets` | list of targets | The scope's harnesses: `claude`, `codex`, `copilot`, `cursor`, `gemini`, `opencode`. Written by `palm init` or the first install. |
 | `sources` | map | Every source the scope installs from, keyed by name, with the entries taken from it. |
 | `mcp` | map | MCP servers declared by hand, by `palm install mcp` flags or by `palm install mcp --snippet`, keyed by config name. |
-| `ignore` | list of strings | Warnings you have read and accept, so `palm check` and `palm install` stop printing them. See [ignore](#ignore). |
+| `ignore` | list of strings | Warnings you have read and accept, so `palm check` stops printing them. See [ignore](#ignore). |
 
 ## Source keys
 
@@ -68,7 +68,7 @@ The key is the source's name. How palm reads it depends on its shape.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `url` | string | a git URL: `https://`, `ssh://`, `user@host:path` or `file://`; `http://` and `git://` warn |
+| `url` | string | a git URL: `https://`, `ssh://`, `user@host:path` or `file://`; `http://` and `git://` warn; a `file://` URL outside the project needs `--allow-local-sources` (see below) |
 | `path` | string | a directory, for a source whose name is not a path |
 | `root` | string | a folder inside the repository that is the source's root |
 | `ref` | string | a tag, branch, commit or semver range; the only place a version lives; refused for a directory; written on the first install when missing |
@@ -138,9 +138,10 @@ ignore:
 | --- | --- |
 | `hidden-unicode:<source>/<path>` | zero-width characters in one file of a source, with `<path>` relative to the source root |
 | `foreign-hooks:<file>#<event>` | hook commands palm did not write in one event array of a harness file, such as your own `Stop` hook |
+| `foreign-servers:<file>#<name>` | one stdio MCP server palm did not write in a harness config, such as your own server in `.mcp.json` |
 
-An entry never hides a failure: a bidi override still refuses, and `palm check --strict` still fails on a warning no entry covers.
-Without an entry, a zero-width warning prints once per change of the lock, not on every run.
+An entry never hides a failure: a bidi override still refuses, and `palm check --strict` still fails on a foreign program no entry covers.
+`ignore:` must be a list of these entries; anything else is a parse error.
 
 ## Rules palm applies
 
@@ -150,6 +151,7 @@ Without an entry, a zero-width warning prints once per change of the lock, not o
 - A `ref:` you edit by hand is an update: the next bare `palm install` prints the plan and asks as `palm update` does.
 - An entry you add by hand is installed by the next bare `palm install`, and an entry you delete is removed.
 - The 0.1 format, with a top-level `origins:` list, kind lists at the top level or `name@alias` strings, stops every command except `palm migrate` with `x palm.yaml is in the 0.1 format`.
+- A `file://` URL (or an absolute path) outside the project is refused like a `../` path: a committed `palm.yaml` must not make palm read a private repository on the machine that clones it. `palm install`, `update`, `remove` and `check` read it with `--allow-local-sources`, for a clone with local mirrors or CI on an air-gapped machine; a URL typed on the command line goes through. The lock records such a URL relative to the project (`file:../mirrors/kit.git`), never as an absolute path.
 
 ## The global manifest
 

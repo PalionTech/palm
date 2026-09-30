@@ -38,8 +38,9 @@ The [Publish your own source](/palm/guides/publish-your-own/) guide shows a skil
 
 | Option | Meaning |
 | --- | --- |
-| `--in <dir>` | the source directory (default ./agent-kit; ~/.palm/kit with -g) |
+| `--in <dir>` | the source directory (default: the in-repo source, else ./agent-kit) |
 | `--description <text>` | the description in the template |
+| `--review` | print the scripts of a hook first; with --dry-run, only print |
 
 The [global options](/palm/reference/cli/#global-options) also apply.
 
@@ -61,7 +62,7 @@ Each template has `name` and `description` frontmatter where the kind uses it, a
 ## Behavior
 
 1. palm checks everything before it writes: the targets, the `--in` folder, and the name. A name the source already indexes, or one another source installed for this kind, stops it with `E_CONFLICT`, and nothing is written.
-2. palm writes the template into `<dir>`, `./agent-kit` by default. An existing file stops it with `E_CONFLICT`.
+2. palm writes the template into `<dir>`: by default the one in-repo source `palm.yaml` declares, else `./agent-kit` (`~/.palm/kit` with `-g`). An existing file stops it with `E_CONFLICT`.
 3. When `palm.yaml` does not declare `<dir>` yet, palm adds it and prints `+ source ./agent-kit → palm.yaml`.
 4. palm installs the entity as `palm install ./agent-kit <name>` would. A hook shows its command and script and asks for consent.
 

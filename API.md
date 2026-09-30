@@ -162,7 +162,7 @@ export class ScopePaths {
   get appliedFile(): string | undefined;        // global only: <palmHome>/applied.yaml
   get palmDir(): string;                        // <root>/.palm | palmHome
   get assetsDir(): string;                      // <palmDir>/assets
-  get processLock(): string;                    // <palmDir>/lock (project) | <palmHome>/lock (global)
+  get processLock(): string;                    // <palmDir>/local/lock (project) | <palmHome>/lock (global)
   assetRoot(source: SourceRef, entity: string): string; // lock form: .palm/assets/<segment>/<entity> | <palm>/assets/<segment>/<entity>
   harnessHome(id: TargetId): string;            // absolute: <root>/.<id> (project); override, else ~/.<id> (global; opencode: ~/.config/opencode)
   harnessOverride(id: 'claude' | 'codex' | 'copilot' | 'gemini' | 'opencode'): string | undefined; // the env override of a harness's global dir, when set

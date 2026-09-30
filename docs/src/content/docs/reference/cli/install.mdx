@@ -39,7 +39,7 @@ Aliases: `palm add`, `palm i`.
 
 | Argument | Meaning |
 | --- | --- |
-| `source` | owner/repo, a git URL, a directory, or a source in palm.yaml |
+| `source` | owner/repo, git URL, directory, or a source in palm.yaml |
 | `names` | [kind:]name of what to install |
 
 | Option | Meaning |
@@ -48,8 +48,9 @@ Aliases: `palm add`, `palm i`.
 | `--grep <text>` | list only what matches the text (name or description) |
 | `--as <name>` | the name a URL source gets in palm.yaml |
 | `--layout <k=glob>` | a new source’s layout: skills=packages/\* (repeatable) |
-| `--targets <ids>` | only these targets for these entries (recorded per entry) |
-| `--review` | print the scripts of every program first; with --dry-run, only print |
+| `--targets <ids>` | only these targets for these entries (kept per entry) |
+| `--review` | print program scripts first; with --dry-run, only print |
+| `--allow-local-sources` | palm.yaml may name file:// sources outside the project |
 
 ### MCP servers (palm install mcp)
 
@@ -62,7 +63,7 @@ Aliases: `palm add`, `palm i`.
 | `--env <K=V>` | an environment variable (repeatable) |
 | `--transport <t>` | stdio, http or sse, when palm cannot tell |
 | `--cwd <dir>` | working directory for --command |
-| `--snippet <file>` | the mcpServers block of a README: a file, or - for stdin |
+| `--snippet <file>` | a README's mcpServers block: a file, or - for stdin |
 
 The [global options](/palm/reference/cli/#global-options) also apply.
 
@@ -72,7 +73,10 @@ The [global options](/palm/reference/cli/#global-options) also apply.
 
 With a source and no names, palm fetches the source, indexes it and prints every entity with its kind, name, description and version.
 It asks the remote for its current tags first, so the listing never shows a stale version.
-Hooks and stdio MCP servers are marked `(a program; asks before installing)`, and a name that means two kinds is marked too.
+Hooks and stdio MCP servers are marked `(a program; asks before installing)`, and a hook row shows its whole command, such as `claude: Stop -> go run .agents/hooks/main.go`.
+A name that means two kinds is marked too, and an entity an install would refuse says why, such as `(refused: hidden Unicode)`; the paste line never offers it.
+When the source offers only programs, the paste line names them as `hook:<name>` or `mcp:<name>` and offers no `--all`.
+Notes about what the index left out print in full: files shaped like agents, hooks or servers that it did not index, with the `--layout` flags that index them, a layout glob that matches nothing, an `apm.yml` dependency palm does not follow, and links that leave the source.
 The listing ends with `Nothing written. Install some:` and two commands you can paste, with the `#ref` you typed.
 
 `--grep <text>` keeps the entities whose name or description contains the text, and the paste line takes the first two matches.

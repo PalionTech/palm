@@ -59,6 +59,10 @@ Allow these 2 programs to run?  [y/N/v=view scripts]
 ```
 
 Each block names the source, the commit, the tag and its date.
+Printed without a question (a dry run, or no terminal), the block ends in `(--review shows every script)` instead of `v`.
+A target the program is not installed for, such as OpenCode, which has no command hooks, is named on a `skipped:` line.
+An `env` value a server gets as written reads `KEY (literal)`, and an `npx pkg@latest` command without an exact version gets an `! unpinned` line.
+On `palm update`, the headline says `changes` for a program you trusted before and `adds` for a new one.
 It shows every command as the harness will run it, the file it lands in per target, and the scripts with mode, size and a short hash.
 A script that reads another file of the source by a literal relative path, such as `../skills/x/SKILL.md`, gets a `reads:` line.
 palm copies that file too, and a read it cannot resolve prints a warning at install.

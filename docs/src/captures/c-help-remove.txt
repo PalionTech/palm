@@ -4,22 +4,24 @@ Usage: palm remove|uninstall [source] <[kind:]name...> [options]
 Delete exactly what palm wrote for some entities.
 
 Arguments:
-  names                an optional source, then [kind:]name of what to remove
+  names                  an optional source, then [kind:]name of what to remove
 
 Options:
-  --exclude            a plugin member: exclude it for the team in palm.yaml
-  -h, --help           display help for command
+  --exclude              a plugin member: exclude it for the team in palm.yaml
+  --all                  every entry of the source, after a question
+  --allow-local-sources  palm.yaml may name file:// sources outside the project
+  -h, --help             display help for command
 
 Global Options:
-  -g, --global         use ~/.palm/palm.yaml and the harness home directories
-  --dry-run            show what would change; write nothing
-  --force              replace files you changed or that palm does not own
-  -y, --yes            accept plan confirmations (never consents to programs)
-  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
-  --offline            use the cache only; no network
-  --json               one JSON document on stdout; everything else on stderr
-  --secrets <policy>   env-ref (default) or literal, for secrets you type
-  -V, --version        print the palm version
+  -g, --global           use ~/.palm/palm.yaml and the harness home directories
+  --dry-run              show what would change; write nothing
+  --force                replace files you changed or that palm does not own
+  -y, --yes              accept plan confirmations (never consents to programs)
+  --allow-exec <list>    allow programs: hook:x@source=sha256:hash,... or all
+  --offline              use the cache only; no network
+  --json                 one JSON document on stdout; everything else on stderr
+  --secrets <policy>     env-ref (default) or literal, for secrets you type
+  -V, --version          print the palm version
 
 A file you changed since palm wrote it keeps the entity installed (exit 1); --force removes it.
 Removing something that is not installed is not an error.

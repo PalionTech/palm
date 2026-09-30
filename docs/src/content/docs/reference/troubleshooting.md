@@ -93,7 +93,7 @@ palm install ./agent-kit tdd-team
 
 Set `name: tdd-team` in the copy's frontmatter first. Then restore the original with the `--force` command the message prints, or remove it.
 To drop the edit instead, run that `--force` command alone.
-A `palm create <kind> <name> --from-installed` that does the copy is a candidate for palm 0.3.
+A `palm create` option that does this copy from an installed entity is a candidate for palm 0.3.
 
 ## An in-repo source changed
 

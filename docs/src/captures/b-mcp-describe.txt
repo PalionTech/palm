@@ -12,10 +12,9 @@ mcp docs  (installed, project scope)
         }
       }
   codex       .codex/config.toml /mcp_servers/docs
-      {
-        "url": "https://docs.example.com/mcp",
-        "bearer_token_env_var": "DOCS_TOKEN"
-      }
+      [mcp_servers.docs]
+      url = "https://docs.example.com/mcp"
+      bearer_token_env_var = "DOCS_TOKEN"
   cursor      .cursor/mcp.json /mcpServers/docs
       {
         "url": "https://docs.example.com/mcp",

@@ -4,25 +4,27 @@ Usage: palm update|up [sources...] [options]
 Move sources to newer commits within their refs.
 
 Arguments:
-  sources              sources to update (default: all)
+  sources                sources to update (default: all)
 
 Options:
-  --to <ref>           move the ref in palm.yaml (a tag, branch, sha or range
-                       such as ^2)
-  --review             print changed scripts and entities as diffs before asking
-  --strict             with --dry-run: exit 1 when a source is behind its ref
-  -h, --help           display help for command
+  --to <ref>             move the ref in palm.yaml (a tag, branch, sha or range
+                         such as ^2)
+  --review               print changed scripts and entities as diffs before
+                         asking
+  --strict               with --dry-run: exit 1 when a source is behind its ref
+  --allow-local-sources  palm.yaml may name file:// sources outside the project
+  -h, --help             display help for command
 
 Global Options:
-  -g, --global         use ~/.palm/palm.yaml and the harness home directories
-  --dry-run            show what would change; write nothing
-  --force              replace files you changed or that palm does not own
-  -y, --yes            accept plan confirmations (never consents to programs)
-  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
-  --offline            use the cache only; no network
-  --json               one JSON document on stdout; everything else on stderr
-  --secrets <policy>   env-ref (default) or literal, for secrets you type
-  -V, --version        print the palm version
+  -g, --global           use ~/.palm/palm.yaml and the harness home directories
+  --dry-run              show what would change; write nothing
+  --force                replace files you changed or that palm does not own
+  -y, --yes              accept plan confirmations (never consents to programs)
+  --allow-exec <list>    allow programs: hook:x@source=sha256:hash,... or all
+  --offline              use the cache only; no network
+  --json                 one JSON document on stdout; everything else on stderr
+  --secrets <policy>     env-ref (default) or literal, for secrets you type
+  -V, --version          print the palm version
 
 Prints the plan, every new or changed program, and the files you changed, then asks
 (default no). Without a terminal it needs --yes; --yes never consents to programs.

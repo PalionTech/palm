@@ -47,7 +47,8 @@ palm has no registry client and never searches for a server by name.
 palm reads the `{ "mcpServers": { ... } }` form, the flat form without the wrapper, and VS Code's `servers` form.
 Every server in the block becomes an `mcp:` entry in `palm.yaml`.
 A literal secret in the snippet becomes `${NAME}`, with a notice.
-So does a value to fill in, such as `Bearer YOUR_API_KEY`, and VS Code's `${input:name}`, whose `inputs` array palm drops.
+So does VS Code's `${input:name}`, whose `inputs` array palm drops.
+A value to fill in, such as `Bearer YOUR_API_KEY`, becomes an optional reference named after its header, such as `Bearer ${CONTEXT7_TOKEN:-}`, so the server works until you export a key.
 A server name that already exists stops with `E_CONFLICT` unless you pass `--force`.
 
 `palm install mcp <name>` with no flags and no snippet renders the server `palm.yaml` declares under that name again. After a hand edit of a generated file, `palm install mcp <name> --force` restores it.
@@ -79,9 +80,10 @@ palm install mcp context7 --command npx --arg -y --arg @upstash/context7-mcp
 
 The first form is a remote server. The second starts a local program, so it asks for consent.
 
-A value you type is never stored.
+A secret you type is never stored.
 `--env BRAVE_API_KEY=<value>` writes `${BRAVE_API_KEY}` into `palm.yaml` and every harness file, and palm prints the `export` line to run before you start the harness.
-Only `--secrets literal` writes the value itself, as [Secrets](/palm/concepts/secrets/) describes.
+A value that is no secret, such as `--env LOG_LEVEL=debug`, is written as you typed it, and an `i` line says so.
+Only `--secrets literal` writes a secret itself, as [Secrets](/palm/concepts/secrets/) describes.
 
 ## Stdio servers run programs
 

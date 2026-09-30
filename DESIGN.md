@@ -55,7 +55,7 @@ $PALM_HOME (default ~/.palm)
   palm.local.yaml       # 0.3: personal additions                 (ignored)
   .palm/assets/<source>/<entity>/   # scripts hooks and MCP servers run     (committed, never marked generated)
   .palm/local/          # 0.3: the overlay's lock                 (ignored; the only ignored palm path)
-  .palm/lock            # advisory lock for concurrent palm processes (created and removed per run)
+  .palm/local/lock      # advisory lock for concurrent palm processes (created and removed per run; ignored)
 ```
 
 `projectRoot` = nearest ancestor of cwd containing `palm.yaml`, else nearest ancestor
@@ -215,11 +215,13 @@ Enforced in targets and engine:
   install summary says which variable to export (section 8).
 - Only `skills/*/SKILL.md`, or what the layout declares, are entities; a nested
   `references/*/SKILL.md` is content.
-- A skill copy leaves out, at any depth, `SKILL_COPY_SKIP` (`src/domain/skill-copy.ts`): the
-  copy skip list, harness directories and configs (`.claude`, `.agents`, `.cursor`, `.codex`,
-  `.gemini`, `.opencode`, `.github`, `.vscode`, `.apm`, `.mcp.json`, `opencode.json`),
-  `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`, palm's files (`palm.yaml`, `palm.lock.yaml`,
-  `palm.local.yaml`, `.palm`) and `.env` files, with one note naming what was left out. Every
+- A skill copy leaves out, at any depth (`src/domain/skill-copy.ts`, rulings Y2, X1, T2): the
+  copy skip list, harness directories (`.claude`, `.agents`, `.cursor`, `.codex`, `.gemini`,
+  `.opencode`, `.github`, `.vscode`, `.apm`), palm's files (`palm.yaml`, `palm.lock.yaml`,
+  `palm.local.yaml`, `.palm`), `.env` files, and tests (`tests/`, `test/`, `fixtures/`,
+  `__tests__/`, `*.test.*`), with one note naming what was left out. A skill's own
+  `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and `.mcp.json` are skill content and are copied; a
+  finding only in a skipped test file never refuses the skill. Every
   file a skill, agent or instruction copies is secret-scanned at index time: a credential beyond
   doubt (a known token prefix, a Bearer token, a secret in a URL, a private key block, a random
   value in a configuration file) refuses the entity; a random value in code or prose and a
@@ -241,9 +243,11 @@ Enforced in targets and engine:
   `~/.claude/settings.json`, `~/.codex/config.toml` or a symlinked `palm.lock.yaml` stays a
   link. Symlinked parent directories (`~/.claude -> ~/dotfiles/claude`) are written into, never
   replaced.
-- Two palm processes on one scope serialise on `<scope>/.palm/lock` (project) or
-  `$PALM_HOME/lock` (global): the advisory lock of `core/git withLock` (O_EXCL create, pid and
-  host inside, stale after 10 minutes or a dead pid, 60 s wait).
+- Two palm processes on one scope serialise on `<scope>/.palm/local/lock` (project, inside the
+  ignored directory) or `$PALM_HOME/lock` (global): the advisory lock of `core/git withLock`
+  (O_EXCL create, pid and host inside, stale after 10 minutes or a dead pid, 60 s wait), taken
+  before palm.yaml and the lock are read and held until they are saved. It goes on exit,
+  SIGHUP and SIGTERM; `palm check` removes one a dead palm of this host left.
 
 ## 3. Manifest (`palm.yaml`)
 
@@ -605,7 +609,8 @@ Near misses (auto-detected scans only): an agent-shaped `.md` (frontmatter `name
 (`2 agent-shaped files not indexed: people/*.md; add layout: { skills: [packages/*], agents:
 [people/*.md] }`). A SKILL.md directly under an ignored name next to other skills adds
 `skipped skills/test/SKILL.md (ignored name "test"; add layout: { skills: [skills/*] })`. The
-suggested layout lists what the scan found as well, since a layout replaces detection. A
+suggested layout lists what the scan found as well, since a layout replaces convention
+detection; the plugins a root manifest or marketplace declares stay indexed beside it (R3'). A
 descriptor pattern that matches nothing warns `layout agents: "people/*.md" matches nothing in
 the source`.
 

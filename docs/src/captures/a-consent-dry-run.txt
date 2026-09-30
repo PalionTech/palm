@@ -10,7 +10,7 @@ This install adds 1 program that will run on your machine.
      scripts: 3 files, 438 B  ->  .palm/assets/trailofbits__skills/gh-cli/  (committed with your repo)
        plugins/gh-cli/hooks/persist-session-id.sh     755   50 B  sha256:1033f868
        plugins/gh-cli/hooks/intercept-github-curl.sh  755   98 B  sha256:6d5d4536
-       ... 1 more  (v shows every script)
+       ... 1 more  (--review shows every script)
 
 palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
 so teammates and CI install it without being asked; any change asks again.

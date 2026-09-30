@@ -15,8 +15,7 @@ $ palm get skills --json
         ".claude/skills/tdd/SKILL.md",
         ".claude/skills/tdd/references/mocking.md"
       ],
-      "merged": [],
-      "layer": "team"
+      "merged": []
     }
   ],
   "warnings": []
@@ -26,7 +25,7 @@ $ palm install mattpocock/skills tdd-coach --json
   "error": {
     "code": "E_NOT_FOUND",
     "message": "\"tdd-coach\" is not in source mattpocock/skills; did you mean tdd?",
-    "hint": "palm install mattpocock/skills tdd"
+    "hint": "palm install mattpocock/skills tdd --json"
   },
   "warnings": []
 }

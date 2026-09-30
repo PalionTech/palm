@@ -1,11 +1,13 @@
 $ palm install acme/standards
-i 1 note from indexing acme/standards (see: PALM_DEBUG=1 palm install acme/standards)
-acme/standards  v1.0.0 (30fa2b0)   2 skills, 1 agent, 1 instruction, 1 hook
+i acme/standards: apm.yml: 1 MCP server dependency is not installed (io.github.github/github-mcp-server); palm installs a server with: palm install mcp --snippet <the JSON from io.github.github/github-mcp-server's README>
+i acme/standards: apm.yml: 2 dependencies are not installed; declare what you need: palm install microsoft/apm-sample-package, palm install github/awesome-copilot/skills/review-and-refactor#v1.2.0
+acme/standards  v1.0.0 (30fa2b0)   1 plugin, 2 skills, 1 agent, 1 instruction, 1 hook
+  plugin       my-apm-pkg       2 skills, 1 agent, 1 instruction, 1 hook
   skill        lint-fix         Fix lint errors.
   skill        release          Cut a release
   agent        reviewer         Reviews pull requests
   instruction  typescript       TS style
-  hook         format-on-save   claude: PostToolUse -> npx prettier   (a program; asks before installing)
+  hook         format-on-save   claude: PostToolUse -> npx prettier --write $CLAUDE_FILE_PATHS   (a program; asks before installing)
 Nothing written. Install some:
     palm install acme/standards lint-fix release
     palm install acme/standards --all
@@ -28,6 +30,7 @@ This install adds 1 program that will run on your machine.
      targets: claude (.claude/settings.json), copilot (.github/hooks/format-on-save.json)
      scripts: 1 file, 249 B  ->  .palm/assets/acme__standards/format-on-save/  (committed with your repo)
        .apm/hooks/format-on-save.json  644   249 B  sha256:161d35f7
+     ! unpinned: npx resolves prettier@latest at run time; pin an exact version to review what runs
 
 palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
 so teammates and CI install it without being asked; any change asks again.
@@ -35,5 +38,19 @@ x 1 program needs your consent and there is no terminal
   review:  palm install acme/standards format-on-save --dry-run --review
   then:    palm install acme/standards format-on-save --allow-exec hook:format-on-save@acme/standards=sha256:c9da7ff0d7bf85ec182618dfe63abbeaa8feeb63c5eb5c2a16355f15e4b3ff90
 $ palm install acme/standards format-on-save --allow-exec hook:format-on-save@acme/standards=sha256:c9da7ff0d7bf85ec182618dfe63abbeaa8feeb63c5eb5c2a16355f15e4b3ff90
+This install adds 1 program that will run on your machine.
+
+  1. hook format-on-save  from acme/standards  (commit 30fa2b0, v1.0.0, 2026-09-28)
+     PostToolUse  Write|Edit  npx prettier --write "$CLAUDE_FILE_PATHS"
+     targets: claude (.claude/settings.json), copilot (.github/hooks/format-on-save.json)
+     scripts: 1 file, 249 B  ->  .palm/assets/acme__standards/format-on-save/  (committed with your repo)
+       .apm/hooks/format-on-save.json  644   249 B  sha256:161d35f7
+     ! unpinned: npx resolves prettier@latest at run time; pin an exact version to review what runs
+
+palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
+so teammates and CI install it without being asked; any change asks again.
+
+allowed by --allow-exec: hook:format-on-save@acme/standards (sha256:c9da7ff0)
 + hook  format-on-save   .github/hooks/format-on-save.json, .palm/assets/acme__standards/format-on-save/ +1   2 files +1 merged   from acme/standards v1.0.0
-1 installed.
+~ trusted hook format-on-save sha256:c9da7ff0
+1 installed. Commit palm.yaml, palm.lock.yaml and .palm/ together.

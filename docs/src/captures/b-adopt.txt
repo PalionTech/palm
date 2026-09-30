@@ -1,12 +1,14 @@
 $ palm install mattpocock/skills tdd
 i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
-+ skill  tdd   .claude/skills/tdd/   2 files   from mattpocock/skills v1.2.3   (cursor reads .claude/skills; no second copy)
++ skill  tdd   .claude/skills/tdd/   2 files   from mattpocock/skills v1.2.3
+    cursor reads .claude/skills; no second copy
+    adopted 2 files already there (the same content)
 1 installed. Commit palm.yaml, palm.lock.yaml and .claude/ together.
 $ palm install cursor/plugins/pstack comment-sicko
 i ref main saved to palm.yaml; edit ref: to pin a tag
 ! agent  comment-sicko   .claude/agents/comment-sicko.md   1 file   from cursor/plugins/pstack main   (claude: installed; cursor: failed)
 x agent comment-sicko from cursor/plugins/pstack → cursor: refusing to overwrite .cursor/agents/comment-sicko.md
-  palm install cursor/plugins/pstack comment-sicko --force
+  palm install cursor/plugins/pstack agent:comment-sicko --force
 1 partial.
 $ palm install cursor/plugins/pstack comment-sicko --force
 ~ agent  comment-sicko   .claude/agents/comment-sicko.md, .cursor/agents/comment-sicko.md   2 files   from cursor/plugins/pstack main

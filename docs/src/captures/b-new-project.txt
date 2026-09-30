@@ -12,7 +12,7 @@ i agent agent-sdk-verifier-py preloads skill sdk-helper, mcp context7, not insta
 i ref main saved to palm.yaml; edit ref: to pin a tag
 + agent  agent-sdk-verifier-py   .claude/agents/agent-sdk-verifier-py.md, .codex/agents/agent-sdk-verifier-py.toml   2 files   from anthropics/claude-plugins-official main
     .codex/agents/agent-sdk-verifier-py.toml: dropped model (sonnet), tools, skills, mcpServers, color (not supported by Codex)
-1 installed.
+1 installed. Commit palm.yaml, palm.lock.yaml and .codex/ together.
 $ palm install mcp docs --url https://docs.example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
 + mcp  docs   .mcp.json, .codex/config.toml   merged   (needs DOCS_TOKEN in the environment)
-1 installed.
+1 installed. Commit palm.yaml, palm.lock.yaml and .mcp.json together.

@@ -4,19 +4,20 @@ i ref ^1.0 saved to palm.yaml (latest tag v1.0.0); edit ref: to track main
 + agent        ci-watcher   .claude/agents/ci-watcher.md, .codex/agents/ci-watcher.toml   2 files   from acme/agent-kit v1.0.0
     .claude/agents/ci-watcher.md: dropped model (fast) (not supported by Claude Code)
     .claude/agents/ci-watcher.md: readonly: true written as tools: Read, Grep, Glob, WebFetch, WebSearch
+    .codex/agents/ci-watcher.toml: dropped model (fast) (not supported by Codex)
     .codex/agents/ci-watcher.toml: readonly: true written as sandbox_mode = "read-only"
 + instruction  typescript   .claude/rules/typescript.md, AGENTS.md   1 file +1 merged   from acme/agent-kit v1.0.0
 3 installed. Commit palm.yaml, palm.lock.yaml, .agents/, .claude/, .codex/ and AGENTS.md together.
 $ git add -A && git commit -qm "Add the team agent setup" && git show --stat --format=%s HEAD
 Add the team agent setup
 
- .agents/skills/ci-watch/SKILL.md |  8 ++++++++
+ .agents/skills/ci-watch/SKILL.md |  8 +++++++
  .claude/agents/ci-watcher.md     |  7 +++++++
  .claude/rules/typescript.md      |  7 +++++++
- .claude/skills/ci-watch/SKILL.md |  8 ++++++++
- .codex/agents/ci-watcher.toml    |  7 +++++++
+ .claude/skills/ci-watch/SKILL.md |  8 +++++++
+ .codex/agents/ci-watcher.toml    |  6 ++++++
  .gitignore                       |  2 ++
  AGENTS.md                        |  5 +++++
- palm.lock.yaml                   | 44 ++++++++++++++++++++++++++++++++++++++++
+ palm.lock.yaml                   | 45 ++++++++++++++++++++++++++++++++++++++++
  palm.yaml                        |  7 +++++++
  9 files changed, 95 insertions(+)

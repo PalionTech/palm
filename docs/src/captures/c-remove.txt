@@ -5,7 +5,7 @@ $ palm remove grill-me
 i grill-me is not installed
 $ palm remove tdd
 x skill tdd from mattpocock/skills: .claude/skills/tdd/SKILL.md was modified since install
-  palm remove mattpocock/skills tdd --force
+  palm remove mattpocock/skills skill:tdd --force
 $ palm remove mattpocock/skills tdd --force
 - skill  tdd   .agents/skills/tdd/, .claude/skills/tdd/   5 files
 1 removed.

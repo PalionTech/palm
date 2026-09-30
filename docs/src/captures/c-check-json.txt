@@ -9,6 +9,12 @@ $ palm check --json
       "problems": []
     },
     {
+      "id": "targets",
+      "label": "palm.yaml targets match the lock",
+      "status": "ok",
+      "problems": []
+    },
+    {
       "id": "render",
       "label": "every entry is rendered",
       "status": "ok",
@@ -74,6 +80,12 @@ $ palm check --json
       "problems": []
     },
     {
+      "id": "foreign-servers",
+      "label": "no foreign stdio server in the MCP files palm manages",
+      "status": "ok",
+      "problems": []
+    },
+    {
       "id": "hook-scripts",
       "label": "every hook script exists",
       "status": "ok",
@@ -81,14 +93,20 @@ $ palm check --json
     },
     {
       "id": "secrets",
-      "label": "no literal secret in generated files; 1 server needs variables that are not set",
+      "label": "no literal secret in generated files",
+      "status": "ok",
+      "problems": []
+    },
+    {
+      "id": "variables",
+      "label": "1 server needs variables that are not set",
       "status": "warn",
       "problems": [
         {
           "entity": {
             "kind": "mcp",
             "name": "docs",
-            "source": "manifest"
+            "source": "palm.yaml"
           },
           "message": "needs DOCS_TOKEN, which is not set",
           "fix": "export DOCS_TOKEN=…"
@@ -127,7 +145,7 @@ $ palm check --json
     },
     {
       "id": "agent-names",
-      "label": "no two agents share a name in a harness folder",
+      "label": "no two agents or commands share a name in a harness folder",
       "status": "ok",
       "problems": []
     },

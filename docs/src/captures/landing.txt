@@ -17,4 +17,4 @@ i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
 + skill  tdd   .agents/skills/tdd/, .claude/skills/tdd/   5 files   from mattpocock/skills v1.2.3
     claude gets its own copy in .claude/skills
     cursor reads .claude/skills; no second copy
-1 installed.
+1 installed. Commit palm.yaml, palm.lock.yaml and .agents/ together.

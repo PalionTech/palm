@@ -3,11 +3,12 @@ x "superpowers" is not a repository. palm installs from git repositories:
     palm install <owner/repo> [names...]      for example  palm install obra/superpowers
   Not sure which repository? https://github.com/search?q=superpowers+SKILL.md&type=code
 $ palm install obra/superpowers
-obra/superpowers  v4.0.3 (083545e)   3 skills, 1 hook
-  skill  brainstorming             Use before any creative work: explore intent, requirements and design.
-  skill  test-driven-development   Use when implementing any feature or bugfix, before writing implement…
-  skill  writing-skills            Use when creating or editing skills.
-  hook   superpowers               claude: SessionStart -> hooks/run-hook.cmd   (a program; asks before installing)
+obra/superpowers  v4.0.3 (083545e)   1 plugin, 3 skills, 1 hook
+  plugin  superpowers               3 skills, 1 hook   (also hook superpowers: name it plugin:superpowers)
+  skill   brainstorming             Use before any creative work: explore intent, requirements and design.
+  skill   test-driven-development   Use when implementing any feature or bugfix, before writing implement…
+  skill   writing-skills            Use when creating or editing skills.
+  hook    superpowers               claude: SessionStart -> hooks/run-hook.cmd session-start   (a program; asks before installing)   (also plugin superpowers: name it hook:superpowers)
 Nothing written. Install some:
     palm install obra/superpowers brainstorming test-driven-development
     palm install obra/superpowers --all

@@ -10,7 +10,6 @@
 .claude/skills/writing-skills/SKILL.md
 .claude/skills/writing-skills/examples/CLAUDE_MD_TESTING.md
 .codex/hooks.json
-.palm/assets/obra__superpowers/superpowers/hooks/hooks-cursor.json
 .palm/assets/obra__superpowers/superpowers/hooks/hooks.json
 .palm/assets/obra__superpowers/superpowers/hooks/run-hook.cmd
 palm.lock.yaml

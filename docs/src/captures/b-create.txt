@@ -17,6 +17,7 @@ $ printf '\n4. Group the entries by label.\n' >> agent-kit/skills/release-notes/
 
 $ palm check
 ✓ manifest and lock agree
+✓ palm.yaml targets match the lock
 ✓ every entry is rendered
 ✓ every entry is on all its targets
 ✓ generated files match the lock
@@ -26,20 +27,21 @@ x 1 in-repo entity changed since the lock
 ✓ no generated path lies inside a source
 ✓ every program palm installed is trusted
 ✓ no foreign command in the hook files palm manages
+✓ no foreign stdio server in the MCP files palm manages
 ✓ every hook script exists
 ✓ no literal secret in generated files
-! 2 output paths not committed yet
+✓ every variable the servers need is set
+! generated files not committed yet
 ✓ every source is declared
 ✓ no link leaves the scope
 ✓ no hidden Unicode in generated files
 ✓ no harness loads an entity twice
-✓ no two agents share a name in a harness folder
+✓ no two agents or commands share a name in a harness folder
 ✓ every skill an agent preloads is installed
 ✓ instruction files are within harness limits
 
 x skill release-notes: skill release-notes in source ./agent-kit changed since palm.lock.yaml (content c293a4e → 341192a); fix: palm install, then commit palm.lock.yaml and the files it re-rendered
-! .agents/skills/release-notes/SKILL.md is not committed yet (untracked); fix: git add .agents/skills/release-notes/SKILL.md
-! .claude/skills/release-notes/SKILL.md is not committed yet (untracked); fix: git add .claude/skills/release-notes/SKILL.md
+! 2 files (.agents/skills/release-notes/SKILL.md, .claude/skills/release-notes/SKILL.md) are not committed yet (untracked); fix: git add .agents/skills .claude/skills
 $ palm install
 ~ skill  release-notes   .agents/skills/release-notes/, .claude/skills/release-notes/   2 files   (claude gets its own copy in .claude/skills)
 1 re-rendered.

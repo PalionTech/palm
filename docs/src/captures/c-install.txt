@@ -9,9 +9,9 @@ This install adds 1 program that will run on your machine.
   1. hook superpowers  from obra/superpowers  (commit 083545e, v4.0.3, 2026-09-28)
      SessionStart  startup|clear|compact  CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/obra__superpowers/superpowers "$CLAUDE_PROJECT_DIR"/.palm/assets/obra__superpowers/superpowers/hooks/run-hook.cmd session-start
      targets: claude (.claude/settings.json), codex (.codex/hooks.json)
-     scripts: 3 files, 492 B  ->  .palm/assets/obra__superpowers/superpowers/  (committed with your repo)
+     scripts: 2 files, 355 B  ->  .palm/assets/obra__superpowers/superpowers/  (committed with your repo)
        hooks/run-hook.cmd  755   50 B  sha256:94db96e9
-       ... 2 more  (v shows every script)
+       ... 1 more  (--review shows every script)
 
 palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
 so teammates and CI install it without being asked; any change asks again.
@@ -19,7 +19,7 @@ i ref ^4.0 would be saved to palm.yaml (latest tag v4.0.3); edit ref: to track m
 + would install  skill  brainstorming             .agents/skills/brainstorming/, .claude/skills/brainstorming/   2 files   (claude gets its own copy in .claude/skills)
 + would install  skill  test-driven-development   .agents/skills/test-driven-development/, .claude/skills/test-driven-development/   6 files
 + would install  skill  writing-skills            .agents/skills/writing-skills/, .claude/skills/writing-skills/   4 files
-+ would install  hook   superpowers               .palm/assets/obra__superpowers/superpowers/, .claude/settings.json +1   3 files +2 merged
++ would install  hook   superpowers               .palm/assets/obra__superpowers/superpowers/, .claude/settings.json +1   2 files +2 merged
 dry run: 4 would install; nothing written.
 $ rm -r .claude/skills/handoff
 

@@ -12,9 +12,10 @@ This install adds 1 program that will run on your machine.
      PreToolUse  Write|Edit  CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/anthropics__claude-plugins-official/agent-sdk-dev/plugins/agent-sdk-dev python3 "$CLAUDE_PROJECT_DIR"/.palm/assets/anthropics__claude-plugins-official/agent-sdk-dev/plugins/agent-sdk-dev/hooks/guard.py
        cursor: CURSOR_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/anthropics__claude-plugins-official/agent-sdk-dev/plugins/agent-sdk-dev CLAUDE_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/anthropics__claude-plugins-official/agent-sdk-dev/plugins/agent-sdk-dev python3 "$CURSOR_PROJECT_DIR"/.palm/assets/anthropics__claude-plugins-official/agent-sdk-dev/plugins/agent-sdk-dev/hooks/guard.py
      targets: claude (.claude/settings.json), codex (.codex/hooks.json), copilot (.github/hooks/agent-sdk-dev.json), cursor (.cursor/hooks.json), gemini (.gemini/settings.json)
+     skipped: opencode (OpenCode hooks are JS plugins; hook agent-sdk-dev not installed)
      scripts: 2 files, 321 B  ->  .palm/assets/anthropics__claude-plugins-official/agent-sdk-dev/  (committed with your repo)
        plugins/agent-sdk-dev/hooks/guard.py  644   12 B  sha256:3a66aebd
-       ... 1 more  (v shows every script)
+       ... 1 more  (--review shows every script)
 
 palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
 so teammates and CI install it without being asked; any change asks again.

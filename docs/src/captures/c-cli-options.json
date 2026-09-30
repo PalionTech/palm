@@ -205,7 +205,7 @@
       "arguments": [
         {
           "name": "source",
-          "description": "owner/repo, a git URL, a directory, or a source in palm.yaml"
+          "description": "owner/repo, git URL, directory, or a source in palm.yaml"
         },
         {
           "name": "names",
@@ -243,12 +243,17 @@
               "flags": "--targets <ids>",
               "long": "--targets",
               "argument": "<ids>",
-              "description": "only these targets for these entries (recorded per entry)"
+              "description": "only these targets for these entries (kept per entry)"
             },
             {
               "flags": "--review",
               "long": "--review",
-              "description": "print the scripts of every program first; with --dry-run, only print"
+              "description": "print program scripts first; with --dry-run, only print"
+            },
+            {
+              "flags": "--allow-local-sources",
+              "long": "--allow-local-sources",
+              "description": "palm.yaml may name file:// sources outside the project"
             },
             {
               "flags": "-h, --help",
@@ -307,7 +312,7 @@
               "flags": "--snippet <file>",
               "long": "--snippet",
               "argument": "<file>",
-              "description": "the mcpServers block of a README: a file, or - for stdin"
+              "description": "a README's mcpServers block: a file, or - for stdin"
             }
           ]
         }
@@ -342,6 +347,16 @@
               "flags": "--exclude",
               "long": "--exclude",
               "description": "a plugin member: exclude it for the team in palm.yaml"
+            },
+            {
+              "flags": "--all",
+              "long": "--all",
+              "description": "every entry of the source, after a question"
+            },
+            {
+              "flags": "--allow-local-sources",
+              "long": "--allow-local-sources",
+              "description": "palm.yaml may name file:// sources outside the project"
             },
             {
               "flags": "-h, --help",
@@ -392,6 +407,11 @@
               "description": "with --dry-run: exit 1 when a source is behind its ref"
             },
             {
+              "flags": "--allow-local-sources",
+              "long": "--allow-local-sources",
+              "description": "palm.yaml may name file:// sources outside the project"
+            },
+            {
               "flags": "-h, --help",
               "short": "-h",
               "long": "--help",
@@ -420,6 +440,16 @@
               "flags": "--quiet",
               "long": "--quiet",
               "description": "print only the problems (nothing when there are none)"
+            },
+            {
+              "flags": "--strict",
+              "long": "--strict",
+              "description": "fail on foreign hooks and servers and on checks that could not run"
+            },
+            {
+              "flags": "--allow-local-sources",
+              "long": "--allow-local-sources",
+              "description": "palm.yaml may name file:// sources outside the project"
             },
             {
               "flags": "-h, --help",
@@ -634,13 +664,18 @@
               "flags": "--in <dir>",
               "long": "--in",
               "argument": "<dir>",
-              "description": "the source directory (default ./agent-kit; ~/.palm/kit with -g)"
+              "description": "the source directory (default: the in-repo source, else ./agent-kit)"
             },
             {
               "flags": "--description <text>",
               "long": "--description",
               "argument": "<text>",
               "description": "the description in the template"
+            },
+            {
+              "flags": "--review",
+              "long": "--review",
+              "description": "print the scripts of a hook first; with --dry-run, only print"
             },
             {
               "flags": "-h, --help",

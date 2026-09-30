@@ -38,8 +38,9 @@ CODEX_HOME=~/codex-work palm install mattpocock/skills tdd -g
 | `cache/` | One checkout per source commit, and index files. Mode `0700`. Safe to delete. |
 | `lock` | An advisory lock while a global command runs. |
 
-A project has its own advisory lock at `.palm/lock` while palm runs, so two palm processes on one scope wait for each other.
-palm removes the lock file when it exits, also after Ctrl-C.
+A project has its own advisory lock at `.palm/local/lock` while palm runs, so two palm processes on one scope wait for each other.
+It sits in `.palm/local/`, the one ignored palm directory, so `git add -A` never stages it.
+palm removes the lock file when it exits, also after Ctrl-C, a closed terminal (SIGHUP) or `kill` (SIGTERM); `palm check` removes one a killed palm of this machine left behind.
 There is no `~/.palm/config.yaml` in palm 0.2.
 
 ## Harness homes

@@ -9,6 +9,9 @@ $ palm create instruction commit-style
 + instruction  commit-style   .claude/rules/commit-style.md   1 file
 1 installed.
 edit agent-kit/instructions/commit-style.md, then run: palm install
+
+Warnings
+  ! instruction commit-style: the description is a placeholder (TODO: describe …) that every harness lists; write one in agent-kit/instructions/commit-style.md, or pass --description
 $ find agent-kit -type f | sort
 agent-kit/agents/reviewer.md
 agent-kit/instructions/commit-style.md

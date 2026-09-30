@@ -58,9 +58,9 @@ When you finish, CI passes on a clean branch and fails on an edited file, with t
    palm check --strict
    ```
 
-   `--strict` exits 1 on a warning or a skipped check too.
-   It fails on a hook command or stdio MCP server that someone added to a harness file by hand, since no lock entry explains it.
+   `--strict` exits 1 on a hook command or stdio MCP server that someone added to a harness file by hand, since no lock entry explains it, and on a check that could not run.
    It fails when `--offline` meets an empty cache and `lock-disk` is skipped, so cache `~/.palm/cache` between runs or leave the network on.
+   Other warnings, such as a variable that is not set, still exit 0.
    Acknowledge a warning you accept in the `ignore:` list of `palm.yaml`, as [palm check](/palm/reference/cli/check/#acknowledge-a-warning) shows.
 
 3. Read the report when it fails.
@@ -68,6 +68,10 @@ When you finish, CI passes on a clean branch and fails on an edited file, with t
    Each check prints one line: `✓`, `x`, `!` or `skipped` with the reason. Then come the problems, one line per entity, each ending in the command that fixes it.
    Run that command on your machine, review the diff, and commit.
    `palm check --quiet` prints only the problems and the skipped checks, so a passing run prints nothing.
+   A fetch that fails or a cache palm cannot write is reported as that error, with `E_NETWORK` or `E_IO` and the path, never as files that differ.
+
+   A `palm.yaml` that names a `file://` source outside the repository, such as a mirror on an air-gapped runner, fails with `x source "kit" is file:///…, outside the project`.
+   Pass `--allow-local-sources` on the runners that are meant to read it: `palm check --allow-local-sources`.
 
 4. Use JSON for anything that parses the result.
 
@@ -100,15 +104,15 @@ It reads nothing else, so a script or agent file added by hand outside palm's fo
 | `source-paths` | a path palm owns reaches into a declared source through a link | move the source, or remove the link |
 | `exec-trusted` | a hook or stdio server has no trusted hash, or a merged command was changed on disk | `palm install --allow-exec <key>=<hash>` |
 | `hook-scripts` | a hook command names a script that is missing or not executable | `palm install` |
-| `secrets` | a tracked or world-readable generated file, or a harness config palm merges into, holds a literal secret | fix the source, then `palm install <source> <name> --force` |
+| `secrets` | a tracked or world-readable generated file, or a harness config palm merges into, holds a literal secret; high-entropy text in code only warns | fix the source, then `palm install <source> <name> --force` |
 | `git-ignored` | a generated file, a file palm merged into, or `.palm/assets` is ignored by git, so teammates never get it | add the re-include lines the fix names to `.gitignore` |
 | `sources-declared` | a lock source is missing from `palm.yaml`, or an in-repo source is missing on disk | `palm install`, or restore the directory |
 | `links` | an output path resolves outside the project, a link under an output folder dangles, or a source overlaps an output directory | move the source, or remove the link |
 | `hidden-unicode` | a generated file holds a bidi override, a tag character or a rare variation selector | fix the source, then `palm install --force` |
 | `block-size` | above the harness's cap of `AGENTS.md` blocks (a warning above 24 KiB) | narrow the entry with `targets:` until `at:` works in 0.3 |
 
-`palm check` also warns, without failing, about MCP variables that are not set, generated files not yet added to git (`git-ignored`), hook commands and stdio servers palm did not write (`foreign-hooks`), entities a harness loads twice (`double-load`), two agents with one name (`agent-names`) and preloaded skills nothing installs (`preloads`).
-Under `--strict` each of those warnings fails the run.
+`palm check` also warns, without failing, about MCP variables that are not set (`variables`), generated files not yet added to git (`git-ignored`), hook commands and stdio servers palm did not write (`foreign-hooks`, `foreign-servers`), entities a harness loads twice, also one installed in the project and with `-g` (`double-load`), two agents or a command and a skill with one name (`agent-names`), an in-repo entity with the placeholder description `palm create` wrote (`local-sources`) and preloaded skills nothing installs (`preloads`).
+Under `--strict` the `foreign-hooks` and `foreign-servers` warnings fail the run.
 [palm check](/palm/reference/cli/check/#the-checks) lists every warning.
 Checks that need git are listed as `skipped (not a git repository)` outside a repository.
 Its only network access is fetching a locked commit that is not in the cache, so a cache between runs makes it offline.

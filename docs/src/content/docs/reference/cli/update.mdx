@@ -38,6 +38,7 @@ Alias: `palm up`.
 | `--to <ref>` | move the ref in palm.yaml (a tag, branch, sha or range such as ^2) |
 | `--review` | print changed scripts and entities as diffs before asking |
 | `--strict` | with --dry-run: exit 1 when a source is behind its ref |
+| `--allow-local-sources` | palm.yaml may name file:// sources outside the project |
 
 The [global options](/palm/reference/cli/#global-options) also apply.
 
@@ -51,9 +52,10 @@ For each selected source it resolves the ref against the remote, fetches the new
 ```text
 Update plan (project scope)
 mattpocock/skills   ^1.2   v1.2.0 (3f2a1c9) → v1.2.3 (8be01d4)
-~ updated    skill   tdd
-+ added      skill   review (plugin:kit)          acme-kit
-= unchanged  agent   reviewer                     acme-kit
+~ updated           skill   tdd                   mattpocock/skills
++ added             skill   review (plugin:kit)   acme-kit
+~ changed program   hook    team-skills           acme-kit
+= 1 re-pinned (same content)
 ! hook team-skills: setup.sh changed (sha256:a7cc… → 3e01…); d shows the diff
 ! you changed these files since palm wrote them; palm overwrites them only with --force:
     .claude/skills/tdd/SKILL.md  (skill tdd)
@@ -65,10 +67,11 @@ mattpocock/skills   ^1.2   v1.2.0 (3f2a1c9) → v1.2.3 (8be01d4)
 | `latest <tag>` | for a source pinned to a tag or a commit: the newest release tag, and for a commit pin the default branch head too, such as `93f5a2d; main is 063bee9` |
 | `~ updated` | the entity's content changed |
 | `+ added`, `- removed` | a plugin member the new version declares or dropped |
-| `= unchanged`, `same content` | the source moved and this entry's files did not change; palm re-pins it to the new commit |
+| `= N re-pinned (same content)` | the source moved and these entries' files did not change; palm re-pins them to the new commit, one count line |
+| `~ changed program`, `+ new program` | a hook or stdio server whose command or scripts changed, or that is new; never `same content`, since its scripts can change while its definition does not |
 | `x failed` | the source is unreachable, or no longer has the entity |
 | `⊘ skipped` | an in-repo source, one line per source; `palm update` never touches those, a bare `palm install` does |
-| `! hook ...` | a new or changed program, with its old and new hash |
+| `! hook ...` | a new or changed program, with its old and new hash; after you allow it, `~ trusted hook <name> sha256:…` |
 | `i new program available` | a hook or stdio server that a plugin you installed now ships; the line names the command that installs it |
 | `! you changed these files` | generated files you edited; palm keeps them unless you pass `--force` |
 
