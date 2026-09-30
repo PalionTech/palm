@@ -4,7 +4,8 @@
  * Output (`hooks`) is the file-shaped object for the target:
  * - claude / codex: `{ hooks: { <PascalEvent>: [{ matcher?, hooks: [{ type: "command", command, timeout? }] }] } }`
  * - cursor:         `{ version: 1, hooks: { <camelEvent>: [{ command, matcher?, timeout? }] } }`
- * - copilot:        `{ version: 1, hooks: { <camelEvent>: [{ type: "command", bash, timeoutSec?, matcher? }] } }`
+ * - copilot:        `{ version: 1, hooks: { <camelEvent>: [{ type: "command", bash, powershell?, cwd?, env?, timeoutSec?, matcher? }] } }`
+ *                   (`powershell`, `cwd` and `env` as the source has them)
  * - gemini:         `{ hooks: { <GeminiEvent>: [{ matcher?, hooks: [{ type: "command", command, timeout? }] }] } }`
  *                   with Gemini event names, tool names in matchers and `timeout` in milliseconds
  *                   ("`timeout` is in milliseconds", docs/hooks/reference.md)
@@ -24,7 +25,7 @@
  * `Edit|Write` becomes Cursor `Write`.
  */
 import type { HookSet, Rendered, TargetId } from '../core/types.js';
-import { isRecord } from '../lib/object.js';
+import { isRecord, withoutUndefined } from '../lib/object.js';
 import { hookMatcher, type ToolDialect } from './tool-names.js';
 
 /** Relocates one command line (relocate.ts `relocateCommand`, bound to a target and asset root). */
@@ -252,10 +253,17 @@ class Conversion {
 
 interface CanonHook {
   event: string;
+  /** The event as the source names it (for notes). */
+  srcEvent: string;
   matcher?: string;
-  command: string;
+  /** The POSIX shell command: Claude and Cursor `command`, Copilot `bash`. */
+  command?: string;
+  /** The PowerShell command: Copilot `powershell`, a Claude hook with `shell: powershell`. */
+  powershell?: string;
   timeout?: number;
-  powershell?: boolean;
+  /** Copilot's working directory and environment, kept for Copilot (ruling O11). */
+  cwd?: string;
+  env?: Record<string, unknown>;
 }
 
 function isGrouped(entries: unknown[]): boolean {
@@ -282,7 +290,8 @@ function fromGroup(group: unknown, src: CanonSource, out: CanonHook[], dropped: 
     }
     let timeout = num(h.timeout);
     if (timeout !== undefined && src.dialect === 'gemini') timeout = Math.ceil(timeout / 1000); // Gemini: ms
-    out.push({ event: src.event, matcher, command, timeout, powershell: isPowershell(h) });
+    const shell = isPowershell(h) ? { powershell: command } : { command };
+    out.push({ event: src.event, srcEvent: src.srcEvent, matcher, ...shell, timeout });
   }
 }
 
@@ -291,18 +300,21 @@ function fromFlat(h: unknown, src: CanonSource, out: CanonHook[], dropped: strin
   if (!isRecord(h)) return;
   const type = str(h.type) ?? 'command';
   const command = str(h.bash) ?? str(h.command);
-  if (type !== 'command' || !command) {
+  const powershell = str(h.powershell);
+  if (type !== 'command' || !(command || powershell)) {
     const what = type === 'command' ? 'hook without a bash/command' : `${type} hook`;
     dropped.push(`${src.srcEvent}: ${what} not convertible`);
     return;
   }
-  if (h.cwd !== undefined || h.env !== undefined)
-    dropped.push(`${src.srcEvent}: cwd/env of "${command}"`);
   out.push({
     event: src.event,
+    srcEvent: src.srcEvent,
     matcher: str(h.matcher),
     command,
+    powershell,
     timeout: num(h.timeoutSec) ?? num(h.timeout),
+    cwd: str(h.cwd),
+    env: isRecord(h.env) ? h.env : undefined,
   });
 }
 
@@ -453,16 +465,35 @@ function pushGrouped(list: unknown[], h: CanonHook, command: string): void {
   else list.push({ ...(h.matcher !== undefined ? { matcher: h.matcher } : {}), hooks: [item] });
 }
 
+/**
+ * A Copilot entry: `bash`, and `powershell`, `cwd` and `env` as the source has them,
+ * `timeoutSec` (ruling O11). `h` keeps Claude's tool names (the exec ids); `matcher` is in
+ * Copilot's.
+ */
+function copilotItem(h: CanonHook, matcher: string | undefined, cx: Conversion) {
+  const bash = h.command !== undefined ? cx.run(h.command, h, false) : undefined;
+  const powershell = h.powershell !== undefined ? cx.run(h.powershell, h, true) : undefined;
+  return withoutUndefined({
+    type: 'command',
+    bash,
+    powershell,
+    cwd: h.cwd,
+    env: h.env,
+    timeoutSec: h.timeout,
+    matcher,
+  });
+}
+
 /** Append canonical hook `h` (command already relocated) to `list` in the target family's shape. */
-function pushHook(list: unknown[], fam: Family, h: CanonHook, command: string): void {
+function pushHook(
+  list: unknown[],
+  fam: Exclude<Family, 'copilot'>,
+  h: CanonHook,
+  command: string,
+): void {
   const matcher = h.matcher !== undefined ? { matcher: h.matcher } : {};
   if (fam === 'cursor') {
     list.push({ command, ...matcher, ...(h.timeout !== undefined ? { timeout: h.timeout } : {}) });
-    return;
-  }
-  if (fam === 'copilot') {
-    const timeout = h.timeout !== undefined ? { timeoutSec: h.timeout } : {};
-    list.push({ type: 'command', bash: command, ...timeout, ...matcher });
     return;
   }
   if (fam === 'gemini') {
@@ -474,24 +505,50 @@ function pushHook(list: unknown[], fam: Family, h: CanonHook, command: string): 
   pushGrouped(list, h, command);
 }
 
+/**
+ * The POSIX command a target other than Copilot runs for `h`, relocated; undefined (with a
+ * note) for a PowerShell-only hook. Copilot's `cwd` and `env` are noted as dropped.
+ */
+function posixCommand(h: CanonHook, cx: Conversion): string | undefined {
+  if (h.command === undefined) {
+    cx.dropped.push(`${h.srcEvent}: PowerShell hook (${cx.target} runs hooks with sh)`);
+    return undefined;
+  }
+  if (h.cwd !== undefined || h.env !== undefined)
+    cx.dropped.push(`${h.srcEvent}: cwd/env of "${h.command}"`);
+  return cx.run(h.command, h, false);
+}
+
+/** The target event for `h`, or undefined (with a note) when the target cannot run it. */
+function eventFor(h: CanonHook, cx: Conversion): string | undefined {
+  const ev = targetEvent(h.event, cx.target);
+  if (!ev) {
+    cx.dropped.push(`${h.event}: not supported by ${cx.target}`);
+    return undefined;
+  }
+  if (cx.target === 'copilot' && copilotCannotMatch(h)) {
+    cx.dropped.push(`${h.event}: matcher "${h.matcher}" has an argument copilot cannot match`);
+    return undefined;
+  }
+  return ev;
+}
+
 /** Other families: through the canonical form; only command hooks survive. */
 function convertViaCanonical(cx: Conversion): Record<string, unknown[]> {
   const fam = familyOf(cx.target);
   const events: Record<string, unknown[]> = {};
   for (const h of toCanonical(cx)) {
-    const ev = targetEvent(h.event, cx.target);
-    if (!ev) {
-      cx.dropped.push(`${h.event}: not supported by ${cx.target}`);
-      continue;
-    }
-    if (cx.target === 'copilot' && copilotCannotMatch(h)) {
-      cx.dropped.push(`${h.event}: matcher "${h.matcher}" has an argument copilot cannot match`);
-      continue;
-    }
-    const command = cx.run(h.command, h, h.powershell === true);
+    const ev = eventFor(h, cx);
+    if (!ev) continue;
     const list = events[ev] ?? [];
+    const target = withMatcher(h, 'claude', fam);
+    if (fam === 'copilot') list.push(copilotItem(h, target.matcher, cx));
+    else {
+      const command = posixCommand(h, cx);
+      if (command === undefined) continue;
+      pushHook(list, fam, target, command);
+    }
     events[ev] = list;
-    pushHook(list, fam, withMatcher(h, 'claude', fam), command);
   }
   return events;
 }
@@ -510,4 +567,30 @@ export function convertHooks(
     sourceFamily(hooks) === familyOf(target) ? convertSameFamily : convertViaCanonical;
   const events = convert(cx);
   return { hooks: wrap(target, events), exec: cx.exec, dropped: cx.dropped };
+}
+
+/** The hook dialects the targets read (OpenCode reads none). */
+export function hookDialectsOf(targets: readonly TargetId[]): Set<ToolDialect> {
+  return new Set(targets.filter((t) => t !== 'opencode').map(familyOf));
+}
+
+function isKnownEvent(name: string): boolean {
+  if (GEMINI_EVENTS[name]) return true;
+  return HOOK_EVENTS.some((e) => e.claude === name || e.cursor === name || e.copilot === name);
+}
+
+/**
+ * The dialect a hooks definition file is written in (`hooks/hooks.json` for Claude,
+ * `hooks/hooks-cursor.json` for Cursor), or undefined when `json` is no hooks file: it needs
+ * an event array under a name some harness uses.
+ */
+export function hooksFileDialect(json: unknown): ToolDialect | undefined {
+  const events = Object.keys(eventMap(json)).filter(isKnownEvent);
+  if (events.length === 0) return undefined;
+  if (events.every((e) => /^[A-Z]/.test(e)))
+    return events.some((e) => GEMINI_EVENTS[e] && GEMINI_EVENTS[e] !== e) ? 'gemini' : 'claude';
+  const entries = events.flatMap((e) => eventMap(json)[e] ?? []).filter(isRecord);
+  return entries.some((h) => 'bash' in h || 'powershell' in h || 'timeoutSec' in h)
+    ? 'copilot'
+    : 'cursor';
 }

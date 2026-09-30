@@ -58,7 +58,7 @@ describe('scanSource filesystem edge cases', () => {
       // examples/ is ignored, but a link from a scanned directory into it is followed.
       'skill:shared skills/shared',
     ]);
-    expect(r.warnings).toEqual(['skipped symlink skills/escape: points outside the source']);
+    expect(r.warnings).toEqual(['not copied (a link leaving the source): skills/escape']);
   });
 
   it('indexes a marketplace plugin that lives in an ignored directory', async () => {

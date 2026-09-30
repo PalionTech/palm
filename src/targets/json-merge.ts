@@ -21,6 +21,7 @@ import { parseJson, stringifyJson } from '../lib/json.js';
 import { formatPointer } from '../lib/json-pointer.js';
 import { deepEqual, isRecord } from '../lib/object.js';
 import { atomicWrite, readTextOrUndefined, removeFileIfExists } from './fs-utils.js';
+import { equivalentHookIndex } from './hook-equivalence.js';
 import { matchesRendered } from './placeholder-match.js';
 
 type JsonRecord = Extract<MergedRecord, { type: 'json-item' | 'json-key' }>;
@@ -42,6 +43,11 @@ export interface JsonEdit {
   value: unknown;
   onConflict?: 'overwrite' | 'error';
   displayFile?: string;
+  /**
+   * `appendItemText`: called when no item has the key but one is an equivalent hook (O11): that
+   * item is adopted (replaced by the value in place), never appended beside.
+   */
+  onAdopt?: () => void;
 }
 
 /** Parse a JSON object file's text (JSONC tolerated); `{}` when empty. */
@@ -150,10 +156,22 @@ function conflict(edit: JsonEdit, what: string): PalmError {
   );
 }
 
+/** `arr` with `edit.value` adopting its equivalent hook (O11), or appended when none is. */
+function appendOrAdopt(arr: unknown[], edit: JsonEdit): void {
+  const same = equivalentHookIndex(arr, edit.value);
+  if (same < 0) {
+    arr.push(structuredClone(edit.value));
+    return;
+  }
+  arr[same] = structuredClone(edit.value);
+  edit.onAdopt?.();
+}
+
 /**
  * `text` with `edit.value` in the array at `edit.path`, found by its key: appended when no item
- * has the key, undefined when the item with the key deep-equals the value, replaced in place
- * when it differs (or E_CONFLICT with `onConflict: 'error'`).
+ * has the key (an equivalent hook is adopted in its place, O11), undefined when the item with
+ * the key deep-equals the value, replaced in place when it differs (or E_CONFLICT with
+ * `onConflict: 'error'`).
  */
 export function appendItemText(text: string | undefined, edit: JsonEdit): string | undefined {
   if (edit.path.length === 0)
@@ -163,7 +181,7 @@ export function appendItemText(text: string | undefined, edit: JsonEdit): string
   const key = edit.key ?? fragmentKey(formatPointer(edit.path), edit.value);
   const found = indexByKey(arr, edit.path, key);
   const idx = found < 0 && edit.owned ? tamperedIndex(arr, edit.value) : found;
-  if (idx < 0) arr.push(structuredClone(edit.value));
+  if (idx < 0) appendOrAdopt(arr, edit);
   else if (deepEqual(arr[idx], edit.value)) return undefined;
   else if (edit.onConflict === 'error')
     throw conflict(edit, `an entry of ${formatPointer(edit.path)}`);

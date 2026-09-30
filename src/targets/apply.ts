@@ -108,14 +108,21 @@ async function readOrRefuse<T>(read: () => Promise<T>, shown: string): Promise<T
   }
 }
 
+/** How one fragment merges: conflicts, ownership, and what to say when a hook is adopted (O11). */
+interface MergeHow {
+  onConflict: OnConflict;
+  owned: boolean;
+  onAdopt?: () => void;
+}
+
 /** Merge one fragment into a shared file's text; undefined when nothing changes. */
 function mergeFragment(
   text: string | undefined,
   frag: RenderedFragment & { abs: string },
-  how: { onConflict: OnConflict; owned: boolean },
+  how: MergeHow,
 ): string | undefined {
   const rec = parseMergedRecord({ ...frag, file: frag.abs });
-  const { onConflict, owned } = how;
+  const { onConflict, owned, onAdopt } = how;
   const common = { file: frag.abs, onConflict, displayFile: frag.file };
   switch (rec.type) {
     case 'md-block':
@@ -133,10 +140,17 @@ function mergeFragment(
         key: rec.key,
         value: rec.value,
         owned,
+        ...(onAdopt ? { onAdopt } : {}),
       });
     case 'json-key':
       return setKeyText(text, { ...common, path: rec.path, value: rec.value });
   }
+}
+
+/** `.claude/settings.json: adopted the Stop hook already there (the same command); no second copy`. */
+function adoptedHookNote(frag: RenderedFragment): string {
+  const event = frag.at.split('/').at(-1) ?? frag.at;
+  return `${frag.file}: adopted the ${event} hook already there (the same command); no second copy`;
 }
 
 export class Applier {
@@ -218,7 +232,11 @@ export class Applier {
     for (const frag of frags) {
       for (const [k, v] of Object.entries(frag.ensure ?? {}))
         apply(ensureKeyText(text, { file: abs, path: [k], value: v }));
-      const how = { onConflict: this.onConflict(frag), owned: this.ownsFragment(frag) };
+      const how = {
+        onConflict: this.onConflict(frag),
+        owned: this.ownsFragment(frag),
+        onAdopt: () => this.note(adoptedHookNote(frag)),
+      };
       apply(mergeFragment(text, { ...frag, abs }, how));
     }
     const mode = frags.find((f) => f.mode !== undefined)?.mode;

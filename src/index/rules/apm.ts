@@ -15,6 +15,7 @@ import { byDepthThenPath } from '../files.js';
 import { EXTENSIONS, hasExt } from '../plugin-components.js';
 import type { PluginContext, ScanContext } from '../scan-context.js';
 import { asString, baseOf, dirOf, toSlug } from '../util.js';
+import { apmMcpNote } from './apm-mcp.js';
 
 async function readApmManifest(
   ctx: ScanContext,
@@ -49,6 +50,8 @@ function warnApmDependencies(
   apmFile: string,
   data: Record<string, unknown>,
 ): void {
+  const mcp = apmMcpNote(apmFile, data);
+  if (mcp) ctx.warnings.push(mcp);
   const inputs = apmDependencyInputs(data);
   if (inputs.length === 0) return;
   const what = inputs.length === 1 ? '1 dependency is' : `${inputs.length} dependencies are`;

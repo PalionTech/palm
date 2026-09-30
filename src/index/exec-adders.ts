@@ -8,7 +8,7 @@ import type { Closure, Entity, EntityIssue, SourceReference } from '../core/type
 import { makeEntity } from './adders.js';
 import { hasHooks, type ParsedHookSet, parseHooksJson } from './hooks.js';
 import { addIssues } from './issues.js';
-import { parseMcpJson } from './mcp.js';
+import { filledHeaderNote, fillInHeaders, parseMcpJson } from './mcp.js';
 import { collectReferences, namedPaths, normalizeClosure, unresolvedIssues } from './references.js';
 import type { PluginContext, ScanContext } from './scan-context.js';
 import { baseOf, dirOf, displayRel, normRel, toSlug } from './util.js';
@@ -53,7 +53,9 @@ export function addMcpConfigs(
   pathRel: string,
   plugin: PluginContext | undefined,
 ): Entity[] {
-  return parseMcpJson(json).map((cfg) => {
+  return parseMcpJson(json).map((parsed) => {
+    const { cfg, filled } = fillInHeaders(parsed);
+    for (const f of filled) ctx.warnings.push(filledHeaderNote(cfg.name, f));
     const { references, closure, issues } = relocation(ctx, {
       site: 'mcp',
       raw: cfg,

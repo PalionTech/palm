@@ -29,16 +29,18 @@ import { SKILL_MAX_BYTES, SKILL_MAX_FILES } from '../domain/skill-copy.js';
 import { isWithin, toPosix } from '../lib/fs.js';
 import { stringifyJson } from '../lib/json.js';
 import { formatPointer } from '../lib/json-pointer.js';
-import { gitMode, readClosure } from './assets.js';
+import { type ClosureEntry, gitMode, readClosure } from './assets.js';
 import { renderAgent } from './convert-agent.js';
 import { convertHooks, type Relocate } from './convert-hooks.js';
 import { renderInstruction } from './convert-instruction.js';
 import { renderCommandAsSkill } from './convert-skill.js';
 import { listSkillFiles, type SkillFiles } from './fs-utils.js';
+import { hookClosureFiles } from './hook-closure.js';
 import { sharedSkillsRoot, type TargetLayout } from './layout.js';
 import { renderMcp } from './mcp-config.js';
 import { relocateCommand, relocateMcp } from './relocate.js';
 import { renderHash } from './render-hash.js';
+import { withSkillName } from './skill-name.js';
 
 /** Permission bits of a file that can hold secrets. */
 const PRIVATE_MODE = 0o600;
@@ -222,20 +224,28 @@ async function copySkillFiles(job: RenderJob, dir: string): Promise<void> {
     job.note(
       `skill ${name}: not copied (a link leaving the source): ${listed.symlinksOutside.join(', ')}`,
     );
-  if (listed.leftOut.length) job.note(leftOutNote(name, listed.leftOut));
+  if (listed.leftOut.length)
+    job.note(
+      leftOutNote(name, listed.leftOut, 'harness, palm and .env files are not skill content'),
+    );
+  if (listed.testsLeftOut.length)
+    job.note(leftOutNote(name, listed.testsLeftOut, 'tests and fixtures stay in the source'));
   const files = listed.files.filter((f) => !codexOnly(job, dir, f.rel));
   if (files.length === 0)
     throw new PalmError('E_NOT_FOUND', `skill ${name}: no files in ${absPath}`);
   assertSkillSize(job, files);
-  for (const f of files)
-    job.file(path.join(dir, ...f.rel.split('/')), await fs.readFile(f.abs), gitMode(f.mode));
+  for (const f of files) {
+    const bytes = await fs.readFile(f.abs);
+    const data = f.rel === 'SKILL.md' ? withSkillName(bytes, name) : bytes;
+    job.file(path.join(dir, ...f.rel.split('/')), data, gitMode(f.mode));
+  }
 }
 
-/** `skill x: left out .cursor/, AGENTS.md +2 (harness and palm files are not skill content)`. */
-function leftOutNote(name: string, leftOut: readonly string[]): string {
+/** `skill x: left out .cursor, palm.yaml +2 (harness, palm and .env files are not skill content)`. */
+function leftOutNote(name: string, leftOut: readonly string[], why: string): string {
   const shown = leftOut.slice(0, 3).join(', ');
   const more = leftOut.length > 3 ? ` +${leftOut.length - 3}` : '';
-  return `skill ${name}: left out ${shown}${more} (harness, palm and .env files are not skill content)`;
+  return `skill ${name}: left out ${shown}${more} (${why})`;
 }
 
 async function renderAgentKind(job: RenderJob): Promise<void> {
@@ -276,16 +286,32 @@ function noteWidened(job: RenderJob, activation: InstructionDefinition['activati
   );
 }
 
-/** A Claude rule for claude: the source file byte for byte, under its own name (ruling B12). */
-async function copyClaudeRule(job: RenderJob, dir: string, def: InstructionDefinition) {
-  const fileName = def.fileName ?? `${job.entity.name}.md`;
+/**
+ * The file name an instruction already in `target`'s own format keeps, with its bytes: a Claude
+ * rule for claude (ruling B12), a Copilot `.instructions.md` for copilot and a Cursor `.mdc` for
+ * cursor (rulings O9, Y8'), each under its source file name. Undefined when the target converts.
+ */
+function nativeFileName(
+  target: TargetId,
+  def: InstructionDefinition,
+  name: string,
+): string | undefined {
+  if (target === 'claude' && def.sourceFormat === 'claude-md') return def.fileName ?? `${name}.md`;
+  if (target === 'copilot' && def.sourceFormat === 'instructions-md')
+    return def.fileName ?? `${name}.instructions.md`;
+  if (target === 'cursor' && def.sourceFormat === 'mdc') return def.fileName ?? `${name}.mdc`;
+  return undefined;
+}
+
+/** The source file byte for byte at `dest`. */
+async function copyNative(job: RenderJob, dest: string): Promise<void> {
   const bytes = await fs.readFile(job.input.absPath).catch((e: unknown) => {
     throw new PalmError(
       'E_IO',
       `instruction ${job.entity.name}: cannot read ${job.input.absPath}: ${messageOf(e)}`,
     );
   });
-  job.file(path.join(dir, fileName), bytes);
+  job.file(dest, bytes);
 }
 
 async function renderInstructionKind(job: RenderJob): Promise<void> {
@@ -296,8 +322,9 @@ async function renderInstructionKind(job: RenderJob): Promise<void> {
   }
   const { instruction } = defOf(job.entity, 'instruction');
   noteWidened(job, instruction.activation);
-  if (job.target.id === 'claude' && instruction.sourceFormat === 'claude-md' && 'dir' in where)
-    return copyClaudeRule(job, where.dir, instruction);
+  const native = nativeFileName(job.target.id, instruction, job.entity.name);
+  if (native !== undefined && 'dir' in where && !where.list)
+    return copyNative(job, path.join(where.dir, native));
   const r = renderInstruction({ ...instruction, name: job.entity.name }, job.target.id);
   if ('managedBlock' in r) {
     if (!('blockFile' in where))
@@ -314,9 +341,13 @@ async function renderInstructionKind(job: RenderJob): Promise<void> {
 }
 
 /** Closure files below the asset root (git sources); in-place sources copy nothing. */
-async function renderClosure(job: RenderJob, closure: Closure): Promise<void> {
+async function renderClosure(
+  job: RenderJob,
+  closure: Closure,
+  keep: (files: ClosureEntry[]) => ClosureEntry[] = (files) => files,
+): Promise<void> {
   if (job.input.inPlace || closure.paths.length === 0) return;
-  for (const f of await readClosure(job.input.sourceRoot, closure)) {
+  for (const f of keep(await readClosure(job.input.sourceRoot, closure))) {
     const lockPath = path.posix.join(job.input.assetsRoot, f.rel);
     job.file(job.paths.abs(lockPath), f.data, f.mode);
   }
@@ -369,7 +400,13 @@ async function renderHook(job: RenderJob): Promise<void> {
   if ('dir' in where) job.file(file, stringifyJson(converted.hooks));
   else mergeHookEntries(job, file, events, where.versioned);
   for (const line of converted.exec) job.execLine({ ...line, file: job.lock(file) });
-  await refusing(job, () => renderClosure(job, hooks.closure ?? { paths: [] }));
+  const closure = hooks.closure ?? { paths: [] };
+  const scope = {
+    entityPath: job.entity.path,
+    targets: job.input.targets ?? [job.target.id],
+    ...(closure.reads ? { reads: closure.reads } : {}),
+  };
+  await refusing(job, () => renderClosure(job, closure, (files) => hookClosureFiles(files, scope)));
 }
 
 /** One fragment per converted hook entry, in the shared hooks file. */
@@ -389,6 +426,16 @@ function mcpSlot(layout: TargetLayout, key: string): { file: string; at: string 
   const { mcp } = layout;
   if ('toml' in mcp) return { file: mcp.toml, at: formatPointer(['mcp_servers', key]) };
   return { file: mcp.json, at: formatPointer([...mcp.path, key]) };
+}
+
+/**
+ * One note for every target (they dedupe): the variables the person exports, and apart from
+ * them the optional ones the server starts without (ruling Q8).
+ */
+function noteVariables(job: RenderJob, r: ReturnType<typeof renderMcp>): void {
+  const needed = r.envRefs.filter((v) => !r.optionalRefs.includes(v));
+  if (needed.length) job.note(`needs ${needed.join(', ')} in the environment`);
+  if (r.optionalRefs.length) job.note(`optional in the environment: ${r.optionalRefs.join(', ')}`);
 }
 
 async function renderMcpKind(job: RenderJob): Promise<void> {
@@ -413,8 +460,7 @@ async function renderMcpKind(job: RenderJob): Promise<void> {
   const slot = mcpSlot(job.layout, key);
   const literal = secretPolicy === 'literal' && Object.keys(values).length > 0;
   job.fragment(slot.file, slot.at, r.entry, literal ? { mode: PRIVATE_MODE } : {});
-  // One note for every target (they dedupe): the variables the person exports.
-  if (r.envRefs.length) job.note(`needs ${r.envRefs.join(', ')} in the environment`);
+  noteVariables(job, r);
   if (def.mcp.transport === 'stdio') {
     const { canonical, rendered: command } = relocated;
     job.execLine({ id: 'stdio', canonical, command, file: job.lock(slot.file) });

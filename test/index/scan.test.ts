@@ -246,6 +246,7 @@ const CASES: Case[] = [
       ],
     },
     warnings: [
+      /^apm\.yml: 1 MCP server dependency is not installed \(io\.github\.github\/github-mcp-server\); palm installs a server with: palm install mcp --snippet /,
       /^apm\.yml: 2 dependencies are not installed; declare what you need: palm install microsoft\/apm-sample-package, palm install github\/awesome-copilot\/skills\/review-and-refactor#v1\.2\.0$/,
     ],
   },

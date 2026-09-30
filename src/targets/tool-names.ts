@@ -133,6 +133,68 @@ export function copilotTool(entry: string): string | undefined {
   return lookup(COPILOT_AGENT, name);
 }
 
+/**
+ * GitHub Copilot agent tool aliases → Claude Code tools (ruling O14), the inverse of
+ * `COPILOT_AGENT` with the compatible spellings: `execute` (`shell`, `powershell`) → Bash,
+ * `read` → Read, `edit` → Edit and Write, `search` → Grep and Glob, `agent` (`custom-agent`) →
+ * Task, `web` → WebFetch and WebSearch, `todo` → TodoWrite.
+ */
+const CLAUDE_FROM_COPILOT: Readonly<Record<string, string>> = {
+  execute: 'Bash',
+  shell: 'Bash',
+  powershell: 'Bash',
+  read: 'Read',
+  edit: 'Edit|Write',
+  search: 'Grep|Glob',
+  agent: 'Task',
+  'custom-agent': 'Task',
+  web: 'WebFetch|WebSearch',
+  todo: 'TodoWrite',
+};
+
+/** Claude Code tool names a Copilot-format agent may already use (APM writes them). */
+const CLAUDE_TOOLS: ReadonlySet<string> = new Set([
+  ...Object.keys(COPILOT_AGENT),
+  ...Object.keys(GEMINI),
+  'PowerShell',
+  'AskUserQuestion',
+]);
+
+/** One Copilot agent tool entry in Claude's names; undefined when Claude Code has none. */
+function claudeToolOf(entry: string): string[] | undefined {
+  const name = entry.trim();
+  const mapped = lookup(CLAUDE_FROM_COPILOT, name.toLowerCase());
+  if (mapped) return mapped.split('|');
+  const mcp = /^([\w.-]+)\/([\w.*-]+)$/.exec(name);
+  if (mcp) return [mcp[2] === '*' ? `mcp__${mcp[1]}` : `mcp__${mcp[1]}__${mcp[2]}`];
+  return CLAUDE_TOOLS.has(toolName(name)) || name.startsWith('mcp__') ? [name] : undefined;
+}
+
+/**
+ * A Copilot agent's `tools` in Claude's names (ruling O14): `read, search, execute, agent` →
+ * `Read, Grep, Glob, Bash, Task`, `github/*` → `mcp__github`. `*` means every tool (`all`);
+ * entries Claude Code has no tool for come back in `unmapped` for the note.
+ */
+export function claudeToolsFromCopilot(entries: readonly string[]): {
+  tools: string[];
+  all: boolean;
+  unmapped: string[];
+} {
+  const tools = new Set<string>();
+  const unmapped: string[] = [];
+  let all = false;
+  for (const entry of entries) {
+    if (entry.trim() === '*') {
+      all = true;
+      continue;
+    }
+    const mapped = claudeToolOf(entry);
+    if (mapped) for (const t of mapped) tools.add(t);
+    else unmapped.push(entry);
+  }
+  return { tools: [...tools], all, unmapped };
+}
+
 /** A dialect whose hook matchers are regexes over its own tool names (Codex speaks Claude's). */
 export type ToolDialect = 'claude' | 'cursor' | 'copilot' | 'gemini';
 

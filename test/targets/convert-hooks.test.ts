@@ -300,16 +300,16 @@ describe('convertHooks into Claude', () => {
       },
     });
     expect(r.dropped).toEqual([
-      'userPromptSubmitted: cwd/env of "log"',
       'errorOccurred: no equivalent event',
+      'userPromptSubmitted: cwd/env of "log"',
     ]);
   });
 
   it('cursor → copilot and copilot → cursor go through the canonical form', () => {
-    const cur = hookSet('cursor', { version: 1, hooks: { stop: [{ command: 's' }] } });
+    const cur = hookSet('cursor', { version: 1, hooks: { stop: [{ command: './s.sh' }] } });
     expect(convertHooks(cur, 'copilot', asIs).hooks).toEqual({
       version: 1,
-      hooks: { agentStop: [{ type: 'command', bash: 's' }] },
+      hooks: { agentStop: [{ type: 'command', bash: './s.sh' }] },
     });
     const cop = hookSet('copilot', {
       version: 1,

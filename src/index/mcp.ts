@@ -9,6 +9,7 @@
  */
 
 import type { McpServerConfig } from '../core/types.js';
+import { headerVariable } from '../domain/secret-refs.js';
 import { isRecord, withoutUndefined } from '../lib/object.js';
 import { isFillInValue } from '../lib/placeholders.js';
 import { asString } from './util.js';
@@ -97,4 +98,47 @@ function normalizePlaceholders(
   return Object.fromEntries(
     Object.entries(env).map(([k, v]) => [k, isFillInValue(v) ? `\${${k}}` : v]),
   );
+}
+
+/** An auth scheme kept in front of the reference: `Bearer ${CONTEXT7_TOKEN:-}`. */
+const SCHEME = /^((?:Bearer|Basic|Token)\s+)(.*)$/i;
+
+/** A header a server's source left for the person to fill in, and the reference written instead. */
+export interface FilledHeader {
+  header: string;
+  placeholder: string;
+  variable: string;
+  value: string;
+}
+
+/**
+ * Rulings Q8, Q9: a header a source ships with a fill-in placeholder (`Authorization: Bearer
+ * YOUR_API_KEY`) becomes an optional reference named like every other header secret
+ * (`headerVariable`: `Bearer ${CONTEXT7_TOKEN:-}`), so the server works without the key until
+ * the person exports one; Claude Code refuses an unset `${VAR}` without a default.
+ */
+export function fillInHeaders(cfg: McpServerConfig): {
+  cfg: McpServerConfig;
+  filled: FilledHeader[];
+} {
+  if (!cfg.headers) return { cfg, filled: [] };
+  const filled: FilledHeader[] = [];
+  const headers: Record<string, string> = {};
+  for (const [header, raw] of Object.entries(cfg.headers)) {
+    const [, scheme = '', text = raw] = SCHEME.exec(raw) ?? [];
+    if (!isFillInValue(text.trim())) {
+      headers[header] = raw;
+      continue;
+    }
+    const variable = headerVariable(cfg.name, header);
+    const value = `${scheme}\${${variable}:-}`;
+    headers[header] = value;
+    filled.push({ header, placeholder: text.trim(), variable, value });
+  }
+  return filled.length ? { cfg: { ...cfg, headers }, filled } : { cfg, filled };
+}
+
+/** `mcp context7: headers.Authorization held the placeholder YOUR_API_KEY; written as …`. */
+export function filledHeaderNote(server: string, f: FilledHeader): string {
+  return `mcp ${server}: headers.${f.header} held the placeholder ${f.placeholder || '""'}; written as ${f.value} (optional: empty until you export ${f.variable})`;
 }

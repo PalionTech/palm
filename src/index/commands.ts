@@ -41,9 +41,20 @@ function firstLineDescription(body: string): string | undefined {
   return line.length > DERIVED_MAX ? `${line.slice(0, DERIVED_MAX - 1).trimEnd()}…` : line;
 }
 
+/** The name a command file installs under: its stem as a slug (`Review PR.md` → `review-pr`). */
+export function commandName(file: string): string {
+  return toSlug(stemOf(file, COMMAND_EXTS));
+}
+
+/** True for a file name a command parser reads (`.md`, `.prompt.md`, `.toml`). */
+export function isCommandFile(file: string): boolean {
+  const lower = file.toLowerCase();
+  return COMMAND_EXTS.some((e) => lower.endsWith(e));
+}
+
 export function parseCommandFile(absPath: string, text: string): ParsedCommand {
   const lower = absPath.toLowerCase();
-  const name = toSlug(stemOf(absPath, COMMAND_EXTS));
+  const name = commandName(absPath);
 
   if (lower.endsWith('.toml')) {
     let data: Record<string, unknown>;

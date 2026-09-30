@@ -68,7 +68,14 @@ const LAYOUT_ORDER: readonly LayoutKey[] = [
   'mcp',
 ];
 
-function isCandidate(ctx: ScanContext, rel: string): boolean {
+/** True for `rel` itself or a directory holding a file palm's lock owns (ruling R18'). */
+function isOwned(owned: ReadonlySet<string>, rel: string): boolean {
+  if (owned.has(rel)) return true;
+  return rel !== '.' && [...owned].some((p) => p.startsWith(`${rel}/`));
+}
+
+function isCandidate(ctx: ScanContext, rel: string, owned: ReadonlySet<string>): boolean {
+  if (owned.has(rel)) return false;
   if (ctx.registry.isClaimedAny(rel) || ctx.files.insideSkillDir(rel)) return false;
   if (isScanIgnoredRel(rel) || isDocFile(baseOf(rel)) || MANIFEST_FILES.has(baseOf(rel)))
     return false;
@@ -159,12 +166,15 @@ function keyOf(e: Entity): LayoutKey | undefined {
   return KEY_OF_KIND[e.kind];
 }
 
-/** Globs for what the scan indexed: skill directories by parent (`packages/*`), files by folder. */
-function foundLayout(ctx: ScanContext): Map<LayoutKey, string[]> {
+/**
+ * Globs for what the scan indexed: skill directories by parent (`packages/*`), files by folder;
+ * never a path palm's lock owns (ruling R18').
+ */
+function foundLayout(ctx: ScanContext, owned: ReadonlySet<string>): Map<LayoutKey, string[]> {
   const paths = new Map<LayoutKey, string[]>();
   for (const e of ctx.registry.entities) {
     const k = keyOf(e);
-    if (k) paths.set(k, [...(paths.get(k) ?? []), e.path]);
+    if (k && !isOwned(owned, e.path)) paths.set(k, [...(paths.get(k) ?? []), e.path]);
   }
   const out = new Map<LayoutKey, string[]>();
   for (const [k, list] of paths) {
@@ -192,13 +202,14 @@ function formatLayout(layout: Globs): string {
 /** Near-miss lines for the scan's unindexed agent-, hook- and MCP-shaped files. */
 export async function warnNearMisses(ctx: ScanContext): Promise<void> {
   if (ctx.descriptorMode) return;
+  const owned = await ctx.lockOwned();
   const missed = new Map<MissKey, string[]>();
-  for (const rel of ctx.files.files.filter((f) => isCandidate(ctx, f))) {
+  for (const rel of ctx.files.files.filter((f) => isCandidate(ctx, f, owned))) {
     const key = await shapeOf(ctx, rel);
     if (key) missed.set(key, [...(missed.get(key) ?? []), rel]);
   }
   if (missed.size === 0) return;
-  const layout: Globs = Object.fromEntries(foundLayout(ctx));
+  const layout: Globs = Object.fromEntries(foundLayout(ctx, owned));
   const lines: string[] = [];
   const keys = [...missed.keys()].sort((a, b) => LAYOUT_ORDER.indexOf(a) - LAYOUT_ORDER.indexOf(b));
   for (const key of keys) {
@@ -248,8 +259,10 @@ async function skippedSkillFiles(ctx: ScanContext): Promise<Array<[rel: string, 
  */
 export async function warnSkippedSkills(ctx: ScanContext): Promise<void> {
   if (ctx.descriptorMode || ctx.files.isSkillDir('')) return;
+  const owned = await ctx.lockOwned();
   for (const [rel, name] of await skippedSkillFiles(ctx)) {
-    const layout: Globs = Object.fromEntries(foundLayout(ctx));
+    if (owned.has(rel)) continue;
+    const layout: Globs = Object.fromEntries(foundLayout(ctx, owned));
     const parentGlob = joinRel(dirOf(dirOf(rel)), '*');
     layout.skills = [...new Set([...(layout.skills ?? []), parentGlob])].sort();
     ctx.warnings.push(

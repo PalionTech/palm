@@ -1,7 +1,11 @@
 /**
  * Render a canonical AgentDefinition (Claude frontmatter superset) for one harness.
  *
- * - claude  `.md`: name, description, model (a Claude model only), tools (comma-joined),
+ * Every harness keeps only a model it knows (agent-models.ts, ruling Y9'); a model it does not
+ * know is dropped with a note. A Copilot agent's tools (`read, search, execute`) are read in
+ * Claude's names (`Read, Grep, Glob, Bash`) for every harness but Copilot (ruling O14).
+ *
+ * - claude  `.md`: name, description, model (a Claude Code model only), tools (comma-joined),
  *   disallowedTools, skills, mcpServers, color, then the subagent keys Claude Code reads from
  *   `extra`; other harnesses' keys are dropped and reported, and Cursor's `readonly: true`
  *   becomes a read-only tool list (ruling Y10); body.
@@ -32,7 +36,9 @@ import { stringify as tomlStringify } from 'smol-toml';
 import type { AgentDefinition, TargetId } from '../core/types.js';
 import { normalizeBody, stringifyFrontmatter } from '../lib/frontmatter.js';
 import { withoutUndefined } from '../lib/object.js';
+import { knownModel } from './agent-models.js';
 import {
+  claudeToolsFromCopilot,
   copilotTool,
   geminiTool,
   hasToolArgument,
@@ -41,8 +47,6 @@ import {
   toolName,
 } from './tool-names.js';
 
-const CLAUDE_ALIAS = /^(opus|sonnet|haiku|fable|inherit|opusplan|default|best)(\[[^\]]*\])?$/i;
-const CLAUDE_ID = /^(claude[-_.]|anthropic[/.])/i;
 /** Tools that change files or run programs: an agent with one of them is not read-only. */
 const WRITE_OR_RUN_TOOLS = new Set([
   'Edit',
@@ -71,14 +75,6 @@ function withoutReadonly(def: AgentDefinition): AgentDefinition {
   if (!def.extra || !('readonly' in def.extra)) return def;
   const { readonly: _readonly, ...extra } = def.extra;
   return { ...def, extra };
-}
-
-function isClaudeModelAlias(model: string): boolean {
-  return CLAUDE_ALIAS.test(model.trim());
-}
-
-export function isClaudeModel(model: string): boolean {
-  return isClaudeModelAlias(model) || CLAUDE_ID.test(model.trim());
 }
 
 /** Extra keys each harness understands (copied from `def.extra` when present). */
@@ -190,13 +186,10 @@ function keepExtra(
   return kept;
 }
 
-/** `model`, or undefined (recorded as dropped) when `foreign` says the target cannot use it. */
-function keepModel(
-  model: string | undefined,
-  foreign: (m: string) => boolean,
-  dropped: string[],
-): string | undefined {
-  if (!model || !foreign(model)) return model;
+/** The agent's model, or undefined (recorded as dropped) when `target` does not know it (Y9'). */
+function keepModel(def: AgentDefinition, target: TargetId, dropped: string[]): string | undefined {
+  const { model } = def;
+  if (!model || knownModel(target, model, def.sourceFormat)) return model;
   dropped.push(`model (${model})`);
   return undefined;
 }
@@ -228,7 +221,7 @@ function claudeTools(
 function renderClaude(def: AgentDefinition, lists: AgentLists): RenderedAgent {
   const dropped: string[] = [];
   const notes: string[] = [];
-  const model = keepModel(def.model, (m) => !isClaudeModel(m), dropped);
+  const model = keepModel(def, 'claude', dropped);
   const tools = claudeTools(def, lists, notes);
   const kept = keepExtra(withoutReadonly(def), CLAUDE_EXTRA, dropped);
   const fm = {
@@ -259,7 +252,7 @@ function renderCodex(source: AgentDefinition, lists: AgentLists): RenderedAgent 
   const dropped: string[] = [];
   const notes: string[] = [];
   const def = codexSandbox(source, notes);
-  const model = keepModel(def.model, isClaudeModel, dropped);
+  const model = keepModel(def, 'codex', dropped);
   dropFields(def, lists, ['tools', 'disallowedTools', 'skills', 'mcpServers', 'color'], dropped);
   const kept = keepExtra(def, CODEX_EXTRA, dropped);
   const head = tomlStringify({
@@ -293,7 +286,7 @@ function copilotTools(lists: AgentLists, dropped: string[]): string[] | undefine
 
 function renderCopilot(def: AgentDefinition, lists: AgentLists): RenderedAgent {
   const dropped: string[] = [];
-  const model = keepModel(def.model, isClaudeModelAlias, dropped);
+  const model = keepModel(def, 'copilot', dropped);
   const tools = copilotTools(lists, dropped);
   dropFields(def, lists, ['mcpServers', 'skills', 'disallowedTools', 'color'], dropped);
   const kept = keepExtra(def, COPILOT_EXTRA, dropped);
@@ -313,9 +306,7 @@ function renderCopilot(def: AgentDefinition, lists: AgentLists): RenderedAgent {
 
 function renderCursor(def: AgentDefinition, lists: AgentLists): RenderedAgent {
   const dropped: string[] = [];
-  const foreign = (m: string): boolean =>
-    isClaudeModelAlias(m) && m.trim().toLowerCase() !== 'inherit';
-  const model = keepModel(def.model, foreign, dropped);
+  const model = keepModel(def, 'cursor', dropped);
   const { tools } = lists;
   const readonly = tools ? !tools.some(writesOrRuns) : undefined;
   if (tools) dropped.push(readonly ? 'tools (mapped to readonly: true)' : 'tools');
@@ -362,7 +353,7 @@ function renderGemini(def: AgentDefinition, lists: AgentLists): RenderedAgent {
   const dropped: string[] = [];
   const notes: string[] = [];
   const name = geminiName(def.name, notes);
-  const model = keepModel(def.model, isClaudeModel, dropped);
+  const model = keepModel(def, 'gemini', dropped);
   const tools = geminiTools(lists, dropped);
   dropFields(def, lists, ['disallowedTools', 'skills', 'color'], dropped);
   const kept = keepExtra(def, GEMINI_EXTRA, dropped);
@@ -423,7 +414,7 @@ function readonlyPermissions(
 function renderOpencode(def: AgentDefinition, lists: AgentLists): RenderedAgent {
   const dropped: string[] = [];
   // OpenCode models are `provider/model-id`: Claude aliases and bare ids name no provider.
-  const model = keepModel(def.model, (m) => !m.includes('/'), dropped);
+  const model = keepModel(def, 'opencode', dropped);
   const color = def.color && OPENCODE_COLOR.test(def.color) ? def.color : undefined;
   if (def.color && !color) dropped.push(`color (${def.color})`);
   const readonly = isReadonly(def);
@@ -460,12 +451,33 @@ function bareNames(refs: string[] | undefined): string[] | undefined {
   return nonEmpty([...new Set(names.filter((n) => n !== ''))]);
 }
 
+/** Agent formats whose `tools` are GitHub Copilot aliases (`read`, `execute`, `github/*`). */
+const COPILOT_TOOL_FORMATS: ReadonlySet<AgentDefinition['sourceFormat']> = new Set([
+  'copilot-agent-md',
+  'apm-agent-md',
+]);
+
+/**
+ * The agent's tools in Claude's names, which every renderer maps from (ruling O14): a Copilot
+ * agent's `read, search, execute` become `Read, Grep, Glob, Bash` for every harness but Copilot;
+ * `*` is every tool (no list); a Copilot tool Claude Code has no name for is dropped.
+ */
+function toolsOf(def: AgentDefinition, target: TargetId, dropped: string[]): string[] | undefined {
+  const tools = nonEmpty(def.tools);
+  if (!tools || target === 'copilot' || !COPILOT_TOOL_FORMATS.has(def.sourceFormat)) return tools;
+  const mapped = claudeToolsFromCopilot(tools);
+  for (const t of mapped.unmapped) dropped.push(`tools: ${t} (a GitHub Copilot tool)`);
+  return mapped.all ? undefined : nonEmpty(mapped.tools);
+}
+
 export function renderAgent(def: AgentDefinition, target: TargetId): RenderedAgent {
+  const unmapped: string[] = [];
   const lists: AgentLists = {
-    tools: nonEmpty(def.tools),
+    tools: toolsOf(def, target, unmapped),
     disallowedTools: nonEmpty(def.disallowedTools),
     skills: bareNames(def.skills),
     mcpServers: bareNames(def.mcpServers),
   };
-  return RENDERERS[target](def, lists);
+  const r = RENDERERS[target](def, lists);
+  return unmapped.length ? { ...r, dropped: [...unmapped, ...r.dropped] } : r;
 }
