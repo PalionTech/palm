@@ -197,6 +197,11 @@ export const PROJECT_DIR_TOKENS: RegExp;              // $CLAUDE_PROJECT_DIR ${C
 export function detectSecrets(cfg: McpServerConfig): SecretRef[];                             // which ${VAR} placeholders are user secrets (env, headers, url, args; runtime vars skipped; `Bearer ${T}` → format "Bearer {value}"; `${VAR:-x}` optional)
 export function allSecrets(cfg: McpServerConfig): SecretRef[];                                // cfg.secrets ∪ detectSecrets(cfg), by name; declared entries win
 export function requiredSecretNames(cfg: McpServerConfig): Set<string>; export function optionalSecretNames(cfg: McpServerConfig): Set<string>;
+// fix wave (J1): the variable names palm writes for a replaced value, shared by src/secrets/typed.ts and engine/source-secrets.ts
+export function envVariableName(...parts: string[]): string;                                  // `docs`, `api-key` → `DOCS_API_KEY`
+export function headerVariable(server: string, header: string): string;                      // Authorization → `<SERVER>_TOKEN`; `x-api-key` of docs → `DOCS_API_KEY`
+export function serverVariable(server: string, name: string): string;                        // `name` prefixed with the server unless it already is
+export function argVariable(server: string, args: readonly string[], i: number): string;     // `--api-key=…` / `--api-key …` → `<SERVER>_API_KEY`, else `<SERVER>_SECRET`
 
 // source-url.ts: URL forms and `validateSourceUrl(url, where?)` (core/source-input.ts re-exports it)
 ```
@@ -305,7 +310,19 @@ export function looksLikeSecret(value: string, key?: string): SecretShape | unde
 export function scanSecrets(value: unknown, where: string): SecretFinding[];                  // walks strings in objects/arrays (MCP config, hook JSON, palm.yaml data); `where` prefixes each finding
 export function scanText(text: string, where: string): SecretFinding[];                       // closure files and rendered files, line-numbered `where:<line>`
 export function redact(value: string): string;                                                // `<redacted sha256:8>`
+export function isSecretKey(name: string): boolean;                                           // E6: SECRET_KEY_RE over whole words of the name (`_`, `-`, `.`, camelCase split); `keywords` is not a key
+export function secretPart(value: string, key?: string): string | undefined;                  // the secret substring of a value (the token after Bearer, a `token=` value), for in-place references
 export { detectSecrets, allSecrets, requiredSecretNames, optionalSecretNames } from '../domain/secret-refs.js'; // the pure placeholder helpers live in domain (see there)
+// typed.ts (J1 J11 L3 D7): values the person typed (flags, snippet, palm.yaml `mcp:`)
+export interface TypedReference { where: string; variable: string; value: string /* '' for a fill-in or input */; why: 'typed' | 'secret' | 'fill-in' | 'input'; placeholder?: string }
+export function referenceTyped(cfg: McpServerConfig): { cfg: McpServerConfig; references: TypedReference[] };
+//   from flags every literal --env/--header value becomes `${K}` / the header variable (Bearer kept); from a snippet or palm.yaml a literal under a
+//   secret-shaped key or a secret-shaped value; everywhere a fill-in (`YOUR_API_KEY`, `<your-token>`, `xxx`, `changeme`) under a secret key, named from
+//   the placeholder (`CONTEXT7_API_KEY`), and `${input:name}` → `${NAME}`; secret-shaped args and URL parts; `secrets` recomputed
+export function typedValues(references: readonly TypedReference[]): Record<string, string>;  // values for `--secrets literal` (fill-ins and inputs have none)
+export function typedLine(server: string, ref: TypedReference, harnesses: readonly string[]): string; // `… written as ${K}; export K=… before starting Claude Code, Codex or Cursor`; never the value
+export function isFillIn(text: string): boolean;
+export function redactTypedArgs(args: readonly string[]): string[];                           // J11: argv safe to repeat in a hint: `--env K=V` → `K=${K}`, `--header H=V` → the header variable, other secret shapes redacted
 // policy.ts
 export interface SecretDestination { scope: Scope; fromSource: boolean; requested?: SecretPolicy; destinationAbs: string; force: boolean }
 export interface GitProbe { gitToplevel(dir: string): Promise<string | undefined>; isGitIgnored(abs: string, cwd: string): Promise<boolean | undefined> } // tests pass fakes
@@ -313,7 +330,9 @@ export async function decideSecret(input: SecretDestination, git?: GitProbe /* d
 //   fromSource → refused: the literal is never written, `force` or not (the render writes `${VAR}`; not a refusal of the entity);
 //   no `--secrets literal` → env-ref; project + literal → literal, `warn` when the destination is inside a git worktree and not ignored (git would commit it);
 //   global + literal → literal only when gitToplevel(nearest existing dir of the destination realpath) is undefined, else refused (hint `--secrets env-ref`; `force` → warn)
+//   (fix wave, J1 J26 ruling 25: `force` no longer downgrades the global refusal; the worktree guard has no override)
 export function rotateMessage(input: RotateInput): string;                                    // RotateInput { server; file; key; variable; tracked: boolean; harnesses: string[] }
+export function orList(items: readonly string[]): string;                                     // `a, b or c`
 // resolve.ts
 export async function resolveSecrets(ctx: PalmContext, cfg: McpServerConfig, policy: SecretPolicy): Promise<{ values: Record<string, string>; envRefs: string[] }>; // env lookup; masked prompts under literal on a terminal; E_NON_INTERACTIVE otherwise (retryWith `--secrets env-ref`)
 ```
@@ -349,6 +368,15 @@ export function unifiedDiff(a: string, b: string, name: string): string;        
 export function needsConsent(entry: LockEntry | undefined, unit: ExecUnit, opts?: { explicit?: boolean }): boolean; // no entry, no trust, or unit.hash ∉ trust; a declined entry only when asked by name (`explicit`)
 export function withTrust(entry: LockEntry, unit: ExecUnit): LockEntry;                       // exec (commands as the first target renders them, closure, hash) + trust recorded; a previous decline is lifted
 export function withDeclined(entry: LockEntry): LockEntry;
+export function previousStaysActive(entry: LockEntry | undefined, scope: Scope): string | undefined; // V5: `hook fmt: previous version stays active (trusted sha256:…); palm remove <source> hook:fmt removes it`
+// closure.ts (fix wave E2, reverses ruling 24): in-repo closures are hashed as the working tree holds them
+export async function inPlaceClosure(sourceRoot: string, closure: Closure): Promise<ClosureFile[]>; // source-relative files; CLOSURE_NEVER inside directories, `Closure.reads` files kept
+// reads.ts (fix wave E1): what closure scripts read, one level of static analysis
+export async function closureReads(sourceRoot: string, closure: Closure, pluginRootRel: string): Promise<{ reads: string[]; unresolved: Array<{ script: string; raw: string; why: string }> }>;
+export async function withScriptReads(entity: Entity, sourceRoot: string): Promise<{ entity: Entity; warnings: string[] }>; // closure.paths + reads extended; one warning per unresolved read
+// fix wave: execUnitOf takes `closure.abs` (in-place reads for `v`), hashes in-place files (E2) and sets `unit.reads` from `Closure.reads`;
+// checkoutReader reads an in-place unit from `closure.abs` and a trusted commit from its own checkout beside the current one (D12);
+// nonInteractiveError repeats the command through redactTypedArgs (J11); the prompt prints `reads:` rows and `ExecUnit.warnings` as `!` rows
 ```
 
 ## src/targets (owner: targets agent)
@@ -468,6 +496,13 @@ export function planChanges(plan: UpdatePlan): number;
 export async function reviewText(ctx: PalmContext, plan: UpdatePlan, deps: EngineDeps): Promise<string>; // `--review`: script diffs (0.2) [+ prose diffs 0.3]
 // check.ts
 export async function checkScope(ctx: PalmContext, opts: { scope: Scope }, deps?: Partial<EngineDeps>): Promise<CheckReport>; // DESIGN §6 "Check": every check, read-only, git checks skipped outside a repository
+//   fix wave: ids per FINDINGS-v2 ruling 29 (render, partial, orphans, pending, source-paths fail; foreign-hooks, preloads, agent-names warn);
+//   CheckStatus gains `skipped` (outside a repository, global-only checks, an empty cache offline): never shown as passed
+// check-repo.ts
+export function blockSizeProblem(file: string, bytes: number): { level: 'fail' | 'warn'; message: string; fix: string } | undefined; // B2 Z6: install and dry run share check's verdict
+// verify.ts
+export async function renderLocked(run: Run, entry: LockEntry, targets?: TargetId[]): Promise<(RenderOutput & { entity: Entity }) | undefined>; // `targets` defaults to the lock's
+export async function renderLockedOrThrow(run: Run, entry: LockEntry, targets?: TargetId[]): Promise<(RenderOutput & { entity: Entity }) | undefined>; // rejects when the source cannot be reached (E13 offline)
 // migrate.ts
 export async function migrateScope(ctx: PalmContext, opts: { scope: Scope; dryRun: boolean }, deps?: Partial<EngineDeps>): Promise<MigrateReport>; // DESIGN §6 "Migrate"; reads LegacyManifest/LegacyLockfile/LegacyConfig;
 //   MigrateReport.manifest is the new palm.yaml text; MigrateReport.failures: what could not be migrated (the CLI exits 1 on any); the only user of copyClosure

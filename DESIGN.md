@@ -784,9 +784,35 @@ label, status, problems: [{ entity, file, message, fix }] }], warnings }`.
 | `double-load` | (warning) a harness would load one entity twice (`AGENTS.md` and `.cursor/rules`; two skill copies for cursor) | 0.3 carrier rule |
 | `block-size` | (warning) a root `AGENTS.md`/`GEMINI.md` block above 24 KiB; fail above the harness cap | move entries with `at:` (0.3) |
 
+Fix wave (FINDINGS-v2 ruling 29 and the check rulings) adds these ids and sharpens the ones above:
+
+| id | fails when | fix line |
+|---|---|---|
+| `render` | an entry's render is empty (installed for no target) | `palm install` |
+| `partial` | an active target of an entry has no render (a refused target) | `palm install` |
+| `orphans` | a file inside a skill folder or `.palm/assets/<source>/<entity>` palm owns is not in the lock | `palm install <source> <name> --force` |
+| `pending` | (`-g`) applied.yaml lists a file the lock no longer lists and it is still on disk | `palm install -g` |
+| `source-paths` | a lock-owned path reaches into a declared source through a link | remove the link or move the source |
+| `foreign-hooks` | (warning) a command in a hook array palm merges into that no lock entry explains | keep it or remove it |
+| `preloads` | (warning) an agent preloads a skill that is not installed | `palm install <source> <skill>` |
+| `agent-names` | (warning) two agent files in one harness folder carry the same name | rename or remove one |
+
+`exec-trusted` also fails when an entry runs a program without `exec`/`trust` in the lock, when the
+unit palm computes now (every script byte, an in-repo one too) is not the trusted hash, and when a
+command palm merged was replaced on disk (a foreign command where palm's went missing, same
+matcher: `changed`, never re-added). `git-ignored` asks git per file the lock lists or merges into:
+ignored fails, untracked warns naming `git add`. `links` also walks the project's output directories
+for dangling links and links leaving the project. `secrets` scans every harness config palm writes
+or merges into (including a target a partial install missed) whose real path git tracks or others
+can read, counts a literal under a secret-shaped env or header key, fails on a literal in palm.yaml
+`mcp:`, and warns once per server whose variables are not set. `double-load` never warns for a skill
+(Cursor reads `.claude/skills` and `.agents/skills` once per name). `local-sources` compares each
+in-repo entry's `content` hash. With `--offline` and a commit not in the cache, `lock-disk` is
+`skipped (cache empty; run palm install)`.
+
 Checks that need git run only when the scope is inside a repository; otherwise they are listed
-as `skipped (not a git repository)`. `check` never fetches for a local source, never prompts,
-never writes.
+as `skipped (not a git repository)` (status `skipped`, never shown as passed). `check` never
+fetches for a local source, never prompts, never writes.
 
 ### Migrate
 
@@ -844,7 +870,11 @@ intact), and the closure tree is the Merkle hash over sorted relative paths, exe
 content. Unit ids are `<Event>//<matcher or ->[#n]` in Claude event names for hooks and `stdio`
 for an MCP server. A commit bump with the same hash, a new target and a palm version do not
 move it; any change to a command, a byte or the executable bit of a closure script (git
-sources; in-repo sources below), an env key or cwd does.
+sources and, read in place, in-repo sources), an env key or cwd does. The closure also holds the
+files a closure script reads (`src/exec/reads.ts`, one level of static analysis over
+`${CLAUDE_PLUGIN_ROOT}/…`, `$(dirname "$0")/…` and variables assigned from them, and `./x`,
+`../x`): they are copied (a read SKILL.md too, and only that file) and the prompt lists them as
+`reads:`; a read that leaves the source or names nothing is a warning line at install (E1).
 
 Consent semantics:
 
@@ -884,8 +914,9 @@ Consent semantics:
 - `check` fails on an untrusted unit and on a merged command that differs from `exec.commands`.
 - palm never runs what it installs; it runs only git (the script viewer pages through
   `$PAGER`).
-- In-repo sources have no closure in the exec hash: their scripts run in place, and the pull
-  request diff is the review of a script edit.
+- In-repo sources hash their scripts too (fix-wave ruling E2 reverses ruling 24): the scripts
+  run in place, the exec hash covers them as the working tree holds them, any changed script
+  byte asks again, and `v` shows them from the working tree.
 
 The prompt:
 
@@ -937,13 +968,20 @@ Decisions (`decideSecret`):
   and the install summary says which variable to export.
 - A literal typed by the user (`--env X=sk-…`, `--header`, a value in palm.yaml `mcp:`) in
   project scope needs `--secrets literal`; without it palm writes the reference and names the
-  variable. With it, palm warns when the destination is inside a git worktree and not ignored
+  variable (`src/secrets/typed.ts`, J1): every `--env K=V` and `--header K=V` value typed on
+  the command line becomes `${K}` (or the header variable) whatever its shape, and palm prints
+  `export K=… before starting <harnesses>`; a snippet or palm.yaml value does so under a
+  secret-shaped key or with a secret shape; a fill-in (`Bearer YOUR_API_KEY`) under a
+  secret-shaped key becomes a reference named from it (`CONTEXT7_API_KEY`), and a VS Code
+  `${input:name}` becomes `${NAME}`, each with a notice. A hint that repeats the command line
+  writes those values as their references, never the value typed. With it, palm warns when the destination is inside a git worktree and not ignored
   (`git check-ignore`), so a new `.mcp.json` that git would commit warns before it is tracked.
 - Global scope writes environment references only. `literal` is allowed only when the
   destination's real path lies outside every git worktree (`git rev-parse --show-toplevel` on
   the destination's directory fails): `x ~/.cursor/mcp.json resolves to
   ~/dotfiles/cursor/mcp.json, a tracked file; refusing to write a literal secret there (use
-  env-ref, or --force)`.
+  --secrets env-ref and export the variable)`. `--force` never overrides this guard (J26,
+  ruling 25).
 - `--dry-run` runs the same decision and prints it (`would write the literal value of
   BRAVE_API_KEY into ~/.codex/config.toml (mode 600)`).
 - The rendered policy is part of the render hash: after `palm install -g --secrets env-ref`
