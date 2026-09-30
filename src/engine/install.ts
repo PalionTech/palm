@@ -84,6 +84,25 @@ function movedJobs(run: Run, ref: SourceRef, r: Resolved, move: Move | undefined
   return jobs;
 }
 
+/** A source this run declares: its name, and the input as typed (what hints paste until it is saved). */
+interface Held {
+  added?: string;
+  paste?: string;
+}
+
+/**
+ * A new source that was not saved has no name palm.yaml knows: the failures' hints name it as
+ * typed (K9: `palm install https://…/kit.git review --force`, not `palm install kit …`).
+ */
+function repaste(result: InstallResult, held: Held): void {
+  const { added, paste } = held;
+  if (!added || !paste || added === paste) return;
+  const from = `palm install ${added}`;
+  for (const f of result.failures)
+    if (f.hint === from || f.hint?.startsWith(`${from} `))
+      f.hint = `palm install ${paste}${f.hint.slice(from.length)}`;
+}
+
 /** A source this run declared that ended up with no entry leaves palm.yaml and the lock again. */
 function forgetEmptySource(state: ScopeState, name: string): void {
   if (state.lock.entriesOf(name).length) return;
@@ -93,17 +112,17 @@ function forgetEmptySource(state: ScopeState, name: string): void {
 }
 
 /** The source to install from: declared (or found), with a ref, and how to fetch it. */
-async function sourceOf(run: Run, req: InstallRequest, held: { added?: string }) {
+async function sourceOf(run: Run, req: InstallRequest, held: Held) {
   const { ctx, state } = run;
   const decl: Declared = await declareSource(ctx, state, req.source, req.as ? { as: req.as } : {});
-  if (decl.added) held.added = decl.ref.name;
+  if (decl.added) Object.assign(held, { added: decl.ref.name, paste: decl.paste });
   const refd = decl.added
     ? { ref: decl.ref, pin: decl.pin }
     : await ensureRef(ctx, state, decl.ref);
   return { decl, ref: refd.ref, pin: refd.pin ?? pinOf(state, refd.ref) };
 }
 
-async function install(run: Run, req: InstallRequest, held: { added?: string }): Promise<void> {
+async function install(run: Run, req: InstallRequest, held: Held): Promise<void> {
   const { ctx, deps, state } = run;
   const scope = state.paths.scope;
   const { decl, ref, pin } = await sourceOf(run, req, held);
@@ -147,7 +166,7 @@ export async function installFromSource(
   const state = await openScope(ctx, opts.scope, { deps });
   const run = runOf(ctx, deps, state);
   return lockScope(ctx, state, async () => {
-    const held: { added?: string } = {};
+    const held: Held = {};
     let failed = true;
     try {
       await install(run, req, held);
@@ -155,6 +174,7 @@ export async function installFromSource(
     } finally {
       if (held.added) forgetEmptySource(state, held.added);
       if (await settle(run, failed)) reportRefs(ctx, state);
+      else repaste(run.result, held);
     }
     return run.result;
   });

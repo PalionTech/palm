@@ -380,6 +380,19 @@ describe('K16 interrupts', () => {
   });
 });
 
+describe('K9 hints paste the source as typed until it is saved', () => {
+  it('K9 a first install that writes nothing hints the URL, not the unsaved name', async () => {
+    const w = await makeWorld({ targets: ['claude'] });
+    const url = await w.remote('kit', { 'v1.0.0': KIT });
+    await w.write('.claude/skills/tdd/SKILL.md', 'someone else wrote this\n');
+    const r = await install(w, url, ['tdd']);
+    expect(r.failures).toEqual([
+      expect.objectContaining({ code: 'E_CONFLICT', hint: `palm install ${url} tdd --force` }),
+    ]);
+    expect(await w.manifestText()).toBe('targets: [claude]\n');
+  });
+});
+
 describe('K8 K20 Z2 D9 refs', () => {
   it('K8 the first install fetches the commit of the one resolution it reports', async () => {
     const w = await makeWorld({ targets: ['claude'] });
