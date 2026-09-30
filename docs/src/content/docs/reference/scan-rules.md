@@ -130,7 +130,7 @@ palm 0.3 turns an on-request or manual rule into a skill where a harness lacks t
 | a secret-shaped literal in an MCP value or hook command | critical | never written; palm writes `${NAME}` |
 | a secret-shaped literal in a file a skill copies | critical | the skill is refused |
 | a secret-shaped literal inside a hook or server script | warning | installed, with a warning |
-| a skill folder above 200 files or 5 MB | refusal | installed only with `--force`; the message gives the count |
+| a skill folder above 200 files or 5 MB | limit | installed only with `--force`; the message gives the count |
 
 palm checks a skill's whole folder, the file of an agent, instruction, MCP config or hook set, and every file a hook or server runs or reads.
 A skill copy leaves out harness folders such as `.cursor`, `.git`, `node_modules` and palm's own files, so a root `SKILL.md` never copies the repository's own agent setup.
