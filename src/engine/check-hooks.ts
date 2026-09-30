@@ -69,15 +69,27 @@ interface HookArray {
   palm: PalmItem[];
 }
 
+/** Hook arrays an entry merged into that palm could not render again (offline): not judged. */
+function unrendered(c: CheckContext): Set<string> {
+  const out = new Set<string>();
+  for (const e of c.run.state.lock.entries)
+    if (!e.declined && !c.renders.get(lockId(e)))
+      for (const m of e.merged ?? []) out.add(`${m.file}#${m.at}`);
+  return out;
+}
+
 /**
  * The hook arrays the lock says palm merged into (`file#at`), each with palm's items as the
- * entries' recomputed renders have them (only fragments the lock records as written).
+ * entries' recomputed renders have them (only fragments the lock records as written). An array
+ * an entry merged into that palm could not render is left out: nothing there can be judged.
  */
 function arrays(c: CheckContext): Map<string, HookArray> {
   const { entries } = c.run.state.lock;
+  const blind = unrendered(c);
   const merged = entries
     .flatMap((e) => e.merged ?? [])
-    .filter((m) => HOOK_AT.test(m.at) && m.file.endsWith('.json'));
+    .filter((m) => HOOK_AT.test(m.at) && m.file.endsWith('.json'))
+    .filter((m) => !blind.has(`${m.file}#${m.at}`));
   const recorded = new Set(merged.map((m) => `${m.file}#${m.at}#${m.key}`));
   const out = new Map<string, HookArray>();
   for (const m of merged)
