@@ -1,12 +1,14 @@
 /**
- * MCP config parsing. Accepts:
+ * MCP config parsing (also `palm install mcp --json`). Accepts:
  *  - wrapped `{ "mcpServers": { name: {...} } }` (Claude `.mcp.json`, Cursor `mcp.json`, Gemini)
  *  - VS Code `{ "servers": { name: {...} } }`
  *  - flat `{ name: {...} }` (claude-plugins-official)
+ *
+ * The result is the server as written: where it came from (`origin`) and which variables it needs
+ * (`secrets`) are added by the caller, the scanner's secrets pass for a source.
  */
 
 import type { McpServerConfig } from '../core/types.js';
-import { detectSecrets } from '../domain/secrets.js';
 import { isRecord, withoutUndefined } from '../lib/object.js';
 import { isFillInValue } from '../lib/placeholders.js';
 import { asString } from './util.js';
@@ -75,7 +77,7 @@ function toServerConfig(name: string, def: unknown): McpServerConfig | undefined
 
   const stdio = transport === 'stdio';
   const args = Array.isArray(def.args) ? def.args.map((a) => String(a)) : [];
-  const cfg: McpServerConfig = withoutUndefined({
+  return withoutUndefined({
     name,
     transport,
     command: stdio ? command : undefined,
@@ -84,10 +86,7 @@ function toServerConfig(name: string, def: unknown): McpServerConfig | undefined
     cwd: asString(def.cwd),
     url: stdio ? undefined : url,
     headers: stringMap(def.headers),
-    source: { type: 'origin' as const },
   });
-  const secrets = detectSecrets(cfg);
-  return secrets.length > 0 ? { ...cfg, secrets } : cfg;
 }
 
 /** `API_KEY: ""` / `"<your key>"` / `"your-token"` → `API_KEY: "${API_KEY}"`, so the value becomes a secret the user supplies. */

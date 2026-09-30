@@ -1,13 +1,14 @@
 /**
- * One-pass file index of an origin: every potentially relevant file (md/mdc/json/toml, apm.yml)
+ * One-pass file index of a source: every potentially relevant file (md/mdc/json/toml, apm.yml)
  * under the root, honouring ignore rules, including dot directories, and following symlinks only
- * when they stay inside the origin (with loop protection).
+ * when they stay inside the source (with loop protection).
  *
  * The walk runs once; directory indexes built from it (files per directory, child directories,
  * skill directories per parent) answer the scanner's per-plugin lookups without rescanning the
  * file list.
  */
 
+import { realpathSync, statSync } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import fg from 'fast-glob';
@@ -25,6 +26,22 @@ export interface FileIndexOptions {
 }
 
 const RELEVANT_EXT = ['.md', '.mdc', '.json', '.toml'];
+
+/** What a source-relative path names on disk. */
+export type PathKind = 'file' | 'dir' | 'outside';
+
+function locateOnDisk(realRoot: string, abs: string): PathKind | undefined {
+  let real: string;
+  try {
+    real = realpathSync(abs);
+  } catch {
+    return undefined;
+  }
+  if (!isWithin(real, realRoot)) return 'outside';
+  const st = statSync(real, { throwIfNoEntry: false });
+  if (st?.isFile()) return 'file';
+  return st?.isDirectory() ? 'dir' : undefined;
+}
 
 function isRelevantFile(rel: string): boolean {
   const base = baseOf(rel).toLowerCase();
@@ -120,6 +137,17 @@ export class FileIndex {
 
   realPathOf(rel: string): string {
     return this.real.get(rel) ?? join(this.realRoot, rel);
+  }
+
+  /**
+   * What `rel` names: an indexed file or directory, else whatever is on disk (scripts and ignored
+   * directories such as `dist/` are not indexed). `outside` for a link that leaves the source.
+   * Synchronous, for the reference resolver; it runs a handful of times per hook or server.
+   */
+  locate(rel: string): PathKind | undefined {
+    if (this.fileSet.has(rel)) return 'file';
+    if (this.hasDir(rel)) return 'dir';
+    return locateOnDisk(this.realRoot, join(this.rootAbs, rel));
   }
 
   /** True when `rel` was reached through a symlink (its real path differs from its location). */
@@ -222,7 +250,7 @@ export class FileIndex {
 
 interface WalkFrame {
   absDir: string;
-  /** Origin-relative path of `absDir` ('' at the root). */
+  /** Source-relative path of `absDir` ('' at the root). */
   prefix: string;
   realDir: string;
   deep: number;
@@ -292,7 +320,7 @@ async function followLink(w: Walk, frame: WalkFrame, linkPath: string): Promise<
   const target = await realpathOrUndefined(join(frame.absDir, linkPath));
   if (target === undefined) return;
   if (!isWithin(target, w.index.realRoot)) {
-    w.index.warnings.push(`skipped symlink ${rel}: points outside the origin`);
+    w.index.warnings.push(`skipped symlink ${rel}: points outside the source`);
     return;
   }
   const kind = await statKind(target);

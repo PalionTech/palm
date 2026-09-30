@@ -2,5 +2,8 @@ name: my-apm-pkg
 version: 1.0.0
 description: A sample APM package
 dependencies:
+  apm:
+    - microsoft/apm-sample-package
+    - github/awesome-copilot/skills/review-and-refactor#v1.2.0
   mcp:
     - io.github.github/github-mcp-server

@@ -7,7 +7,7 @@
 import { join } from 'node:path';
 import type { Entity } from '../../core/types.js';
 import { withoutUndefined } from '../../lib/object.js';
-import { addAgent, addCommand, addInstruction, addSkill } from '../adders.js';
+import { addAgent, addCommandAsSkill, addInstruction, addSkill } from '../adders.js';
 import { MemberList } from '../entity-registry.js';
 import { byDepthThenPath } from '../files.js';
 import type { MarketplaceEntry } from '../marketplace.js';
@@ -55,8 +55,9 @@ interface PluginSetup {
 function pluginSetup(ctx: ScanContext, input: PluginInput): PluginSetup {
   const { rootRel, manifest, entry } = input;
   const strict = entry ? entry.strict : true;
-  const rawName = manifest?.name ?? entry?.name ?? (rootRel === '' ? ctx.alias : baseOf(rootRel));
-  const name = toSlug(rawName, baseOf(rootRel), ctx.alias);
+  const rawName =
+    manifest?.name ?? entry?.name ?? (rootRel === '' ? ctx.fallbackName : baseOf(rootRel));
+  const name = toSlug(rawName, baseOf(rootRel), ctx.fallbackName);
   return {
     rawName,
     name,
@@ -134,7 +135,7 @@ async function collectCommands(
   const files = decls.commands
     ? await resolveFiles(scope, decls.commands, 'command')
     : defaultCommandFiles(scope.ctx, scope.rootRel);
-  for (const f of files) members.add(await addCommand(scope.ctx, f, scope.plugin));
+  for (const f of files) members.add(await addCommandAsSkill(scope.ctx, f, scope.plugin));
 }
 
 async function collectRules(
@@ -185,7 +186,7 @@ function registerPlugin(
     description: input.manifest?.description ?? input.entry?.description,
     version: ctx.versionOf(setup.version, undefined),
     path: displayRel(rootRel),
-    origin: ctx.alias,
+    source: ctx.sourceName,
     def: withoutUndefined({
       kind: 'plugin' as const,
       members: members.refs,

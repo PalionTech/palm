@@ -23,9 +23,14 @@ export class MemberList {
 
 const key = (kind: Kind, id: string): string => `${kind}\0${id}`;
 
+/** A skill indexed from a command file (its `path` is the file). */
+export function isCommandSkill(e: Entity): boolean {
+  return e.def.kind === 'skill' && e.def.skill.fromCommand !== undefined;
+}
+
 export class EntityRegistry {
   entities: Entity[] = [];
-  /** Plugin roots registered so far (origin-relative), for the undeclared-member warning. */
+  /** Plugin roots registered so far (source-relative), for the undeclared-member warning. */
   readonly pluginRoots: Array<{ rootRel: string; name: string }> = [];
   private readonly byName = new Map<string, Entity>();
   private readonly byReal = new Map<string, Entity>();
@@ -60,7 +65,7 @@ export class EntityRegistry {
       case 'plugin':
         return undefined;
       case 'skill':
-        return key('skill', this.realPathOf(joinRel(rel, 'SKILL.md')));
+        return key('skill', this.realPathOf(isCommandSkill(e) ? rel : joinRel(rel, 'SKILL.md')));
       case 'mcp':
         return key('mcp', `${this.realPathOf(rel)}\0${e.name}`);
       default:
@@ -74,20 +79,38 @@ export class EntityRegistry {
     const rk = this.realKey(e);
     const sameFile = rk ? this.byReal.get(rk) : undefined;
     if (sameFile) return sameFile;
-    const nk = key(e.kind, e.name);
-    const existing = this.byName.get(nk);
-    if (existing) {
-      if (existing.path !== e.path) {
-        this.warnings.push(
-          `duplicate ${e.kind} "${e.name}" at ${e.path} ignored (already indexed from ${existing.path})`,
-        );
-      }
-      return existing;
-    }
-    this.entities.push(e);
-    this.byName.set(nk, e);
-    if (rk) this.byReal.set(rk, e);
+    const existing = this.byName.get(key(e.kind, e.name));
+    if (existing) return this.resolveClash(existing, e, rk);
+    this.insert(e, rk);
     return e;
+  }
+
+  private insert(e: Entity, rk: string | undefined, at = this.entities.length): void {
+    this.entities.splice(at, 0, e);
+    this.byName.set(key(e.kind, e.name), e);
+    if (rk) this.byReal.set(rk, e);
+  }
+
+  /** Two entities with one kind and name: a skill beats a command, else the first one stays. */
+  private resolveClash(existing: Entity, e: Entity, rk: string | undefined): Entity {
+    const replaces = isCommandSkill(existing) && !isCommandSkill(e);
+    if (replaces || (isCommandSkill(e) && !isCommandSkill(existing))) {
+      const [command, skill] = replaces ? [existing, e] : [e, existing];
+      this.warnings.push(
+        `command ${command.path} dropped: skill "${skill.name}" at ${skill.path} has the same name`,
+      );
+      if (!replaces) return existing;
+      const at = this.entities.indexOf(existing);
+      this.entities.splice(at, 1);
+      this.insert(e, rk, at);
+      return e;
+    }
+    if (existing.path !== e.path) {
+      this.warnings.push(
+        `duplicate ${e.kind} "${e.name}" at ${e.path} ignored (already indexed from ${existing.path})`,
+      );
+    }
+    return existing;
   }
 
   /** Register a plugin entity and remember its root for `warnUndeclared`. */
