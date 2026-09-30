@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { messageOf, PalmError } from '../core/errors.js';
-import { shouldSkipFile } from '../domain/ignore.js';
+import { isHarnessOrPalmFile, isSkillCopySkipped } from '../domain/skill-copy.js';
 import {
   isEnoent,
   resolveWriteTarget,
@@ -75,19 +75,32 @@ export async function removeFileIfExists(p: string): Promise<void> {
   }
 }
 
+/** A skill directory's files as the copy takes them, and the harness and palm paths left out. */
+export interface SkillFiles extends WalkResult {
+  /** Paths below the skill left out as harness, palm or environment files (ruling Y2). */
+  leftOut: string[];
+}
+
 /**
- * Recursively list the files to copy from `root`, skipping `COPY_SKIP` (`.git`, `node_modules`,
- * `.DS_Store`, `*.zip`) at any depth. Sorted for determinism.
+ * Recursively list the files to copy from the skill directory `root`, leaving out
+ * `SKILL_COPY_SKIP` at any depth: `.git`, `node_modules`, harness directories and configs
+ * (`.claude`, `.cursor`, `.mcp.json`, …), palm's files and `.env` files. Sorted for determinism.
  *
  * Symlinks are followed only when their real target stays inside `boundary` (default: `root`
  * itself; callers pass the source root so links between skills of one repository keep working).
  * A link that points anywhere else (`notes.md -> ~/.ssh/id_rsa`, `refs -> /etc`) is never read
- * and is reported in `symlinksOutside`. Content hashes (core/hash) walk with the same rule, so
- * what is copied is what is hashed.
+ * and is reported in `symlinksOutside`. The index scans the same files for secrets.
  */
-export async function listCopyFiles(
+export async function listSkillFiles(
   root: string,
   opts: { boundary?: string } = {},
-): Promise<WalkResult> {
-  return walkFiles(root, { boundary: opts.boundary, skip: (name: string) => shouldSkipFile(name) });
+): Promise<SkillFiles> {
+  const leftOut: string[] = [];
+  const skip = (name: string, rel: string): boolean => {
+    if (!isSkillCopySkipped(name)) return false;
+    if (isHarnessOrPalmFile(name)) leftOut.push(rel);
+    return true;
+  };
+  const walk = await walkFiles(root, { boundary: opts.boundary, skip });
+  return { ...walk, leftOut };
 }

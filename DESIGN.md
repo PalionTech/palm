@@ -195,6 +195,14 @@ Enforced in targets and engine:
   install summary says which variable to export (section 8).
 - Only `skills/*/SKILL.md`, or what the layout declares, are entities; a nested
   `references/*/SKILL.md` is content.
+- A skill copy leaves out, at any depth, `SKILL_COPY_SKIP` (`src/domain/skill-copy.ts`): the
+  copy skip list, harness directories and configs (`.claude`, `.agents`, `.cursor`, `.codex`,
+  `.gemini`, `.opencode`, `.github`, `.vscode`, `.apm`, `.mcp.json`, `opencode.json`),
+  `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`, palm's files (`palm.yaml`, `palm.lock.yaml`,
+  `palm.local.yaml`, `.palm`) and `.env` files, with one note naming what was left out. Every
+  file a skill, agent or instruction copies is secret-scanned at index time; a literal refuses the
+  entity. A skill above 200 files or 5 MB is refused without `--force`, with the count in the
+  message (`RenderInput.force`). `agents/openai.yaml` is copied only into `.agents/skills`.
 - Symlinks inside a source are followed only when their real target stays inside the source,
   so a skill cannot smuggle `~/.ssh/id_rsa` into `.claude/skills`.
 - A deploy is a transaction: `Target.render` computes every file and fragment without writing;
@@ -531,8 +539,9 @@ the values (section 8).
    `gemini-extension.json`): pick one, never union. Claude semantics: `skills` adds to
    default `skills/` scan; `agents`/`commands` replace defaults; `hooks`/`mcpServers` merge
    with `hooks/hooks.json`/`.mcp.json`; hooks may be inline in the manifest.
-5. Convention scan: root `SKILL.md` → one skill; else `**/SKILL.md` to depth 5
-   (a SKILL.md under another SKILL.md is a sub-skill: record `parent`);
+5. Convention scan: root `SKILL.md` → one skill; else `**/SKILL.md` to depth 5, top-most
+   only (a SKILL.md below another skill's directory is that skill's content, never an entity;
+   install output directories reached through a symlink are not scanned);
    agents `agents/**/*.md` + `**/*.agent.md` with `name`+`description` frontmatter (exclude
    `agents/openai.yaml`, README); commands `commands/*.md`, `commands/*.toml`, `prompts/*.prompt.md`
    (indexed as skills with `fromCommand`, note `from command <file>`); hooks `hooks/hooks.json`,

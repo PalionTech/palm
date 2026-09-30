@@ -399,22 +399,6 @@ exports[`scanSource snapshot per fixture > awesome-copilot-like 1`] = `
     },
     {
       "def": {
-        "kind": "skill",
-        "skill": {
-          "description": "Diagnoses horizontal scaling: 'vertical or horizontal?', 'how many nodes?'",
-          "dirName": "horizontal-scaling",
-          "name": "qdrant-horizontal-scaling",
-          "parent": "qdrant-scaling",
-        },
-      },
-      "description": "Diagnoses horizontal scaling: 'vertical or horizontal?', 'how many nodes?'",
-      "kind": "skill",
-      "name": "qdrant-horizontal-scaling",
-      "path": "skills/qdrant-scaling/scaling-data-volume/horizontal-scaling",
-      "source": "awesome-copilot",
-    },
-    {
-      "def": {
         "agent": {
           "body": "You are an expert C#/.NET developer.
 ",
@@ -527,7 +511,6 @@ Use semantic HTML.
   "warnings": [
     "remote plugin "agent-council" (github:Avyayalaya/agent-council#v0.1.3) not fetched: declare it: palm install Avyayalaya/agent-council#v0.1.3 <names>",
     "remote plugin "anarlog" (github:fastrepl/anarlog/agent-plugins/anarlog@259b68866a7d) not fetched: declare it: palm install fastrepl/anarlog/agent-plugins/anarlog#259b68866a7d6c331cd428aaa33a33300a700c5d <names>",
-    "skills/qdrant-scaling/scaling-data-volume/horizontal-scaling/SKILL.md: frontmatter name "qdrant-horizontal-scaling" differs from directory "horizontal-scaling"; keeping "qdrant-horizontal-scaling"",
   ],
 }
 `;

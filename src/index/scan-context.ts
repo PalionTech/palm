@@ -15,6 +15,7 @@ import { globIndex } from './glob.js';
 import { defaultIgnoreGlobs, minimalIgnoreGlobs } from './ignore.js';
 import type { PluginManifestFormat } from './plugin-manifest.js';
 import type { ParsedSkill } from './skills.js';
+import type { SourceFile } from './source-files.js';
 import { baseOf, joinRel, normRel, toSlug, versionFromTag } from './util.js';
 
 /** fast-glob `deep` for the source listing (files up to 9 directories below the root). */
@@ -44,6 +45,8 @@ export class ScanContext {
   readonly skillCache = new Map<string, Promise<ParsedSkill | null>>();
   /** Source files of an entity beyond `entity.path` (hook files merged into one set). */
   readonly extraSources = new WeakMap<Entity, string[]>();
+  /** The files an entity deploys (`ownFiles`), walked once for both post-scan passes. */
+  readonly ownFiles = new WeakMap<Entity, Promise<SourceFile[]>>();
   descriptorMode = false;
   private index: FileIndex | undefined;
   private readonly textCache = new Map<string, Promise<string | undefined>>();

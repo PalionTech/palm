@@ -877,6 +877,8 @@ export interface RenderInput {
   env?: NodeJS.ProcessEnv;
   /** The targets active for the entry (cursor writes `.claude/skills` when claude is active). */
   targets?: readonly TargetId[];
+  /** `--force`: a skill above the copy limits (200 files or 5 MB) is copied anyway (ruling Y2). */
+  force?: boolean;
 }
 
 export interface RenderedFile {
