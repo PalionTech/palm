@@ -1,9 +1,7 @@
 {
-  "note": "Lint ratchet baseline (scripts/lint-ratchet.mjs): counts may only go down. Lower them with `npm run lint:baseline` after fixing findings. src/, test/ and scripts/ are at 0; what remains is in docs/scripts (docs-owned): 5 functions above complexity 15 in cli-reference.mjs, 2 suppressions in capture-specs.mjs.",
+  "note": "Lint ratchet baseline (scripts/lint-ratchet.mjs): counts may only go down. Lower them with `npm run lint:baseline` after fixing findings.",
   "diagnostics": {
     "complexity/noExcessiveCognitiveComplexity": 5
   },
-  "suppressions": {
-    "suspicious/noTemplateCurlyInString": 2
-  }
+  "suppressions": {}
 }
