@@ -67,7 +67,7 @@ You see `x agent comment-sicko from cursor/plugins → cursor: .cursor/agents/co
 
 The file exists, the lock does not list it, and its content differs. An identical file would have been adopted silently.
 
-Compare the file with the source. Keep your change in your own in-repo source, or repeat the command with `--force` to replace the file. See [Adopt files you copied by hand](/palm/guides/adopt-existing-files/).
+Compare the file with the source. Keep your change by copying the file into your own in-repo source under a new name, or repeat the command with `--force` to replace the file. See [Adopt files you copied by hand](/palm/guides/adopt-existing-files/).
 
 ## Two sources, one name
 
@@ -83,8 +83,17 @@ You see `! modified (kept)` in an install, `x skill tdd: .claude/skills/tdd/SKIL
 
 The file differs from the render the lock records.
 
-To keep the edit, move it into your own source with `palm create <kind> <name> --in <dir>`, and edit it there.
-To drop it, repeat the command the message prints, with `--force`.
+To keep the edit, copy the file into your own in-repo source under a new name, since one scope holds one entity per kind and name.
+
+```sh
+mkdir -p agent-kit/skills
+cp -R .claude/skills/tdd agent-kit/skills/tdd-team
+palm install ./agent-kit tdd-team
+```
+
+Set `name: tdd-team` in the copy's frontmatter first. Then restore the original with the `--force` command the message prints, or remove it.
+To drop the edit instead, run that `--force` command alone.
+A `palm create <kind> <name> --from-installed` that does the copy is a candidate for palm 0.3.
 
 ## An in-repo source changed
 

@@ -73,7 +73,8 @@ The in-repo source is the truth, so `palm check` fails until the harness copies 
 
 Under `-g`, the default folder is `~/.palm/kit`, declared as `./kit` in `~/.palm/palm.yaml`.
 `--in` may name any folder under your home, and palm stores it relative to `~/.palm` or your home.
-A dry run and the real run check the folder the same way.
+A dry run and the real run check the folder and the name the same way, so `--dry-run` stops with the same `E_CONFLICT` for a name another source installed.
+`--review` works as it does for `palm install`: for a hook, it prints the script before the consent question.
 
 ## Reads and writes
 

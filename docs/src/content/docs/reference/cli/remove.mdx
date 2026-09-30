@@ -91,7 +91,7 @@ x skill tdd: .claude/skills/tdd/SKILL.md was modified since install
     palm remove mattpocock/skills tdd --force
 ```
 
-`--force` deletes the changed file too. To keep your change, move it into your own source with `palm create <kind> <name> --in <dir>` first.
+`--force` deletes the changed file too. To keep your change, first copy the file into your own in-repo source under a new name and install it from there, as [Troubleshooting](/palm/reference/troubleshooting/#you-changed-a-generated-file) shows.
 palm never deletes a path whose real path is inside a declared source, `--force` included.
 
 Removing something that is not installed prints `i <name> is not installed` and exits 0.
