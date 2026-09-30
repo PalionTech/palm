@@ -48,6 +48,10 @@ It lists every script with its mode, size and hash.
 
 [Consent and executable content](/palm/concepts/consent/) shows the prompt and the lock record.
 
+The lock records that someone consented, not who.
+Put `palm.lock.yaml`, `.palm/assets/**`, the harness hook files, such as `.claude/settings.json` and `.codex/hooks.json`, and your in-repo sources under `CODEOWNERS`, so every consent passes a reviewer you chose.
+[Share a team baseline](/palm/guides/team-baseline/#protect-the-files-that-run-programs) has the file.
+
 ## Scripts are committed
 
 palm copies what a hook runs into `.palm/assets/<source>/<entity>/`, and you commit it.
