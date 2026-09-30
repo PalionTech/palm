@@ -81,6 +81,21 @@ It never copies `AGENTS.md` or plugin manifests, and `.palm/assets` is no folder
 Commands point at the copy through each harness's project directory variable, such as `"$CLAUDE_PROJECT_DIR"`, never through an absolute path.
 You commit the folder, so a clone without palm has working hooks.
 
+## Member names
+
+palm installs a plugin's members as loose entities, each under its own name.
+Claude Code's own plugin installer shows the same skill with the plugin as a prefix, such as `superpowers:brainstorming`.
+
+| Where | The skill is called |
+| --- | --- |
+| `palm install`, `palm remove`, `palm describe` | `brainstorming` or `skill:brainstorming` |
+| the harness's skill list, after palm installed it | `brainstorming` |
+| the plugin's own text, and Claude Code's plugin installer | `superpowers:brainstorming` |
+
+`superpowers:brainstorming` is not a palm name. palm reads `superpowers:` as a kind and stops with `"superpowers" is not a kind`.
+palm copies a skill's text as the source wrote it, so a sentence such as `use the superpowers:brainstorming skill` stays as it is.
+The skill it points at is installed, under the plain name.
+
 ## Harnesses without plugins
 
 Gemini CLI and OpenCode get a plugin's members as loose files.
