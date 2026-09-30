@@ -217,63 +217,6 @@ async function importOr(
 
 vi.mock('../../src/core/git.js', async (orig) => gitModule(await importOr(() => orig())));
 
-vi.mock('../../src/core/cache.js', async (orig) => ({
-  ...(await importOr(() => orig())),
-  getIndex: async (
-    _ctx: PalmContext,
-    checkout: SourceCheckout,
-    opts: { scan: EngineDeps['scan'] },
-  ) => {
-    const scan = await opts.scan(checkout.root, checkout.source);
-    return {
-      ...scan,
-      source: checkout.source.name,
-      sourceId: checkout.sourceId,
-      root: checkout.root,
-      ...(checkout.sha ? { sha: checkout.sha } : {}),
-      ...(checkout.ref ? { ref: checkout.ref } : {}),
-      ...(checkout.tree ? { tree: checkout.tree } : {}),
-    };
-  },
-}));
-
-vi.mock('../../src/core/hash.js', async (orig) => {
-  const real = await importOr(() => orig());
-  if ('sha256' in real && 'treeHash' in real) return real;
-  const short = (h: string, n = 8) => h.replace(/^sha256:/, '').slice(0, n);
-  const hashPath = async (abs: string) => {
-    const s = await stat(abs);
-    if (!s.isDirectory()) return sha((await readFile(abs, 'utf8')).replaceAll('\r\n', '\n'));
-    const rows: string[] = [];
-    for (const f of await walk(abs)) rows.push(`${f.rel}\0${await readFile(f.abs, 'utf8')}`);
-    return sha(rows.join('\0'));
-  };
-  return {
-    ...real,
-    sha256: sha,
-    short,
-    hashPath,
-    treeHash: async (root: string) => ({ tree: await treeOf(root), files: [] }),
-  };
-});
-
-vi.mock('../../src/core/context.js', async (orig) => {
-  const real = await importOr(() => orig());
-  if ('withScopeLock' in real) return real;
-  return { ...real, withScopeLock: async (_p: unknown, fn: () => Promise<unknown>) => fn() };
-});
-
-vi.mock('../../src/core/source-input.js', async (orig) => {
-  const real = await importOr(() => orig());
-  if ('parseSourceInput' in real) return real;
-  return {
-    ...real,
-    parseSourceInput: parseSourceInputFake,
-    deriveSourceName: (s: Source) => s.name,
-    looksLikeSourceInput: () => true,
-  };
-});
-
 function parseSourceInputFake(input: string, opts: { as?: string; cwd?: string } = {}): Source {
   const [head = input, ref] = input.split('#');
   if (head.startsWith('./') || head.startsWith('/')) {
@@ -287,30 +230,6 @@ function parseSourceInputFake(input: string, opts: { as?: string; cwd?: string }
 }
 
 vi.mock('../../src/targets/merged-state.js', () => ({ mergedRecordState: fakeRecordState }));
-
-vi.mock('../../src/exec/trust.js', async (orig) => {
-  const real = await importOr(() => orig());
-  if ('withTrust' in real) return real;
-  return {
-    needsConsent: (entry: { trust?: string[] } | undefined, unit: ExecUnit) =>
-      !(entry?.trust ?? []).includes(unit.hash),
-    withTrust: (entry: Record<string, unknown>, unit: ExecUnit) => {
-      const { declined: _d, ...rest } = entry;
-      return {
-        ...rest,
-        exec: {
-          commands: unit.commands.map((c) => ({ id: c.id, command: c.canonical })),
-          hash: unit.hash,
-        },
-        trust: [unit.hash],
-      };
-    },
-    withDeclined: (entry: Record<string, unknown>) => {
-      const { trust: _t, ...rest } = entry;
-      return { ...rest, declined: true };
-    },
-  };
-});
 
 // ---------------------------------------------------------------------------
 // Context, UI and logger
