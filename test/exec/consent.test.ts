@@ -1,0 +1,386 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { ClosureFile, ConsentRequest, ExecUnit } from '../../src/core/types.js';
+import {
+  allowed,
+  askConsent,
+  type ConsentInput,
+  checkoutReader,
+  consentText,
+  nonInteractiveError,
+  parseAllowExec,
+  viewScripts,
+} from '../../src/exec/consent.js';
+import { designBlock, ghCliUnit, teamHelperUnit } from './examples.js';
+import { fakeContext } from './fakes.js';
+
+const git = vi.hoisted(() => ({ fileAtSha: vi.fn(async () => 'echo from git\n') }));
+
+vi.mock('../../src/core/hash.js', async (real) =>
+  (await import('./shims.js')).shim(real, 'core/hash'),
+);
+vi.mock('../../src/lib/json.js', async (real) =>
+  (await import('./shims.js')).shim(real, 'lib/json'),
+);
+vi.mock('../../src/targets/index.js', async (real) =>
+  (await import('./shims.js')).shim(real, 'targets/index'),
+);
+vi.mock('../../src/core/git.js', async (real) => ({ ...(await real()), ...git }));
+
+/** The DESIGN.md example request: gh-cli and team-helper, one prompt hook. */
+function exampleRequest(overrides: Partial<ConsentInput> = {}): ConsentInput {
+  return {
+    units: [ghCliUnit(), teamHelperUnit()],
+    prompts: [{ entity: 'fp-check', event: 'Stop' }],
+    lockFile: '/work/app/palm.lock.yaml',
+    ...overrides,
+  };
+}
+
+const PROJECT = { scope: 'project' as const, lockFile: 'palm.lock.yaml' };
+const bodies = async (unit: ExecUnit, file: ClosureFile) =>
+  `# ${unit.entity.name}:${file.path}\necho hi\n`;
+
+describe('parseAllowExec', () => {
+  it('reads nothing, all, and comma-separated key=hash entries', () => {
+    expect(parseAllowExec(undefined)).toEqual([]);
+    expect(parseAllowExec('  ')).toEqual([]);
+    expect(parseAllowExec('all')).toBe('all');
+    expect(parseAllowExec('ALL')).toBe('all');
+    expect(
+      parseAllowExec(
+        'hook:gh-cli@trailofbits/skills=sha256:a7cc7911, mcp:team-helper@acme-kit=75AAFD9B0011',
+      ),
+    ).toEqual([
+      { key: 'hook:gh-cli@trailofbits/skills', hash: 'sha256:a7cc7911' },
+      { key: 'mcp:team-helper@acme-kit', hash: 'sha256:75aafd9b0011' },
+    ]);
+    expect(parseAllowExec(`hook:quality@./agent-kit=sha256:${'f'.repeat(64)}`)).toEqual([
+      { key: 'hook:quality@./agent-kit', hash: `sha256:${'f'.repeat(64)}` },
+    ]);
+  });
+
+  it.each([
+    ['a hash under 8 hex digits', 'hook:gh-cli@trailofbits/skills=sha256:a7cc791'],
+    ['a hash over 64 hex digits', `hook:gh-cli@t/s=sha256:${'a'.repeat(65)}`],
+    ['a hash that is not hex', 'hook:gh-cli@t/s=sha256:a7cc79zz'],
+    ['no hash', 'hook:gh-cli@trailofbits/skills'],
+    ['no source', 'hook:gh-cli=sha256:a7cc7911'],
+    ['a kind that runs nothing', 'skill:tdd@mattpocock/skills=sha256:a7cc7911'],
+    ['all inside a list', 'all,hook:gh-cli@t/s=sha256:a7cc7911'],
+  ])('rejects %s with the format in the hint', (_label, text) => {
+    expect(() => parseAllowExec(text)).toThrow(
+      expect.objectContaining({
+        code: 'E_USAGE',
+        hint: expect.stringContaining('<hook|mcp>:<name>@<source>=sha256:<8 or more hex digits>'),
+      }),
+    );
+  });
+});
+
+describe('allowed', () => {
+  const unit = ghCliUnit();
+  const prefix = unit.hash.slice(0, 'sha256:'.length + 8);
+
+  it('matches the key in any case with a hash prefix or the full hash', () => {
+    expect(allowed(unit, 'all')).toBe(true);
+    expect(allowed(unit, [{ key: unit.key, hash: prefix }])).toBe(true);
+    expect(allowed(unit, [{ key: unit.key.toUpperCase(), hash: unit.hash }])).toBe(true);
+  });
+
+  it('refuses another key, another hash and an empty list', () => {
+    expect(allowed(unit, [])).toBe(false);
+    expect(allowed(unit, [{ key: 'hook:other@trailofbits/skills', hash: prefix }])).toBe(false);
+    expect(allowed(unit, [{ key: unit.key, hash: 'sha256:00000000' }])).toBe(false);
+  });
+});
+
+describe('consentText', () => {
+  it('reproduces the DESIGN section 7 prompt from the example units', () => {
+    expect(consentText(exampleRequest(), PROJECT)).toBe(designBlock('The prompt:'));
+  });
+
+  it('speaks of one program and offers the diff when a trusted version exists', () => {
+    const unit = teamHelperUnit();
+    const text = consentText(
+      { units: [unit], prompts: [], lockFile: 'x', previous: { [unit.key]: unit } },
+      PROJECT,
+    );
+    expect(text.split('\n')[0]).toBe('This install adds 1 program that will run on your machine.');
+    expect(text).toContain(
+      'palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,\nso teammates and CI install it without being asked; any change asks again.',
+    );
+    expect(text.endsWith('Allow this program to run?  [y/N/v=view scripts/d=diff]')).toBe(true);
+    expect(text).not.toContain('Also');
+  });
+
+  it('names the other machines and no commit line under -g', () => {
+    const text = consentText(exampleRequest(), {
+      scope: 'global',
+      lockFile: '~/.palm/palm.lock.yaml',
+    });
+    expect(text).toContain(
+      'scripts: 8 files, 21 KB  ->  .palm/assets/trailofbits__skills/gh-cli/\n',
+    );
+    expect(text).toContain('go into ~/.palm/palm.lock.yaml,\nso your other machines install them');
+  });
+
+  it('shows a target whose command differs beyond the project-dir idiom', () => {
+    const unit = teamHelperUnit();
+    const cursor = unit.rendered.cursor?.map((r) => ({ ...r, command: 'node ./elsewhere.js' }));
+    const text = consentText(
+      { units: [{ ...unit, rendered: { ...unit.rendered, cursor } }], prompts: [], lockFile: '' },
+      PROJECT,
+    );
+    expect(text).toContain(
+      '     stdio  node ".palm/assets/acme-kit/team-helper/server.js"   env: none\n       cursor: node ./elsewhere.js\n',
+    );
+  });
+
+  it('prints control, bidi and newline characters from a source as code points', () => {
+    const esc = String.fromCodePoint(0x1b);
+    const rlo = String.fromCodePoint(0x202e);
+    const unit = ghCliUnit();
+    const evil = {
+      ...unit,
+      entity: { ...unit.entity, name: `x${esc}[2K` },
+      commands: [{ ...unit.commands[0]!, event: 'Stop\n  2. hook fake' }],
+    };
+    const text = consentText(
+      { units: [evil], prompts: [{ entity: `p${rlo}`, event: 'Stop' }], lockFile: '' },
+      PROJECT,
+    );
+    expect(text).toContain('hook x<U+001B>[2K  from');
+    expect(text).toContain('Stop<U+000A>  2. hook fake');
+    expect(text).toContain('p<U+202E> Stop.');
+    expect(text.includes(esc) || text.includes(rlo)).toBe(false);
+  });
+});
+
+describe('nonInteractiveError', () => {
+  it('matches the DESIGN section 7 error for a bare install', () => {
+    const units = [
+      { ...ghCliUnit(), hash: `sha256:a7cc7911${'0'.repeat(56)}` },
+      { ...teamHelperUnit(), hash: `sha256:75aafd9b${'1'.repeat(56)}` },
+    ];
+    const e = nonInteractiveError(
+      { units, prompts: [], lockFile: 'palm.lock.yaml' },
+      { args: ['install'] },
+    );
+    expect(e.code).toBe('E_UNTRUSTED_EXEC');
+    expect(`x ${e.message}\n  ${e.hint}`).toBe(designBlock('is `E_UNTRUSTED_EXEC`'));
+  });
+
+  it('repeats the command line, keeps allow entries for other programs and drops --dry-run', () => {
+    const unit = { ...ghCliUnit(), hash: `sha256:a7cc7911${'0'.repeat(56)}` };
+    const args = [
+      'install',
+      'obra/superpowers',
+      'session-start',
+      '--dry-run',
+      '--allow-exec',
+      'mcp:x@y=sha256:12345678,hook:gh-cli@trailofbits/skills=sha256:99999999',
+    ];
+    const e = nonInteractiveError({ units: [unit], prompts: [], lockFile: '' }, { args });
+    expect(e.message).toBe('1 program needs your consent and there is no terminal');
+    expect(e.hint).toBe(
+      'review:  palm install obra/superpowers session-start --dry-run --review\n' +
+        '  then:    palm install obra/superpowers session-start --allow-exec mcp:x@y=sha256:12345678,hook:gh-cli@trailofbits/skills=sha256:a7cc7911',
+    );
+  });
+});
+
+describe('askConsent', () => {
+  it('v shows the scripts, then y allows every unit', async () => {
+    const { ctx, consents, logs } = fakeContext({ consent: ['v', 'y'], pager: true });
+    const outcome = await askConsent(ctx, exampleRequest({ read: bodies }));
+    expect(outcome).toEqual({
+      allowed: ['hook:gh-cli@trailofbits/skills', 'mcp:team-helper@acme-kit'],
+      declined: [],
+    });
+    expect(consents).toHaveLength(2);
+    expect(consents[0]).toEqual({ text: consentText(exampleRequest(), PROJECT), canDiff: false });
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toContain(
+      '==> .palm/assets/trailofbits__skills/gh-cli/hooks/persist-session-id.sh  755  612 B  sha256:1b9e04c2',
+    );
+    expect(logs[0]).toContain('# gh-cli:hooks/lib/session.sh\necho hi');
+  });
+
+  it('n declines every unit it listed', async () => {
+    const { ctx } = fakeContext({ consent: ['n'] });
+    expect(await askConsent(ctx, exampleRequest())).toEqual({
+      allowed: [],
+      declined: ['hook:gh-cli@trailofbits/skills', 'mcp:team-helper@acme-kit'],
+    });
+  });
+
+  it('Enter defaults to no, as the question says', async () => {
+    const { ctx, consents } = fakeContext({ consent: [''] });
+    const outcome = await askConsent(ctx, exampleRequest());
+    expect(outcome.allowed).toEqual([]);
+    expect(outcome.declined).toHaveLength(2);
+    expect(consents[0]?.text).toMatch(/\[y\/N\/v=view scripts\]$/);
+  });
+
+  it('asks only about units --allow-exec does not cover, and passes the covered ones', async () => {
+    const gh = ghCliUnit();
+    const { ctx, consents } = fakeContext({
+      consent: ['n'],
+      flags: { allowExec: [{ key: gh.key, hash: gh.hash.slice(0, 15) }] },
+    });
+    const outcome = await askConsent(ctx, exampleRequest());
+    expect(outcome).toEqual({ allowed: [gh.key], declined: ['mcp:team-helper@acme-kit'] });
+    expect(consents[0]?.text.split('\n')[0]).toBe(
+      'This install adds 1 program that will run on your machine.',
+    );
+  });
+
+  it('asks nothing when --allow-exec covers every unit, even without a terminal', async () => {
+    const allow = [ghCliUnit(), teamHelperUnit()].map((u) => ({ key: u.key, hash: u.hash }));
+    const { ctx, consents, logs } = fakeContext({
+      interactive: false,
+      flags: { allowExec: allow },
+    });
+    expect((await askConsent(ctx, exampleRequest())).allowed).toHaveLength(2);
+    expect(consents).toEqual([]);
+    expect(logs).toEqual([]);
+  });
+
+  it('--allow-exec all without a terminal is a usage error', async () => {
+    const { ctx } = fakeContext({ interactive: false, flags: { allowExec: 'all' } });
+    await expect(askConsent(ctx, exampleRequest())).rejects.toMatchObject({ code: 'E_USAGE' });
+  });
+
+  it('--allow-exec all on a terminal shows the units and allows them without asking', async () => {
+    const { ctx, consents, logs } = fakeContext({ flags: { allowExec: 'all' } });
+    expect((await askConsent(ctx, exampleRequest())).allowed).toHaveLength(2);
+    expect(consents).toEqual([]);
+    expect(logs[0]).toContain('This install adds 2 programs');
+  });
+
+  it('without a terminal shows the units, then fails with the review and --allow-exec lines', async () => {
+    const { ctx, logs } = fakeContext({
+      interactive: false,
+      flags: { yes: true },
+      argv: ['update', 'acme-kit'],
+    });
+    const run = askConsent(ctx, exampleRequest());
+    await expect(run).rejects.toMatchObject({
+      code: 'E_UNTRUSTED_EXEC',
+      hint: expect.stringMatching(
+        /^review: {2}palm update acme-kit --dry-run --review\n {2}then: {4}palm update acme-kit --allow-exec hook:gh-cli@/,
+      ),
+    });
+    expect(logs[0]).toContain('info: This install adds 2 programs');
+    expect(logs[0]).not.toContain('Allow these');
+  });
+
+  it('a dry run shows the units and asks nothing', async () => {
+    const { ctx, consents, logs } = fakeContext({ interactive: false, flags: { dryRun: true } });
+    expect(await askConsent(ctx, exampleRequest())).toEqual({ allowed: [], declined: [] });
+    expect(consents).toEqual([]);
+    expect(logs[0]).toContain('1. hook gh-cli');
+  });
+
+  it('d pages the diff against the trusted version, then asks again', async () => {
+    const now = ghCliUnit();
+    const before: ExecUnit = {
+      ...now,
+      from: { sha: '1111111aaaa' },
+      closure: {
+        ...now.closure,
+        files: now.closure.files.map((f) =>
+          f.path === 'hooks/lib/common.sh' ? { ...f, hash: 'sha256:old' } : f,
+        ),
+      },
+    };
+    const read = async (unit: ExecUnit, file: ClosureFile) =>
+      unit === before ? 'echo old\n' : `echo ${file.path}\n`;
+    const { ctx, consents, logs } = fakeContext({ consent: ['d', 'y'] });
+    await askConsent(ctx, {
+      units: [now],
+      prompts: [],
+      lockFile: 'palm.lock.yaml',
+      previous: { [now.key]: before },
+      read,
+    });
+    expect(consents.map((c) => c.canDiff)).toEqual([true, true]);
+    expect(logs[0]).toContain('changes since the trusted version (commit 1111111 → 82fe822)');
+    expect(logs[0]).toContain(
+      '--- a/hooks/lib/common.sh\n+++ b/hooks/lib/common.sh\n@@ -1 +1 @@\n-echo old\n+echo hooks/lib/common.sh',
+    );
+  });
+
+  it('ignores d when there is nothing to diff', async () => {
+    const { ctx, consents, logs } = fakeContext({ consent: ['d', 'n'] });
+    await askConsent(ctx, exampleRequest());
+    expect(consents).toHaveLength(2);
+    expect(logs).toEqual([]);
+  });
+});
+
+describe('viewScripts', () => {
+  it('prints bodies, marks binary and unreadable files, and escapes control characters', async () => {
+    const unit = ghCliUnit();
+    const read = async (_u: ExecUnit, f: ClosureFile) => {
+      if (f.path.endsWith('common.sh')) return 'a\u0000b';
+      if (f.path.endsWith('gh.sh')) return undefined;
+      if (f.path.endsWith('json.sh')) throw new Error('boom');
+      return 'echo "\u001b[31mred"\r\n';
+    };
+    const { ctx, logs } = fakeContext();
+    await viewScripts(ctx, [unit], read);
+    const text = logs[0] ?? '';
+    expect(text.startsWith('info: hook gh-cli from trailofbits/skills (commit 82fe822)\n')).toBe(
+      true,
+    );
+    expect(text).toContain(
+      'hooks/lib/common.sh  644  3.2 KB  sha256:c0000000\n(binary file, not shown)',
+    );
+    expect(text).toContain(
+      'hooks/lib/gh.sh  644  3.2 KB  sha256:c1000000\n(palm could not read this file from the cache)',
+    );
+    expect(text).toContain(
+      'hooks/lib/json.sh  644  3.2 KB  sha256:c2000000\n(palm could not read this file from the cache)',
+    );
+    expect(text).toContain('echo "<U+001B>[31mred"\n');
+  });
+
+  it('says where in-place scripts run instead of listing them', async () => {
+    const unit = {
+      ...ghCliUnit(),
+      closure: { root: 'agent-kit/hooks', inPlace: true, files: [], bytes: 0 },
+    };
+    const { ctx, logs } = fakeContext();
+    await viewScripts(ctx, [unit], bodies);
+    expect(logs[0]).toContain(
+      'runs in place from agent-kit/hooks; the scripts are part of your repository',
+    );
+  });
+});
+
+describe('checkoutReader', () => {
+  it('reads a closure file with git at the unit commit, under the directory it was copied from', async () => {
+    const unit = ghCliUnit();
+    const read = checkoutReader((u) =>
+      u.key === unit.key
+        ? { checkoutDir: '/cache/tob/sha-82fe822', dirRel: 'plugins/gh-cli' }
+        : undefined,
+    );
+    const file = unit.closure.files[0]!;
+    expect(await read(unit, file)).toBe('echo from git\n');
+    expect(git.fileAtSha).toHaveBeenCalledWith(
+      '/cache/tob/sha-82fe822',
+      unit.from?.sha,
+      `plugins/gh-cli/${file.path}`,
+    );
+    expect(await read(teamHelperUnit(), file)).toBeUndefined();
+  });
+});
+
+describe('a request without prompt hooks', () => {
+  it('has no "Also" line and no blank line pair', () => {
+    const req: ConsentRequest = { units: [teamHelperUnit()], prompts: [], lockFile: '' };
+    expect(consentText(req, PROJECT)).not.toMatch(/\n\n\n/);
+  });
+});
