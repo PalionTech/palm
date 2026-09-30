@@ -145,7 +145,7 @@ palm 0.3 turns an on-request or manual rule into a skill where a harness lacks t
 | Finding | Severity | Effect |
 | --- | --- | --- |
 | bidi overrides and isolates (U+202A to U+202E, U+2066 to U+2069), tag characters (U+E0000 to U+E007F), variation selectors 17 to 256 | critical | the entity is refused, with no override |
-| zero-width and other invisible format characters | warning | installed, with a warning |
+| zero-width and other invisible format characters | warning | installed, with a warning once per lock change; an `ignore:` entry in `palm.yaml` acknowledges it |
 | a hook or MCP reference that resolves to nothing in the source | critical | the entity is refused, with the offending line |
 | a secret-shaped literal in an MCP value or hook command | critical | never written; palm writes `${NAME}` |
 | a known token prefix, a bearer token, a private key block, or a high-entropy value in a configuration file such as `.json`, `.yaml`, `.toml` or `.env`, in a file a skill, agent or instruction copies | critical | the entity is refused |

@@ -54,6 +54,7 @@ This is the file palm wrote for a recorded session.
 | `targets` | list of targets | The scope's harnesses: `claude`, `codex`, `copilot`, `cursor`, `gemini`, `opencode`. Written by `palm init` or the first install. |
 | `sources` | map | Every source the scope installs from, keyed by name, with the entries taken from it. |
 | `mcp` | map | MCP servers declared by hand, by `palm install mcp` flags or by `palm install mcp --snippet`, keyed by config name. |
+| `ignore` | list of strings | Warnings you have read and accept, so `palm check` and `palm install` stop printing them. See [ignore](#ignore). |
 
 ## Source keys
 
@@ -122,6 +123,24 @@ When a bare name is ambiguous on the command line, palm asks for the source, as 
 
 A literal secret in `palm.yaml` needs `--secrets literal`, and `palm check` fails on it. Write `${NAME}` instead.
 An unknown key on a server is a parse error with a suggestion.
+
+## Ignore
+
+`ignore:` acknowledges a warning once, for everyone who clones the project.
+
+```yaml title="palm.yaml"
+ignore:
+  - hidden-unicode:acme/standards/skills/writing/SKILL.md
+  - foreign-hooks:.claude/settings.json#Stop
+```
+
+| Entry | Acknowledges |
+| --- | --- |
+| `hidden-unicode:<source>/<path>` | zero-width characters in one file of a source, with `<path>` relative to the source root |
+| `foreign-hooks:<file>#<event>` | hook commands palm did not write in one event array of a harness file, such as your own `Stop` hook |
+
+An entry never hides a failure: a bidi override still refuses, and `palm check --strict` still fails on a warning no entry covers.
+Without an entry, a zero-width warning prints once per change of the lock, not on every run.
 
 ## Rules palm applies
 
