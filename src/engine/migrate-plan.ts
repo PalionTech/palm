@@ -11,6 +11,8 @@ import type {
   EngineDeps,
   InstallFailure,
   Kind,
+  LayoutDescriptor,
+  LegacyOriginSpec,
   LockEntry,
   PalmContext,
   Scope,
@@ -25,10 +27,10 @@ import { parseYaml } from '../lib/yaml.js';
 import { dedupeJobs, manifestJobs } from './entries.js';
 import { manifestMcpJob } from './install-mcp.js';
 import { askForConsent, type Job, type Prepared, type Run, runOf } from './jobs.js';
-import type { LegacyItem } from './migrate-legacy.js';
+import type { LegacyItem, MigratedSource } from './migrate-legacy.js';
 import { lockSourceOf, pinOf, type Resolved, resolveSource } from './resolve.js';
 import { prepareAll } from './runner.js';
-import { assertNoOverlap, openScope, type ScopeState } from './scope.js';
+import { assertNoOverlap, findOverlaps, openScope, type ScopeState } from './scope.js';
 
 /** A 0.1 entry palm 0.2 names differently (a root hook is named after its folder, not the alias). */
 interface Rename {
@@ -52,11 +54,55 @@ export interface PlanInput {
   /** Absolute path → the hash 0.1 recorded, for every file the provisional lock adopted. */
   hashes: Map<string, string>;
   legacy: LegacyItem[];
+  /** The migrated sources with their 0.1 origins (T6). */
+  sources?: readonly MigratedSource[];
 }
 
 // ---------------------------------------------------------------------------
 // The scope, opened without writing
 // ---------------------------------------------------------------------------
+
+/** The first common directory of every glob of a layout (`rules` for `rules/*.md`), if any. */
+function commonDir(layout: LayoutDescriptor | undefined): string | undefined {
+  const globs = Object.entries(layout ?? {})
+    .filter(([k]) => !['exclude', 'include', 'nameFrom'].includes(k))
+    .flatMap(([, v]) => (Array.isArray(v) ? v : [v]))
+    .filter((g): g is string => typeof g === 'string');
+  const firsts = new Set(globs.map((g) => g.replace(/^\.\//, '').split('/')[0] ?? ''));
+  const [dir] = firsts;
+  return firsts.size === 1 && dir && !/[*?[{]/.test(dir) && globs.every((g) => g.includes('/'))
+    ? dir
+    : undefined;
+}
+
+/**
+ * T6: while palm.yaml is still in the 0.1 format, the overlap hint names the 0.1 origin and
+ * what to change on it (`set root: rules on origin kitcn-rules; globs relative to it`).
+ */
+function legacyOverlapHint(origin: LegacyOriginSpec): string {
+  const dir = commonDir(origin.layout);
+  const then = 'then run: palm migrate';
+  if (dir)
+    return `in palm.yaml, set root: ${dir} on origin ${origin.alias}; globs relative to it (${dir}/ dropped), ${then}`;
+  return `in palm.yaml, point origin ${origin.alias} at a directory of its own (for example path: ./agent-kit), ${then}`;
+}
+
+/** The overlap rule, its hint naming the 0.1 origin of the source (T6). */
+async function refuseOverlap(
+  ctx: PalmContext,
+  state: ScopeState,
+  deps: EngineDeps,
+  sources: readonly MigratedSource[],
+): Promise<void> {
+  try {
+    await assertNoOverlap(ctx, state, deps);
+  } catch (e) {
+    if (!isPalmError(e) || e.code !== 'E_SOURCE') throw e;
+    const [o] = await findOverlaps(ctx, state, deps);
+    const origin = sources.find((s) => o && sameName(s.source.name, o.source))?.origin;
+    throw origin ? new PalmError('E_SOURCE', e.message, legacyOverlapHint(origin)) : e;
+  }
+}
 
 /**
  * The scope opened on the converted palm.yaml and lock (copies: planning changes them) without
@@ -65,7 +111,7 @@ export interface PlanInput {
 async function openStaged(
   ctx: PalmContext,
   scope: Scope,
-  input: { manifest: Manifest; lock: Lock },
+  input: { manifest: Manifest; lock: Lock; sources?: readonly MigratedSource[] },
   deps: EngineDeps,
 ): Promise<ScopeState> {
   const preload = {
@@ -76,7 +122,7 @@ async function openStaged(
   };
   const state = await openScope(ctx, scope, { readOnly: true, deps, preload });
   delete state.applied;
-  await assertNoOverlap(ctx, state, deps);
+  await refuseOverlap(ctx, state, deps, input.sources ?? []);
   return state;
 }
 
