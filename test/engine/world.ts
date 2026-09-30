@@ -119,8 +119,12 @@ export class World {
    * A fake git remote `https://example.com/<name>.git` with one checkout per ref (tag or
    * branch); returns its URL.
    */
-  async remote(name: string, versions: Record<string, Files>, head = 'main'): Promise<string> {
-    const url = `https://example.com/${name}.git`;
+  async remote(
+    name: string,
+    versions: Record<string, Files>,
+    url = `https://example.com/${name}.git`,
+  ): Promise<string> {
+    const head = 'main';
     const remote = {
       refs: {} as Record<string, string>,
       trees: {} as Record<string, string>,
