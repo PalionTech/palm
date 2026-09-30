@@ -11,7 +11,7 @@ import { COPY_SKIP, matchesSkip } from './ignore.js';
  * Entry names never copied into a skill, at any depth: the copy skip list, harness directories
  * and config files, harness instruction files, palm's own files and environment files.
  */
-export const SKILL_COPY_SKIP: readonly string[] = [
+const SKILL_COPY_SKIP: readonly string[] = [
   ...COPY_SKIP,
   '.agents',
   '.apm',
