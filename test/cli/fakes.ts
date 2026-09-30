@@ -103,7 +103,7 @@ const CONFIG_DIR: Readonly<Record<TargetId, string>> = {
   opencode: '.opencode',
 };
 
-export function fakeTarget(id: TargetId): Target {
+function fakeTarget(id: TargetId): Target {
   const refuse = async (): Promise<never> => {
     throw new Error(`fake target ${id} does not render`);
   };
@@ -122,7 +122,7 @@ export function fakeTarget(id: TargetId): Target {
 // engine ---------------------------------------------------------------------------------------
 
 /** API semantics of src/exec/units.ts `isExecutable`: a hook with a command, or a stdio server. */
-export function isExecutable(e: Entity): boolean {
+function isExecutable(e: Entity): boolean {
   if (e.def.kind === 'mcp') return e.def.mcp.transport === 'stdio';
   if (e.def.kind !== 'hook') return false;
   return JSON.stringify(e.def.hooks.raw).includes('"command"');

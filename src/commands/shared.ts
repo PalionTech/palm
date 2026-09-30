@@ -39,7 +39,7 @@ export interface GlobalOptions {
  * What the CLI adds to the contract's flags and context (reported for types.ts): `review`, and
  * the command line src/exec repeats in the `review:` line of its no-terminal consent error.
  */
-export type CliFlags = PalmFlags & { review?: boolean };
+type CliFlags = PalmFlags & { review?: boolean };
 export type CliContext = PalmContext & { argv: readonly string[] };
 
 export function scopeOf(g: GlobalOptions): Scope {

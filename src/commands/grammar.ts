@@ -141,7 +141,7 @@ export function formatName(n: EntityRefSpec): string {
 const SHELL_SAFE = /^[\w@%+=:,./-]+$/;
 
 /** A word as it would be typed in a shell. */
-export function shellWord(word: string): string {
+function shellWord(word: string): string {
   return SHELL_SAFE.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
 }
 
@@ -217,7 +217,7 @@ function searchLine(word: string): string {
  * DESIGN.md §10 and PLAN.md §4.9: the first word is no source. The hint is the command to type,
  * with an example; a word that names a well-known entity gets that entity's repository.
  */
-export function notARepository(words: string[]): PalmError {
+function notARepository(words: string[]): PalmError {
   const [word = '', ...rest] = words;
   const lower = word.toLowerCase();
   const repo = KNOWN_SOURCES.find((k) => k.repo.split('/')[1] === lower);

@@ -27,7 +27,7 @@ interface InitFlags extends GlobalOptions {
 const IGNORE_LINES = ['.palm/local/', 'palm.local.yaml'] as const;
 
 /** `.gitignore` text with the palm lines it lacks appended, and which ones those were. */
-export function withIgnoreLines(text: string): { text: string; added: string[] } {
+function withIgnoreLines(text: string): { text: string; added: string[] } {
   const have = new Set(
     text.split(/\r?\n/).map((l) => l.trim().replace(/^\//, '').replace(/\/$/, '')),
   );

@@ -15,7 +15,7 @@ const PROBLEM_MARK: Readonly<Record<CheckStatus, Mark>> = { ok: 'i', warn: '!', 
 const COLOUR = { ok: 'green', warn: 'yellow', fail: 'red' } as const;
 
 /** `x skill tdd .claude/skills/tdd/SKILL.md: changed since palm wrote it; fix: palm install …`. */
-export function problemLine(p: CheckProblem): string {
+function problemLine(p: CheckProblem): string {
   const who = [p.entity ? `${p.entity.kind} ${p.entity.name}` : '', p.file ?? '']
     .filter(Boolean)
     .join(' ');
@@ -26,7 +26,7 @@ function checkLine(out: Output, c: CheckRun): string {
   return `${out.colors[COLOUR[c.status]](CHECK_MARK[c.status])} ${c.label}`;
 }
 
-export function printCheck(out: Output, report: CheckReport): void {
+function printCheck(out: Output, report: CheckReport): void {
   for (const c of report.checks) out.out(checkLine(out, c));
   const problems = report.checks.flatMap((c) => c.problems.map((p) => ({ c, p })));
   if (problems.length) out.out();

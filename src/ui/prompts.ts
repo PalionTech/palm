@@ -28,7 +28,7 @@ function cancelled(output: Writable | undefined): never {
 }
 
 /** Case-insensitive match of every whitespace-separated term against label and hint. */
-export function matchesQuery(
+function matchesQuery(
   option: { label?: string; hint?: string; value: unknown },
   query: string,
 ): boolean {

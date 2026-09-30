@@ -24,8 +24,8 @@ import {
   statusWord,
 } from './format.js';
 
-export { type Colors, formatTable, type Mark } from './format.js';
-export { failureCount, printInstallSummary, type SummaryOptions } from './summary.js';
+export { formatTable } from './format.js';
+export { failureCount, printInstallSummary } from './summary.js';
 
 /** Anything with a `write(text)`: process.stdout, process.stderr, or a test buffer. */
 export interface Sink {

@@ -20,7 +20,7 @@ const PROGRAM = '(a program; asks before installing)';
 const INTERPRETERS = new Set(['bash', 'sh', 'zsh', 'node', 'python', 'python3', 'deno', 'bun']);
 
 /** The entities a person installs: every kind but plugins, grouped by kind in KINDS order. */
-export function listable(entities: readonly Entity[]): Entity[] {
+function listable(entities: readonly Entity[]): Entity[] {
   return KINDS.filter((k) => k !== 'plugin').flatMap((k) => entities.filter((e) => e.kind === k));
 }
 
@@ -38,14 +38,14 @@ function countsOf(entities: Entity[]): string {
 const unquote = (w: string) => w.replace(/^["']|["']$/g, '');
 
 /** The program a hook command runs: `hooks/run-hook.cmd` for `"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd"`. */
-export function programOf(command: string): string {
+function programOf(command: string): string {
   const words = command.split(/\s+/).map(unquote).filter(Boolean);
   const word = INTERPRETERS.has(words[0] ?? '') && words[1] ? words[1] : (words[0] ?? '');
   return word.replace(PLUGIN_ROOT_TOKENS, '').replace(/^\/+/, '');
 }
 
 /** Every (event, command) of a hooks file, in the Claude, Cursor and Copilot shapes. */
-export function hookCommands(raw: unknown): Array<{ event: string; command: string }> {
+function hookCommands(raw: unknown): Array<{ event: string; command: string }> {
   const root = isRecord(raw) && isRecord(raw.hooks) ? raw.hooks : raw;
   if (!isRecord(root)) return [];
   const found: Array<{ event: string; command: string }> = [];
@@ -77,13 +77,13 @@ function mcpSummary(e: Entity): string {
 }
 
 /** The last column: a description, or what a hook or server runs. */
-export function entitySummary(e: Entity, executable: boolean): string {
+function entitySummary(e: Entity, executable: boolean): string {
   const body = hookSummary(e) || mcpSummary(e) || truncate(e.description, 70);
   return executable ? `${body}   ${PROGRAM}` : body;
 }
 
 /** Two names to try: the first entities that are not programs. */
-export function suggestedNames(entities: Entity[], executable: (e: Entity) => boolean): string[] {
+function suggestedNames(entities: Entity[], executable: (e: Entity) => boolean): string[] {
   return entities
     .filter((e) => !executable(e))
     .slice(0, 2)

@@ -133,7 +133,7 @@ export function templateFor(
 }
 
 /** The source directory: `--in` (from the cwd; `~/` is home), else the scope's default. */
-export function sourceDirOf(ctx: PalmContext, opts: Pick<CreateOptions, 'dir' | 'scope'>): string {
+function sourceDirOf(ctx: PalmContext, opts: Pick<CreateOptions, 'dir' | 'scope'>): string {
   if (opts.dir) {
     const dir = opts.dir.startsWith('~/') ? join(ctx.paths.home, opts.dir.slice(2)) : opts.dir;
     return resolve(ctx.paths.cwd, dir);

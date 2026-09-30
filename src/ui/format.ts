@@ -78,7 +78,7 @@ export function truncate(text: string | undefined, max: number): string {
 }
 
 /** The widest cell of each column. */
-export function columnWidths(rows: string[][]): number[] {
+function columnWidths(rows: string[][]): number[] {
   const cols = rows.reduce((n, r) => Math.max(n, r.length), 0);
   return Array.from({ length: cols }, (_, i) =>
     rows.reduce((w, r) => Math.max(w, displayWidth(r[i] ?? '')), 0),

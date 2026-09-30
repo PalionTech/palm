@@ -56,7 +56,7 @@ export interface InstalledRow {
   layer: 'team' | 'local';
 }
 
-export interface PathOwner {
+interface PathOwner {
   entry: LockEntry;
   match: 'file' | 'inside' | 'merged';
   file: string;
