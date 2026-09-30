@@ -1,6 +1,6 @@
 import { mkdir, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { SourceReference } from '../../src/core/types.js';
 import { buildFileIndex, type FileIndex } from '../../src/index/files.js';
 import { defaultIgnoreGlobs } from '../../src/index/ignore.js';
@@ -11,11 +11,6 @@ import {
   unresolvedIssues,
 } from '../../src/index/references.js';
 import { putFile, removeDir, tempDir } from '../support/sandbox.js';
-
-vi.mock('../../src/domain/ignore.js', async (original) => ({
-  ...(await original<object>()),
-  ...(await import('./contract-fakes.js')).domainIgnore,
-}));
 
 let tmp: string;
 let files: FileIndex;

@@ -887,6 +887,7 @@ exports[`scanSource snapshot per fixture > claude-plugins-official-like 1`] = `
           },
           "secrets": [
             {
+              "format": "Bearer {value}",
               "header": "Authorization",
               "in": "header",
               "name": "GITHUB_PERSONAL_ACCESS_TOKEN",
@@ -941,7 +942,7 @@ exports[`scanSource snapshot per fixture > claude-plugins-official-like 1`] = `
               "header": "Authorization",
               "in": "header",
               "name": "CONTEXT7_API_KEY",
-              "required": true,
+              "required": false,
             },
           ],
           "transport": "http",

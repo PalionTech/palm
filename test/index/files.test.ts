@@ -1,17 +1,12 @@
 import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildFileIndex, type FileIndex } from '../../src/index/files.js';
 import { globIndex } from '../../src/index/glob.js';
 import { defaultIgnoreGlobs } from '../../src/index/ignore.js';
 import { putFile } from '../support/sandbox.js';
 import { scanSource } from './helpers.js';
-
-vi.mock('../../src/domain/ignore.js', async (original) => ({
-  ...(await original<object>()),
-  ...(await import('./contract-fakes.js')).domainIgnore,
-}));
 
 let tmp: string;
 let root: string;

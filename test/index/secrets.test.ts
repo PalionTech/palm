@@ -1,20 +1,14 @@
 /**
- * The secrets pass of the scan (DESIGN §5 "Scan issues", §8), run with the fake secret scanner
- * (contract-fakes.ts: known prefixes and Bearer literals). The real shapes are tested with
- * src/secrets.
+ * The secrets pass of the scan (DESIGN §5 "Scan issues", §8), run
+ * with the real secret shapes of src/secrets/scan.ts.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Entity, ScanResult } from '../../src/core/types.js';
 import { scanSourceWith } from '../../src/index/scanner.js';
 import type { SecretScanner } from '../../src/index/secrets.js';
+import { detectSecrets, redact, scanSecrets, scanText } from '../../src/secrets/scan.js';
 import { putFile, removeDir, tempDir } from '../support/sandbox.js';
-import { fakeRedact, fakeSecrets } from './contract-fakes.js';
 import { scanSource } from './helpers.js';
-
-vi.mock('../../src/domain/ignore.js', async (original) => ({
-  ...(await original<object>()),
-  ...(await import('./contract-fakes.js')).domainIgnore,
-}));
 
 const TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
 const KEY = 'sk-live-0123456789abcdef';
@@ -53,8 +47,8 @@ describe('secrets pass', () => {
     const docs = find(r, 'mcp', 'docs');
     expect(docs.def).toMatchObject({
       mcp: {
-        args: ['-y', 'docs-server', fakeRedact(`--key=${KEY}`)],
-        env: { GITHUB_TOKEN: fakeRedact(TOKEN), REGION: 'eu', API_KEY: '${API_KEY}' },
+        args: ['-y', 'docs-server', redact(`--key=${KEY}`)],
+        env: { GITHUB_TOKEN: redact(TOKEN), REGION: 'eu', API_KEY: '${API_KEY}' },
         // detectSecrets runs on the redacted definition
         secrets: [{ name: 'API_KEY', in: 'env', required: true }],
       },
@@ -63,21 +57,21 @@ describe('secrets pass', () => {
       {
         code: 'secret-literal',
         severity: 'critical',
-        message: `mcp:docs.env.GITHUB_TOKEN: literal secret (a known token prefix) ${fakeRedact(TOKEN)}`,
+        message: `mcp:docs.env.GITHUB_TOKEN: literal secret (a known token prefix) ${redact(TOKEN)}`,
         file: '.mcp.json',
       },
       {
         code: 'secret-literal',
         severity: 'critical',
-        message: `mcp:docs.args[2]: literal secret (a known token prefix) ${fakeRedact(`--key=${KEY}`)}`,
+        message: `mcp:docs.args[2]: literal secret (a known token prefix) ${redact(`--key=${KEY}`)}`,
         file: '.mcp.json',
       },
     ]);
     const remote = find(r, 'mcp', 'remote');
     expect(remote.def).toMatchObject({
       mcp: {
-        url: fakeRedact(`https://example.com/mcp?token=${TOKEN}`),
-        headers: { Authorization: fakeRedact(`Bearer ${KEY}`), 'X-Team': '${TEAM}' },
+        url: redact(`https://example.com/mcp?token=${TOKEN}`),
+        headers: { Authorization: redact(`Bearer ${KEY}`), 'X-Team': '${TEAM}' },
       },
     });
     expect(remote.issues?.map((i) => [i.severity, i.message.split(':')[0]])).toEqual([
@@ -109,7 +103,7 @@ describe('secrets pass', () => {
       {
         code: 'secret-literal',
         severity: 'warning',
-        message: `bin/notify.sh:2: literal secret (a known token prefix) ${fakeRedact(`curl -H "Authorization: token ${TOKEN}" x`)}`,
+        message: `bin/notify.sh:2: literal secret (a known token prefix) ${redact(TOKEN)}`,
         file: 'bin/notify.sh',
       },
     ]);
@@ -137,8 +131,8 @@ describe('secrets pass', () => {
           hooks: {
             sessionEnd: [
               {
-                bash: fakeRedact(`./send.sh --token ${TOKEN}`),
-                env: { SLACK: fakeRedact(KEY), N: 1 },
+                bash: redact(`./send.sh --token ${TOKEN}`),
+                env: { SLACK: redact(KEY), N: 1 },
               },
             ],
           },
@@ -157,13 +151,15 @@ describe('secrets pass', () => {
       mcpServers: { s: { command: 'x', args: ['--api-key', 'abc', 'b'] } },
     });
     const unplaced: SecretScanner = {
-      ...fakeSecrets,
+      scanText,
+      redact,
+      detectSecrets,
       scanSecrets: (value, where) =>
-        Array.isArray(value) ? [{ where, shape: 'high-entropy', redacted: fakeRedact('abc') }] : [],
+        Array.isArray(value) ? [{ where, shape: 'high-entropy', redacted: redact('abc') }] : [],
     };
     const r = await scanSourceWith(tmp, { name: './kit', type: 'local', path: tmp }, unplaced);
     expect(find(r, 'mcp', 's').def).toMatchObject({
-      mcp: { args: [fakeRedact('--api-key'), fakeRedact('abc'), fakeRedact('b')] },
+      mcp: { args: [redact('--api-key'), redact('abc'), redact('b')] },
     });
   });
 

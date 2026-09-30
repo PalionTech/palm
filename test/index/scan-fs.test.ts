@@ -1,16 +1,11 @@
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { isPalmError } from '../../src/core/errors.js';
 import { putFile } from '../support/sandbox.js';
 import { writeSyntheticOrigin } from '../support/synthetic.js';
 import { scanSource } from './helpers.js';
-
-vi.mock('../../src/domain/ignore.js', async (original) => ({
-  ...(await original<object>()),
-  ...(await import('./contract-fakes.js')).domainIgnore,
-}));
 
 let tmp: string;
 

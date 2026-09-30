@@ -6,14 +6,9 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { LayoutDescriptor, ScanResult } from '../../src/core/types.js';
 import { scanSource } from './helpers.js';
-
-vi.mock('../../src/domain/ignore.js', async (original) => ({
-  ...(await original<object>()),
-  ...(await import('./contract-fakes.js')).domainIgnore,
-}));
 
 const FIXTURES = fileURLToPath(new URL('../fixtures/', import.meta.url));
 

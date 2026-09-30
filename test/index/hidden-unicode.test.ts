@@ -2,15 +2,10 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Entity, ScanResult } from '../../src/core/types.js';
 import { putFile } from '../support/sandbox.js';
 import { scanSource } from './helpers.js';
-
-vi.mock('../../src/domain/ignore.js', async (original) => ({
-  ...(await original<object>()),
-  ...(await import('./contract-fakes.js')).domainIgnore,
-}));
 
 const FIXTURE = fileURLToPath(new URL('../fixtures/hidden-unicode-like', import.meta.url));
 
