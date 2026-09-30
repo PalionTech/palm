@@ -1,0 +1,7 @@
+---
+"@paliontech/palm": minor
+---
+
+palm 0.2 now writes nothing when a run fails before it changed the disk, never gives one file two owners, and treats an in-repo source per entry: two pull requests that edit different skills no longer conflict in palm.lock.yaml. Ctrl-C stops between entities and exits 130; declining a program you named, or the new version of a program you trusted, exits 130 and writes nothing, and a plugin's hook you decline is recorded as `exclude: [hook:<name>]` in palm.yaml. Every hint is a command you can paste, and a value you typed for a secret is written and repeated only as its `${VAR}` reference.
+
+`palm check` has new checks (`render`, `partial`, `orphans`, `pending`, `source-paths`, and the warnings `foreign-hooks`, `agent-names`, `preloads`), groups problems per entity, warns when a generated file is not committed yet, and takes `--quiet`. A hook item changed on disk is reported as changed and never appended again. A hook's closure carries the files its scripts read, in-repo hook scripts are part of the program's hash, and a literal secret in a hook script refuses the hook unless `--force`. Install refuses an `AGENTS.md` above the harness's cap without `--force`, `install --force` removes stray files in folders palm owns, and `--layout kind=glob` declares a new source's layout. `palm migrate` asks before it writes, keeps palm.yaml comments, removes the files 0.1 copied that 0.2 no longer writes there, and ends with `palm check`.
