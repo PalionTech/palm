@@ -259,12 +259,17 @@ function checkedAlias(legacy: InstallWords, ctx: GrammarContext): InstallWords {
   );
 }
 
-/** `install skill tdd`: the words after the kind word, their names narrowed to that kind. */
-function withKind(kind: Kind, inner: InstallWords, words: string[]): InstallWords {
+/**
+ * `install skill tdd`: the words after the kind word, their names narrowed to that kind. The new
+ * form is printed only when what follows the kind word is a source.
+ */
+function withKind(kind: Kind, words: string[], ctx: GrammarContext): InstallWords {
+  const inner = interpretInstall(words.slice(1), ctx);
   const names = inner.names.map((n) => (n.kind ? n : { kind, name: n.name }));
   const replacement = commandLine('install', inner.source, names);
   const legacy = inner.legacy ?? { form: `palm install ${words.join(' ')}`, replacement };
-  return { ...inner, names, ...(inner.source ? { legacy } : {}) };
+  const known = inner.source !== undefined && isSource(inner.source, ctx);
+  return { ...inner, names, ...(known ? { legacy } : {}) };
 }
 
 /**
@@ -282,7 +287,7 @@ export function interpretInstall(words: string[], ctx: GrammarContext = {}): Ins
   const legacy = legacyAlias('install', words);
   if (legacy) return checkedAlias(legacy, ctx);
   const kind = kindWord(words);
-  if (kind) return withKind(kind, interpretInstall(rest, ctx), words);
+  if (kind) return withKind(kind, words, ctx);
   if (!ctx.isDeclared) return { source: first, names: parseNames(rest) };
   throw notARepository(words);
 }

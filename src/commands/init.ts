@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import type { PalmContext, TargetId } from '../core/types.js';
+import type { Manifest } from '../domain/manifest.js';
 import type { App } from './app.js';
 import { type Invocation, usage } from './grammar.js';
 import {
@@ -85,17 +86,31 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const flag = parseTargetList(flags.target);
   const ctx = await makeContext(app, flags);
   if (!flags.here) await refuseNested(ctx, app);
-  const api = engine(app);
   const file = join(ctx.paths.cwd, 'palm.yaml');
-  const manifest = await api.loadManifest(file);
+  const manifest = await engine(app).loadManifest(file);
+  const current = manifest.targets;
+  if (current && !flag) {
+    if (app.out.jsonMode) return app.out.json({ file, targets: current, changed: false });
+    app.out.info(`${displayPath(ctx, file)} already lists targets: ${current.join(', ')}`);
+    return app.out.hint('change them: palm init --target claude,cursor');
+  }
   const targets = await targetsFor(ctx, app, flag);
+  await writeInit(ctx, app, { file, manifest, targets });
+}
+
+async function writeInit(
+  ctx: PalmContext,
+  app: App,
+  job: { file: string; manifest: Manifest; targets: TargetId[] },
+): Promise<void> {
+  const { file, targets } = job;
   const ignore = await gitignore(ctx.paths.cwd);
   const out = app.out;
-  if (out.jsonMode) out.json({ file, targets, gitignore: ignore.added, dryRun: ctx.flags.dryRun });
-  const verb = ctx.flags.dryRun ? 'would write' : 'wrote';
-  if (!ctx.flags.dryRun) await manifest.setTargets(targets).save(file);
-  if (!ctx.flags.dryRun && ignore.added.length) await writeFile(ignore.file, ignore.text);
-  if (out.jsonMode) return;
+  const dry = ctx.flags.dryRun;
+  if (!dry) await job.manifest.setTargets(targets).save(file);
+  if (!dry && ignore.added.length) await writeFile(ignore.file, ignore.text);
+  if (out.jsonMode) return out.json({ file, targets, gitignore: ignore.added, dryRun: dry });
+  const verb = dry ? 'would write' : 'wrote';
   out.mark('+', `${verb} ${displayPath(ctx, file)}: targets ${targets.join(', ')}`);
   if (ignore.added.length)
     out.mark('+', `${verb} ${displayPath(ctx, ignore.file)}: ${ignore.added.join(', ')}`);

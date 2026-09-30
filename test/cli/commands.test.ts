@@ -490,8 +490,10 @@ describe('palm install (bare): make the disk match palm.yaml', () => {
 });
 
 describe('palm init', () => {
-  function initEngine(opts: { found?: TargetId[]; enclosing?: string } = {}) {
-    let targets: TargetId[] | undefined;
+  function initEngine(
+    opts: { found?: TargetId[]; enclosing?: string; existing?: TargetId[] } = {},
+  ) {
+    let targets: TargetId[] | undefined = opts.existing;
     const manifest = {
       get targets() {
         return targets;
@@ -549,6 +551,17 @@ describe('palm init', () => {
     const here = await palm(sb, ['init', '--here'], { deps, cwd: jobs });
     expect(here.code).toBe(0);
     expect(await exists(join(jobs, 'palm.yaml'))).toBe(true);
+  });
+
+  it('leaves targets palm.yaml already lists, unless --target', async () => {
+    const r = await palm(sb, ['init'], { deps: initEngine({ existing: ['claude'] }) });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe(
+      'i palm.yaml already lists targets: claude\nchange them: palm init --target claude,cursor\n',
+    );
+    expect(await exists(join(sb.project, 'palm.yaml'))).toBe(false);
+    await palm(sb, ['init', '--target', 'cursor'], { deps: initEngine({ existing: ['claude'] }) });
+    expect(await read(join(sb.project, 'palm.yaml'))).toBe('targets: [cursor]\n');
   });
 
   it('needs a target when none is found, and is a project command', async () => {

@@ -59,6 +59,8 @@ const ORDER: readonly OutcomeStatus[] = [
 const COLLAPSE_AFTER = 5;
 
 const DECLINED = 'runs a program on your machine; not installed';
+/** The status word of a program this run left out, when the table shows status words. */
+const LEFT_OUT = 'not installed';
 
 interface Row {
   mark: Mark;
@@ -143,7 +145,7 @@ function outcomeRow(o: InstallOutcome, opts: SummaryOptions): Row {
   if (programLeftOut(o)) {
     const cmd = `palm install ${e.source} ${e.name}`;
     const after = [`    see it:      ${cmd} --dry-run`, `    install it:  ${cmd}`];
-    return { ...base, mark: '!', word: 'declined', cells: [DECLINED], after };
+    return { ...base, mark: '!', word: LEFT_OUT, cells: [DECLINED], after };
   }
   const word = statusWord(o.status, opts.dryRun);
   if (o.status === 'failed') return { ...base, mark: 'x', word, cells: [] };
@@ -233,7 +235,7 @@ export function printInstallSummary(
   if (opts.detected?.length && opts.targets.length) out.out(targetsLine(opts));
   const outcomes = sorted(result.outcomes);
   const rows = outcomes.map((o) => outcomeRow(o, opts));
-  const words = new Set(rows.filter((r) => r.word !== 'declined').map((r) => r.word));
+  const words = new Set(rows.filter((r) => r.word !== LEFT_OUT).map((r) => r.word));
   printRows(out, rows, words.size > 1 || Boolean(opts.dryRun));
   printFailures(out, result.failures);
   for (const w of result.warnings) out.warn(w);

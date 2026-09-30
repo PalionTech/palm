@@ -130,6 +130,10 @@ describe('interpretInstall: palm 0.1 forms print the new form and run it', () =>
     expect(w.legacy).toEqual(legacy);
   });
 
+  it('prints no new form when what follows the kind word is no source', () => {
+    expect(interpretInstall(['plugin', 'superpowers']).legacy).toBeUndefined();
+  });
+
   it('runs a legacy alias as its source with the kind kept', () => {
     const w = interpretInstall(['skill', 'tdd@mattpocock'], { isDeclared: declared('mattpocock') });
     expect(w).toMatchObject({ source: 'mattpocock', names: [{ kind: 'skill', name: 'tdd' }] });
