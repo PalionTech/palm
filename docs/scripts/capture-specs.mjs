@@ -212,7 +212,7 @@ export const specs = [
         sh: `palm install mcp --snippet - <<'JSON'
 { "mcpServers": { "inbound": {
     "url": "https://mcp.inbound.example/v1",
-    "headers": { "x-inbound-api-key": "sk-live-4f9a2c7e1b8d6f3a0c5e9b2d" } } } }
+    "headers": { "x-inbound-api-key": "inbound-live-Zx8kQ2mN7pL4vR9tW3yB6cF1" } } } }
 JSON`,
       },
       { sh: 'grep -n INBOUND .mcp.json .cursor/mcp.json palm.yaml' },
