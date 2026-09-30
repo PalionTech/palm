@@ -39,7 +39,7 @@ import { type Plan, planMigration } from './migrate-plan.js';
 import { display, filesToCommit, shown } from './migrate-report.js';
 import { withLegacyComments } from './migrate-text.js';
 import { applyAll } from './runner.js';
-import { saveScope } from './scope.js';
+import { assertScope, saveScope } from './scope.js';
 
 // ---------------------------------------------------------------------------
 // The 0.1 files
@@ -315,6 +315,8 @@ export async function migrateScope(
   depsIn?: Partial<EngineDeps>,
 ): Promise<MigrateReport> {
   const deps = await resolveEngineDeps(depsIn);
+  // The scope guards come before the 0.1 files are read (the home directory is never a project).
+  assertScope(ctx, opts.scope);
   const paths = ScopePaths.of(ctx, opts.scope);
   const legacy = await readLegacy(paths);
   const m = convertLegacy({

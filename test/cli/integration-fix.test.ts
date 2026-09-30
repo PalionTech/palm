@@ -340,3 +340,13 @@ describe('ruling 25 a literal under -g', () => {
     expect(run.all).not.toContain(token);
   });
 });
+
+describe('migrate guards', () => {
+  it('the scope guards come before the 0.1 files are read', async () => {
+    const dir = join(m.home, '.claude', 'proj');
+    await writeFiles(dir, { 'palm.yaml': 'skills:\n  - tdd@kit\n' });
+    const run = await m.palm(dir, 'migrate');
+    expect(run.code).toBe(2);
+    expect(run.all).toContain('is inside the global claude directory, not a project');
+  });
+});

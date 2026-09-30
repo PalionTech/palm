@@ -69,7 +69,7 @@ function withGlobal(ctx: PalmContext): string {
  * never inside palm home (or the directory the global palm.yaml really lives in) and never
  * inside a harness's global directory (J4, J5); the fix is `-g`.
  */
-function assertScope(ctx: PalmContext, scope: Scope): void {
+export function assertScope(ctx: PalmContext, scope: Scope): void {
   if (scope !== 'project') return;
   if (isHomeAsProject(ctx.paths, ctx.env))
     throw new PalmError(
@@ -102,12 +102,17 @@ function manifestLabel(scope: Scope): string {
 export async function openScope(
   ctx: PalmContext,
   scope: Scope,
-  opts: { readOnly?: boolean; deps?: EngineDeps } = {},
+  opts: {
+    readOnly?: boolean;
+    deps?: EngineDeps;
+    /** `palm migrate`: palm.yaml and the lock as converted, instead of the files on disk. */
+    preload?: { manifest: Manifest; lock: Lock };
+  } = {},
 ): Promise<ScopeState> {
   assertScope(ctx, scope);
   const paths = ScopePaths.of(ctx, scope);
-  const manifest = await Manifest.load(paths.manifestFile);
-  const lock = await Lock.load(paths.lockFile);
+  const manifest = opts.preload?.manifest ?? (await Manifest.load(paths.manifestFile));
+  const lock = opts.preload?.lock ?? (await Lock.load(paths.lockFile));
   const sources = manifest.sources(dirname(paths.manifestFile), manifestLabel(scope));
   const detected = opts.deps && !manifest.targets ? await detectTargets(ctx, paths, opts.deps) : [];
   const state: ScopeState = {

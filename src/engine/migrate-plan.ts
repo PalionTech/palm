@@ -6,9 +6,6 @@
  * leaves the 0.1 files as they were, so the printed `--allow-exec` line can run the same
  * command again.
  */
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
 import { isPalmError, PalmError } from '../core/errors.js';
 import type {
   EngineDeps,
@@ -20,10 +17,11 @@ import type {
 } from '../core/types.js';
 import { Applied } from '../domain/applied.js';
 import { sameName } from '../domain/entity-ref.js';
-import type { Lock } from '../domain/lock.js';
-import type { Manifest } from '../domain/manifest.js';
-import { LOCK_FILE, MANIFEST_FILE, ScopePaths } from '../domain/scope-paths.js';
+import { Lock } from '../domain/lock.js';
+import { Manifest } from '../domain/manifest.js';
+import { MANIFEST_FILE } from '../domain/scope-paths.js';
 import type { SourceRef } from '../domain/source.js';
+import { parseYaml } from '../lib/yaml.js';
 import { dedupeJobs, manifestJobs } from './entries.js';
 import { manifestMcpJob } from './install-mcp.js';
 import { askForConsent, type Job, type Prepared, type Run, runOf } from './jobs.js';
@@ -31,7 +29,6 @@ import type { LegacyItem } from './migrate-legacy.js';
 import { lockSourceOf, pinOf, type Resolved, resolveSource } from './resolve.js';
 import { prepareAll } from './runner.js';
 import { assertNoOverlap, openScope, type ScopeState } from './scope.js';
-import { detectTargets } from './targets.js';
 
 /** A 0.1 entry palm 0.2 names differently (a root hook is named after its folder, not the alias). */
 interface Rename {
@@ -61,46 +58,23 @@ export interface PlanInput {
 // The scope, opened without writing
 // ---------------------------------------------------------------------------
 
-function isLegacyFormat(e: unknown): boolean {
-  return isPalmError(e) && e.code === 'E_USAGE' && e.hint === 'palm migrate';
-}
-
-/** The scope guards openScope applies before it reads palm.yaml (it then stops on the 0.1 file). */
-async function assertGuards(ctx: PalmContext, scope: Scope): Promise<void> {
-  try {
-    await openScope(ctx, scope, { readOnly: true });
-  } catch (e) {
-    if (!isLegacyFormat(e)) throw e;
-  }
-}
-
 /**
- * The scope opened on `input` without writing to it: palm.yaml and the lock are written to a
- * temporary directory, opened there, and the state then points at the scope's real paths
- * (sources, targets and the overlap rule are computed again for them).
+ * The scope opened on the converted palm.yaml and lock (copies: planning changes them) without
+ * writing to it: the targets are detected for the scope and the overlap rule applies.
  */
 async function openStaged(
   ctx: PalmContext,
   scope: Scope,
-  input: { text: string; lock: Lock },
+  input: { manifest: Manifest; lock: Lock },
   deps: EngineDeps,
 ): Promise<ScopeState> {
-  await assertGuards(ctx, scope);
-  const dir = await mkdtemp(join(tmpdir(), 'palm-migrate-'));
-  let state: ScopeState;
-  try {
-    await writeFile(join(dir, MANIFEST_FILE), input.text);
-    await input.lock.save(join(dir, LOCK_FILE));
-    const at = scope === 'project' ? { projectRoot: dir } : { palmHome: dir };
-    state = await openScope({ ...ctx, paths: { ...ctx.paths, ...at } }, scope, { readOnly: true });
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-  const paths = ScopePaths.of(ctx, scope);
-  const label = scope === 'global' ? '~/.palm/palm.yaml' : 'palm.yaml';
-  state.paths = paths;
-  state.sources = state.manifest.sources(dirname(paths.manifestFile), label);
-  state.targets = state.manifest.targets ?? (await detectTargets(ctx, paths, deps));
+  const preload = {
+    manifest: Manifest.of(
+      parseYaml<Parameters<typeof Manifest.of>[0]>(input.manifest.text(), MANIFEST_FILE) ?? {},
+    ),
+    lock: Lock.from(input.lock.toJSON()),
+  };
+  const state = await openScope(ctx, scope, { readOnly: true, deps, preload });
   delete state.applied;
   await assertNoOverlap(ctx, state, deps);
   return state;

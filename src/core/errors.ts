@@ -81,7 +81,6 @@ export function retryHint(
   run?: { args: readonly string[]; passthrough: readonly string[] },
 ): string | undefined {
   if (!e.retryWith) return e.hint;
-  const flags = e.retryWith.split(' ');
   if (!run) return `${e.hint ?? 'run the command'} it again with ${e.retryWith}`;
   const tail = run.passthrough.length ? ` -- ${run.passthrough.map(shellWord).join(' ')}` : '';
   return `${e.hint ?? 'run'}: ${retryCommand(run.args, e.retryWith)}${tail}`;
