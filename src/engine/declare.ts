@@ -14,6 +14,7 @@ import { deriveSourceName, parseSourceInput } from '../core/source-input.js';
 import type { LayoutDescriptor, PalmContext, Source } from '../core/types.js';
 import { sameName } from '../domain/entity-ref.js';
 import { SourceRef } from '../domain/source.js';
+import { deepEqual } from '../lib/object.js';
 import { logMark, palmCommand } from './report.js';
 import type { Pin } from './resolve.js';
 import type { ScopeState } from './scope.js';
@@ -33,17 +34,32 @@ export interface Declared {
 /** The line that reports a ref palm chose, printed once the source is really in palm.yaml. */
 const refNotes = new WeakMap<ScopeState, Map<string, string>>();
 
+/** Renames this run made (new name → old name), reported once palm.yaml was saved (T10). */
+const renames = new WeakMap<ScopeState, Map<string, string>>();
+
 function noteRef(state: ScopeState, name: string, text: string): void {
   const notes = refNotes.get(state) ?? new Map<string, string>();
   notes.set(name, text);
   refNotes.set(state, notes);
 }
 
+function reportRenames(ctx: PalmContext, state: ScopeState): void {
+  const done = renames.get(state);
+  if (!done) return;
+  for (const [to, from] of done) {
+    if (ctx.flags.dryRun) logMark(ctx, '~', `source ${from} → ${to} (would be renamed)`);
+    else if (state.manifest.hasSource(to)) logMark(ctx, '~', `source ${from} → ${to} (renamed)`);
+  }
+  done.clear();
+}
+
 /**
  * Prints the `i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); …` line of every source this
- * run gave a ref, once palm.yaml was saved (a dry run says `would be saved`).
+ * run gave a ref, and the `~ source a → b (renamed)` line of every rename, once palm.yaml was
+ * saved (a dry run says `would be`); a run that saved nothing says neither (T10).
  */
 export function reportRefs(ctx: PalmContext, state: ScopeState): void {
+  reportRenames(ctx, state);
   const notes = refNotes.get(state);
   if (!notes) return;
   for (const [name, note] of notes) {
@@ -117,7 +133,7 @@ export async function ensureRef(
  * the lock (DESIGN §5); its entries follow. The body is written again under the new key, so a
  * url the old key implied (`owner/repo`) is spelled out (Z1).
  */
-function rename(ctx: PalmContext, state: ScopeState, existing: SourceRef, to: string): SourceRef {
+function rename(state: ScopeState, existing: SourceRef, to: string): SourceRef {
   if (state.sources.byName(to))
     throw new PalmError(
       'E_CONFLICT',
@@ -129,7 +145,8 @@ function rename(ctx: PalmContext, state: ScopeState, existing: SourceRef, to: st
   state.manifest.renameSource(from, to);
   state.lock.renameSource(from, to);
   state.sources = state.sources.without(from);
-  logMark(ctx, '~', `source ${from} → ${to} (renamed)`);
+  const done = renames.get(state) ?? new Map<string, string>();
+  renames.set(state, done.set(to, done.get(from) ?? from));
   return declare(state, moved);
 }
 
@@ -193,7 +210,7 @@ function redeclare(
   input: { ref?: string; as?: string },
 ): { ref: SourceRef; before?: SourceRef } {
   const renamed = input.as && !sameName(input.as, known.name);
-  const existing = renamed ? rename(ctx, state, known, input.as as string) : known;
+  const existing = renamed ? rename(state, known, input.as as string) : known;
   const { ref } = input;
   if (!ref || ref === existing.source.ref) return { ref: existing };
   if (existing.isLocal)
@@ -211,10 +228,11 @@ function redeclare(
 
 /**
  * K2: `--layout` describes a source palm declares now; a declared source keeps the `layout:`
- * palm.yaml gives it (E_USAGE naming where to edit it).
+ * palm.yaml gives it (E_USAGE naming where to edit it). The layout it already has is no change.
  */
 function refuseLayout(state: ScopeState, known: SourceRef, layout?: LayoutDescriptor): void {
-  if (!layout) return;
+  // Z2, N2: the same layout again (the pasted one-liner, run twice) changes nothing.
+  if (!layout || deepEqual(layout, known.source.layout)) return;
   const file = state.paths.scope === 'global' ? '~/.palm/palm.yaml' : 'palm.yaml';
   throw new PalmError(
     'E_USAGE',

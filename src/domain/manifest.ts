@@ -281,7 +281,11 @@ export class Manifest {
     return this;
   }
 
-  /** Removes the entry; an emptied list goes, and so does a source left without entries. */
+  /**
+   * Removes the entry; an emptied list goes, and so does a source left without entries unless
+   * it has a `layout:` (T12: a layout is written by hand; the source keeps it for the next
+   * install, and a source without entries is never fetched).
+   */
   removeEntry(name: string, kind: Kind, entity: string): this {
     if (!this.hasSource(name)) return this;
     this.setList(
@@ -289,7 +293,8 @@ export class Manifest {
       kind,
       this.list(name, kind).filter((e) => !sameName(entryName(e), entity)),
     );
-    if (!hasEntries(this.body(name))) this.removeSource(name);
+    const body = this.body(name);
+    if (!hasEntries(body) && body?.layout === undefined) this.removeSource(name);
     return this;
   }
 

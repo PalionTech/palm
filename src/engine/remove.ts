@@ -249,43 +249,80 @@ function sourceName(state: ScopeState, query?: string): string | undefined {
   return state.sources.byName(query)?.name ?? query;
 }
 
-function ambiguity(
-  ref: RemoveRef,
-  hits: LockEntry[],
-  scope: ScopeState['paths']['scope'],
-): PalmError {
+/** A typed name and the installed entries it answers to. */
+interface Hits {
+  ref: RemoveRef;
+  hits: LockEntry[];
+}
+
+function kindsOf(hits: readonly LockEntry[]): number {
+  return new Set(hits.map((e) => e.kind)).size;
+}
+
+/** One ambiguous name in words: two sources, or two kinds. */
+function ambiguousPart({ ref, hits }: Hits): string {
   const sources = [...new Set(hits.map((e) => e.source))];
   if (sources.length > 1)
-    return new PalmError(
-      'E_AMBIGUOUS',
-      `"${ref.name}" is installed from ${sources.length} sources: ${sources.join(', ')}`,
-      palmCommand('remove', [sources[0] as string, ref.name], scope),
-    );
-  const forms = hits.map((e) => `${e.kind}:${e.name}`);
+    return `"${ref.name}" is installed from ${sources.length} sources: ${sources.join(', ')}`;
+  return `"${ref.name}" names ${hits.length} kinds: ${hits.map((e) => `${e.kind}:${e.name}`).join(', ')}`;
+}
+
+/**
+ * O3, O7: one E_AMBIGUOUS for every ambiguous name, with one command that removes them: the
+ * source of the first one, and each name with its kind where it names two kinds.
+ */
+function ambiguity(all: Hits[], ambiguous: Hits[], scope: ScopeState['paths']['scope']): PalmError {
+  const source = (ambiguous[0] as Hits).hits[0]?.source as string;
+  const words = all.map(({ ref, hits }) => {
+    const here = hits.filter((e) => e.source === source);
+    const pick = here[0] ?? hits[0];
+    if (!pick || !ambiguous.some((a) => a.ref === ref))
+      return ref.kind ? `${ref.kind}:${ref.name}` : ref.name;
+    return kindsOf(here.length ? here : hits) > 1 ? `${pick.kind}:${pick.name}` : pick.name;
+  });
   return new PalmError(
     'E_AMBIGUOUS',
-    `"${ref.name}" names ${forms.length} kinds: ${forms.join(', ')}`,
-    palmCommand('remove', [sources[0] as string, forms[0] as string], scope),
+    ambiguous.map(ambiguousPart).join('; '),
+    palmCommand('remove', [source, ...words], scope),
   );
+}
+
+/** O3: on a terminal, which installed entry an ambiguous name means. */
+async function pickEntry(ctx: PalmContext, { ref, hits }: Hits): Promise<LockEntry> {
+  const options = hits.map((e) => ({ value: e, label: `${e.kind}:${e.name} from ${e.source}` }));
+  return ctx.ui.pick(
+    `"${ref.name}" names ${hits.length} installed entries; remove which?`,
+    options,
+  );
+}
+
+function hitsOf(state: ScopeState, ref: RemoveRef): Hits {
+  const source = sourceName(state, ref.source);
+  const hits = state.lock.select({
+    name: ref.name,
+    ...(ref.kind ? { kind: ref.kind } : {}),
+    ...(source ? { source } : {}),
+  });
+  return { ref, hits };
 }
 
 /**
  * The lock entries the refs name. An absent one is no error: the CLI says `i <name> is not
- * installed` once (K24), from what `removed` lacks.
+ * installed` once (K24), from what `removed` lacks. A name that answers to two entries is asked
+ * about on a terminal; without one, every such name is in one error (O3), before anything goes.
  */
-function select(state: ScopeState, refs: RemoveRef[]): LockEntry[] {
+async function select(
+  ctx: PalmContext,
+  state: ScopeState,
+  refs: RemoveRef[],
+): Promise<LockEntry[]> {
+  const all = refs.map((ref) => hitsOf(state, ref));
+  const ambiguous = all.filter((h) => h.hits.length > 1);
+  if (ambiguous.length && !ctx.ui.isInteractive) throw ambiguity(all, ambiguous, state.paths.scope);
   const out: LockEntry[] = [];
-  for (const ref of refs) {
-    const source = sourceName(state, ref.source);
-    const hits = state.lock.select({
-      name: ref.name,
-      ...(ref.kind ? { kind: ref.kind } : {}),
-      ...(source ? { source } : {}),
-    });
-    if (!hits.length) continue;
-    if (hits.length > 1) throw ambiguity(ref, hits, state.paths.scope);
-    else if (!out.some((e) => lockId(e) === lockId(hits[0] as LockEntry)))
-      out.push(hits[0] as LockEntry);
+  for (const h of all) {
+    const one = h.hits.length > 1 ? await pickEntry(ctx, h) : h.hits[0];
+    if (one && !out.some((e) => lockId(e) === lockId(one))) out.push(one);
   }
   return out;
 }
@@ -434,7 +471,7 @@ export async function removeEntities(
   const deps = await resolveEngineDeps(depsIn);
   return withLockedScope(ctx, opts.scope, { deps, readOnly: true }, async (state) => {
     const run = runOf(ctx, deps, state);
-    const picked = select(state, refs);
+    const picked = await select(ctx, state, refs);
     const kept: KeptFile[] = [];
     const removed = await removeRoots(run, await roots(run, picked, !!opts.exclude), kept);
     await notePreloadsLeaving(run, removed);

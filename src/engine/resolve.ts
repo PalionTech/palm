@@ -1,29 +1,24 @@
 /**
- * Sources to checkouts and indexes (DESIGN §5) and matching `[kind:]name` requests within one
- * source's index. Which commit a run fetches (`pinOf`): the locked one while palm.yaml's ref
- * equals the lock's, else the ref resolved fresh against the remote (K8: a listing, a first
- * install and an update never trust a cached resolution). Declaring sources is declare.ts.
+ * Sources to checkouts and indexes (DESIGN §5), and a plugin's members in an index. Which
+ * commit a run fetches (`pinOf`): the locked one while palm.yaml's ref equals the lock's, else
+ * the ref resolved fresh against the remote (K8: a listing, a first install and an update never
+ * trust a cached resolution). Declaring sources is declare.ts; matching names is match.ts.
  */
 
 import { getIndex } from '../core/cache.js';
-import { isPalmError, PalmError } from '../core/errors.js';
+import { isPalmError } from '../core/errors.js';
 import { fetchSource, isSemverRange } from '../core/git.js';
 import type {
   EngineDeps,
   Entity,
-  EntityRefSpec,
   LockSource,
   PalmContext,
-  Scope,
   Source,
   SourceCheckout,
   SourceIndex,
 } from '../core/types.js';
-import { entityId } from '../domain/entity-key.js';
-import { formatEntityRef, sameName } from '../domain/entity-ref.js';
+import { sameName } from '../domain/entity-ref.js';
 import type { SourceRef } from '../domain/source.js';
-import { closestWord } from '../lib/text.js';
-import { palmCommand } from './report.js';
 import { localPathOf, type ScopeState } from './scope.js';
 
 export interface Resolved {
@@ -155,17 +150,6 @@ export function rethrowCancel(e: unknown): void {
   if (isPalmError(e) && e.code === 'E_CANCELLED') throw e;
 }
 
-// ---------------------------------------------------------------------------
-// Matching names within one source
-// ---------------------------------------------------------------------------
-
-export interface NameMatch {
-  entities: Entity[];
-  plugins: Array<{ plugin: Entity; members: Entity[] }>;
-  missing: EntityRefSpec[];
-  ambiguous: EntityRefSpec[];
-}
-
 /** The index entities a plugin declares (a member found through this plugin wins). */
 export function membersOf(index: SourceIndex, plugin: Entity): Entity[] {
   if (plugin.def.kind !== 'plugin') return [];
@@ -176,97 +160,4 @@ export function membersOf(index: SourceIndex, plugin: Entity): Entity[] {
     if (pick) out.push(pick);
   }
   return out;
-}
-
-function everything(index: SourceIndex): Pick<NameMatch, 'entities' | 'plugins'> {
-  const plugins = index.entities
-    .filter((e) => e.kind === 'plugin')
-    .map((plugin) => ({ plugin, members: membersOf(index, plugin) }));
-  const inPlugin = new Set(plugins.flatMap((p) => p.members.map(entityId)));
-  const entities = index.entities.filter(
-    (e) => e.kind !== 'plugin' && !e.plugin && !inPlugin.has(entityId(e)),
-  );
-  return { entities, plugins };
-}
-
-function candidates(index: SourceIndex, spec: EntityRefSpec): Entity[] {
-  return index.entities.filter(
-    (e) => sameName(e.name, spec.name) && (!spec.kind || e.kind === spec.kind),
-  );
-}
-
-/**
- * `[kind:]name` requests against one source's index (DESIGN §6 step 3): case-insensitive; a
- * name that means two kinds is ambiguous; a plugin expands to its members. `all` takes every
- * plugin and every entity outside a plugin.
- */
-export function matchNames(index: SourceIndex, names: EntityRefSpec[], all: boolean): NameMatch {
-  const out: NameMatch = { entities: [], plugins: [], missing: [], ambiguous: [] };
-  if (all) Object.assign(out, everything(index));
-  for (const spec of names) {
-    const cands = pluginFirst(index, candidates(index, spec));
-    const kinds = new Set(cands.map((e) => e.kind));
-    const [first] = cands;
-    if (!first) out.missing.push(spec);
-    else if (kinds.size > 1) out.ambiguous.push(spec);
-    else if (first.kind === 'plugin')
-      out.plugins.push({ plugin: first, members: membersOf(index, first) });
-    else out.entities.push(first);
-  }
-  out.entities = dedupe(out.entities);
-  out.plugins = out.plugins.filter(
-    (p, i) => out.plugins.findIndex((q) => sameName(q.plugin.name, p.plugin.name)) === i,
-  );
-  return out;
-}
-
-/**
- * A name that is a plugin and also one of that plugin's own members (a plugin's hooks are often
- * named after it) means the plugin: installing it installs the member too.
- */
-function pluginFirst(index: SourceIndex, cands: Entity[]): Entity[] {
-  const plugin = cands.find((e) => e.kind === 'plugin');
-  if (!plugin) return cands;
-  const members = new Set(membersOf(index, plugin).map(entityId));
-  return cands.every((e) => e === plugin || members.has(entityId(e))) ? [plugin] : cands;
-}
-
-function dedupe(entities: Entity[]): Entity[] {
-  const seen = new Set<string>();
-  return entities.filter((e) => !seen.has(entityId(e)) && seen.add(entityId(e)));
-}
-
-/** The index name closest to `spec` (edit distance up to 3, or a substring), if any. */
-export function closestName(index: SourceIndex, spec: EntityRefSpec): string | undefined {
-  const names = index.entities.filter((e) => !spec.kind || e.kind === spec.kind).map((e) => e.name);
-  return closestWord(spec.name, names, 3);
-}
-
-/** E_NOT_FOUND for names the source lacks; E_AMBIGUOUS for names meaning two kinds. */
-export function matchError(
-  source: string,
-  index: SourceIndex,
-  match: NameMatch,
-  scope: Scope,
-): PalmError | undefined {
-  const [missing] = match.missing;
-  if (missing) {
-    const near = closestName(index, missing);
-    const shown = missing.kind ? `${missing.kind}:${missing.name}` : missing.name;
-    const words = near ? [source, near] : [source];
-    const guess = near ? `; did you mean ${near}?` : '; list what it offers:';
-    return new PalmError(
-      'E_NOT_FOUND',
-      `"${shown}" is not in source ${source}${guess}`,
-      palmCommand('install', words, scope),
-    );
-  }
-  const [amb] = match.ambiguous;
-  if (!amb) return undefined;
-  const forms = candidates(index, amb).map((e) => formatEntityRef(e));
-  return new PalmError(
-    'E_AMBIGUOUS',
-    `"${amb.name}" names ${forms.length} kinds in source ${source}: ${forms.join(', ')}`,
-    palmCommand('install', [source, forms[0] ?? amb.name], scope),
-  );
 }
