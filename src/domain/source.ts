@@ -452,12 +452,16 @@ export class SourceSet {
   }
 
   /**
-   * `source` added. One at the same location is replaced in place (a rename); another source
-   * that already uses the name or an alias is E_CONFLICT.
+   * `source` added. The source with the same name and location is replaced in place (another
+   * ref, alias or layout); another source that already uses the name or an alias is E_CONFLICT.
+   * Two names may share a location (per-entry pins, Z2); a rename is `without(old)` then
+   * `add(renamed)`.
    */
   add(source: Source): SourceSet {
     const next = new SourceRef(source);
-    const at = this.list.findIndex((s) => s.sameLocation(next));
+    const at = this.list.findIndex(
+      (s) => s.name.toLowerCase() === source.name.toLowerCase() && s.sameLocation(next),
+    );
     const rest = this.list.filter((_, i) => i !== at);
     const taken = rest.find((s) => handles(s).some((h) => handles(next).includes(h)));
     if (taken) {

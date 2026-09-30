@@ -1,12 +1,13 @@
 /**
- * Sources to checkouts and indexes (DESIGN §5), the first declaration of a source typed on the
- * command line, and matching `[kind:]name` requests within one source's index.
+ * Sources to checkouts and indexes (DESIGN §5) and matching `[kind:]name` requests within one
+ * source's index. Which commit a run fetches (`pinOf`): the locked one while palm.yaml's ref
+ * equals the lock's, else the ref resolved fresh against the remote (K8: a listing, a first
+ * install and an update never trust a cached resolution). Declaring sources is declare.ts.
  */
 
 import { getIndex } from '../core/cache.js';
-import { PalmError } from '../core/errors.js';
-import { defaultBranch, fetchSource, isSemverRange, resolveRef } from '../core/git.js';
-import { deriveSourceName, parseSourceInput } from '../core/source-input.js';
+import { isPalmError, PalmError } from '../core/errors.js';
+import { fetchSource, isSemverRange } from '../core/git.js';
 import type {
   EngineDeps,
   Entity,
@@ -20,14 +21,21 @@ import type {
 } from '../core/types.js';
 import { entityId } from '../domain/entity-key.js';
 import { formatEntityRef, sameName } from '../domain/entity-ref.js';
-import { SourceRef } from '../domain/source.js';
+import type { SourceRef } from '../domain/source.js';
 import { closestWord } from '../lib/text.js';
-import { logMark, palmCommand } from './report.js';
-import type { ScopeState } from './scope.js';
+import { palmCommand } from './report.js';
+import { localPathOf, type ScopeState } from './scope.js';
 
 export interface Resolved {
   checkout: SourceCheckout;
   index: SourceIndex;
+}
+
+/** Which commit to fetch: `sha` (and the tag it came from), or the intent resolved fresh. */
+export interface Pin {
+  sha?: string;
+  resolved?: string;
+  refresh?: boolean;
 }
 
 const resolved = new WeakMap<ScopeState, Map<string, Promise<Resolved>>>();
@@ -36,21 +44,18 @@ const resolved = new WeakMap<ScopeState, Map<string, Promise<Resolved>>>();
  * Fetches (git) or hashes (local) a source and indexes it: at the locked sha when `sha` is
  * given (bare install), else at the source's ref intent. One fetch per source and sha per run.
  */
-export interface ResolveJob {
+export interface ResolveJob extends Pin {
   ctx: PalmContext;
   deps: EngineDeps;
   state: ScopeState;
   ref: SourceRef;
-  /** The locked commit (bare install, check); else the ref intent resolves. */
-  sha?: string;
-  /** Resolve the ref intent again (update). */
-  refresh?: boolean;
 }
 
 export async function resolveSource(job: ResolveJob): Promise<Resolved> {
   const { ctx, deps, state, ref } = job;
-  const opts = {
+  const opts: Pin = {
     ...(job.sha ? { sha: job.sha } : {}),
+    ...(job.sha && job.resolved ? { resolved: job.resolved } : {}),
     ...(job.refresh ? { refresh: true } : {}),
   };
   const memo = resolved.get(state) ?? new Map<string, Promise<Resolved>>();
@@ -66,8 +71,8 @@ export async function resolveSource(job: ResolveJob): Promise<Resolved> {
 }
 
 /**
- * A local source at the scope root holds palm's own outputs: its tree hash leaves out every
- * path the lock owns (DESIGN §4 "Source tree hash"). Other sources hold none (overlap rule).
+ * A local source at the scope root holds palm's own outputs: its tree (the index cache key)
+ * leaves out every path the lock owns. Other sources hold none (overlap rule).
  */
 async function ownedInside(state: ScopeState, ref: SourceRef): Promise<Set<string> | undefined> {
   if (!ref.isLocal || !ref.source.path) return undefined;
@@ -84,10 +89,11 @@ async function fetchAndIndex(
   ctx: PalmContext,
   deps: EngineDeps,
   ref: SourceRef,
-  opts: { sha?: string; refresh?: boolean; exclude?: Set<string> | undefined },
+  opts: Pin & { exclude?: Set<string> | undefined },
 ): Promise<Resolved> {
   const fetchOpts = {
     ...(opts.sha ? { sha: opts.sha } : {}),
+    ...(opts.resolved ? { resolved: opts.resolved } : {}),
     ...(opts.refresh ? { refresh: true } : {}),
     ...(opts.exclude ? { exclude: opts.exclude } : {}),
   };
@@ -101,15 +107,14 @@ async function fetchAndIndex(
 
 /**
  * The lock's record of a resolved source: enough to rebuild its index anywhere (DESIGN §4).
- * At the locked sha, the tag a range resolved to is kept as the lock has it.
+ * At the locked sha, the tag a range resolved to is kept as the lock has it. A local source
+ * records its path only: each entry's `content` is its drift signal (B3; no tree hash).
  */
 export function lockSourceOf(state: ScopeState, ref: SourceRef, r: Resolved): LockSource {
   const { source } = ref;
   const out: LockSource = {};
-  if (ref.isLocal && source.path) {
-    out.path = state.paths.lockForm(source.path);
-    if (r.checkout.tree) out.tree = r.checkout.tree;
-  } else Object.assign(out, gitLockFields(source, r.checkout, state.lock.source(ref.name)));
+  if (ref.isLocal && source.path) out.path = localPathOf(state, source.path);
+  else Object.assign(out, gitLockFields(source, r.checkout, state.lock.source(ref.name)));
   if (source.layout) out.layout = source.layout;
   out.descriptor = r.index.detected;
   return out;
@@ -125,200 +130,29 @@ function gitLockFields(
   if (source.root) out.root = source.root;
   if (source.ref) out.ref = source.ref;
   const same = previous?.sha !== undefined && previous.sha === checkout.sha;
-  const tag = same ? previous?.resolved : checkout.ref;
+  const tag = same ? (previous?.resolved ?? checkout.ref) : checkout.ref;
   if (source.ref && isSemverRange(source.ref) && tag) out.resolved = tag;
   if (checkout.sha) out.sha = checkout.sha;
   return out;
 }
 
-/** The locked sha to fetch: the lock's, while palm.yaml's ref still equals the lock's ref. */
-export function lockedSha(state: ScopeState, ref: SourceRef): { sha?: string } {
+/**
+ * The commit a run fetches (K8): the locked one while palm.yaml's ref and url equal the lock's;
+ * otherwise the ref intent resolved fresh against the remote (a first install, an edited ref).
+ * Only the entries of an already locked source share the locked commit; nothing else trusts a
+ * cached resolution. A local source is read from the working tree.
+ */
+export function pinOf(state: ScopeState, ref: SourceRef): Pin {
+  if (ref.isLocal) return {};
   const ls = state.lock.source(ref.name);
-  if (ref.isLocal || !ls?.sha || ls.ref !== ref.source.ref) return {};
-  if (ls.url && ref.source.url && ls.url !== ref.source.url) return {};
-  return { sha: ls.sha };
+  const sameUrl = !ls?.url || !ref.source.url || ls.url === ref.source.url;
+  if (ls?.sha && ls.ref === ref.source.ref && sameUrl) return { sha: ls.sha };
+  return { refresh: true };
 }
 
-/** `owner/repo#v2` → [`owner/repo`, `v2`]. */
-function splitRef(input: string): [string, string | undefined] {
-  const at = input.indexOf('#');
-  return at < 0 ? [input, undefined] : [input.slice(0, at), input.slice(at + 1) || undefined];
-}
-
-/** `^1.0` for `v1.0.2`; undefined for anything that is not a release tag. */
-function caretOf(tag: string): string | undefined {
-  const m = /^v?(\d+)\.(\d+)\.\d+$/.exec(tag);
-  return m ? `^${m[1]}.${m[2]}` : undefined;
-}
-
-/** The line that reports a ref palm chose, printed once the source is really in palm.yaml. */
-const refNotes = new WeakMap<ScopeState, Map<string, string>>();
-
-/** The ref line for a source this run declared, once (DESIGN §5 "Input forms"). */
-export function takeRefNote(state: ScopeState, name: string): string | undefined {
-  const notes = refNotes.get(state);
-  const note = notes?.get(name);
-  notes?.delete(name);
-  return note;
-}
-
-function noteRef(state: ScopeState, name: string, text: string): void {
-  const notes = refNotes.get(state) ?? new Map<string, string>();
-  notes.set(name, text);
-  refNotes.set(state, notes);
-}
-
-/**
- * A git source without `#ref`: the latest release as `^M.m`, else the default branch, written
- * explicitly; the line that says so waits for the source to be saved (`takeRefNote`).
- */
-async function defaultRef(state: ScopeState, source: Source): Promise<Source> {
-  if (source.type !== 'git' || source.ref || !source.url) return source;
-  const r = await resolveRef(source.url, undefined);
-  const caret = caretOf(r.resolved);
-  const file = state.paths.scope === 'global' ? '~/.palm/palm.yaml' : 'palm.yaml';
-  if (caret) {
-    const branch = (await defaultBranch(source.url).catch(() => undefined)) ?? 'main';
-    const tail = `(latest tag ${r.resolved}); edit ref: to track ${branch}`;
-    noteRef(state, source.name, `ref ${caret} saved to ${file} ${tail}`);
-    return { ...source, ref: caret };
-  }
-  noteRef(state, source.name, `ref ${r.ref} saved to ${file}; edit ref: to pin a tag`);
-  return { ...source, ref: r.ref };
-}
-
-async function confirmRefChange(
-  ctx: PalmContext,
-  existing: SourceRef,
-  ref: string,
-  yes: boolean,
-): Promise<void> {
-  const line = `source ${existing.name}: ref ${existing.source.ref ?? '(none)'} → ${ref}`;
-  if (yes) return ctx.log.info(line);
-  if (!ctx.ui.isInteractive)
-    throw new PalmError(
-      'E_NON_INTERACTIVE',
-      `${line} needs confirmation`,
-      'confirm it by running',
-      {
-        retryWith: '--yes',
-      },
-    );
-  if (!(await ctx.ui.confirm(`Change ${line}?`, false)))
-    throw new PalmError('E_CANCELLED', 'cancelled; palm.yaml is unchanged');
-}
-
-/**
- * Re-declaring a known location under another `--as` name renames the source in palm.yaml and
- * the lock (DESIGN §5); its entries follow, and a later render moves their asset paths.
- */
-function rename(ctx: PalmContext, state: ScopeState, existing: SourceRef, to: string): SourceRef {
-  if (state.sources.byName(to))
-    throw new PalmError(
-      'E_CONFLICT',
-      `palm.yaml already declares a source named ${to}`,
-      palmCommand('install', [to], state.paths.scope),
-    );
-  const from = existing.name;
-  const moved: Source = { ...existing.source, name: to };
-  state.manifest.renameSource(from, to);
-  state.lock.renameSource(from, to);
-  state.sources = state.sources.without(from).add(moved);
-  logMark(ctx, '~', `source ${from} → ${to} (renamed)`);
-  return state.sources.byName(to) ?? SourceRef.of(moved);
-}
-
-/** Re-declaring a known source: another `#ref` moves the intent (after confirmation). */
-async function redeclare(
-  ctx: PalmContext,
-  state: ScopeState,
-  known: SourceRef,
-  input: { ref?: string; as?: string; yes: boolean },
-): Promise<SourceRef> {
-  const renamed = input.as && !sameName(input.as, known.name);
-  const existing = renamed ? rename(ctx, state, known, input.as as string) : known;
-  const { ref } = input;
-  if (!ref || ref === existing.source.ref) return existing;
-  if (existing.isLocal)
-    throw new PalmError(
-      'E_USAGE',
-      'a directory has no refs',
-      'use a file:// URL for a tagged checkout',
-    );
-  await confirmRefChange(ctx, existing, ref, input.yes);
-  const moved: Source = { ...existing.source, ref };
-  state.manifest.addSource(moved, baseDirOf(state));
-  state.sources = state.sources.add(moved);
-  return state.sources.byName(existing.name) ?? SourceRef.of(moved);
-}
-
-function baseDirOf(state: ScopeState): string {
-  return state.paths.scope === 'global' ? state.paths.palmHome : state.paths.root;
-}
-
-/** CLI input as a Source; a local path is named relative to the manifest's directory. */
-function parseInput(ctx: PalmContext, state: ScopeState, input: string, as?: string): Source {
-  const opts = { cwd: ctx.paths.cwd, projectRoot: baseDirOf(state), ...(as ? { as } : {}) };
-  return parseSourceInput(input, opts);
-}
-
-/**
- * DESIGN §5 "Input forms": a declared name, alias or location is itself (a new `#ref` moves the
- * intent after confirmation); anything else is parsed, named, given an explicit ref (reported)
- * and added to palm.yaml. The lock records it once it resolved.
- */
-/** A declared source `input` names (name, alias or location), and the parsed input when it is new. */
-function findDeclared(
-  ctx: PalmContext,
-  state: ScopeState,
-  input: string,
-  as?: string,
-): { known?: SourceRef; parsed?: Source; ref?: string } {
-  const [head, ref] = splitRef(input);
-  const byName = state.sources.byName(head);
-  if (byName) return { known: byName, ...(ref ? { ref } : {}) };
-  const parsed = parseInput(ctx, state, input, as);
-  const probe = SourceRef.of(parsed);
-  const known = state.sources.all().find((s) => s.sameLocation(probe));
-  return { ...(known ? { known } : {}), parsed, ...(parsed.ref ? { ref: parsed.ref } : {}) };
-}
-
-/**
- * DESIGN §5 "Input forms": a declared name, alias or location is itself (a new `#ref` moves the
- * intent after confirmation); anything else is parsed, named, given an explicit ref (reported)
- * and added to palm.yaml. The lock records it once it resolved.
- */
-export async function declareSource(
-  ctx: PalmContext,
-  state: ScopeState,
-  input: string,
-  opts: { as?: string; yes: boolean },
-): Promise<SourceRef> {
-  const found = findDeclared(ctx, state, input, opts.as);
-  if (found.known)
-    return redeclare(ctx, state, found.known, {
-      ...opts,
-      ...(found.ref ? { ref: found.ref } : {}),
-    });
-  const parsed = found.parsed as Source;
-  const name = opts.as ?? deriveSourceName(parsed, state.sources.names());
-  const source = await defaultRef(state, { ...parsed, name });
-  state.manifest.addSource(source, baseDirOf(state));
-  state.sources = state.sources.add(source);
-  return state.sources.byName(name) ?? SourceRef.of(source);
-}
-
-/** A source as `palm install <source>` without names sees it: declared, or parsed and named (not saved). */
-export function peekSource(
-  ctx: PalmContext,
-  state: ScopeState,
-  input: string,
-): { ref: SourceRef; declared: boolean } {
-  const found = findDeclared(ctx, state, input);
-  if (found.known) return { ref: found.known, declared: true };
-  const parsed = found.parsed as Source;
-  const name = deriveSourceName(parsed, state.sources.names());
-  return { ref: SourceRef.of({ ...parsed, name }), declared: false };
+/** Rethrows a cancellation (Ctrl-C during a fetch, C16): it ends the run, it is no failure. */
+export function rethrowCancel(e: unknown): void {
+  if (isPalmError(e) && e.code === 'E_CANCELLED') throw e;
 }
 
 // ---------------------------------------------------------------------------

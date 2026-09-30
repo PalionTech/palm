@@ -48,7 +48,7 @@ describe('running an install', () => {
     expect(await w.lockText()).toBeUndefined();
   });
 
-  it('stops after the current entity on SIGINT with the lock saved', async () => {
+  it('stops after the current entity on SIGINT with the lock saved (K16, L11)', async () => {
     const w = await makeWorld({ targets: ['claude'] });
     const url = await w.remote('kit', { 'v1.0.0': KIT });
     const inner = w.deps.getTarget as (id: TargetId) => Target;
@@ -62,14 +62,17 @@ describe('running an install', () => {
         },
       };
     };
-    await expect(
-      installFromSource(
-        w.ctx,
-        { source: url, names },
-        { scope: 'project' },
-        { ...w.deps, getTarget },
-      ),
-    ).rejects.toMatchObject({ code: 'E_CANCELLED' });
+    const r = await installFromSource(
+      w.ctx,
+      { source: url, names },
+      { scope: 'project' },
+      { ...w.deps, getTarget },
+    );
+    expect(r.interrupted).toEqual({ done: 1, total: 3 });
+    expect(r.outcomes.map((o) => o.entry.name)).toEqual(['a']);
+    expect(r.warnings).toContain(
+      'cancelled after 1 of 3; palm.lock.yaml records what was installed',
+    );
     const lock = await w.lock();
     expect(lock.entries.map((e) => e.name)).toEqual(['a']);
     expect(await w.manifest()).toMatchObject({ sources: { kit: { skills: ['a'] } } });

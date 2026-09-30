@@ -49,6 +49,12 @@ export interface Run {
    * unless `--allow-exec` covers them (DESIGN §6 step 6).
    */
   leaveOutPrograms?: boolean;
+  /**
+   * Set once the run changed something on disk (a target applied, a file deleted). palm.yaml and
+   * the lock are then saved whatever else fails, since they must record what the disk holds;
+   * a run that wrote nothing and failed saves nothing (K1, R6, Z1, V4).
+   */
+  touched?: boolean;
 }
 
 /** One entity to bring onto the disk. */
@@ -70,6 +76,8 @@ export interface Job {
   members?: EntityRef[];
   /** Literal secret values the person typed (`install mcp`), used under `--secrets literal`. */
   values?: Record<string, string>;
+  /** The entry's recorded `secrets: literal` (Y19), unless `--secrets` on the command line says otherwise. */
+  policy?: SecretPolicy;
 }
 
 type ConsentState = 'none' | 'trusted' | 'ask' | 'allowed' | 'declined' | 'quiet';
@@ -95,10 +103,18 @@ export function runOf(
   return { ctx, deps, state, policy, operation, result };
 }
 
+/** The secrets policy a job renders with: the command line's, else the entry's, else env-ref. */
+export function jobPolicy(run: Run, job: Pick<Job, 'policy'>): SecretPolicy {
+  return run.ctx.flags.secrets ?? job.policy ?? run.policy;
+}
+
 /** Secret values under `--secrets literal` (never in a dry run, which prompts for nothing). */
-async function secretValues(run: Run, entity: Entity): Promise<Record<string, string> | undefined> {
-  if (entity.def.kind !== 'mcp' || run.policy !== 'literal' || run.ctx.flags.dryRun)
-    return undefined;
+async function secretValues(
+  run: Run,
+  entity: Entity,
+  policy: SecretPolicy,
+): Promise<Record<string, string> | undefined> {
+  if (entity.def.kind !== 'mcp' || policy !== 'literal' || run.ctx.flags.dryRun) return undefined;
   const r = await run.deps.resolveSecrets(run.ctx, entity.def.mcp, 'literal');
   return Object.keys(r.values).length ? r.values : undefined;
 }
@@ -124,14 +140,15 @@ function consentOf(job: Job, previous: LockEntry | undefined, unit?: ExecUnit): 
 /** Renders and diffs one job; nothing is written. */
 export async function prepareJob(run: Run, job: Job): Promise<Prepared> {
   const previous = run.state.lock.find(job.entity, job.source.name);
+  const policy = jobPolicy(run, job);
   const values =
-    run.policy === 'literal' && job.values ? job.values : await secretValues(run, job.entity);
+    policy === 'literal' && job.values ? job.values : await secretValues(run, job.entity, policy);
   const out = await renderEntity(run.ctx, run.deps, run.state, {
     entity: job.entity,
     source: job.source,
     checkout: job.checkout,
     targets: job.targets,
-    policy: run.policy,
+    policy,
     ...(values ? { values } : {}),
   });
   const { files, fragments } = await diskStates(run, out);

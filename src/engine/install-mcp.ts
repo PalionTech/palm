@@ -17,9 +17,9 @@ import type {
 } from '../core/types.js';
 import { isSafeName } from '../lib/names.js';
 import { resolveEngineDeps } from './deps.js';
-import { type Job, type Run, runOf } from './jobs.js';
-import { lockScope, runJobs } from './runner.js';
-import { openScope, type ScopeState, saveScope } from './scope.js';
+import { type Job, jobPolicy, type Run, runOf } from './jobs.js';
+import { lockScope, runJobs, settle } from './runner.js';
+import { openScope, type ScopeState } from './scope.js';
 import { headerVariable, referencedLine } from './source-secrets.js';
 import { manifestSource, mcpConfigOf, mcpEntity, mcpManifestEntry } from './sources.js';
 import { activeTargets, narrowedTargets, refuseLocal, requestTargets } from './targets.js';
@@ -103,18 +103,20 @@ function assertNew(ctx: PalmContext, state: ScopeState, reqs: McpRequest[], forc
   }
 }
 
-function jobOf(run: Run, req: McpRequest): Job {
+function jobOf(run: Run, req: McpRequest, recorded?: 'literal'): Job {
   const { state } = run;
   const { cfg, literals } = withReferences(run, req.config);
+  const policy = jobPolicy(run, recorded ? { policy: recorded } : {});
   const harnesses = activeTargets(state, {
     name: cfg.name,
     ...(req.targets ? { targets: req.targets } : {}),
   }).map((t) => run.deps.getTarget(t).displayName);
-  if (run.policy !== 'literal')
+  if (policy !== 'literal')
     for (const l of literals) run.result.warnings.push(referencedLine(cfg.name, l, harnesses, ''));
   const entry: McpManifestEntry = {
     ...mcpManifestEntry(cfg),
     ...(req.targets?.length ? { targets: req.targets } : {}),
+    ...(policy === 'literal' ? { secrets: 'literal' as const } : {}),
   };
   const targets = activeTargets(state, {
     name: cfg.name,
@@ -128,6 +130,7 @@ function jobOf(run: Run, req: McpRequest): Job {
     targets,
     explicit: true,
     record: { mcp: entry },
+    policy,
   };
   const narrowed = narrowedTargets(state, targets);
   if (narrowed) job.narrowed = narrowed;
@@ -135,13 +138,21 @@ function jobOf(run: Run, req: McpRequest): Job {
   return job;
 }
 
-/** The job of a server palm.yaml already declares (bare install); nothing is recorded again. */
+/**
+ * The job of a server palm.yaml already declares (bare install). Its recorded `secrets:
+ * literal` applies (Y19); nothing is recorded again unless `--secrets` on the command line
+ * changes the policy, which is then written to the entry.
+ */
 export function manifestMcpJob(run: Run, name: string, entry: McpManifestEntry): Job {
-  const job = jobOf(run, {
-    config: mcpConfigOf(name, entry),
-    ...(entry.targets ? { targets: entry.targets } : {}),
-  });
-  delete job.record;
+  const job = jobOf(
+    run,
+    { config: mcpConfigOf(name, entry), ...(entry.targets ? { targets: entry.targets } : {}) },
+    entry.secrets,
+  );
+  const { secrets: _was, ...rest } = entry;
+  const literal = job.policy === 'literal';
+  if (literal === (entry.secrets === 'literal')) delete job.record;
+  else job.record = { mcp: literal ? { ...rest, secrets: 'literal' } : rest };
   return job;
 }
 
@@ -162,13 +173,15 @@ export async function installMcp(
   return lockScope(ctx, state, async () => {
     assertNew(ctx, state, reqs, !!opts.force);
     requestTargets(state);
+    let failed = true;
     try {
       await runJobs(
         run,
         reqs.map((r) => jobOf(run, r)),
       );
+      failed = false;
     } finally {
-      await saveScope(state);
+      await settle(run, failed);
     }
     return run.result;
   });

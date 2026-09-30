@@ -10,6 +10,7 @@ import type {
   Kind,
   ManifestEntry,
   ManifestEntryObject,
+  SecretPolicy,
   SourceIndex,
 } from '../core/types.js';
 import { lockId, Via } from '../domain/entity-key.js';
@@ -54,6 +55,7 @@ function jobFor(b: Build, entity: Entity, entry: ManifestEntryObject, via?: stri
   const narrowed = narrowedTargets(b.state, targets);
   if (narrowed) job.narrowed = narrowed;
   if (entry.at) job.at = entry.at;
+  if (entry.secrets === 'literal') job.policy = 'literal';
   return job;
 }
 
@@ -126,7 +128,7 @@ function memberOf(b: Omit<Build, 'explicit'>, entity: Entity): string | undefine
 export function requestJobs(
   b: Omit<Build, 'explicit'>,
   entity: Entity,
-  opts: { targets?: ManifestEntryObject['targets']; at?: string },
+  opts: { targets?: ManifestEntryObject['targets']; at?: string; secrets?: SecretPolicy },
 ): Job[] {
   const via = memberOf(b, entity);
   if (via && !opts.targets && !opts.at)
@@ -137,6 +139,9 @@ export function requestJobs(
   const entry: ManifestEntryObject = { ...(current ?? {}), name: current?.name ?? entity.name };
   if (opts.targets?.length) entry.targets = opts.targets;
   if (opts.at) entry.at = opts.at;
+  // `--secrets` on the command line is recorded for a server, so a bare install keeps it (Y19).
+  if (entity.kind === 'mcp' && opts.secrets === 'literal') entry.secrets = 'literal';
+  if (opts.secrets === 'env-ref') delete entry.secrets;
   const record = { kind: entity.kind, entry: manifestEntryOf(entry) };
   const build = { ...b, explicit: true };
   if (entity.kind !== 'plugin') return [{ ...jobFor(build, entity, entry), record }];

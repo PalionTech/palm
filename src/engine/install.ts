@@ -15,55 +15,58 @@ import type {
   SourceIndex,
 } from '../core/types.js';
 import type { SourceRef } from '../domain/source.js';
+import { type Declared, declareSource, ensureRef, peekSource, reportRefs } from './declare.js';
 import { resolveEngineDeps } from './deps.js';
 import { dedupeJobs, manifestJobs, requestJobs } from './entries.js';
 import { type Job, type Run, runOf } from './jobs.js';
+import { moveOf } from './moves.js';
+import { gapOf, installedNames, preloadLine } from './preloads.js';
 import { palmCommand } from './report.js';
 import {
-  declareSource,
-  lockedSha,
   lockSourceOf,
   matchError,
   matchNames,
   type NameMatch,
-  peekSource,
+  pinOf,
   type Resolved,
   resolveSource,
-  takeRefNote,
 } from './resolve.js';
-import { lockScope, runJobs } from './runner.js';
-import { assertNoOverlap, openScope, type ScopeState, saveScope } from './scope.js';
+import { lockScope, runJobs, settle } from './runner.js';
+import { assertNoOverlap, openScope, type ScopeState } from './scope.js';
 import { refuseLocal, requestTargets } from './targets.js';
 
 export { installMcp } from './install-mcp.js';
 export { requestInstallStop } from './runner.js';
 
-/** One info line per agent that mentions skills or servers palm does not install with it. */
-function noteMentions(ctx: PalmContext, ref: SourceRef, match: NameMatch, scope: Scope): void {
+/**
+ * One line per agent whose preloads (`skills:`, `mcpServers:`) this install leaves missing
+ * (K3): installed already, or named on this command line, counts as present.
+ */
+function notePreloads(run: Run, ref: SourceRef, match: NameMatch, index: SourceIndex): void {
+  const lockHas = installedNames(run.state.lock.entries);
+  const named = installedNames(
+    match.entities.map((e) => ({ ...e, source: ref.name, content: '', render: {}, files: [] })),
+  );
+  const has = (kind: Entity['kind'], name: string) => lockHas(kind, name) || named(kind, name);
   for (const e of match.entities) {
-    if (e.def.kind !== 'agent') continue;
-    const names = [
-      ...(e.def.agent.skills ?? []),
-      ...(e.def.agent.mcpServers ?? []).map((n) => `mcp:${n}`),
-    ];
-    if (!names.length) continue;
-    const cmd = palmCommand('install', [ref.name, ...names], scope);
-    ctx.log.info(
-      `agent ${e.name} mentions ${names.join(', ')}; palm installs only what you name: ${cmd}`,
-    );
+    if (e.kind !== 'agent') continue;
+    const gap = gapOf(run, { agent: e, source: ref.name, index }, has);
+    if (gap) run.ctx.log.info(preloadLine(gap));
   }
 }
 
 function requestedJobs(
-  state: ScopeState,
+  run: Run,
   ref: SourceRef,
   r: Resolved,
   req: InstallRequest & { match: NameMatch },
 ): Job[] {
-  const b = { state, ref, resolved: r };
+  const b = { state: run.state, ref, resolved: r };
+  const { secrets } = run.ctx.flags;
   const opts = {
     ...(req.targets ? { targets: req.targets } : {}),
     ...(req.at ? { at: req.at } : {}),
+    ...(secrets ? { secrets } : {}),
   };
   const direct = req.match.entities.flatMap((e: Entity) => requestJobs(b, e, opts));
   const plugins = req.match.plugins.flatMap((p) => requestJobs(b, p.plugin, opts));
@@ -79,15 +82,7 @@ function movedJobs(state: ScopeState, ref: SourceRef, r: Resolved, run: Run): Jo
   return jobs;
 }
 
-/** The ref palm chose for a new source, once it is saved (a dry run says what it would save). */
-function reportRef(ctx: PalmContext, state: ScopeState, name: string): void {
-  const note = takeRefNote(state, name);
-  if (!note) return;
-  if (ctx.flags.dryRun) ctx.log.info(note.replace(' saved to ', ' would be saved to '));
-  else if (state.manifest.hasSource(name)) ctx.log.info(note);
-}
-
-/** A source left without entries (nothing was installed) leaves palm.yaml and the lock again. */
+/** A source this run declared that ended up with no entry leaves palm.yaml and the lock again. */
 function forgetEmptySource(state: ScopeState, name: string): void {
   if (state.lock.entriesOf(name).length) return;
   if (!state.manifest.allEntries().some((e) => e.source === name))
@@ -95,38 +90,49 @@ function forgetEmptySource(state: ScopeState, name: string): void {
   state.lock.removeSource(name);
 }
 
-async function install(run: Run, req: InstallRequest, held: { source?: string }): Promise<void> {
+/** The source to install from: declared (or found), with a ref, and how to fetch it. */
+async function sourceOf(run: Run, req: InstallRequest, held: { added?: string }) {
+  const { ctx, state } = run;
+  const decl: Declared = await declareSource(ctx, state, req.source, req.as ? { as: req.as } : {});
+  if (decl.added) held.added = decl.ref.name;
+  const refd = decl.added
+    ? { ref: decl.ref, pin: decl.pin }
+    : await ensureRef(ctx, state, decl.ref);
+  return { decl, ref: refd.ref, pin: refd.pin ?? pinOf(state, refd.ref) };
+}
+
+async function install(run: Run, req: InstallRequest, held: { added?: string }): Promise<void> {
   const { ctx, deps, state } = run;
   const scope = state.paths.scope;
-  const ref = await declareSource(ctx, state, req.source, {
-    ...(req.as ? { as: req.as } : {}),
-    yes: ctx.flags.yes,
-  });
-  held.source = ref.name;
+  const { decl, ref, pin } = await sourceOf(run, req, held);
   await assertNoOverlap(ctx, state, deps);
   if (!req.names.length && !req.all)
     throw new PalmError(
       'E_USAGE',
       `name what to install from ${ref.name}`,
-      palmCommand('install', [ref.name], scope),
+      palmCommand('install', [decl.paste], scope),
     );
-  const r = await resolveSource({ ctx, deps, state, ref, ...lockedSha(state, ref) });
+  const r = await resolveSource({ ctx, deps, state, ref, ...pin });
   const match = matchNames(r.index, req.names, !!req.all);
-  const err = matchError(ref.name, r.index, match, scope);
+  const err = matchError(decl.paste, r.index, match, scope);
   if (err) throw err;
-  noteMentions(ctx, ref, match, scope);
+  notePreloads(run, ref, match, r.index);
   const targets = requestTargets(state, req.targets);
-  const jobs = requestedJobs(state, ref, r, { ...req, ...(targets ? { targets } : {}), match });
+  const jobs = requestedJobs(run, ref, r, { ...req, ...(targets ? { targets } : {}), match });
+  const move = moveOf(state, ref, r.checkout, decl.before);
   state.lock.setSource(ref.name, lockSourceOf(state, ref, r));
   if (req.all) run.leaveOutPrograms = true;
-  await runJobs(run, dedupeJobs([...jobs, ...movedJobs(state, ref, r, run)]));
+  const all = dedupeJobs([...jobs, ...movedJobs(state, ref, r, run)]);
+  await runJobs(run, all, move ? { moves: [move] } : {});
 }
 
 /**
  * DESIGN §6 "Install with names": declare the source when new, resolve it (the locked sha
- * while the ref intent is unchanged), match the names, render, ask consent once, apply entity
- * by entity with the lock and palm.yaml saved after each. Names that match nothing throw
- * before anything is written; per-entity and per-target problems are `failures`.
+ * while the ref intent is unchanged, else fresh), match the names, render, show a moving
+ * source's entries and confirm, ask consent once, apply entity by entity. Names that match
+ * nothing throw before anything is written; per-entity and per-target problems are
+ * `failures`. palm.yaml and the lock are written only when the run succeeded or wrote
+ * something (K1, R6, Z1).
  */
 export async function installFromSource(
   ctx: PalmContext,
@@ -139,28 +145,43 @@ export async function installFromSource(
   const state = await openScope(ctx, opts.scope, { deps });
   const run = runOf(ctx, deps, state);
   return lockScope(ctx, state, async () => {
-    const held: { source?: string } = {};
+    const held: { added?: string } = {};
+    let failed = true;
     try {
       await install(run, req, held);
+      failed = false;
     } finally {
-      if (held.source) forgetEmptySource(state, held.source);
-      await saveScope(state);
-      if (held.source) reportRef(ctx, state, held.source);
+      if (held.added) forgetEmptySource(state, held.added);
+      if (await settle(run, failed)) reportRefs(ctx, state);
     }
     return run.result;
   });
 }
 
-/** `palm install <source>` without names: fetch and index, save nothing. */
+/**
+ * `palm install <source>` without names: fetch and index, save nothing. A declared source is
+ * read at its locked commit (what an install would use), or at the `#ref` typed; anything else
+ * resolves fresh (K8). The overlap rule applies here too (B19). `paste` is what the listing's
+ * next lines start with: the input as typed until the source is declared (K9, D9).
+ */
 export async function listSource(
   ctx: PalmContext,
   input: string,
   opts: { scope: Scope },
   depsIn?: Partial<EngineDeps>,
-): Promise<{ source: SourceRef; checkout: SourceCheckout; index: SourceIndex; declared: boolean }> {
+): Promise<{
+  source: SourceRef;
+  checkout: SourceCheckout;
+  index: SourceIndex;
+  declared: boolean;
+  paste: string;
+}> {
   const deps = await resolveEngineDeps(depsIn);
   const state = await openScope(ctx, opts.scope, { deps, readOnly: true });
-  const { ref, declared } = peekSource(ctx, state, input);
-  const r = await resolveSource({ ctx, deps, state, ref, ...lockedSha(state, ref) });
-  return { source: ref, checkout: r.checkout, index: r.index, declared };
+  const { ref, declared, paste } = peekSource(ctx, state, input);
+  const probe =
+    declared || !ref.isLocal ? state : { ...state, sources: state.sources.add(ref.source) };
+  await assertNoOverlap(ctx, probe, deps);
+  const r = await resolveSource({ ctx, deps, state, ref, ...pinOf(state, ref) });
+  return { source: ref, checkout: r.checkout, index: r.index, declared, paste };
 }

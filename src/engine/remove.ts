@@ -10,6 +10,7 @@ import {
   type EntityRefSpec,
   type InstallFailure,
   type InstallOptions,
+  type KeptFile,
   type LockEntry,
   type PalmContext,
   type RemoveResult,
@@ -23,9 +24,10 @@ import { isWithin } from '../lib/fs.js';
 import { resolveEngineDeps } from './deps.js';
 import { fragmentKey } from './diff.js';
 import { type Run, runOf } from './jobs.js';
+import { notePreloadsLeaving } from './preloads.js';
 import { failure, failureOf, label, palmCommand, type Subject } from './report.js';
-import { lockScope } from './runner.js';
-import { openScope, type ScopeState, saveScope } from './scope.js';
+import { lockScope, settle } from './runner.js';
+import { openScope, type ScopeState } from './scope.js';
 import { MANIFEST_SOURCE } from './sources.js';
 import { editedPaths } from './verify.js';
 
@@ -36,21 +38,32 @@ import { editedPaths } from './verify.js';
 export interface UndeployJob {
   paths: ScopePaths;
   entries: LockEntry[];
-  /** Lock paths and `file#at#key` fragments that stay (other entries own them). */
-  protect: Set<string>;
+  /** Lock paths and `file#at#key` fragments that stay, with the entry that owns each one. */
+  protect: ReadonlyMap<string, string>;
   dryRun: boolean;
   /** Absolute real paths of local sources: palm never deletes inside them. */
   sources?: string[];
 }
 
-/** Every lock path and fragment key owned by entries other than `leaving`. */
-export function protectedPaths(lock: Lock, leaving: readonly LockEntry[]): Set<string> {
+/** What an undeploy did not do: failures, warnings and the files it left on disk. */
+export interface UndeployReport {
+  failures: InstallFailure[];
+  warnings: string[];
+  kept: KeptFile[];
+}
+
+/**
+ * Every lock path and fragment key owned by entries other than `leaving`, with the owner
+ * (`kind name from source`) for the "kept, owned by …" line.
+ */
+export function protectedPaths(lock: Lock, leaving: readonly LockEntry[]): Map<string, string> {
   const gone = new Set(leaving.map(lockId));
-  const out = new Set<string>();
+  const out = new Map<string, string>();
   for (const e of lock.entries) {
     if (gone.has(lockId(e))) continue;
-    for (const f of e.files) out.add(f);
-    for (const m of e.merged ?? []) out.add(fragmentKey(m));
+    const owner = `${label(e)} from ${e.source}`;
+    for (const f of e.files) if (!out.has(f)) out.set(f, owner);
+    for (const m of e.merged ?? []) if (!out.has(fragmentKey(m))) out.set(fragmentKey(m), owner);
   }
   return out;
 }
@@ -59,16 +72,33 @@ function subjectOf(e: LockEntry): Subject {
   return { kind: e.kind, name: e.name, source: e.source };
 }
 
-/** The entry's files palm may delete: inside the scope, outside every source, not protected. */
-async function deletable(job: UndeployJob, entry: LockEntry, failures: InstallFailure[]) {
+/**
+ * The entry's files palm may delete: inside the scope, outside every source, not owned by
+ * another entry. The others are reported as kept (C3, K18, R5).
+ */
+async function deletable(job: UndeployJob, entry: LockEntry, report: UndeployReport) {
   const files: string[] = [];
+  const keep = (file: string, reason: KeptFile['reason'], owner?: string) =>
+    report.kept.push({
+      kind: entry.kind,
+      name: entry.name,
+      source: entry.source,
+      file,
+      reason,
+      ...(owner ? { owner } : {}),
+    });
   for (const f of entry.files) {
-    if (job.protect.has(f)) continue;
+    const owner = job.protect.get(f);
+    if (owner !== undefined) {
+      keep(f, 'owned', owner);
+      continue;
+    }
     const { real, inside } = await job.paths.realInside(job.paths.abs(f));
     if (!inside) {
       const message = `refusing to delete ${f}: it resolves to ${real}, outside the scope`;
-      failures.push(failure(subjectOf(entry), 'E_IO', { message }));
-    } else if (!(job.sources ?? []).some((s) => isWithin(real, s))) files.push(f);
+      report.failures.push(failure(subjectOf(entry), 'E_IO', { message }));
+    } else if ((job.sources ?? []).some((s) => isWithin(real, s))) keep(f, 'source');
+    else files.push(f);
   }
   return files;
 }
@@ -86,11 +116,10 @@ export async function undeploy(
   ctx: PalmContext,
   deps: EngineDeps,
   job: UndeployJob,
-): Promise<{ failures: InstallFailure[]; warnings: string[] }> {
-  const failures: InstallFailure[] = [];
-  const warnings: string[] = [];
+): Promise<UndeployReport> {
+  const report: UndeployReport = { failures: [], warnings: [], kept: [] };
   for (const entry of job.entries) {
-    const files = await deletable(job, entry, failures);
+    const files = await deletable(job, entry, report);
     const merged = (entry.merged ?? []).filter((m) => !job.protect.has(fragmentKey(m)));
     if (!files.length && !merged.length) continue;
     const view: LockEntry = { ...entry, files, merged };
@@ -100,11 +129,11 @@ export async function undeploy(
           .getTarget(id)
           .undeploy(view, job.paths.scope, job.paths.root, job.dryRun, ctx.env);
       } catch (e) {
-        failures.push(failureOf(subjectOf(entry), e, id));
+        report.failures.push(failureOf(subjectOf(entry), e, id));
       }
     }
   }
-  return { failures, warnings };
+  return report;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,8 +167,11 @@ function ambiguity(
   );
 }
 
-/** The lock entries the refs name; absent ones print an info line (not an error). */
-function select(ctx: PalmContext, state: ScopeState, refs: RemoveRef[]): LockEntry[] {
+/**
+ * The lock entries the refs name. An absent one is no error: the CLI says `i <name> is not
+ * installed` once (K24), from what `removed` lacks.
+ */
+function select(state: ScopeState, refs: RemoveRef[]): LockEntry[] {
   const out: LockEntry[] = [];
   for (const ref of refs) {
     const source = sourceName(state, ref.source);
@@ -148,8 +180,8 @@ function select(ctx: PalmContext, state: ScopeState, refs: RemoveRef[]): LockEnt
       ...(ref.kind ? { kind: ref.kind } : {}),
       ...(source ? { source } : {}),
     });
-    if (!hits.length) ctx.log.info(`${ref.name} is not installed`);
-    else if (hits.length > 1) throw ambiguity(ref, hits, state.paths.scope);
+    if (!hits.length) continue;
+    if (hits.length > 1) throw ambiguity(ref, hits, state.paths.scope);
     else if (!out.some((e) => lockId(e) === lockId(hits[0] as LockEntry)))
       out.push(hits[0] as LockEntry);
   }
@@ -244,7 +276,7 @@ function keptWarning(
  * One named entry and what goes with it (a plugin's members that no other plugin declares). A
  * file the person changed in any of them keeps the whole group installed (unless --force).
  */
-async function removeGroup(run: Run, root: LockEntry): Promise<LockEntry[]> {
+async function removeGroup(run: Run, root: LockEntry, kept: KeptFile[]): Promise<LockEntry[]> {
   const { state, ctx, deps } = run;
   const plan = state.lock.planRemoval([root], {
     listed: (e) => !e.via && state.manifest.hasEntry(e.source, e.kind, e.name),
@@ -261,7 +293,9 @@ async function removeGroup(run: Run, root: LockEntry): Promise<LockEntry[]> {
     sources,
   };
   const report = await undeploy(ctx, deps, job);
+  if (!ctx.flags.dryRun) run.touched = true;
   run.result.failures.push(...report.failures);
+  kept.push(...report.kept);
   const failed = new Set(
     report.failures.map((f) => `${f.kind}:${f.name}@${f.source}`.toLowerCase()),
   );
@@ -271,16 +305,24 @@ async function removeGroup(run: Run, root: LockEntry): Promise<LockEntry[]> {
   return gone;
 }
 
-async function removeRoots(run: Run, rootEntries: LockEntry[]): Promise<LockEntry[]> {
+async function removeRoots(
+  run: Run,
+  rootEntries: LockEntry[],
+  kept: KeptFile[],
+): Promise<LockEntry[]> {
   const gone: LockEntry[] = [];
   for (const root of rootEntries) {
     if (!run.state.lock.find(root, root.source)) continue;
-    gone.push(...(await removeGroup(run, root)));
+    gone.push(...(await removeGroup(run, root, kept)));
   }
   return gone;
 }
 
-/** DESIGN §6 "Remove". */
+/**
+ * DESIGN §6 "Remove". Files another entry owns or that lie inside a declared source stay and
+ * come back as `kept`; a skill an installed agent preloads prints the preload line (K3).
+ * palm.yaml and the lock are written only when something was removed or nothing failed.
+ */
 export async function removeEntities(
   ctx: PalmContext,
   refs: RemoveRef[],
@@ -291,9 +333,17 @@ export async function removeEntities(
   const state = await openScope(ctx, opts.scope, { deps, readOnly: true });
   const run = runOf(ctx, deps, state);
   return lockScope(ctx, state, async () => {
-    const picked = select(ctx, state, refs);
-    const removed = await removeRoots(run, await roots(run, picked, !!opts.exclude));
-    await saveScope(state);
-    return { removed, failures: run.result.failures, warnings: run.result.warnings };
+    const picked = select(state, refs);
+    const kept: KeptFile[] = [];
+    const removed = await removeRoots(run, await roots(run, picked, !!opts.exclude), kept);
+    await notePreloadsLeaving(run, removed);
+    await settle(run, false);
+    const out: RemoveResult = {
+      removed,
+      failures: run.result.failures,
+      warnings: run.result.warnings,
+    };
+    if (kept.length) out.kept = kept;
+    return out;
   });
 }

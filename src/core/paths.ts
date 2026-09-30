@@ -123,6 +123,18 @@ export function initRefusal(
 }
 
 /**
+ * The root of the repository `dir` is in: the nearest ancestor (or `dir`) holding `.git` (a
+ * directory, or the file of a submodule or linked worktree). Undefined outside a repository.
+ * A nested project's in-repo sources may lie anywhere below it (B9).
+ */
+export function worktreeRoot(dir: string): string | undefined {
+  for (let d = resolve(dir); ; d = dirname(d)) {
+    if (existsSync(join(d, '.git'))) return d;
+    if (dirname(d) === d) return undefined;
+  }
+}
+
+/**
  * The directory holding a palm.yaml strictly above `cwd` and at or below `stopAt` (the root of
  * the repository `cwd` is in): `palm init` refuses to start a nested project there without
  * `--here`. Undefined when there is none.
