@@ -116,7 +116,7 @@ function correctedWords(index: SourceIndex, match: NameMatch): string[] {
  * E_AMBIGUOUS naming every name that means two kinds, and one command that installs them with
  * a kind each (O3, O7): the first kind offered, a plugin before its members.
  */
-export function ambiguityError(
+function ambiguityError(
   source: string,
   index: SourceIndex,
   match: NameMatch,
