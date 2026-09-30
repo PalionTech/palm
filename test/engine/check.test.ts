@@ -190,7 +190,7 @@ describe('checkScope', () => {
       /^\d+ files under \.claude\/skills\/ \(.+\) are ignored by git/,
     );
     expect(skills?.fix).toBe(
-      'add !.claude/skills/ to .gitignore (an ignored .claude/ must become .claude/* first)',
+      'in .gitignore, write .claude/* where it says .claude/, then add !.claude/skills/ below it',
     );
   });
 

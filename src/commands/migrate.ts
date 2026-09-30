@@ -99,13 +99,24 @@ function nothingHere(e: unknown, ctx: PalmContext, scope: Scope): unknown {
 }
 
 /**
+ * O2: a project that ignores its output folders on purpose migrates; the check after it prints
+ * the re-include lines as a warning instead of failing the migration.
+ */
+function gitIgnoredWarns(report: CheckReport): CheckReport {
+  const checks = report.checks.map((c) =>
+    c.id === 'git-ignored' && c.status === 'fail' ? { ...c, status: 'warn' as const } : c,
+  );
+  return { ...report, checks, ok: checks.every((c) => c.status !== 'fail') };
+}
+
+/**
  * A migration ends with `palm check` on what it wrote; a failing check fails the migration. The
  * sources are the ones 0.1 already read on this machine, so a `file://` one outside the project
  * is checked like the migration read it (S4' guards the runs after it).
  */
 async function checkAfter(ctx: PalmContext, app: App, scope: Scope): Promise<CheckReport> {
   const own = { ...ctx, flags: { ...ctx.flags, allowLocalSources: true } };
-  const report = await engine(app).checkScope(own, { scope }, engineDeps(app));
+  const report = gitIgnoredWarns(await engine(app).checkScope(own, { scope }, engineDeps(app)));
   if (app.out.jsonMode) return report;
   app.out.out(`\npalm check${scope === 'global' ? ' -g' : ''}:`);
   printCheck(app.out, report, false);

@@ -76,18 +76,24 @@ function reinclude(dir: string, files: string[]): string {
   return files.length === 1 && files[0] === dir ? `!${dir}` : `!${dir}/`;
 }
 
+/**
+ * O2: the exact .gitignore lines that bring one output path back. git cannot re-include a path
+ * inside an ignored directory, so an ignored `.claude/` becomes `.claude/*` first (its other
+ * files, `settings.local.json` among them, stay ignored), then `!.claude/skills/` follows.
+ */
+function reincludeFix(dir: string, files: string[]): string {
+  const line = reinclude(dir, files);
+  const top = dir.split('/')[0] ?? dir;
+  if (!dir.includes('/')) return `add ${line} to .gitignore`;
+  return `in .gitignore, write ${top}/* where it says ${top}/, then add ${line} below it`;
+}
+
 function ignoredProblem(dir: string, files: string[]): CheckProblem {
   const s = subject(dir, files);
   const receive = s.one
     ? 'is ignored by git, so teammates will not receive it'
     : 'are ignored by git, so teammates will not receive them';
-  const top = dir.split('/')[0] ?? dir;
-  const parent = dir.includes('/') ? ` (an ignored ${top}/ must become ${top}/* first)` : '';
-  return {
-    file: dir,
-    message: `${s.what} ${receive}`,
-    fix: `add ${reinclude(dir, files)} to .gitignore${parent}`,
-  };
+  return { file: dir, message: `${s.what} ${receive}`, fix: reincludeFix(dir, files) };
 }
 
 function untrackedProblem(groups: Map<string, string[]>): CheckProblem {

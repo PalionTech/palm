@@ -162,6 +162,27 @@ describe("R20' M8 describe", () => {
   });
 });
 
+describe('O2 a project that ignores its output folders on purpose', () => {
+  it('O2 migrate warns with the exact re-include lines and does not fail on them', async () => {
+    const url = await m.source('kit', { 'v1.0.0': skill('tdd') });
+    const sha = (await git(m.root, 'ls-remote', url, 'refs/tags/v1.0.0')).split('\t')[0];
+    const p = await m.project('app');
+    await writeFiles(m.palmHome, {
+      'config.yaml': `origins:\n  - alias: kit\n    type: git\n    url: ${url}\n`,
+    });
+    await writeFiles(p, {
+      '.gitignore': '.claude/\n',
+      'palm.yaml': 'targets: [claude]\nskills:\n  - tdd@kit\n',
+      'palm.lock.yaml': `version: 2\nentries:\n  - { kind: skill, name: tdd, origin: kit, ref: v1.0.0, sha: ${sha}, path: skills/tdd, targets: [claude] }\n`,
+    });
+    const run = await m.palm(p, 'migrate');
+    expect(run.code, run.all).toBe(0);
+    expect(run.all).toContain(
+      'in .gitignore, write .claude/* where it says .claude/, then add !.claude/skills/ below it',
+    );
+  });
+});
+
 describe("J8' create writes into the in-repo source the scope declares", () => {
   it("J8' with one in-repo source declared, create uses it, not ./agent-kit", async () => {
     const p = await m.project('app');
