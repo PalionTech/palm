@@ -106,7 +106,11 @@ describe('running an install', () => {
       w.deps,
     );
     expect(r.outcomes[0]?.status).toBe('failed');
-    expect(r.failures[0]).toMatchObject({ code: 'E_CONFLICT', hint: 'palm install kit a --force' });
+    // Nothing was saved, so the hint names the source as typed (K9).
+    expect(r.failures[0]).toMatchObject({
+      code: 'E_CONFLICT',
+      hint: `palm install ${url} a --force`,
+    });
     expect(await w.read('.claude/skills/a/SKILL.md')).toBe('hand written\n');
     const forced = await installFromSource(
       w.context({ force: true }),
