@@ -79,7 +79,7 @@ describe('palm check', () => {
     ]);
     expect(lines.slice(checks.length)).toEqual([
       '',
-      'x skill tdd .claude/skills/tdd/SKILL.md: changed since palm wrote it; fix: palm install mattpocock/skills tdd --force',
+      'x skill tdd .claude/skills/tdd/SKILL.md: changed since palm wrote it; fix: palm install mattpocock/skills skill:tdd --force',
       'x .cursor/rules/db.mdc: missing; fix: palm install',
       '! instruction db in AGENTS.md and .cursor/rules/db.mdc',
     ]);

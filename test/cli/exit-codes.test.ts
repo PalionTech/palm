@@ -84,7 +84,7 @@ describe('exit codes through runCli', () => {
     expect(r.stderr).toBe(
       [
         'x skill tdd from mattpocock/skills → cursor: .cursor/rules/tdd.mdc exists and palm did not write it',
-        '  palm install mattpocock/skills tdd --force',
+        '  palm install mattpocock/skills skill:tdd --force',
         '',
       ].join('\n'),
     );

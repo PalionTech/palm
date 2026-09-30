@@ -4,10 +4,16 @@
  * Pure: `palm --help` loads this module through the grammar.
  */
 import type { EntityRefSpec, Kind, Scope } from '../core/types.js';
+import { redactTypedArgs } from '../secrets/typed.js';
 
 /** `skill:tdd` for a name with a kind, else the name. */
 export function formatName(n: EntityRefSpec): string {
   return n.kind ? `${n.kind}:${n.name}` : n.name;
+}
+
+/** The palm.yaml of a scope as a person reads it: `palm.yaml`, or `~/.palm/palm.yaml` under -g. */
+export function manifestFile(scope: Scope | undefined): string {
+  return scope === 'global' ? '~/.palm/palm.yaml' : 'palm.yaml';
 }
 
 /** ` -g` under the global scope, else nothing. */
@@ -32,11 +38,90 @@ export function scoped(text: string, scope: Scope | undefined): string {
     .join('\n');
 }
 
-const SHELL_SAFE = /^[\w@%+=:,./-]+$/;
+/** A word a shell passes on as is (`#` starts a comment only at the start of a word). */
+const SHELL_SAFE = /^[\w@%+=:,./-][\w@%+=:,./#-]*$/;
 
 /** A word as it would be typed in a shell. */
 export function shellWord(word: string): string {
   return SHELL_SAFE.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
+}
+
+/** Options whose value is the next word, for reading a command line back (J6', O15). */
+export const VALUE_OPTIONS: ReadonlySet<string> = new Set([
+  '--as',
+  '--targets',
+  '--target',
+  '--at',
+  '--allow-exec',
+  '--secrets',
+  '--from',
+  '--ref',
+  '--alias',
+  '--grep',
+  '--layout',
+  '--url',
+  '--header',
+  '--command',
+  '--arg',
+  '--env',
+  '--transport',
+  '--cwd',
+  '--snippet',
+  '--to',
+  '-s',
+  '--source',
+  '--in',
+  '--description',
+]);
+
+/** The name of an option word (`--as` for `--as=acme`), or undefined for a positional word. */
+function optionName(word: string): string | undefined {
+  if (!word.startsWith('-') || word === '-') return undefined;
+  return word.split('=')[0];
+}
+
+/**
+ * The options of a command line as typed (each with its value, in order, typed secrets
+ * redacted), without its words: what a hint repeats after the words it corrects. `keep` narrows
+ * them by option name.
+ */
+export function typedOptions(
+  argv: readonly string[],
+  keep: (name: string) => boolean = () => true,
+): string[] {
+  const kept: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const word = argv[i] as string;
+    const name = optionName(word);
+    if (name === undefined) continue;
+    const takesNext = VALUE_OPTIONS.has(name) && !word.includes('=') && i + 1 < argv.length;
+    if (keep(name)) kept.push(word, ...(takesNext ? [argv[i + 1] as string] : []));
+    if (takesNext) i++;
+  }
+  return redactTypedArgs(kept);
+}
+
+/** The options that shape a source palm.yaml does not declare yet (T9, N7). */
+const SOURCE_OPTIONS: ReadonlySet<string> = new Set(['--as', '--layout']);
+
+/** `--as` and `--layout` as typed: a line that installs from the typed source repeats them. */
+export function sourceOptions(argv: readonly string[]): string[] {
+  return typedOptions(argv, (name) => SOURCE_OPTIONS.has(name));
+}
+
+/**
+ * `palm <verb> <words…> <options…>` with every word shell-quoted and ` -g` under the global
+ * scope when the options lack it: a command built from what was typed (J6', O15, N7).
+ */
+export function pasteLine(
+  verb: string,
+  words: readonly string[],
+  options: readonly string[],
+  scope?: Scope,
+): string {
+  const global = options.includes('-g') || options.includes('--global');
+  const line = ['palm', verb, ...[...words, ...options].filter(Boolean).map(shellWord)].join(' ');
+  return global ? line : `${line}${scopeFlag(scope)}`;
 }
 
 const FOR_EXAMPLE_COLUMN = 42;

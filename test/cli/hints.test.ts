@@ -96,7 +96,8 @@ function problemsOf(cmd: string, s: Scenario): string[] {
   const declared = new Set(s.declared ?? []);
   const known = (w: string) => declared.has(w) || looksLikeSourceInput(w);
   for (const w of sourceWords(inv, declared)) if (!known(w)) problems.push(`names source ${w}`);
-  if (inv.names.some((n: EntityRefSpec) => /[@#]/.test(n.name))) problems.push('0.1 name form');
+  const named = inv.resource === 'source' ? [] : inv.names;
+  if (named.some((n: EntityRefSpec) => /[@#]/.test(n.name))) problems.push('0.1 name form');
   return problems;
 }
 
@@ -104,7 +105,8 @@ type Parsed = ReturnType<typeof parseArgv>['invocation'];
 
 /** `describe <source> <name>` names a source; `describe source <s>` a declared one. */
 function describedSources(inv: Parsed, names: string[], declared: Set<string>): string[] {
-  if (inv.resource === 'source') return names.map((n) => (declared.has(n) ? n : `undeclared ${n}`));
+  if (inv.resource === 'source')
+    return names.map((n) => (declared.has(n) || looksLikeSourceInput(n) ? n : `undeclared ${n}`));
   return !inv.resource && names.length === 2 ? [names[0] ?? ''] : [];
 }
 
@@ -334,6 +336,16 @@ const MCP: Scenario[] = [
   ['bad server name', ['install', 'mcp', 'bad name', '--url', 'https://x.dev']],
 ].map(([name, argv]) => ({ name: `L4 ${name}`, argv: argv as string[] }));
 
+/** The failure an edited file gives: its hint names the entity without a kind, as the engine does. */
+const edited = (verb: string, source: string, name: string) => ({
+  kind: 'skill' as const,
+  name,
+  source,
+  code: 'E_CONFLICT',
+  message: 'a file changed since palm wrote it',
+  hint: `palm ${verb} ${source} ${name} --force`,
+});
+
 const SUMMARIES: Scenario[] = [
   {
     name: 'K9: a program left out, source not declared after the run',
@@ -361,12 +373,17 @@ const SUMMARIES: Scenario[] = [
       }),
   },
   {
-    name: 'L10: a kept edit',
+    name: 'L10, O17: a kept edit',
     argv: ['install'],
+    declared: [MP.name],
     deps: () =>
       fakeEngine({
-        scopes: [scopeOf({})],
-        syncScope: async () => ({ ...nothing, outcomes: [outcome(tdd, 'modified')] }),
+        scopes: [scopeOf({ sources: [MP] })],
+        syncScope: async () => ({
+          ...nothing,
+          outcomes: [outcome(tdd, 'modified')],
+          failures: [edited('install', MP.name, 'tdd')],
+        }),
       }),
   },
   {

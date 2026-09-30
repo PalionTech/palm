@@ -14,7 +14,7 @@ import {
   type OutcomeStatus,
   type TargetId,
 } from '../core/types.js';
-import { listJoin, padVisible, statusWord } from './format.js';
+import { listJoin, padVisible, sourceLabel, statusWord, withKind } from './format.js';
 import type { Output } from './output.js';
 import {
   LEFT_OUT,
@@ -23,6 +23,7 @@ import {
   type Row,
   type RowOptions,
   skippedRow,
+  wordOf,
 } from './summary-rows.js';
 
 export interface SummaryOptions extends RowOptions {
@@ -35,6 +36,8 @@ export interface SummaryOptions extends RowOptions {
   alsoCommit?: string[];
   /** The run named its entities: their `=` rows print, and a run that installs none says so. */
   named?: boolean;
+  /** Q11: the top-level paths the lock held before the run; a new one earns the commit line. */
+  known?: ReadonlySet<string>;
 }
 
 /** Statuses in the order their lines print. */
@@ -86,34 +89,69 @@ function sorted(outcomes: InstallOutcome[]): InstallOutcome[] {
     .map(({ o }) => o);
 }
 
-/** `+ skill  brainstorming   .claude/skills/brainstorming/   3 files`; the word column only when statuses mix. */
+/** Y3': a row whose notes widen when a harness loads the entity; never collapsed. */
+const WIDENS = /always-on for/;
+
+function widens(row: Row): boolean {
+  return [...row.cells, ...row.after].some((c) => WIDENS.test(c));
+}
+
+interface Widths {
+  word: number;
+  kind: number;
+  name: number;
+}
+
+function printRow(out: Output, row: Row, w: Widths, withWord: boolean) {
+  const word = withWord ? `${padVisible(row.word, w.word)}  ` : '';
+  const tail = row.cells.length ? `   ${row.cells.join('   ')}` : '';
+  const line = `${word}${padVisible(row.kind, w.kind)}  ${padVisible(row.name, w.name)}${tail}`;
+  out.mark(row.mark, line.trimEnd());
+  for (const extra of row.after) out.out(extra);
+}
+
+/**
+ * `+ skill  brainstorming   .claude/skills/brainstorming/   3 files`; the word column only when
+ * statuses mix. More than five installed rows of one kind print the first and `... N more`,
+ * except rows whose notes widen activation (Y3').
+ */
 function printRows(out: Output, rows: Row[], withWord: boolean): void {
   const width = (pick: (r: Row) => string) => Math.max(0, ...rows.map((r) => pick(r).length));
-  const [ww, kw, nw] = [width((r) => r.word), width((r) => r.kind), width((r) => r.name)];
+  const w = { word: width((r) => r.word), kind: width((r) => r.kind), name: width((r) => r.name) };
   let i = 0;
   while (i < rows.length) {
     const row = rows[i] as Row;
     const group = rows.slice(i).findIndex((r) => r.word !== row.word || r.kind !== row.kind);
     const size = group < 0 ? rows.length - i : group;
-    const word = withWord ? `${padVisible(row.word, ww)}  ` : '';
-    const tail = row.cells.length ? `   ${row.cells.join('   ')}` : '';
-    const line = `${word}${padVisible(row.kind, kw)}  ${padVisible(row.name, nw)}${tail}`;
-    out.mark(row.mark, line.trimEnd());
-    for (const extra of row.after) out.out(extra);
+    printRow(out, row, w, withWord);
     const collapse = row.word === statusWord('installed') && size > COLLAPSE_AFTER;
-    if (collapse) out.out(`  ... ${size - 1} more`);
+    if (collapse) {
+      const rest = rows.slice(i + 1, i + size);
+      for (const r of rest.filter(widens)) printRow(out, r, w, withWord);
+      const hidden = rest.filter((r) => !widens(r)).length;
+      if (hidden) out.out(`  ... ${hidden} more`);
+    }
     i += collapse ? size : 1;
   }
 }
 
-/** Each failure on stderr: `x kind name from source → target: message`, then its hint. */
+/**
+ * Each failure on stderr: `x kind name from source → target: message`, then its hint with the
+ * entity's kind (O3). The same failure twice (one per target) prints once (R14').
+ */
 export function printFailures(out: Output, failures: readonly InstallFailure[]): void {
+  const said = new Set<string>();
   for (const f of failures) {
+    const from = sourceLabel(f.source);
     const who =
       f.kind === 'source'
-        ? `source ${f.source}`
-        : `${f.kind} ${f.name} from ${f.source}${f.target ? ` → ${f.target}` : ''}`;
-    out.error(`${who}: ${f.message}`, f.hint);
+        ? `source ${from}`
+        : `${f.kind} ${f.name} from ${from}${f.target ? ` → ${f.target}` : ''}`;
+    const hint = f.hint ? withKind(f.hint, f) : f.hint;
+    const key = `${who}\u0000${f.message}\u0000${hint ?? ''}`;
+    if (said.has(key)) continue;
+    said.add(key);
+    out.error(`${who}: ${f.message}`, hint);
   }
 }
 
@@ -127,17 +165,35 @@ function filesOf(e: LockEntry): string[] {
   return [...e.files, ...(e.merged ?? []).map((m) => m.file)];
 }
 
+/** `3 installed, 1 overwritten`: one count per word, in status order. */
+function countsOf(counted: InstallOutcome[], opts: SummaryOptions): string[] {
+  const words = new Map<string, number>();
+  for (const s of ORDER)
+    for (const o of counted.filter((x) => x.status === s)) {
+      const word = wordOf(o, opts);
+      words.set(word, (words.get(word) ?? 0) + 1);
+    }
+  return [...words].map(([word, n]) => `${n} ${word}`);
+}
+
+/** Q11: the paths a person commits after this run: all on a first install, else the new ones. */
+function toCommit(counted: InstallOutcome[], opts: SummaryOptions): string[] {
+  if (opts.scope !== 'project') return [];
+  const written = counted.filter((o) => o.status === 'installed');
+  const paths = [...new Set(written.flatMap((o) => filesOf(o.entry)).map(topOf))];
+  const known = opts.known ?? new Set(paths);
+  const fresh = opts.first ? paths : paths.filter((p) => !known.has(p));
+  if (!written.length || (!opts.first && !fresh.length)) return [];
+  return [...new Set([...(opts.alsoCommit ?? []), ...fresh])];
+}
+
 function footer(outcomes: InstallOutcome[], opts: SummaryOptions, failed: boolean) {
   const counted = outcomes.filter((o) => !programLeftOut(o));
-  const counts = ORDER.map((s) => [s, counted.filter((o) => o.status === s).length] as const)
-    .filter(([, n]) => n > 0)
-    .map(([s, n]) => `${n} ${statusWord(s, opts.dryRun)}`);
+  const counts = countsOf(counted, opts);
   if (!counts.length) return opts.named && failed ? 'Nothing installed.' : undefined;
   if (opts.dryRun) return `dry run: ${counts.join(', ')}; nothing written.`;
-  const written = counted.filter((o) => o.status === 'installed');
-  if (!opts.first || opts.scope !== 'project' || !written.length) return `${counts.join(', ')}.`;
-  const paths = written.flatMap((o) => filesOf(o.entry)).map(topOf);
-  const dirs = [...new Set([...(opts.alsoCommit ?? []), ...paths])];
+  const dirs = toCommit(counted, opts);
+  if (!dirs.length) return `${counts.join(', ')}.`;
   const commit = listJoin(['palm.yaml', 'palm.lock.yaml', ...dirs]);
   return `${counts.join(', ')}. Commit ${commit} together.`;
 }

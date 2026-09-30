@@ -30,6 +30,21 @@ function listable(entities: readonly Entity[]): Entity[] {
   return KINDS.filter((k) => k !== 'plugin').flatMap((k) => entities.filter((e) => e.kind === k));
 }
 
+/** M5, T15: the plugins of a listing, each a selector over its members. */
+function pluginsOf(entities: readonly Entity[]): Entity[] {
+  return entities.filter((e) => e.kind === 'plugin');
+}
+
+/** `15 skills, 1 hook`: what a plugin selects. */
+function membersSummary(plugin: Entity): string {
+  const members = plugin.def.kind === 'plugin' ? plugin.def.members : [];
+  const counts = KINDS.map((k) => [k, members.filter((m) => m.kind === k).length] as const);
+  return counts
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => `${n} ${pluralize(k, n)}`)
+    .join(', ');
+}
+
 function versionOf(c: SourceCheckout): string {
   if (c.sha) return `${c.ref ?? ''} (${shortHash(c.sha)})`.trim();
   return c.tree ? `working tree (${shortHash(c.tree)})` : 'working tree';
@@ -96,6 +111,8 @@ export interface ListingView {
   /** `palm install <source as the person can paste it> <names…>` (K9, D9, -g). */
   line(names: readonly string[]): string;
   grep?: string;
+  /** N11: the name the header shows (`--as acme`), when not the source's own. */
+  title?: string;
 }
 
 /** L12: entities whose name or description holds the text (any case). */
@@ -105,7 +122,7 @@ function matching(entities: Entity[], grep: string | undefined): Entity[] {
   return entities.filter((e) => `${e.name} ${e.description ?? ''}`.toLowerCase().includes(q));
 }
 
-/** `kind:name` when the source offers the name in more than one kind (R7), else the name. */
+/** `kind:name` when the source offers the name in more than one kind (R7, O4: a plugin too). */
 function pasteName(e: Entity, all: readonly Entity[]): string {
   const clash = all.some((o) => o !== e && o.name === e.name && o.kind !== e.kind);
   return clash ? `${e.kind}:${e.name}` : e.name;
@@ -123,11 +140,23 @@ function suggestedNames(
     .map((e) => pasteName(e, all));
 }
 
-function printRows(out: Output, entities: Entity[], executable: (e: Entity) => boolean): void {
+/** The row's last column; a name the source offers in two kinds says so (O4, T15). */
+function rowSummary(e: Entity, executable: (e: Entity) => boolean, all: readonly Entity[]): string {
+  const body = e.kind === 'plugin' ? membersSummary(e) : entitySummary(e, executable(e));
+  const other = all.find((o) => o !== e && o.name === e.name && o.kind !== e.kind);
+  return other ? `${body}   (also ${other.kind} ${other.name}: name it ${e.kind}:${e.name})` : body;
+}
+
+function printRows(
+  out: Output,
+  entities: Entity[],
+  executable: (e: Entity) => boolean,
+  all: readonly Entity[],
+): void {
   const kw = Math.max(0, ...entities.map((e) => e.kind.length));
   const nw = Math.max(0, ...entities.map((e) => e.name.length));
   for (const e of entities) {
-    const summary = entitySummary(e, executable(e));
+    const summary = rowSummary(e, executable, all);
     const line = `  ${padVisible(e.kind, kw)}  ${padVisible(e.name, nw)}   ${summary}`;
     out.out(line.trimEnd());
   }
@@ -140,18 +169,21 @@ export function printListing(
   view: ListingView,
 ): void {
   const all = listable(listed.index.entities);
+  const plugins = pluginsOf(listed.index.entities);
+  const every = [...plugins, ...all];
   const entities = matching(all, view.grep);
   const counts = view.grep
     ? `${countsOf(entities)} of ${all.length} match "${view.grep}"`
-    : countsOf(all);
-  out.out(`${listed.source.name}  ${versionOf(listed.checkout)}   ${counts}`);
-  printRows(out, entities, executable);
+    : countsOf(every);
+  const title = view.title ?? listed.source.name;
+  out.out(`${title}  ${versionOf(listed.checkout)}   ${counts}`);
+  printRows(out, [...matching(plugins, view.grep), ...entities], executable, every);
   if (!entities.length) {
     if (view.grep) out.hint(`list everything it offers: ${view.line([])}`);
     return;
   }
   out.out('Nothing written. Install some:');
-  const names = suggestedNames(entities, executable, all);
+  const names = suggestedNames(entities, executable, every);
   if (names.length) out.out(`    ${view.line(names)}`);
   if (!view.grep) out.out(`    ${view.line(['--all'])}`);
 }

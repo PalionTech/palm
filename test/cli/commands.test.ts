@@ -288,7 +288,7 @@ describe('palm remove', () => {
     const r = await palm(sb, ['remove', 'tdd'], { deps: removed({ failures: [failure] }) });
     expect(r.code).toBe(1);
     expect(r.stderr).toBe(
-      'x skill tdd from mattpocock/skills: .claude/skills/tdd/SKILL.md was modified since install\n  palm remove mattpocock/skills tdd --force\n',
+      'x skill tdd from mattpocock/skills: .claude/skills/tdd/SKILL.md was modified since install\n  palm remove mattpocock/skills skill:tdd --force\n',
     );
     expect(r.stdout).not.toContain('is not installed');
   });

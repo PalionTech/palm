@@ -13,7 +13,7 @@ import type {
   PalmContext,
   Scope,
 } from '../core/types.js';
-import type { Mark } from '../ui/format.js';
+import { type Mark, withKind } from '../ui/format.js';
 import type { Output } from '../ui/output.js';
 import type { App } from './app.js';
 import { importHint } from './foreign-lists.js';
@@ -97,7 +97,8 @@ function problemLine(g: Group): string {
   const message = groupedMessage(g);
   const file = g.files.length < 2 && p.file && !message.includes(p.file) ? p.file : '';
   const who = [p.entity ? `${p.entity.kind} ${p.entity.name}` : '', file].filter(Boolean).join(' ');
-  return `${who ? `${who}: ` : ''}${message}${p.fix ? `; fix: ${p.fix}` : ''}`;
+  const fix = p.fix && p.entity ? withKind(p.fix, p.entity) : p.fix;
+  return `${who ? `${who}: ` : ''}${message}${fix ? `; fix: ${fix}` : ''}`;
 }
 
 export function printCheck(out: Output, report: CheckReport, quiet: boolean): void {

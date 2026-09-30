@@ -15,14 +15,24 @@ import type {
   Entity,
   EntityRefSpec,
   InstallRequest,
+  Kind,
   LayoutDescriptor,
   PalmContext,
 } from '../core/types.js';
 import type { ScopeState, SourceListing } from '../create/engine.js';
 import { parseLayoutFlags } from '../index/layout-flags.js';
 import type { App } from './app.js';
+import { correctedNames } from './corrections.js';
 import { type Invocation, interpretInstall, usage } from './grammar.js';
-import { formatName, type GrammarContext, palmLine, scopeFlag } from './hints.js';
+import {
+  type GrammarContext,
+  manifestFile,
+  palmLine,
+  pasteLine,
+  shellWord,
+  sourceOptions,
+  typedOptions,
+} from './hints.js';
 import { grammarContext } from './known.js';
 import { type RemovedFlags, removedFlagError } from './legacy.js';
 import { listingJson, printListing } from './listing.js';
@@ -64,12 +74,24 @@ async function executables(app: App, entities: Entity[]): Promise<(e: Entity) =>
   return (e) => found.has(e);
 }
 
-/** What was typed, as the paste lines repeat it (with `--as` after the names). */
-function typedLine(job: NamedInstall) {
-  const as = job.flags.as ? ['--as', job.flags.as] : [];
+/** Options a line that installs from the typed source repeats (T9, N7). */
+const ENTRY_OPTIONS: ReadonlySet<string> = new Set([
+  '--as',
+  '--layout',
+  '--targets',
+  '--target',
+  '--at',
+]);
+
+/**
+ * What was typed, as the paste lines repeat it: the typed source keeps `--as`, `--layout` and
+ * the targets it was given (T9); a declared key needs none of them.
+ */
+function typedLine(job: NamedInstall, argv: readonly string[]) {
   const scope = job.before.paths.scope;
+  const options = typedOptions(argv, (name) => ENTRY_OPTIONS.has(name));
   return (source: string, names: readonly string[]) =>
-    palmLine('install', [source, ...names, ...(source === job.source ? as : [])], scope);
+    pasteLine('install', [source, ...names], source === job.source ? options : [], scope);
 }
 
 /** K9, D9: the key once palm.yaml declares the source, else the input as typed (its #ref kept). */
@@ -83,19 +105,26 @@ function layoutOf(flags: InstallFlags): { layout?: LayoutDescriptor } {
   return flags.layout?.length ? { layout: parseLayoutFlags(flags.layout) } : {};
 }
 
-/** L15: index notes for maintainers are one count line; the details under describe or PALM_DEBUG. */
+/** N1, R1', S5: notes a person acts on (a file the layout misses, a dependency, a link left out). */
+const FOR_PEOPLE = /not indexed|matches nothing|dependenc|outside the source|leaving the source/;
+
+/**
+ * L15, N1, Q18: notes a person acts on print in full; the other index notes are one count line
+ * with one pointer, `palm describe source <source>` (each also under PALM_DEBUG).
+ */
 function noteIndexWarnings(app: App, listed: SourceListing, job: NamedInstall): void {
   const { warnings } = listed.index;
   if (!warnings.length || app.out.jsonMode) return;
-  for (const w of warnings) app.out.debug(w);
-  const g = scopeFlag(job.before.paths.scope);
-  const see = listed.declared
-    ? `palm describe source ${listed.source.name}${g}`
-    : `PALM_DEBUG=1 palm install ${job.source}${g}`;
-  const n = warnings.length;
-  app.out.info(
-    `${n} ${n === 1 ? 'note' : 'notes'} from indexing ${listed.source.name} (see: ${see})`,
-  );
+  const shown = warnings.filter((w) => FOR_PEOPLE.test(w));
+  for (const w of shown) app.out.info(`${listed.source.name}: ${w}`);
+  const rest = warnings.filter((w) => !FOR_PEOPLE.test(w));
+  for (const w of rest) app.out.debug(w);
+  if (!rest.length) return;
+  const source = listed.declared ? listed.source.name : job.source;
+  const see = pasteLine('describe', ['source', source], [], job.before.paths.scope);
+  const n = `${rest.length}${shown.length ? ' more' : ''}`;
+  const notes = rest.length === 1 ? 'note' : 'notes';
+  app.out.info(`${n} ${notes} from indexing ${listed.source.name} (see: ${see})`);
 }
 
 async function list(ctx: PalmContext, app: App, job: NamedInstall) {
@@ -106,9 +135,13 @@ async function list(ctx: PalmContext, app: App, job: NamedInstall) {
   );
   const executable = await executables(app, listed.index.entities);
   noteIndexWarnings(app, listed, job);
-  const line = typedLine(job);
+  const line = typedLine(job, app.argv);
   const source = pasteSource(listed, job);
-  const view = { line: (names: readonly string[]) => line(source, names), grep: job.flags.grep };
+  const view = {
+    line: (names: readonly string[]) => line(source, names),
+    grep: job.flags.grep,
+    ...(job.flags.as && !listed.declared ? { title: job.flags.as } : {}),
+  };
   if (app.out.jsonMode) app.out.json(listingJson(listed, executable, view));
   else printListing(app.out, listed, executable, view);
 }
@@ -127,33 +160,53 @@ function requestOf(job: NamedInstall): InstallRequest {
   };
 }
 
-const NOT_IN_SOURCE = /^"([^"]+)" is not in source .*; did you mean ([^?]+)\?$/;
-const TWO_KINDS = /^"([^"]+)" names \d+ kinds in source [^:]+: ([^,\s]+)/;
+/** The kinds a name is installed as from the run's source (O3: the kind a correction prefers). */
+function installedKinds(job: NamedInstall) {
+  const source = job.before.sources.byName(job.source)?.name ?? job.source;
+  return (name: string): Kind[] =>
+    job.before.lock.entries
+      .filter((e) => e.source === source && e.name.toLowerCase() === name.toLowerCase())
+      .map((e) => e.kind);
+}
 
-/** The names of this run with the one an error named replaced by the form it suggests. */
-function correctedNames(e: PalmError, names: EntityRefSpec[]): string[] | undefined {
-  const m = NOT_IN_SOURCE.exec(e.message) ?? TWO_KINDS.exec(e.message);
-  if (!m) return undefined;
-  const [, wrong, right = ''] = m;
-  return names.map((n) => (formatName(n) === wrong || n.name === wrong ? right : formatName(n)));
+/** `palm install <word>` alone (or with the `--as` the engine keeps): the listing line. */
+function listsOnly(hint: string, word: string): boolean {
+  const rest = hint.replace(/ -g$/, '').replace(/ --as \S+/g, '');
+  return rest === `palm install ${word}`;
 }
 
 /**
- * K9, L20: an error's command names the source as typed until palm.yaml declares it, and keeps
- * every name of a multi-name install (one suggestion replaced). The run installed nothing.
+ * K9, L20, O3, O7, O15: an error's command is the command as typed with its names corrected
+ * (the source with its #ref, every option: --force, --as, --layout, -g), or the typed source's
+ * listing. An engine hint that names a declared source otherwise stays.
  */
-function pasteable(e: unknown, app: App, job: NamedInstall): unknown {
-  if (!isPalmError(e) || !e.hint?.startsWith('palm install ')) return e;
-  const corrected = correctedNames(e, job.names);
+function rebuiltHint(e: PalmError, app: App, job: NamedInstall): string | undefined {
+  if (!e.hint?.startsWith('palm install ')) return e.hint;
+  const scope = job.before.paths.scope;
+  const corrected = correctedNames(e, job.names, installedKinds(job));
+  if (corrected)
+    return pasteLine('install', [job.source, ...corrected], typedOptions(app.argv), scope);
   const word = /^palm install (\S+)/.exec(e.hint)?.[1] ?? '';
+  if (listsOnly(e.hint, word))
+    return pasteLine('install', [job.source], sourceOptions(app.argv), scope);
   const known = looksLikeSourceInput(word) || job.before.sources.byName(word) !== undefined;
-  if (!corrected && known) return e;
-  if (job.names.length > 1 && !app.out.jsonMode) app.out.out('Nothing installed.');
-  const line = typedLine(job);
-  const hint = corrected
-    ? line(job.source, corrected)
-    : e.hint.replace(`palm install ${word}`, `palm install ${job.source}`);
-  return new PalmError(e.code, e.message, hint, e.retryWith ? { retryWith: e.retryWith } : {});
+  return known ? e.hint : e.hint.replace(`palm install ${word}`, `palm install ${job.source}`);
+}
+
+/** N11: the source a message names, without the options the engine keeps beside it. */
+function unglued(message: string): string {
+  return message.replace(/(source \S+)(?: --(?:as|layout) \S+)+/g, '$1');
+}
+
+/** The error of a named install, its message and its command as the person can paste them. */
+function pasteable(e: unknown, app: App, job: NamedInstall): unknown {
+  if (!isPalmError(e)) return e;
+  const hint = rebuiltHint(e, app, job);
+  const message = unglued(e.message);
+  if (hint === e.hint && message === e.message) return e;
+  const many = hint !== e.hint && job.names.length > 1;
+  if (many && !app.out.jsonMode) app.out.out('Nothing installed.');
+  return new PalmError(e.code, message, hint, e.retryWith ? { retryWith: e.retryWith } : {});
 }
 
 /** B11: `at:` is recorded now and honoured in 0.3; say so once per directory. */
@@ -180,7 +233,7 @@ async function installNames(ctx: PalmContext, app: App, job: NamedInstall): Prom
       result.outcomes.map((o) => o.entry.at),
     );
   }
-  const typed = job.flags.as ? `${job.source} --as ${job.flags.as}` : job.source;
+  const typed = [job.source, ...sourceOptions(app.argv)].map(shellWord).join(' ');
   const sourceWord = (name: string) => (after.sources.byName(name) ? name : typed);
   const report = { before: job.before, after, from: job.names.length > 0, named: true };
   await reportInstall(ctx, app, result, { ...report, sourceWord, explicit: job.names });
@@ -189,9 +242,10 @@ async function installNames(ctx: PalmContext, app: App, job: NamedInstall): Prom
 /** A source this run declared under a name other than what was typed (a URL, `--as`): its name. */
 function noteNewSource(app: App, job: NamedInstall, after: ScopeState): void {
   const typed = job.source.split('#')[0] ?? job.source;
+  const file = manifestFile(after.paths.scope);
   for (const s of after.sources.all())
     if (!job.before.sources.byName(s.name) && s.name !== typed)
-      app.out.mark('+', `source ${s.name} → palm.yaml`);
+      app.out.mark('+', `source ${s.name} → ${file}`);
 }
 
 async function sync(ctx: PalmContext, app: App, before: ScopeState): Promise<void> {
@@ -219,7 +273,7 @@ function checkBare(flags: InstallFlags, gctx: GrammarContext): void {
     );
   const targets = flags.targets ?? flags.target;
   if (targets === undefined) return;
-  const manifest = scope === 'global' ? '~/.palm/palm.yaml' : 'palm.yaml';
+  const manifest = manifestFile(scope);
   throw usage(
     `--targets narrows the entries an install names; palm install alone follows targets: in ${manifest}`,
     `add ${targets} to targets: in ${manifest}, then run: ${palmLine('install', [], scope)}`,

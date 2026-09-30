@@ -151,7 +151,7 @@ describe('C13 install --force removes stray files in folders palm owns', () => {
     await writeFiles(p, { '.claude/skills/tdd/stray.md': 'left over\n' });
     const check = await m.palm(p, 'check');
     expect(check.code).toBe(1);
-    expect(check.all).toContain('palm install kit tdd --force');
+    expect(check.all).toContain('palm install kit skill:tdd --force');
     const forced = await m.palm(p, 'install', 'kit', 'tdd', '--force');
     expect(forced.code, forced.all).toBe(0);
     expect(forced.all).toContain('removed 1 file palm.lock.yaml does not list');
