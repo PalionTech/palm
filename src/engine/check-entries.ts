@@ -118,32 +118,42 @@ async function realOf(abs: string): Promise<string> {
   return parent === abs ? abs : join(await realOf(parent), basename(abs));
 }
 
+/** X4: one line per entity and source, with a count: `3 files of skill tdd lie inside …`. */
+function insideProblem(c: CheckContext, e: LockEntry, source: string, files: string[]) {
+  const [first = ''] = files;
+  const what =
+    files.length === 1 ? `${first} lies` : `${files.length} files of ${e.kind} ${e.name} lie`;
+  const shown = files.length === 1 ? '' : ` (${first}, …)`;
+  return problem(
+    e,
+    `${what} inside the declared source ${c.run.state.paths.lockForm(source)}${shown}; palm never deletes inside a source`,
+    'remove the link that leads into the source, or move the source to a folder of its own',
+    first,
+  );
+}
+
 /**
  * C3: a path palm owns that reaches into a declared source through a link (`.claude/skills ->
  * ../skill`): its real path lies inside the source while the path itself does not (a source at
- * the project root holds every output path by design and is not reported).
+ * the project root holds every output path by design and is not reported). One line per entity
+ * (X4).
  */
 export async function sourcePaths(c: CheckContext): Promise<CheckRun> {
   const f = found();
   const { lock, paths } = c.run.state;
   const dirs = localSourceDirs(c.run.state);
   const reals = await Promise.all(dirs.map(realOf));
-  for (const e of lock.entries.filter(rendersFiles))
-    for (const file of [...e.files, ...(e.merged ?? []).map((m) => m.file)]) {
+  for (const e of lock.entries.filter(rendersFiles)) {
+    const inside = new Map<string, string[]>();
+    for (const file of [...new Set([...e.files, ...(e.merged ?? []).map((m) => m.file)])]) {
       const abs = paths.abs(file);
       const real = await realOf(abs);
       const at = reals.findIndex((s, i) => isWithin(real, s) && !isWithin(abs, dirs[i] ?? s));
-      const inside = reals[at];
-      if (inside)
-        f.fail.push(
-          problem(
-            e,
-            `${file} lies inside the declared source ${paths.lockForm(inside)} (${real}); palm never deletes inside a source`,
-            'remove the link that leads into the source, or move the source to a folder of its own',
-            file,
-          ),
-        );
+      const source = reals[at];
+      if (source) inside.set(source, [...(inside.get(source) ?? []), file]);
     }
+    for (const [source, files] of inside) f.fail.push(insideProblem(c, e, source, files));
+  }
   return checkRun(
     'source-paths',
     {

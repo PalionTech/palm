@@ -17,9 +17,10 @@ import {
   sourcePaths,
 } from './check-entries.js';
 import { execTrusted, foreignHooks, hookScripts } from './check-exec.js';
+import { gitIgnored } from './check-git.js';
 import { applies, type CheckContext, notApplicable, renderAll } from './check-kit.js';
 import { localSources, manifestLock, preloads, sourcesDeclared } from './check-lock.js';
-import { agentNames, blockSize, doubleLoad, gitIgnored, links } from './check-repo.js';
+import { agentNames, blockSize, doubleLoad, links } from './check-repo.js';
 import { secrets, variables } from './check-secrets.js';
 import { foreignServers } from './check-servers.js';
 import { targetsCheck } from './check-targets.js';

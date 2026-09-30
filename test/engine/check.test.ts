@@ -184,9 +184,13 @@ describe('checkScope', () => {
       throw new Error('not ignored');
     });
     const r = await check(w);
-    expect(r['git-ignored']).toMatchObject({ status: 'fail', problems: [{ file: '.claude' }] });
-    expect(r['git-ignored']?.problems[0]?.message).toMatch(
-      /^\d+ files under \.claude\/ \(.+\) are ignored by git/,
+    expect(r['git-ignored']?.status).toBe('fail');
+    const skills = r['git-ignored']?.problems.find((p) => p.file === '.claude/skills');
+    expect(skills?.message).toMatch(
+      /^\d+ files under \.claude\/skills\/ \(.+\) are ignored by git/,
+    );
+    expect(skills?.fix).toBe(
+      'add !.claude/skills/ to .gitignore (an ignored .claude/ must become .claude/* first)',
     );
   });
 

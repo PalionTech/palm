@@ -3,7 +3,7 @@
  */
 import './fakes.js';
 
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { CheckRun } from '../../src/core/types.js';
@@ -213,6 +213,72 @@ describe('B2 targets dropped from palm.yaml', () => {
       'codex removed from targets in palm.yaml: 1 file is removed by the next palm install',
     );
     expect(report.ok).toBe(false);
+  });
+});
+
+describe('X5 T8 M3 git-ignored asks git about real paths and names exact directories', () => {
+  afterEach(() => setGitRunner(undefined));
+
+  function git(w: World, tracked: (path: string) => boolean) {
+    setGitRunner(async (args) => {
+      if (args[0] === 'rev-parse') return `${w.project}\n`;
+      if (args[0] === 'ls-files') return tracked(String(args.at(-1))) ? `${args.at(-1)}\n` : '';
+      throw new Error('not ignored');
+    });
+  }
+
+  it('X5 T8 a file behind a committed link counts as the file git holds', async () => {
+    const { w } = await world(['tdd']);
+    await mkdir(w.path('.agents'), { recursive: true });
+    await rename(w.path('.claude/skills'), w.path('.agents/skills'));
+    await symlink('../.agents/skills', w.path('.claude/skills'));
+    git(w, (p) => p.includes('/.agents/'));
+    expect((await check(w)).r['git-ignored']?.status).toBe('ok');
+    git(w, () => false);
+    const { r } = await check(w);
+    expect(r['git-ignored']?.problems[0]?.fix).toBe('git add .agents/skills');
+  });
+
+  it('M3 the git add fix names the output directories, never the harness root', async () => {
+    const { w } = await world(['tdd', 'guard']);
+    git(w, () => false);
+    const { r } = await check(w);
+    const fix = r['git-ignored']?.problems[0]?.fix ?? '';
+    expect(fix).toMatch(/^git add /);
+    expect(fix.split(' ')).toContain('.claude/skills');
+    expect(fix.split(' ')).not.toContain('.claude');
+  });
+});
+
+describe('X4 source-paths per entity', () => {
+  it('X4 files of one entity inside a source are one line with a count', async () => {
+    const w = await makeWorld({ targets: ['claude'], interactive: true, consent: 'yes' });
+    const files = {
+      'skills/big/SKILL.md': 'Big.\n',
+      'skills/big/a.md': 'a\n',
+      'skills/big/b.md': 'b\n',
+    };
+    const url = await w.remote('big', { 'v1.0.0': files });
+    const src = await w.local('skill', { 'skills/mine/SKILL.md': 'mine\n' });
+    for (const [source, name] of [
+      [url, 'big'],
+      [src, 'mine'],
+    ] as const) {
+      const r0 = await installFromSource(
+        w.ctx,
+        { source, names: [{ name }] },
+        { scope: 'project' },
+        w.deps,
+      );
+      expect(r0.failures).toEqual([]);
+    }
+    await rename(w.path('.claude/skills/big'), w.path('skill/big'));
+    await w.remove('.claude/skills');
+    await symlink('../skill', w.path('.claude/skills'));
+    const { r } = await check(w);
+    expect(messages(r['source-paths'])).toContain(
+      '3 files of skill big lie inside the declared source skill (.claude/skills/big/SKILL.md, …); palm never deletes inside a source',
+    );
   });
 });
 
