@@ -3,13 +3,16 @@
  */
 import './fakes.js';
 
+import { existsSync } from 'node:fs';
 import { chmod, mkdir, rename, symlink, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { hostname } from 'node:os';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PalmError } from '../../src/core/errors.js';
 import type { CheckRun, LockEntry } from '../../src/core/types.js';
 import { Lock } from '../../src/domain/lock.js';
 import { fragmentKey } from '../../src/domain/merged-record.js';
+import { ScopePaths } from '../../src/domain/scope-paths.js';
 import { checkScope } from '../../src/engine/check.js';
 import { installFromSource } from '../../src/engine/install.js';
 import { setGitRunner } from '../../src/lib/git-query.js';
@@ -395,6 +398,23 @@ describe("E6' an item palm wrote earlier is palm's after a render move", () => {
     expect(messages(r['foreign-hooks'])).toBe(
       'foreign hook command in .claude/settings.json (Stop): echo mine',
     );
+  });
+});
+
+describe("E3' a stale process lock", () => {
+  it("E3' check removes a lock a dead process of this host left; a live one stays", async () => {
+    const { w } = await world(['tdd']);
+    const file = ScopePaths.of(w.ctx, 'project').processLock;
+    const write = (pid: number) =>
+      mkdir(dirname(file), { recursive: true }).then(() =>
+        writeFile(file, JSON.stringify({ pid, host: hostname(), createdAt: 'x' })),
+      );
+    await write(2 ** 22 + 12345);
+    await check(w);
+    expect(existsSync(file)).toBe(false);
+    await write(process.pid);
+    await check(w);
+    expect(existsSync(file)).toBe(true);
   });
 });
 

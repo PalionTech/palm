@@ -23,6 +23,7 @@ import { localSources, manifestLock, preloads, sourcesDeclared } from './check-l
 import { agentNames, blockSize, doubleLoad, links } from './check-repo.js';
 import { secrets, variables } from './check-secrets.js';
 import { foreignServers } from './check-servers.js';
+import { removeStaleLock } from './check-stale.js';
 import { targetsCheck } from './check-targets.js';
 import { resolveEngineDeps } from './deps.js';
 import { runOf } from './jobs.js';
@@ -135,6 +136,7 @@ async function withoutManifest(c: CheckContext): Promise<CheckRun[]> {
 
 async function contextOf(ctx: PalmContext, scope: Scope, deps: EngineDeps): Promise<CheckContext> {
   const state = await openScope(ctx, scope, { deps, readOnly: true });
+  await removeStaleLock(state.paths.processLock);
   const bare = !existsSync(state.paths.manifestFile);
   const run = runOf(ctx, deps, bare ? { ...state, targets: [...TARGET_IDS] } : state);
   const offline = new Set<string>();
