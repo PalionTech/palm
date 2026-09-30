@@ -57,7 +57,9 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const { files, declared, result } = created;
   const json = { files, source: created.source?.name, declared, ...result };
   if (!app.out.jsonMode) printCreated(app, ctx, created);
-  await reportInstall(ctx, app, result, { before: created.before, after: created.after, json });
+  const alsoCommit = [`${displayPath(ctx, created.dir)}/`];
+  const { before, after } = created;
+  await reportInstall(ctx, app, result, { before, after, json, alsoCommit });
   if (!app.out.jsonMode && !ctx.flags.dryRun)
     app.out.hint(`edit ${displayPath(ctx, created.file)}; palm install renders the change`);
 }

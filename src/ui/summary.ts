@@ -37,6 +37,8 @@ export interface SummaryOptions {
   detected?: string[];
   /** Lock sources, for a `from <source> <version>` cell (installs that named their entities). */
   from?: Record<string, LockSource>;
+  /** More paths the commit line names (the source `palm create` wrote into). */
+  alsoCommit?: string[];
 }
 
 /** Statuses in the order their lines print. */
@@ -198,7 +200,8 @@ function footer(outcomes: InstallOutcome[], opts: SummaryOptions): string | unde
   if (opts.dryRun) return `dry run: ${counts.join(', ')}; nothing written.`;
   const written = counted.filter((o) => o.status === 'installed');
   if (!opts.first || opts.scope !== 'project' || !written.length) return `${counts.join(', ')}.`;
-  const dirs = [...new Set(written.flatMap((o) => filesOf(o.entry)).map(topOf))];
+  const paths = written.flatMap((o) => filesOf(o.entry)).map(topOf);
+  const dirs = [...new Set([...(opts.alsoCommit ?? []), ...paths])];
   const commit = listJoin(['palm.yaml', 'palm.lock.yaml', ...dirs]);
   return `${counts.join(', ')}. Commit ${commit} together.`;
 }

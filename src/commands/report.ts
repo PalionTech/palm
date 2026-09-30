@@ -20,6 +20,8 @@ export interface InstallReport {
   from?: boolean;
   /** The `--json` document when it is more than the result (update: the plan too). */
   json?: unknown;
+  /** More paths the commit line names (`palm create`: the source directory). */
+  alsoCommit?: string[];
 }
 
 /** Where the targets came from, on the run that detected them and wrote them to palm.yaml. */
@@ -45,6 +47,7 @@ export async function reportInstall(
       first: r.before.lock.size === 0,
       detected: await detected(app, ctx, r),
       ...(r.from ? { from: r.after.lock.sources } : {}),
+      ...(r.alsoCommit ? { alsoCommit: r.alsoCommit } : {}),
     });
   if (app.interrupted) throw new ExitSignal(EXIT.cancelled);
   if (failureCount(result)) throw new ExitSignal(EXIT.failure);
