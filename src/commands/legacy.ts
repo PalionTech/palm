@@ -179,7 +179,7 @@ export function legacyOrigin(rest: string[], ctx: GrammarContext): InstallWords 
   const specs = rest.filter((w) => looksLikeSourceInput(w));
   if (specs.length > 1)
     throw usage(
-      `palm install origin names ${specs.length} repositories; palm lists one source at a time:`,
+      `install origin names ${specs.length} repositories; palm lists one source at a time:`,
       specs.map((s) => `  ${palmLine('install', [s], ctx.scope)}`).join('\n'),
     );
   const names = words.map((w) => parseEntityRef(w));

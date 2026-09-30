@@ -42,7 +42,7 @@ function fromFlags(names: string[], flags: McpFlags): McpServerConfig {
   const scope = scopeOf(flags);
   if (!name || names.length > 1)
     throw usage(
-      name ? 'palm install mcp takes one server name' : 'name the MCP server',
+      name ? 'install mcp takes one server name' : 'name the MCP server',
       [
         palmLine('install', ['mcp', 'docs', '--url', 'https://example.com/mcp'], scope),
         `or paste the mcpServers block from its README: pbpaste | ${palmLine('install', ['mcp', '--snippet', '-'], scope)}`,

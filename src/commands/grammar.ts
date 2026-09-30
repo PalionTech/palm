@@ -237,7 +237,7 @@ export function interpretWords(
   const resource = parseResource(first);
   if (!resource) return { names: words.map(nameOrPath) };
   if (resource === 'all' && verb === 'describe')
-    throw usage('palm describe shows one thing at a time', 'palm get all');
+    throw usage('describe shows one thing at a time', 'palm get all');
   const plain = resource === 'source' || resource === 'target' || resource === 'all';
   const names = rest.map((w) => (plain ? { name: w } : nameOrPath(w)));
   const legacy = legacyWord(verb, words);

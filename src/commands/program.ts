@@ -145,7 +145,7 @@ function createInvocation(words: string[], opts: Opts): Invocation {
   const resource = parseResource(kind);
   if (!resource)
     throw usage(
-      `palm create makes a skill, agent, instruction or hook, not "${kind}"`,
+      `create makes a skill, agent, instruction or hook, not "${kind}"`,
       palmLine('create', ['skill', name ?? 'release-notes'], opts.global ? 'global' : 'project'),
     );
   return { command: 'create', resource, names: name ? [{ name }] : [], opts, words };

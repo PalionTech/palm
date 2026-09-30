@@ -142,7 +142,7 @@ async function confirmed(ctx: PalmContext, changes: number): Promise<boolean> {
   if (!ctx.ui.isInteractive)
     throw new PalmError(
       'E_NON_INTERACTIVE',
-      `palm update would apply ${plural(changes, 'change')} and there is no terminal to ask`,
+      `the update would apply ${plural(changes, 'change')} and there is no terminal to ask`,
       'review it with --dry-run, then apply it',
       { retryWith: '--yes' },
     );
@@ -157,7 +157,7 @@ function endWithPlan(app: App, plan: UpdatePlan, changes: number, strict: boolea
   else out.hint(changes === 0 ? 'Nothing to update.' : 'dry run: nothing written.');
   const behind = strict && changes > 0;
   if (behind && !out.jsonMode)
-    out.info(`--strict exits 1: palm update would apply ${plural(changes, 'change')}`);
+    out.info(`--strict exits 1: ${plural(changes, 'change')} would apply`);
   if (plan.failures.length || behind) throw new ExitSignal(1);
 }
 
@@ -166,7 +166,7 @@ async function checkArgs(ctx: PalmContext, app: App, sources: string[], flags: U
   const [first = ''] = sources;
   const scope = scopeOf(flags);
   if (parseKind(first) && sources.length > 1)
-    throw usage('palm update moves sources, not kinds', palmLine('get', ['sources'], scope));
+    throw usage('update moves sources, not kinds', palmLine('get', ['sources'], scope));
   if (!flags.to || sources.length === 1) return;
   const state = await engine(app).openScope(ctx, scope, { readOnly: true });
   const [declared] = state.sources.names();

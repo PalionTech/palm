@@ -37,7 +37,7 @@ function projectSource(words: string[], ctx: GrammarContext): PalmError | undefi
   const s = ctx.scope === 'global' ? ctx.projectSources?.find(named(word)) : undefined;
   if (!s) return undefined;
   const message = `"${word}" is a source of this project; -g uses the sources in ~/.palm/palm.yaml only`;
-  if (s.input.startsWith('.')) return usage(message, 'list those: palm get sources -g');
+  if (s.local) return usage(message, 'list those: palm get sources -g');
   const line = palmLine('install', [s.input, ...rest], 'global');
   return usage(message, `install it for yourself from its repository: ${line}`);
 }
@@ -76,7 +76,7 @@ function nearSource(words: string[], ctx: GrammarContext): PalmError | undefined
   const byPart = declared.filter((s) => [s.owner, s.repo].some((p) => p?.toLowerCase() === lower));
   const handles = declared.flatMap((s) => [s.name, ...(s.alias ? [s.alias] : [])]);
   const near = byPart.length === 1 ? byPart[0]?.name : nearest(word, handles);
-  const hit = declared.find((s) => s.name === near || s.alias === near);
+  const hit = near ? declared.find((s) => s.name === near || s.alias === near) : undefined;
   if (!hit) return undefined;
   return usage(
     `"${word}" is not a repository; did you mean ${hit.name}?`,

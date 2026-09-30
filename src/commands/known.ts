@@ -37,6 +37,7 @@ function knownSource(ref: SourceRef, root: string): KnownSource {
     name: ref.name,
     ...(ref.alias ? { alias: ref.alias } : {}),
     input: locationOf(ref, root),
+    ...(ref.isLocal ? { local: true } : {}),
     ...(owner ? { owner } : {}),
     repo,
   };
@@ -63,7 +64,7 @@ async function legacyAliases(ctx: PalmContext, words: readonly string[]) {
 /** `./<word>` for a word that names a directory of the project (not already a path). */
 function localDirOf(state: ScopeState) {
   return (word: string): string | undefined => {
-    if (state.paths.scope !== 'project' || /^[./~]/.test(word) || word.includes(':'))
+    if (state.paths.scope !== 'project' || /^(\.{1,2}\/|\/|~)/.test(word) || word.includes(':'))
       return undefined;
     const abs = join(state.paths.root, word);
     return existsSync(abs) && statSync(abs).isDirectory() ? `./${word}` : undefined;

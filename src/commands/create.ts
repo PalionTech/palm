@@ -25,11 +25,9 @@ interface CreateFlags extends GlobalOptions {
 function kindOf(inv: Invocation, name: string): CreatableKind {
   const word = inv.words?.[0] ?? '';
   const line = palmLine('create', ['skill', name], scopeOf(inv.opts as GlobalOptions));
-  if (isCommandWord(word))
-    throw usage('a command installs as a skill; palm create writes skills', line);
+  if (isCommandWord(word)) throw usage('a command installs as a skill; create writes skills', line);
   const kind = CREATABLE.find((k) => k === inv.resource);
-  if (!kind)
-    throw usage(`palm create writes a skill, agent, instruction or hook, not "${word}"`, line);
+  if (!kind) throw usage(`create writes a skill, agent, instruction or hook, not "${word}"`, line);
   return kind;
 }
 

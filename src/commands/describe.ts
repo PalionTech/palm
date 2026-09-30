@@ -96,8 +96,12 @@ async function describePath(ctx: PalmContext, app: App, path: string, flags: Des
   const scope = scopeOf(flags);
   const owners = await engine(app).ownerOfPath(ctx, path, { scope });
   if (!owners.length) {
-    const hint = looksLikeSourceInput(path)
-      ? palmLine('describe', ['source', path], scope)
+    const state = await engine(app)
+      .openScope(ctx, scope, { readOnly: true })
+      .catch(() => undefined);
+    const source = state?.sources.byName(path)?.name;
+    const hint = source
+      ? palmLine('describe', ['source', source], scope)
       : palmLine('get', ['--files'], scope);
     throw new PalmError('E_NOT_FOUND', `no installed entity wrote ${path}`, hint);
   }
@@ -124,7 +128,7 @@ function oneName(inv: Invocation): EntityRefSpec {
   const [first, ...rest] = inv.names;
   if (!first) throw usage('name what to describe', 'palm get');
   if (rest.length)
-    throw usage('palm describe shows one thing at a time', `palm describe ${formatName(first)}`);
+    throw usage('describe shows one thing at a time', `palm describe ${formatName(first)}`);
   return first;
 }
 

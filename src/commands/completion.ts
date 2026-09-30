@@ -221,7 +221,7 @@ export function completionScript(program: Command, shell: Shell): string {
 export async function run(inv: Invocation, app: App): Promise<void> {
   const shell = inv.names[0]?.name ?? '';
   if (!(SHELLS as readonly string[]).includes(shell))
-    throw usage(`palm completion takes bash, zsh or fish, not "${shell}"`, 'palm completion bash');
+    throw usage(`completion takes bash, zsh or fish, not "${shell}"`, 'palm completion bash');
   if (!app.program) throw new PalmError('E_INTERNAL', 'the command tree is not available');
   const script = completionScript(app.program, shell as Shell);
   if (app.out.jsonMode) app.out.json({ shell, script });

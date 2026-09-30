@@ -84,7 +84,7 @@ function secretPolicy(value: string | undefined): SecretPolicy | undefined {
 function localError(app: App, g: GlobalOptions & { targets?: string }): PalmError {
   const rest = app.argv.filter((a) => a !== '--local');
   const manifest = g.global ? '~/.palm/palm.yaml' : 'palm.yaml';
-  const positional = rest.filter((a) => !a.startsWith('-'));
+  const positional = rest.filter((a) => !a.startsWith('-') && a !== g.targets);
   if (g.targets !== undefined && positional.length <= 1)
     return usage(
       `palm.local.yaml arrives in palm 0.3; until then targets are shared in ${manifest}`,

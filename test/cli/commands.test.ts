@@ -191,13 +191,18 @@ describe('palm describe', () => {
     expect(r.stdout).toBe(
       '.claude/skills/tdd/SKILL.md  file of skill tdd from mattpocock/skills\n',
     );
+    const declared = fakeScope({ root: sb.project, sources: [{ name: 'obra/superpowers' }] });
     const none = await palm(sb, ['describe', 'obra/superpowers'], {
-      deps: fakeEngine({ ownerOfPath: async () => [] }),
+      deps: fakeEngine({ scopes: [declared], ownerOfPath: async () => [] }),
     });
     expect(none.code).toBe(1);
     expect(none.stderr).toBe(
       'x no installed entity wrote obra/superpowers\n  palm describe source obra/superpowers\n',
     );
+    const file = await palm(sb, ['describe', './notes.md'], {
+      deps: fakeEngine({ scopes: [declared], ownerOfPath: async () => [] }),
+    });
+    expect(file.stderr).toBe('x no installed entity wrote ./notes.md\n  palm get --files\n');
   });
 
   it('describe source and describe target', async () => {
@@ -236,7 +241,7 @@ describe('palm describe', () => {
   it('shows one thing at a time', async () => {
     const r = await palm(sb, ['describe', 'tdd', 'handoff']);
     expect(r.code).toBe(2);
-    expect(r.stderr).toBe('x palm describe shows one thing at a time\n  palm describe tdd\n');
+    expect(r.stderr).toBe('x describe shows one thing at a time\n  palm describe tdd\n');
   });
 });
 
@@ -288,12 +293,12 @@ describe('palm remove', () => {
     expect(r.stdout).not.toContain('is not installed');
   });
 
-  it('needs a name', async () => {
+  it('needs a name; the hint filters by the source only when palm.yaml declares it', async () => {
     const r = await palm(sb, ['remove', 'obra/superpowers'], { deps: removed({}) });
     expect(r.code).toBe(2);
-    expect(r.stderr).toBe(
-      'x name what to remove from obra/superpowers\n  palm get --source obra/superpowers\n',
-    );
+    expect(r.stderr).toBe('x name what to remove from obra/superpowers\n  palm get\n');
+    const kit = await palm(sb, ['remove', 'https://x/acme.git'], { deps: removed({}) });
+    expect(kit.stderr).toBe('x name what to remove from https://x/acme.git\n  palm get\n');
   });
 });
 

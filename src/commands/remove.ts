@@ -116,11 +116,13 @@ export async function run(inv: Invocation, app: App): Promise<void> {
     await grammarContext(ctx, app, state, words),
   );
   if (legacy) app.out.info(`${legacy.form} is now: ${legacy.replacement}`);
-  if (!names.length)
+  if (!names.length) {
+    const declared = source ? state.sources.byName(source)?.name : undefined;
     throw usage(
       `name what to remove${source ? ` from ${source}` : ''}`,
-      palmLine('get', source ? ['--source', source] : [], scope),
+      palmLine('get', declared ? ['--source', declared] : [], scope),
     );
+  }
   const refs = names.map((n) => (source ? { ...n, source } : n));
   const opts = { scope, exclude: Boolean(flags.exclude) };
   const result: RemoveResult = await api.removeEntities(ctx, refs, opts, engineDeps(app));
