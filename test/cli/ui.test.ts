@@ -159,26 +159,29 @@ describe('printInstallSummary', () => {
     warnings: [],
   });
 
-  it('adds the status word when statuses mix, and prints = unchanged per entry', () => {
+  it('adds the status word when statuses mix; unchanged entries are the count (K21)', () => {
     const c = captured();
-    printInstallSummary(
-      c.out,
-      result([
-        outcome(skill('a')),
-        outcome(skill('bb'), 'unchanged'),
-        outcome(skill('c'), 'restored'),
-      ]),
-      { scope: 'project', targets: ['claude'] },
-    );
+    const outcomes = [
+      outcome(skill('a')),
+      outcome(skill('bb'), 'unchanged'),
+      outcome(skill('c'), 'restored'),
+    ];
+    printInstallSummary(c.out, result(outcomes), { scope: 'project', targets: ['claude'] });
     expect(c.stdout()).toBe(
       [
-        '+ installed  skill  a    .claude/skills/a/   1 file',
-        '↺ restored   skill  c    .claude/skills/c/   1 file',
-        '= unchanged  skill  bb   .claude/skills/bb/   1 file',
+        '+ installed  skill  a   .claude/skills/a/   1 file',
+        '↺ restored   skill  c   .claude/skills/c/   1 file',
         '1 installed, 1 restored, 1 unchanged.',
         '',
       ].join('\n'),
     );
+    const named = captured();
+    printInstallSummary(named.out, result(outcomes), {
+      scope: 'project',
+      targets: ['claude'],
+      named: true,
+    });
+    expect(named.stdout()).toContain('= unchanged  skill  bb   .claude/skills/bb/   1 file');
   });
 
   it('says what a dry run would do and writes no commit line', () => {
@@ -204,7 +207,7 @@ describe('printInstallSummary', () => {
     const d = captured();
     const same = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => outcome(skill(n), 'unchanged'));
     printInstallSummary(d.out, result(same), { scope: 'project', targets: ['claude'] });
-    expect(d.stdout().split('\n')).toHaveLength(8);
+    expect(d.stdout()).toBe('6 unchanged.\n');
   });
 
   it('shows global lock paths as home paths, merged files and several places', () => {
@@ -245,7 +248,7 @@ describe('printInstallSummary', () => {
     expect(c.stdout()).toBe(
       [
         '+ agent  r        ~/.claude/agents/r.md   1 file',
-        '+ hook   gh-cli   .palm/assets/trailofbits__skills/gh-cli/, .claude/settings.json +1   2 files',
+        '+ hook   gh-cli   .palm/assets/trailofbits__skills/gh-cli/, .claude/settings.json +1   2 files +2 merged',
         '2 installed.',
         '',
       ].join('\n'),

@@ -27,6 +27,7 @@ import {
   ROOT_HELP,
   VERB_HELP,
 } from './help.js';
+import { palmLine, scoped } from './hints.js';
 
 export interface ProgramOptions {
   version?: string;
@@ -44,6 +45,15 @@ function collect(value: string, previous: string[] | undefined): string[] {
 }
 
 const VERB_NAMES = new Set<string>(VERBS.map((v) => v.name));
+
+/** palm 0.1 install flags: accepted so palm can answer with the 0.2 command (legacy.ts). */
+const REMOVED_INSTALL_FLAGS: ReadonlyArray<[string, string]> = [
+  ['--frozen', 'palm 0.1: now palm check'],
+  ['--from <source>', 'palm 0.1: the source is now the first word'],
+  ['--ref <ref>', 'palm 0.1: now #ref after the source'],
+  ['--alias <name>', 'palm 0.1: now --as'],
+  ['--project', 'palm 0.1: gone'],
+];
 
 /** `install (add, i)` for verbs; utilities keep their arguments (`completion <shell>`). */
 function subcommandTerm(cmd: Command): string {
@@ -108,20 +118,21 @@ function withLegacy(inv: Invocation, legacy: Invocation['legacy']): Invocation {
   return legacy ? { ...inv, legacy } : inv;
 }
 
+/** install and remove read palm.yaml, interpret the words again and print a 0.1 form themselves. */
 function installInvocation(words: string[], opts: Opts): Invocation {
   const w = interpretInstall(words);
   const command = w.mcp ? 'install mcp' : 'install';
-  return withLegacy({ command, source: w.source, names: w.names, opts, words }, w.legacy);
+  return { command, source: w.source, names: w.names, opts, words };
 }
 
 function removeInvocation(words: string[], opts: Opts): Invocation {
   const w = interpretRemove(words);
-  return withLegacy({ command: 'remove', source: w.source, names: w.names, opts, words }, w.legacy);
+  return { command: 'remove', source: w.source, names: w.names, opts, words };
 }
 
 function wordsInvocation(verb: 'get' | 'describe') {
   return (words: string[], opts: Opts): Invocation => {
-    const w = interpretWords(verb, words);
+    const w = interpretWords(verb, words, opts.global ? 'global' : 'project');
     return withLegacy(
       { command: verb, resource: w.resource, names: w.names, opts, words },
       w.legacy,
@@ -134,8 +145,8 @@ function createInvocation(words: string[], opts: Opts): Invocation {
   const resource = parseResource(kind);
   if (!resource)
     throw usage(
-      `palm create makes a skill, agent, instruction or hook, not "${kind}"`,
-      'palm create skill release-notes',
+      `create makes a skill, agent, instruction or hook, not "${kind}"`,
+      palmLine('create', ['skill', name ?? 'release-notes'], opts.global ? 'global' : 'project'),
     );
   return { command: 'create', resource, names: name ? [{ name }] : [], opts, words };
 }
@@ -148,13 +159,22 @@ interface VerbSetup {
   invocation: (words: string[], opts: Opts) => Invocation;
 }
 
+/** A hidden option: palm 0.1 flags answered with their replacement, and second spellings. */
+function hidden(flags: string, description: string): Option {
+  return new Option(flags, description).hideHelp();
+}
+
 function installOptions(cmd: Command): void {
   cmd
     .option('--all', 'everything the source offers')
+    .option('--grep <text>', 'list only what matches the text (name or description)')
     .option('--as <name>', 'the name a URL source gets in palm.yaml')
     .option('--targets <ids>', 'only these targets for these entries (recorded per entry)')
-    .option('--at <dir>', 'placement directory for these entries (recorded; honoured in 0.3)')
+    .addOption(hidden('--target <ids>', 'the same as --targets'))
+    .addOption(hidden('--at <dir>', 'placement directory for these entries (honoured in 0.3)'))
     .option('--review', 'print the scripts of every program first; with --dry-run, only print');
+  for (const [flags, description] of REMOVED_INSTALL_FLAGS)
+    cmd.addOption(hidden(flags, description));
   cmd.optionsGroup('MCP servers (palm install mcp):');
   cmd
     .option('--url <url>', 'a remote server')
@@ -176,6 +196,7 @@ const VERB_SETUP: Readonly<Record<Verb, VerbSetup>> = {
           '--target <ids>',
           'comma-separated: claude, codex, copilot, cursor, gemini, opencode',
         )
+        .addOption(hidden('--targets <ids>', 'the same as --target'))
         .option('--here', 'start a separate project in this directory'),
     invocation: (_w, opts) => ({ command: 'init', names: [], opts }),
   },
@@ -201,7 +222,11 @@ const VERB_SETUP: Readonly<Record<Verb, VerbSetup>> = {
         .option('--strict', 'with --dry-run: exit 1 when a source is behind its ref'),
     invocation: (words, opts) => ({ command: 'update', names: rawNames(words), opts, words }),
   },
-  check: { args: [], invocation: (_w, opts) => ({ command: 'check', names: [], opts }) },
+  check: {
+    args: [],
+    options: (c) => c.option('--quiet', 'print only the problems (nothing when there are none)'),
+    invocation: (_w, opts) => ({ command: 'check', names: [], opts }),
+  },
   get: {
     args: [
       ['[kind]', 'skill, agent, instruction, hook, mcp, plugin; source, target or all'],
@@ -264,6 +289,7 @@ function registerUtilities(program: Command, dispatch: Dispatch): void {
     .command('migrate')
     .summary('convert a palm 0.1 project to the palm 0.2 files')
     .description('Convert palm 0.1 files (palm.yaml, palm.lock.yaml, ~/.palm/config.yaml).')
+    .option('--review', 'print the scripts of every program first; with --dry-run, only print')
     .addHelpText('after', MIGRATE_HELP)
     .action(utility('migrate', dispatch));
   program
@@ -276,7 +302,8 @@ function registerUtilities(program: Command, dispatch: Dispatch): void {
   const cache = program
     .command('cache')
     .summary('delete the cache of checkouts and indexes')
-    .description('Manage the cache under ~/.palm/cache.');
+    .description('Manage the cache under ~/.palm/cache.')
+    .action(() => cache.outputHelp());
   cache
     .command('clean')
     .description('Delete every checkout and index (sources stay declared).')
@@ -292,9 +319,11 @@ const LEGACY_COMMANDS: Readonly<Record<string, (args: string[]) => string>> = {
   why: (a) => `palm why is now: palm describe ${a.join(' ').replace(/@\S+/g, '') || 'tdd'}`,
   find: (a) => `palm find is now: palm describe ${a[0] ?? '.claude/skills/tdd/SKILL.md'}`,
   search: (a) => {
+    const snippet = 'an MCP server comes from its README: pbpaste | palm install mcp --snippet -';
+    if (a.some((w) => /^mcp/i.test(w))) return `palm search is gone; ${snippet}`;
     const q = encodeURIComponent(a.join(' ') || 'skills');
     const url = `https://github.com/search?q=${q}+SKILL.md&type=code`;
-    return `palm search is gone; find a repository (${url}), then list it, for example: palm install mattpocock/skills`;
+    return `palm search is gone; find a repository (${url}), then list it, for example: palm install mattpocock/skills; ${snippet}`;
   },
   config: () => 'palm config is gone; targets live in palm.yaml (~/.palm/palm.yaml with -g)',
   origin: (a) => originReplacement(a),
@@ -306,9 +335,12 @@ function originReplacement([sub, spec]: string[]): string {
     return `${form} is now: palm install ${spec ?? 'mattpocock/skills'}`;
   if (sub === 'update') return `${form} is now: palm update`;
   if (sub === 'remove' || sub === 'rm')
-    return `${form} is gone; a source leaves palm.yaml with its last entry: palm get --source ${spec ?? 'mattpocock/skills'}`;
+    return `${form} is gone; a source leaves palm.yaml with its last entry: palm get sources`;
   return `${form} is now: palm get sources`;
 }
+
+/** The hidden palm 0.1 commands (`palm help doctor` shows theirs). */
+export const LEGACY_COMMAND_NAMES: readonly string[] = Object.keys(LEGACY_COMMANDS);
 
 function registerLegacy(program: Command): void {
   for (const [name, line] of Object.entries(LEGACY_COMMANDS)) {
@@ -317,8 +349,9 @@ function registerLegacy(program: Command): void {
       .argument('[args...]')
       .allowUnknownOption()
       .helpOption(false)
-      .action((args: string[]) => {
-        throw usage(line(args));
+      .action((args: string[], _opts: unknown, cmd: Command) => {
+        const global = Boolean(cmd.optsWithGlobals().global);
+        throw usage(scoped(line(args), global ? 'global' : 'project'));
       });
   }
 }

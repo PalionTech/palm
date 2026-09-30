@@ -6,6 +6,7 @@ import {
   interpretWords,
   prepareArgv,
 } from '../../src/commands/grammar.js';
+import type { KnownSource } from '../../src/commands/hints.js';
 import { parseArgv } from '../../src/commands/program.js';
 import { PalmError } from '../../src/core/errors.js';
 
@@ -13,6 +14,12 @@ const declared =
   (...names: string[]) =>
   (word: string) =>
     names.includes(word);
+
+const SOURCES: KnownSource[] = [
+  { name: 'mattpocock/skills', input: 'mattpocock/skills', owner: 'mattpocock', repo: 'skills' },
+  { name: 'obra/superpowers', input: 'obra/superpowers', owner: 'obra', repo: 'superpowers' },
+];
+const KIT: KnownSource = { name: 'kit', input: 'https://gitlab.acme.com/kit.git', repo: 'kit' };
 
 function usageOf(fn: () => unknown): { message: string; hint?: string } {
   try {
@@ -137,26 +144,85 @@ describe('interpretInstall: palm 0.1 forms print the new form and run it', () =>
     expect(w).toMatchObject({ source: 'mattpocock', names: [{ kind: 'skill', name: 'tdd' }] });
   });
 
-  it('a #ref belongs to update --to', () => {
-    expect(usageOf(() => interpretInstall(['tdd@mp#v1']))).toEqual({
-      message: 'a version belongs to the source in palm.yaml, not to a name',
-      hint: 'palm update mp --to v1',
+  it('keeps an alias for the command while commander parses (no palm.yaml yet)', () => {
+    expect(interpretInstall(['tdd@mp#v1'])).toEqual({ source: 'mp', names: [{ name: 'tdd' }] });
+  });
+
+  it('E16, L7: an alias names the declared source whose repository or owner it is', () => {
+    const ctx = { isDeclared: declared('mattpocock/skills', 'obra/superpowers'), sources: SOURCES };
+    expect(interpretInstall(['skill', 'grill-me@mattpocock'], ctx)).toEqual({
+      source: 'mattpocock/skills',
+      names: [{ kind: 'skill', name: 'grill-me' }],
+      legacy: {
+        form: 'palm install skill grill-me@mattpocock',
+        replacement: 'palm install mattpocock/skills skill:grill-me',
+      },
     });
+    expect(interpretInstall(['brainstorming@superpowers'], ctx).source).toBe('obra/superpowers');
   });
 
-  it('names from two aliases install one source at a time', () => {
-    const e = usageOf(() => interpretInstall(['tdd@a', 'grill@b']));
-    expect(e.message).toBe('tdd@a grill@b names 2 sources; install from one source at a time');
-    expect(e.hint).toBe('palm install a tdd');
+  it('J8: an alias ~/.palm/config.yaml knows resolves to its repository', () => {
+    const ctx = { isDeclared: declared(), legacyAliases: { mp: 'mattpocock/skills' } };
+    expect(interpretInstall(['tdd@mp'], ctx).source).toBe('mattpocock/skills');
   });
 
-  it('an alias palm.yaml does not declare points at palm migrate', () => {
+  it('C23, D10: a #ref on a name moves to the source location', () => {
+    const ctx = { isDeclared: declared('mattpocock/skills'), sources: SOURCES };
+    expect(usageOf(() => interpretInstall(['tdd@mattpocock#v1.2.3'], ctx))).toEqual({
+      message: 'a version belongs to the source, not to a name',
+      hint: '  palm install mattpocock/skills#v1.2.3 tdd',
+    });
+    const fresh = { isDeclared: declared() };
+    expect(usageOf(() => interpretInstall(['skill', 'tdd@mattpocock#v1.2.3'], fresh)).hint).toBe(
+      '  palm install mattpocock/skills#v1.2.3 skill:tdd',
+    );
+    expect(
+      usageOf(() => interpretInstall(['tdd@acme#v2'], { ...fresh, scope: 'global' })).hint,
+    ).toBe(
+      '  palm install <owner/repo>#v2 tdd          for example  palm install mattpocock/skills#v2 tdd -g',
+    );
+  });
+
+  it('J8: names from two aliases get one line per source', () => {
+    const ctx = { isDeclared: declared('a'), legacyAliases: { b: 'obra/superpowers' } };
+    const e = usageOf(() => interpretInstall(['tdd@a', 'grill@b'], ctx));
+    expect(e.message).toBe('these names come from 2 sources; palm install takes one at a time:');
+    expect(e.hint).toBe('  palm install a tdd\n  palm install obra/superpowers grill');
+  });
+
+  it('E16: an alias nothing resolves gets the 0.2 form, not palm migrate', () => {
     expect(usageOf(() => interpretInstall(['tdd@mattpocock'], { isDeclared: declared() }))).toEqual(
       {
-        message: '"mattpocock" is not a source in palm.yaml',
-        hint: 'declare the sources your palm 0.1 project used: palm migrate',
+        message:
+          '"mattpocock" is a palm 0.1 alias and palm.yaml declares no source for it; did you mean mattpocock/skills?',
+        hint: '  palm install mattpocock/skills tdd',
       },
     );
+    const e = usageOf(() =>
+      interpretInstall(['tdd@acme'], { isDeclared: declared('kit'), sources: [KIT] }),
+    );
+    expect(e.hint).toBe(
+      '  palm install <owner/repo> tdd             for example  palm install kit tdd',
+    );
+  });
+
+  it('J8: install origin with several repositories gives one line each', () => {
+    const e = usageOf(() =>
+      interpretInstall(['origin', 'obra/superpowers', 'mattpocock/skills'], {
+        isDeclared: declared(),
+      }),
+    );
+    expect(e.hint).toBe('  palm install obra/superpowers\n  palm install mattpocock/skills');
+  });
+
+  it('a 0.1 name after a source is the same command with plain names', () => {
+    const ctx = { isDeclared: declared('mattpocock/skills'), sources: SOURCES };
+    expect(usageOf(() => interpretInstall(['mattpocock/skills', 'tdd#v1'], ctx)).hint).toBe(
+      '  palm install mattpocock/skills#v1 tdd',
+    );
+    expect(
+      usageOf(() => interpretInstall(['kit', 'tdd@mp'], { isDeclared: declared('kit') })).hint,
+    ).toBe('  palm install kit tdd');
   });
 
   it('install origin needs the repository', () => {
@@ -237,14 +303,19 @@ describe('interpretRemove', () => {
       ['skill', 'tdd@mp#v1'],
       { form: 'palm remove skill tdd@mp#v1', replacement: 'palm remove mp skill:tdd' },
     ],
+    [['tdd@gone'], { form: 'palm remove tdd@gone', replacement: 'palm remove tdd' }],
   ])('palm 0.1 form %j', (words, legacy) => {
-    expect(interpretRemove(words).legacy).toEqual(legacy);
+    expect(interpretRemove(words, { isDeclared: declared('mp') }).legacy).toEqual(legacy);
+  });
+
+  it('a declared source first, names after it', () => {
+    expect(interpretRemove(['acme-kit', 'reviewer'], { isDeclared: declared('acme-kit') })).toEqual(
+      { source: 'acme-kit', names: [{ name: 'reviewer' }] },
+    );
   });
 
   it('a source leaves palm.yaml with its last entry', () => {
-    expect(usageOf(() => interpretRemove(['origin', 'pstack'])).hint).toBe(
-      'palm get --source pstack',
-    );
+    expect(usageOf(() => interpretRemove(['origin', 'pstack'])).hint).toBe('palm get sources');
   });
 });
 
@@ -487,9 +558,12 @@ describe('parseArgv: verbs, aliases and flags', () => {
     expect(usageOf(() => parseArgv(argv))).toEqual({ message: line, hint: undefined });
   });
 
-  it('search is gone and points at GitHub', () => {
+  it('J18: search is gone and points at GitHub, and MCP servers at --snippet', () => {
     expect(usageOf(() => parseArgv(['search', 'tdd'])).message).toBe(
-      'palm search is gone; find a repository (https://github.com/search?q=tdd+SKILL.md&type=code), then list it, for example: palm install mattpocock/skills',
+      'palm search is gone; find a repository (https://github.com/search?q=tdd+SKILL.md&type=code), then list it, for example: palm install mattpocock/skills; an MCP server comes from its README: pbpaste | palm install mcp --snippet -',
+    );
+    expect(usageOf(() => parseArgv(['search', 'mcp', 'brave'])).message).toBe(
+      'palm search is gone; an MCP server comes from its README: pbpaste | palm install mcp --snippet -',
     );
   });
 });

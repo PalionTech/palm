@@ -1,6 +1,8 @@
 /**
- * `palm install <source>` without names (PLAN.md §4.9, Nora's second command): what the source
- * offers, programs marked, and the pasteable next line. Nothing is saved.
+ * `palm install <source> [--grep text]` without names (PLAN.md §4.9, Nora's second command): what
+ * the source offers (or what matches), programs marked, and the pasteable next line: the source
+ * as the person can paste it (its key once declared, else what they typed) with the names in
+ * `kind:name` form where the source offers a name in two kinds. Nothing is saved.
  *
  *   obra/superpowers  v4.0.3 (a1b2c3d)   15 skills, 1 hook
  *     skill  brainstorming             Explore requirements before writing code
@@ -89,22 +91,39 @@ function entitySummary(e: Entity, executable: boolean): string {
   return executable ? `${body}   ${PROGRAM}` : body;
 }
 
-/** Two names to try: the first entities that are not programs. */
-function suggestedNames(entities: Entity[], executable: (e: Entity) => boolean): string[] {
-  return entities
-    .filter((e) => !executable(e))
-    .slice(0, 2)
-    .map((e) => e.name);
+/** How a listing names its source and filters: the paste line, and `--grep` (L12). */
+export interface ListingView {
+  /** `palm install <source as the person can paste it> <names…>` (K9, D9, -g). */
+  line(names: readonly string[]): string;
+  grep?: string;
 }
 
-export function printListing(
-  out: Output,
-  listed: SourceListing,
+/** L12: entities whose name or description holds the text (any case). */
+function matching(entities: Entity[], grep: string | undefined): Entity[] {
+  if (!grep) return entities;
+  const q = grep.toLowerCase();
+  return entities.filter((e) => `${e.name} ${e.description ?? ''}`.toLowerCase().includes(q));
+}
+
+/** `kind:name` when the source offers the name in more than one kind (R7), else the name. */
+function pasteName(e: Entity, all: readonly Entity[]): string {
+  const clash = all.some((o) => o !== e && o.name === e.name && o.kind !== e.kind);
+  return clash ? `${e.kind}:${e.name}` : e.name;
+}
+
+/** Two names to try: the first entities shown that are not programs. */
+function suggestedNames(
+  shown: Entity[],
   executable: (e: Entity) => boolean,
-): void {
-  const entities = listable(listed.index.entities);
-  const name = listed.source.name;
-  out.out(`${name}  ${versionOf(listed.checkout)}   ${countsOf(entities)}`);
+  all: readonly Entity[],
+): string[] {
+  return shown
+    .filter((e) => !executable(e))
+    .slice(0, 2)
+    .map((e) => pasteName(e, all));
+}
+
+function printRows(out: Output, entities: Entity[], executable: (e: Entity) => boolean): void {
   const kw = Math.max(0, ...entities.map((e) => e.kind.length));
   const nw = Math.max(0, ...entities.map((e) => e.name.length));
   for (const e of entities) {
@@ -112,22 +131,44 @@ export function printListing(
     const line = `  ${padVisible(e.kind, kw)}  ${padVisible(e.name, nw)}   ${summary}`;
     out.out(line.trimEnd());
   }
-  if (!entities.length) return;
-  out.out('Nothing written. Install some:');
-  const names = suggestedNames(entities, executable);
-  if (names.length) out.out(`    palm install ${name} ${names.join(' ')}`);
-  out.out(`    palm install ${name} --all`);
 }
 
-/** The listing as data (`--json`). */
-export function listingJson(listed: SourceListing, executable: (e: Entity) => boolean) {
+export function printListing(
+  out: Output,
+  listed: SourceListing,
+  executable: (e: Entity) => boolean,
+  view: ListingView,
+): void {
+  const all = listable(listed.index.entities);
+  const entities = matching(all, view.grep);
+  const counts = view.grep
+    ? `${countsOf(entities)} of ${all.length} match "${view.grep}"`
+    : countsOf(all);
+  out.out(`${listed.source.name}  ${versionOf(listed.checkout)}   ${counts}`);
+  printRows(out, entities, executable);
+  if (!entities.length) {
+    if (view.grep) out.hint(`list everything it offers: ${view.line([])}`);
+    return;
+  }
+  out.out('Nothing written. Install some:');
+  const names = suggestedNames(entities, executable, all);
+  if (names.length) out.out(`    ${view.line(names)}`);
+  if (!view.grep) out.out(`    ${view.line(['--all'])}`);
+}
+
+/** The listing as data (`--json`), filtered by `--grep`. */
+export function listingJson(
+  listed: SourceListing,
+  executable: (e: Entity) => boolean,
+  view: Pick<ListingView, 'grep'> = {},
+) {
   return {
     source: listed.source.name,
     declared: listed.declared,
     ref: listed.checkout.ref,
     sha: listed.checkout.sha,
     tree: listed.checkout.tree,
-    entities: listable(listed.index.entities).map((e) => ({
+    entities: matching(listable(listed.index.entities), view.grep).map((e) => ({
       kind: e.kind,
       name: e.name,
       description: e.description,

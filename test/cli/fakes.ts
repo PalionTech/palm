@@ -16,11 +16,19 @@ import type {
   PickOption,
   Scope,
   Source,
+  SourceCheckout,
+  SourceIndex,
   Target,
   TargetId,
   UI,
 } from '../../src/core/types.js';
-import type { CliDeps, EngineApi, ScopeState, SourceRef } from '../../src/create/engine.js';
+import type {
+  CliDeps,
+  EngineApi,
+  ScopeState,
+  SourceListing,
+  SourceRef,
+} from '../../src/create/engine.js';
 import type { Sandbox } from '../support/sandbox.js';
 
 // scope ----------------------------------------------------------------------------------------
@@ -54,6 +62,11 @@ export function fakeSourceRef(s: FakeSource): SourceRef {
     ...(s.ref ? { ref: s.ref } : {}),
   };
   const where = s.path ?? s.url ?? `https://github.com/${s.name}.git`;
+  if (!s.path && !s.url) source.url = where;
+  const segs = where
+    .replace(/\.git$/, '')
+    .split('/')
+    .filter(Boolean);
   return {
     source,
     name: s.name,
@@ -61,6 +74,7 @@ export function fakeSourceRef(s: FakeSource): SourceRef {
     isLocal: Boolean(s.path),
     isGit: !s.path,
     describe: () => where,
+    repoParts: () => ({ owner: segs[segs.length - 2], repo: segs[segs.length - 1] ?? s.name }),
     matches: (q: string) => q === s.name || q === s.alias || q === s.path,
   } as unknown as SourceRef;
 }
@@ -195,6 +209,54 @@ export function fakeEngine(over: Overrides = {}): FakeEngine {
     };
   }
   return deps as FakeEngine;
+}
+
+// listings -------------------------------------------------------------------------------------
+
+/** An entity of a source's index (a skill unless `kind` says otherwise). */
+export function entity(
+  name: string,
+  opts: { kind?: Entity['kind']; description?: string; source?: string } = {},
+): Entity {
+  const kind = opts.kind ?? 'skill';
+  const description = opts.description ?? `${name} ${kind}`;
+  const def =
+    kind === 'agent'
+      ? { kind, agent: { name, description, body: '' } }
+      : { kind: 'skill' as const, skill: { name, description } };
+  return {
+    kind,
+    name,
+    description,
+    path: `${kind}s/${name}`,
+    source: opts.source ?? 'kit',
+    def,
+  } as Entity;
+}
+
+/** What `listSource` returns for `source` offering `entities`. */
+export function fakeListing(
+  source: FakeSource,
+  entities: Entity[],
+  opts: { declared?: boolean; warnings?: string[] } = {},
+): SourceListing {
+  const checkout: SourceCheckout = {
+    source: { name: source.name, type: source.path ? 'local' : 'git' },
+    sourceId: source.name,
+    root: '/cache/src',
+    repoDir: '/cache/src',
+    sha: '8be01d4aa0000000000000000000000000000000',
+    ref: 'v1.2.3',
+  };
+  const index: SourceIndex = {
+    source: source.name,
+    sourceId: source.name,
+    root: '/cache/src',
+    entities,
+    warnings: opts.warnings ?? [],
+    detected: 'convention',
+  };
+  return { source: fakeSourceRef(source), checkout, index, declared: Boolean(opts.declared) };
 }
 
 // outcomes -------------------------------------------------------------------------------------

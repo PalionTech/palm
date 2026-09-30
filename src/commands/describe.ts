@@ -1,126 +1,108 @@
 /**
  * `palm describe <[kind:]name or path>` (alias `info`), DESIGN.md §10: one entity (source,
- * version, files per harness, notes, what selected it, its programs and their trust, the
- * variables a server needs); for a path, the entity that wrote it; `describe source <s>` and
- * `describe target <t>`.
+ * version, files per harness, notes, `at:`, what selected it, its programs and their trust, the
+ * variables a server needs); `describe <source> <name>` for an entity a source offers, installed
+ * or not (J21); for a path or a bare file name, the entity that wrote it (V12); `describe source
+ * <s>` and `describe target <t>`. A name two entries answer to is E_AMBIGUOUS whose hints name
+ * the source (K18, J15).
  */
 import { PalmError } from '../core/errors.js';
-import { pluralize } from '../core/kinds.js';
 import { looksLikeSourceInput } from '../core/source-input.js';
-import {
-  type EntityRefSpec,
-  KINDS,
-  type Kind,
-  type PalmContext,
-  TARGET_IDS,
-} from '../core/types.js';
-import {
-  type EntityInfo,
-  type ScopeState,
-  type SourceListing,
-  targetOf,
-} from '../create/engine.js';
-import { displayLockPath, shortHash } from '../ui/format.js';
-import type { Output } from '../ui/output.js';
+import type { EntityRefSpec, Kind, PalmContext, Scope } from '../core/types.js';
+import type { InstalledRow } from '../create/engine.js';
+import { displayLockPath } from '../ui/format.js';
 import type { App } from './app.js';
+import { describeAvailable, printEntity } from './describe-entity.js';
+import { describeSource, describeTarget } from './describe-scope.js';
 import { formatName, type Invocation, usage } from './grammar.js';
-import { activeTargets, refCell, sourceView, targetViews } from './scope-view.js';
-
-type TokenName = Parameters<ScopeState['paths']['token']>[0];
-const TOKEN_NAMES: ReadonlySet<string> = new Set([
-  'home',
-  'palm',
-  'agents',
-  'claude',
-  'codex',
-  'copilot',
-  'cursor',
-  'gemini',
-  'opencode',
-]);
-
-import {
-  displayPath,
-  engine,
-  engineDeps,
-  type GlobalOptions,
-  makeContext,
-  scopeOf,
-} from './shared.js';
+import { palmLine } from './hints.js';
+import { engine, engineDeps, type GlobalOptions, makeContext, scopeOf } from './shared.js';
 
 interface DescribeFlags extends GlobalOptions {
   source?: string;
-}
-
-function field(out: Output, label: string, value: string | undefined): void {
-  if (value) out.out(`  ${out.colors.dim(label.padEnd(Math.max(12, label.length + 1)))}${value}`);
 }
 
 function isPath(name: string): boolean {
   return /[/\\]/.test(name) || name.startsWith('.') || name.startsWith('~');
 }
 
-const setWord = (s: { name: string; set: boolean }) => `${s.name} (${s.set ? 'set' : 'not set'})`;
-
-/** An MCP server: each harness's file and pointer, then the block palm merged there. */
-function printBlocks(out: Output, blocks: NonNullable<EntityInfo['blocks']>): void {
-  for (const t of TARGET_IDS)
-    for (const b of blocks[t] ?? []) {
-      field(out, t, `${displayLockPath(b.file)} ${b.at}`);
-      for (const line of JSON.stringify(b.value, null, 2).split('\n')) out.out(`      ${line}`);
-    }
+/** K18, J15: the one installed entry `ref` names; several is E_AMBIGUOUS naming each source. */
+async function pickInstalled(ctx: PalmContext, app: App, ref: EntityRefSpec, flags: DescribeFlags) {
+  const scope = scopeOf(flags);
+  const q = {
+    ...(ref.kind ? { kind: ref.kind } : {}),
+    names: [ref.name],
+    ...(flags.source ? { source: flags.source } : {}),
+  };
+  const rows = await engine(app).listInstalled(ctx, scope, q);
+  if (rows.length < 2) return rows[0];
+  const forms = rows.map((r) => `${r.entry.kind}:${r.entry.name} from ${r.entry.source}`);
+  const lines = rows.map((r) => `  ${describeLine(r, scope)}`);
+  throw new PalmError(
+    'E_AMBIGUOUS',
+    `"${ref.name}" names ${rows.length} installed entries: ${forms.join(', ')}`,
+    lines.join('\n'),
+  );
 }
 
-function printFiles(out: Output, info: EntityInfo): void {
-  if (info.blocks) {
-    printBlocks(out, info.blocks);
-    return;
-  }
-  for (const t of TARGET_IDS) {
-    const files = info.files[t];
-    if (files?.length) field(out, t, files.map(displayLockPath).join(', '));
-  }
-  for (const m of info.entry.merged ?? [])
-    field(out, 'merged', `${displayLockPath(m.file)} ${m.at}`);
+function describeLine(r: InstalledRow, scope: Scope): string {
+  return palmLine('describe', [r.entry.source, `${r.entry.kind}:${r.entry.name}`], scope);
 }
 
-function printExec(out: Output, info: EntityInfo): void {
-  if (!info.exec) return;
-  for (const c of info.exec.commands) field(out, 'runs', `${c.id}  ${c.command}`);
-  const hash = `sha256:${shortHash(info.exec.hash, 8)}`;
-  const e = info.entry;
-  const allow = `palm install --allow-exec ${e.kind}:${e.name}@${e.source}=${info.exec.hash}`;
-  field(out, 'trust', info.exec.trusted ? `trusted (${hash})` : `not trusted; allow it: ${allow}`);
+/** V12: a bare file name (`setup.sh`) as the one installed path that ends with it. */
+async function pathOfFileName(ctx: PalmContext, app: App, name: string, scope: Scope) {
+  const rows = await engine(app).listInstalled(ctx, scope);
+  const paths = rows.flatMap(({ entry: e }) => [
+    ...e.files,
+    ...(e.merged ?? []).map((m) => m.file),
+  ]);
+  const hits = [...new Set(paths.filter((p) => p === name || p.endsWith(`/${name}`)))];
+  if (hits.length < 2) return hits[0];
+  throw new PalmError(
+    'E_AMBIGUOUS',
+    `${hits.length} installed files are named ${name}: ${hits.map(displayLockPath).join(', ')}`,
+    hits.map((h) => `  ${palmLine('describe', [displayLockPath(h)], scope)}`).join('\n'),
+  );
 }
 
-function printEntity(out: Output, info: EntityInfo, scope: string): void {
-  const e = info.entry;
-  out.out(`${out.colors.bold(`${e.kind} ${e.name}`)}  (installed, ${scope} scope)`);
-  if (info.entity?.description) out.out(`  ${info.entity.description}`);
-  field(out, 'source', [e.source, info.source.url ?? info.source.path].filter(Boolean).join('  '));
-  field(out, 'ref', [refCell(info.source), shortHash(info.source.sha)].filter(Boolean).join('  '));
-  field(out, 'path', e.path);
-  field(out, 'version', info.entity?.version);
-  field(out, 'selected by', info.selectedBy === 'manifest' ? 'palm.yaml' : info.selectedBy);
-  field(out, 'members', e.deps?.map((d) => `${d.kind} ${d.name}`).join(', '));
-  printFiles(out, info);
-  for (const note of info.notes) field(out, 'note', note);
-  printExec(out, info);
-  field(out, 'variables', info.secrets?.map(setWord).join(', '));
+/** Not installed: where to look (J21: `describe <source> <name>` reads a source's index). */
+async function notInstalled(ctx: PalmContext, app: App, ref: EntityRefSpec, scope: Scope) {
+  const state = await engine(app).openScope(ctx, scope, { readOnly: true });
+  const names = state.sources.names();
+  const where = scope === 'global' ? 'globally' : 'in this project';
+  const hint =
+    names.length === 1
+      ? `describe it from its source: ${palmLine('describe', [names[0] as string, formatName(ref)], scope)}`
+      : `list what is installed: ${palmLine('get', [], scope)}`;
+  return new PalmError('E_NOT_FOUND', `${formatName(ref)} is not installed ${where}`, hint);
 }
 
 async function describeName(ctx: PalmContext, app: App, ref: EntityRefSpec, flags: DescribeFlags) {
-  const q = flags.source ? { ...ref, source: flags.source } : ref;
   const scope = scopeOf(flags);
+  const row = await pickInstalled(ctx, app, ref, flags);
+  if (!row) {
+    const path = ref.kind ? undefined : await pathOfFileName(ctx, app, ref.name, scope);
+    if (path) return describePath(ctx, app, path, flags);
+    throw await notInstalled(ctx, app, ref, scope);
+  }
+  const e = row.entry;
+  const q = { kind: e.kind, name: e.name, source: e.source };
   const info = await engine(app).describeEntity(ctx, q, { scope }, engineDeps(app));
   if (app.out.jsonMode) return app.out.json(info);
   printEntity(app.out, info, scope);
 }
 
 async function describePath(ctx: PalmContext, app: App, path: string, flags: DescribeFlags) {
-  const owners = await engine(app).ownerOfPath(ctx, path, { scope: scopeOf(flags) });
+  const scope = scopeOf(flags);
+  const owners = await engine(app).ownerOfPath(ctx, path, { scope });
   if (!owners.length) {
-    const hint = looksLikeSourceInput(path) ? `palm describe source ${path}` : 'palm get --files';
+    const state = await engine(app)
+      .openScope(ctx, scope, { readOnly: true })
+      .catch(() => undefined);
+    const source = state?.sources.byName(path)?.name;
+    const hint = source
+      ? palmLine('describe', ['source', source], scope)
+      : palmLine('get', ['--files'], scope);
     throw new PalmError('E_NOT_FOUND', `no installed entity wrote ${path}`, hint);
   }
   if (app.out.jsonMode) return app.out.json(owners);
@@ -128,90 +110,43 @@ async function describePath(ctx: PalmContext, app: App, path: string, flags: Des
     app.out.out(`${displayLockPath(file)}  ${match} of ${e.kind} ${e.name} from ${e.source}`);
 }
 
-function offers(listed: SourceListing | undefined): string {
-  if (!listed) return 'unknown (palm could not fetch it)';
-  const counts = KINDS.map(
-    (k) => [k, listed.index.entities.filter((e) => e.kind === k).length] as const,
-  );
-  const shown = counts.filter(([, n]) => n > 0).map(([k, n]) => `${n} ${pluralize(k, n)}`);
-  return shown.join(', ') || 'nothing palm can install';
-}
-
-async function describeSource(ctx: PalmContext, app: App, state: ScopeState, name: string) {
-  const ref = state.sources.byName(name);
-  if (!ref)
-    throw new PalmError(
-      'E_NOT_FOUND',
-      `palm.yaml declares no source "${name}"`,
-      'palm get sources',
-    );
-  const view = sourceView(state, ref);
-  const api = engine(app);
-  const scope = state.paths.scope;
-  const listed = await api
-    .listSource(ctx, ref.name, { scope }, engineDeps(app))
-    .catch(() => undefined);
-  for (const w of listed?.index.warnings ?? []) app.out.warn(`${ref.name}: ${w}`);
-  const { root, layout } = ref.source;
-  const detected = listed?.index.detected ?? state.lock.source(ref.name)?.descriptor;
-  if (app.out.jsonMode)
-    return app.out.json({ ...view, root, layout, detected, offers: offers(listed) });
-  const out = app.out;
-  out.out(out.colors.bold(`source ${ref.name}`));
-  field(out, ref.isLocal ? 'path' : 'url', view.location);
-  field(out, 'alias', view.alias);
-  field(out, 'ref', view.ref);
-  field(out, ref.isLocal ? 'tree' : 'sha', shortHash(view.sha ?? view.tree));
-  field(out, 'root', root);
-  field(out, 'layout', layout ? JSON.stringify(layout) : undefined);
-  field(out, 'detected', detected);
-  field(out, 'installed', String(view.entries));
-  field(out, 'offers', offers(listed));
-}
-
-async function describeTarget(ctx: PalmContext, app: App, state: ScopeState, id: string) {
-  const view = (await targetViews(app, ctx, state)).find((t) => t.id === id.toLowerCase());
-  if (!view)
-    throw usage(
-      `"${id}" is not a target (${TARGET_IDS.join(', ')})`,
-      'palm describe target claude',
-    );
-  const target = await targetOf(app.deps ?? {}, view.id);
-  const dirs = target.outputDirs(state.paths.scope, state.paths.root, ctx.env);
-  if (app.out.jsonMode) return app.out.json({ ...view, outputDirs: dirs });
-  const out = app.out;
-  out.out(`${out.colors.bold(`target ${view.id}`)}  (${view.name})`);
-  field(out, 'active', view.active ? 'yes' : 'no (add it to targets: in palm.yaml)');
-  field(out, 'config dir', view.configDir);
-  const at = { scope: state.paths.scope, scopeRoot: state.paths.root, env: ctx.env };
-  const scopeSet = await activeTargets(app, ctx, state);
-  const active = view.active ? scopeSet : [...scopeSet, view.id];
-  // Global places are tokens (<claude>/skills); a person reads them as ~/.claude/skills.
-  const shown = (where: string) =>
-    where.replace(/<([a-z]+)>/g, (m, t: string) =>
-      TOKEN_NAMES.has(t) ? displayPath(ctx, state.paths.token(t as TokenName)) : m,
-    );
-  for (const p of target.placements?.(at, active) ?? []) field(out, p.kind, shown(p.where));
-  field(out, 'writes to', dirs.map(displayLockPath).join(', '));
+/** `describe <source> <name>` (J21): two words, the first a source palm.yaml declares or an input form. */
+async function sourceAndName(ctx: PalmContext, app: App, inv: Invocation, flags: DescribeFlags) {
+  const [first, second] = inv.names;
+  if (!first || !second || first.kind || inv.resource) return false;
+  const state = await engine(app).openScope(ctx, scopeOf(flags), { readOnly: true });
+  const declared = state.sources.byName(first.name);
+  if (!declared && !looksLikeSourceInput(first.name)) return false;
+  const source = declared?.name ?? first.name;
+  const installed = await pickInstalled(ctx, app, second, { ...flags, source });
+  if (installed) await describeName(ctx, app, second, { ...flags, source });
+  else await describeAvailable(ctx, app, { source, ref: second, state });
+  return true;
 }
 
 function oneName(inv: Invocation): EntityRefSpec {
   const [first, ...rest] = inv.names;
-  if (!first) throw usage('name what to describe', 'palm get');
+  const scope = scopeOf(inv.opts as DescribeFlags);
+  if (!first) throw usage('name what to describe', palmLine('get', [], scope));
   if (rest.length)
-    throw usage('palm describe shows one thing at a time', `palm describe ${formatName(first)}`);
+    throw usage(
+      'describe shows one thing at a time',
+      palmLine('describe', [formatName(first)], scope),
+    );
   return first;
 }
 
 export async function run(inv: Invocation, app: App): Promise<void> {
   const flags = inv.opts as DescribeFlags;
-  const first = oneName(inv);
   const ctx = await makeContext(app, flags);
   if (inv.resource === 'source' || inv.resource === 'target') {
+    const first = oneName(inv);
     const state = await engine(app).openScope(ctx, scopeOf(flags), { readOnly: true });
     if (inv.resource === 'source') return describeSource(ctx, app, state, first.name);
     return describeTarget(ctx, app, state, first.name);
   }
+  if (await sourceAndName(ctx, app, inv, flags)) return;
+  const first = oneName(inv);
   if (!inv.resource && !first.kind && isPath(first.name))
     return describePath(ctx, app, first.name, flags);
   const kind = (inv.resource as Kind | undefined) ?? first.kind;

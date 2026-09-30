@@ -202,8 +202,8 @@ targets: claude   (detected from .claude/; change targets: in palm.yaml)
 + skill  brainstorming             .claude/skills/brainstorming/   3 files
   ... 14 more
 ! hook   session-start             runs a program on your machine; not installed
-    see it:      palm install obra/superpowers session-start --dry-run
-    install it:  palm install obra/superpowers session-start
+    see it:      palm install obra/superpowers hook:session-start --dry-run
+    install it:  palm install obra/superpowers hook:session-start
 15 installed. Commit palm.yaml, palm.lock.yaml and .claude/ together.`,
     );
     expect(deps.calls.installFromSource?.[0]?.[0]).toEqual({

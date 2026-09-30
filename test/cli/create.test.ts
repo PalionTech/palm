@@ -188,7 +188,7 @@ describe('palm create', () => {
         '+ source ./agent-kit → palm.yaml',
         '+ skill  notes   .claude/skills/notes/   1 file',
         '1 installed. Commit palm.yaml, palm.lock.yaml, agent-kit/ and .claude/ together.',
-        'edit agent-kit/skills/notes/SKILL.md; palm install renders the change',
+        'edit agent-kit/skills/notes/SKILL.md, then run: palm install',
         '',
       ].join('\n'),
     );
@@ -198,13 +198,13 @@ describe('palm create', () => {
     const r = await palm(sb, ['create', 'command', 'changelog']);
     expect(r.code).toBe(2);
     expect(r.stderr).toBe(
-      'x a command installs as a skill; palm create writes skills\n  palm create skill changelog\n',
+      'x a command installs as a skill; create writes skills\n  palm create skill changelog\n',
     );
   });
 
   it('plugins and MCP servers are not templates', async () => {
     const r = await palm(sb, ['create', 'mcp', 'docs']);
     expect(r.code).toBe(2);
-    expect(r.stderr).toContain('palm create writes a skill, agent, instruction or hook, not "mcp"');
+    expect(r.stderr).toContain('create writes a skill, agent, instruction or hook, not "mcp"');
   });
 });

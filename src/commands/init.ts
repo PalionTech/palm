@@ -1,15 +1,21 @@
 /**
- * `palm init [--target ids] [--here]` (DESIGN.md §10): write `targets:` (found here, or the
- * flag) to palm.yaml in this directory and the two ignore lines to .gitignore. Refuses inside a
- * directory with a palm.yaml above it in the same repository unless `--here` (PLAN.md §4.11).
+ * `palm init [--target ids] [--here] [-g]` (DESIGN.md §10): write `targets:` (found here, or the
+ * flag) to palm.yaml in this directory and the two ignore lines to .gitignore; with -g, to
+ * ~/.palm/palm.yaml (J12, D5, R9). What was found is printed with its evidence (`codex
+ * (AGENTS.md)`), and on a terminal the person may change the set before it is written (C25).
+ * Refuses inside a directory with a palm.yaml above it in the same repository unless `--here`
+ * (PLAN.md §4.11), and where a project cannot be (the scope guards of openScope).
  */
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
-import type { PalmContext, TargetId } from '../core/types.js';
+import { PalmError } from '../core/errors.js';
+import { type PalmContext, type Scope, TARGET_IDS, type TargetId } from '../core/types.js';
+import { targetOf } from '../create/engine.js';
 import type { Manifest } from '../domain/manifest.js';
 import type { App } from './app.js';
 import { type Invocation, usage } from './grammar.js';
+import { palmLine } from './hints.js';
 import {
   displayPath,
   engine,
@@ -21,11 +27,23 @@ import {
 
 interface InitFlags extends GlobalOptions {
   target?: string;
+  /** The second spelling of --target. */
+  targets?: string;
   here?: boolean;
 }
 
 /** The only palm paths a project ignores (DESIGN.md §2). */
 const IGNORE_LINES = ['.palm/local/', 'palm.local.yaml'] as const;
+
+/** C25: what makes each harness count as used in a project, in the order palm looks. */
+const PROJECT_EVIDENCE: Readonly<Record<TargetId, readonly string[]>> = {
+  claude: ['.claude', 'CLAUDE.md'],
+  codex: ['.codex', 'AGENTS.md'],
+  copilot: ['.github/copilot-instructions.md', '.github/agents', '.vscode/mcp.json'],
+  cursor: ['.cursor'],
+  gemini: ['.gemini', 'GEMINI.md'],
+  opencode: ['.opencode', 'opencode.json', 'opencode.jsonc'],
+};
 
 /** `.gitignore` text with the palm lines it lacks appended, and which ones those were. */
 function withIgnoreLines(text: string): { text: string; added: string[] } {
@@ -52,7 +70,7 @@ async function refuseNested(ctx: PalmContext, app: App): Promise<void> {
   if (!enclosing || enclosing === cwd) return;
   const rel = relative(enclosing, cwd).split(sep).join('/');
   throw usage(
-    `${rel} is inside project ${enclosing} (palm.yaml). Add entries with --at ${rel}, or start a separate project here: palm init --here`,
+    `${rel} is inside project ${enclosing} (palm.yaml). Add entries with --at ${rel} (placed at the root until 0.3), or start a separate project here: palm init --here`,
   );
 }
 
@@ -63,56 +81,96 @@ async function gitignore(cwd: string): Promise<{ file: string; text: string; add
   return { file, ...withIgnoreLines(current ?? '') };
 }
 
-async function targetsFor(ctx: PalmContext, app: App, flag: TargetId[] | undefined) {
-  if (flag) return flag;
+/** The directory init writes palm.yaml into, and its root for detection. */
+function placeOf(ctx: PalmContext, scope: Scope): { dir: string; root: string } {
+  if (scope === 'global') return { dir: ctx.paths.palmHome, root: ctx.paths.home };
+  return { dir: ctx.paths.cwd, root: ctx.paths.cwd };
+}
+
+async function detect(ctx: PalmContext, app: App, scope: Scope): Promise<TargetId[]> {
   const api = engine(app);
-  const paths = await api.scopePaths('project', ctx.paths.cwd, ctx.paths.palmHome, ctx.env);
-  const found = await api.detectTargets(ctx, paths, await api.resolveEngineDeps(engineDeps(app)));
-  if (!found.length)
-    throw usage(
-      'no harness found here (.claude/, .codex/, .github/, .cursor/, .gemini/, .opencode/)',
-      'palm init --target claude',
-    );
-  return found;
+  const { root } = placeOf(ctx, scope);
+  const paths = await api.scopePaths(scope, root, ctx.paths.palmHome, ctx.env);
+  return api.detectTargets(ctx, paths, await api.resolveEngineDeps(engineDeps(app)));
+}
+
+/** C25: `codex (AGENTS.md)`: the file or directory that marked the harness as used here. */
+async function evidenceOf(ctx: PalmContext, app: App, id: TargetId, scope: Scope) {
+  if (scope === 'global') {
+    const target = await targetOf(app.deps ?? {}, id);
+    return `${displayPath(ctx, target.configDir('global', ctx.paths.home, ctx.env), 'global')}/`;
+  }
+  const found = PROJECT_EVIDENCE[id].find((p) => existsSync(join(ctx.paths.cwd, p)));
+  if (!found) return undefined;
+  return statSync(join(ctx.paths.cwd, found)).isDirectory() ? `${found}/` : found;
+}
+
+/** L13: with nothing found here, the harnesses found in the home directory make the example. */
+async function noHarness(ctx: PalmContext, app: App, scope: Scope): Promise<PalmError> {
+  const home = scope === 'project' ? await detect(ctx, app, 'global').catch(() => []) : [];
+  const ids = home.length ? home.join(',') : 'claude';
+  const where =
+    scope === 'global'
+      ? 'no harness found in your home directory (~/.claude, ~/.codex, ~/.cursor, ...)'
+      : 'no harness found here (.claude/, .codex/, .github/, .cursor/, .gemini/, .opencode/)';
+  return usage(where, palmLine('init', ['--target', ids], scope));
+}
+
+/** L13, C25: the targets found (with evidence), which a person on a terminal may change. */
+async function detected(ctx: PalmContext, app: App, scope: Scope): Promise<TargetId[]> {
+  const found = await detect(ctx, app, scope);
+  if (!found.length) throw await noHarness(ctx, app, scope);
+  const shown: string[] = [];
+  for (const id of found) {
+    const why = await evidenceOf(ctx, app, id, scope);
+    shown.push(why ? `${id} (${why})` : id);
+  }
+  if (!app.out.jsonMode) app.out.info(`found ${shown.join(', ')}`);
+  if (!ctx.ui.isInteractive || ctx.flags.yes || ctx.flags.dryRun) return found;
+  const options = TARGET_IDS.map((id) => ({ value: id, label: id }));
+  const chosen = await ctx.ui.pickMany('Targets for palm.yaml', options, found);
+  if (!chosen.length) throw new PalmError('E_CANCELLED', 'no target chosen');
+  return TARGET_IDS.filter((id) => chosen.includes(id));
 }
 
 export async function run(inv: Invocation, app: App): Promise<void> {
   const flags = inv.opts as InitFlags;
-  if (flags.global)
-    throw usage(
-      'palm init sets up a project; -g needs no init',
-      'palm install obra/superpowers -g',
-    );
-  const flag = parseTargetList(flags.target);
+  const scope: Scope = flags.global ? 'global' : 'project';
+  const flag = parseTargetList(flags.target ?? flags.targets);
   const ctx = await makeContext(app, flags);
-  if (!flags.here) await refuseNested(ctx, app);
-  const file = join(ctx.paths.cwd, 'palm.yaml');
+  if (scope === 'project') {
+    await engine(app).openScope(ctx, 'project', { readOnly: true });
+    if (!flags.here) await refuseNested(ctx, app);
+  }
+  const file = join(placeOf(ctx, scope).dir, 'palm.yaml');
   const manifest = await engine(app).loadManifest(file);
   const current = manifest.targets;
   if (current && !flag) {
     if (app.out.jsonMode) return app.out.json({ file, targets: current, changed: false });
-    app.out.info(`${displayPath(ctx, file)} already lists targets: ${current.join(', ')}`);
-    return app.out.hint('change them: palm init --target claude,cursor');
+    app.out.info(`${displayPath(ctx, file, scope)} already lists targets: ${current.join(', ')}`);
+    return app.out.hint(`change them: ${palmLine('init', ['--target', current.join(',')], scope)}`);
   }
-  const targets = await targetsFor(ctx, app, flag);
-  await writeInit(ctx, app, { file, manifest, targets });
+  const targets = flag ?? (await detected(ctx, app, scope));
+  await writeInit(ctx, app, { file, manifest, targets, scope });
 }
 
 async function writeInit(
   ctx: PalmContext,
   app: App,
-  job: { file: string; manifest: Manifest; targets: TargetId[] },
+  job: { file: string; manifest: Manifest; targets: TargetId[]; scope: Scope },
 ): Promise<void> {
-  const { file, targets } = job;
-  const ignore = await gitignore(ctx.paths.cwd);
+  const { file, targets, scope } = job;
+  const ignore = scope === 'project' ? await gitignore(ctx.paths.cwd) : undefined;
+  const added = ignore?.added ?? [];
   const out = app.out;
   const dry = ctx.flags.dryRun;
   if (!dry) await job.manifest.setTargets(targets).save(file);
-  if (!dry && ignore.added.length) await writeFile(ignore.file, ignore.text);
-  if (out.jsonMode) return out.json({ file, targets, gitignore: ignore.added, dryRun: dry });
+  if (!dry && ignore && added.length) await writeFile(ignore.file, ignore.text);
+  if (out.jsonMode) return out.json({ file, targets, gitignore: added, dryRun: dry });
   const verb = dry ? 'would write' : 'wrote';
-  out.mark('+', `${verb} ${displayPath(ctx, file)}: targets ${targets.join(', ')}`);
-  if (ignore.added.length)
-    out.mark('+', `${verb} ${displayPath(ctx, ignore.file)}: ${ignore.added.join(', ')}`);
-  out.hint('next: see what a source offers, for example palm install mattpocock/skills');
+  out.mark('+', `${verb} ${displayPath(ctx, file, scope)}: targets ${targets.join(', ')}`);
+  if (ignore && added.length)
+    out.mark('+', `${verb} ${displayPath(ctx, ignore.file)}: ${added.join(', ')}`);
+  const next = palmLine('install', ['mattpocock/skills'], scope);
+  out.hint(`next: see what a source offers, for example: ${next}`);
 }

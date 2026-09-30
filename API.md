@@ -518,11 +518,11 @@ export function requestInstallStop(): void;                                     
 // sync.ts
 export async function syncScope(ctx: PalmContext, opts: InstallOptions, deps?: Partial<EngineDeps>): Promise<InstallResult>; // DESIGN §6 "Bare install"
 // remove.ts
-export async function removeEntities(ctx: PalmContext, refs: Array<EntityRefSpec & { source?: string }>, opts: InstallOptions & { exclude?: boolean }, deps?: Partial<EngineDeps>): Promise<RemoveResult>; // DESIGN §6 "Remove"
+export async function removeEntities(ctx: PalmContext, refs: Array<EntityRefSpec & { source?: string }>, opts: InstallOptions & { exclude?: boolean }, deps?: Partial<EngineDeps>): Promise<RemoveResult>; // DESIGN §6 "Remove"; RemoveResult.kept?: KeptFiles[] names the files it left (owned by another entry, or inside a declared source)
 export async function undeploy(ctx: PalmContext, deps: EngineDeps, job: UndeployJob): Promise<{ failures: InstallFailure[]; warnings: string[] }>;
 //   UndeployJob { paths: ScopePaths; entries: LockEntry[]; protect: Set<string> /* lock form + file#at#key */; dryRun: boolean; sources?: string[] /* real paths of local sources: never deleted inside */ }
 // update.ts
-export async function planUpdate(ctx: PalmContext, sources: string[], opts: { scope: Scope; to?: string }, deps?: Partial<EngineDeps>): Promise<UpdatePlan>; // nothing written; local sources `skipped`
+export async function planUpdate(ctx: PalmContext, sources: string[], opts: { scope: Scope; to?: string }, deps?: Partial<EngineDeps>): Promise<UpdatePlan>; // nothing written; local sources `skipped`; UpdatePlan.sources[].latest?: the newest tag for a pinned source
 export async function applyUpdate(ctx: PalmContext, plan: UpdatePlan, opts: { scope: Scope; to?: string }, deps?: Partial<EngineDeps>): Promise<InstallResult>; // consent through askConsent for plan items with `exec`; moves manifest refs with `to`
 export function planChanges(plan: UpdatePlan): number;
 export async function reviewText(ctx: PalmContext, plan: UpdatePlan, deps: EngineDeps): Promise<string>; // `--review`: script diffs (0.2) [+ prose diffs 0.3]
@@ -595,9 +595,12 @@ export type Verb = 'init' | 'install' | 'remove' | 'update' | 'check' | 'get' | 
 export const VERBS: readonly VerbSpec[];                       // name, aliases, summary, arguments
 export interface Invocation { command: string; resource?: Resource; source?: string; names: EntityRefSpec[]; opts: Record<string, unknown>; legacy?: { form: string; replacement: string }; words?: string[] /* the positional words as typed; install and remove read them again with palm.yaml at hand */ }
 export type Dispatch = (inv: Invocation) => Promise<void>;
-export function interpretInstall(words: string[], ctx?: { isDeclared?: (word: string) => boolean }): InstallWords; // InstallWords { source?; names; mcp?; legacy? }; DESIGN §10: first word = source or `mcp`; `name@alias` legacy; `install origin` legacy; with isDeclared, a bare word → E_USAGE "not a repository"
+export function interpretInstall(words: string[], ctx?: GrammarContext): InstallWords; // InstallWords { source?; names; mcp?; legacy? }; DESIGN §10: first word = source or `mcp`; `name@alias` legacy (legacy.ts); `install origin` legacy; with isDeclared, a bare word → the not-a-source errors (not-a-source.ts)
+//   GrammarContext (hints.ts) { isDeclared?; scope?; sources?: KnownSource[]; entries?; localDir?(word); legacyAliases? /* ~/.palm/config.yaml */; projectSources? /* under -g */ }, built by known.ts grammarContext(ctx, app, state, words)
 export function interpretWords(verb: 'get' | 'describe', words: string[]): { resource?: Resource; names: EntityRefSpec[]; legacy?: Invocation['legacy'] };
-export function interpretRemove(words: string[]): InstallWords;  // first word is a source when it matches looksLikeSourceInput or a declared name (the command resolves the latter)
+export function interpretRemove(words: string[], ctx?: GrammarContext): InstallWords;  // first word is a source when it matches looksLikeSourceInput, or palm.yaml declares it and names follow
+// commands/hints.ts (pure): palmLine(verb, words, scope) → `palm <verb> …[ -g]`; exampleLine(form, example); nearest(word, candidates); sourceFor(alias, ctx); knownRepo(word); formatName
+// commands/legacy.ts (pure): legacyAlias, legacyOrigin, sourcedNames, removedFlagError(words, flags, argv, ctx?) /* --from --ref --alias --project; --frozen runs check in install.ts */
 export function prepareArgv(argv: string[]): { args: string[]; passthrough: string[] };  // split at the first `--`
 export function applyPassthrough(inv: Invocation, passthrough: string[]): Invocation;    // 0.1 `install mcp <name> -- <command> [args…]` → `--command`/`--arg` (legacy line); elsewhere E_USAGE
 export class ExitSignal extends Error { exitCode: number }
@@ -605,11 +608,13 @@ export class ExitSignal extends Error { exitCode: number }
 export function buildProgram(opts: { version?: string; dispatch: Dispatch; writeOut?: (text: string) => void; writeErr?: (text: string) => void }): Command; // verbs, utilities, hidden legacy commands (doctor audit outdated why find search config origin) that print the replacement and exit 2
 export function parseArgv(argv: string[]): { invocation: Invocation; passthrough: string[] };
 // commands/<verb>.ts: export async function run(inv: Invocation, app: App): Promise<void>
-//   install.ts: source with names → installFromSource (`--as`, `--review`); no names, no --all → listSource + the "Nothing written. Install some:" block; bare → syncScope; mcp → mcp.ts
+//   install.ts: source with names → installFromSource (`--as`, `--review`); no names, no --all → listSource + the "Nothing written. Install some:" block (`--grep`); bare → syncScope; mcp → mcp.ts
+//     hints name the source as typed until palm.yaml declares it (engine hints of a failed install are rewritten so); a multi-name install that fails prints "Nothing installed."
 //   mcp.ts: flags (`--url --header --command --arg --env --transport --cwd`) → McpServerConfig via parseAdhocMcp; `--snippet <file|->` → parseMcpJson over the file or stdin
 //     (`--json` stays the global flag); secret-shaped literals through detectSecrets; then installMcp
-//   check.ts: prints one line per CheckRun then problems; ExitSignal(1) when !ok
-//   migrate.ts (ExitSignal(1) on any MigrateReport.failures), create.ts, get.ts, describe.ts, update.ts, remove.ts, init.ts, cache.ts, completion.ts
+//   check.ts: prints one line per CheckRun (status `skip` prints `-`) then problems grouped per entity and fix; `--quiet`; ExitSignal(1) when !ok; printCheck is reused by migrate.ts
+//   describe.ts (+ describe-entity.ts, describe-scope.ts): `<source> <name>` reads the index for an entity not installed; a bare file name resolves to the installed path
+//   migrate.ts (ExitSignal(1) on any MigrateReport.failures; then checkScope, printed, ExitSignal(1) when it fails), create.ts, get.ts, update.ts, remove.ts, init.ts (`-g`), cache.ts, completion.ts
 //   The commands import core/kinds, core/source-input, domain/entity-ref and domain/ignore directly (there is no ports module) and reach the
 //   engine through create/engine.ts (lazy imports). shared.ts `makeContext(app, flags)` builds the PalmContext and sets `ctx.argv` (the consent hints repeat it).
 // commands/app.ts
@@ -647,11 +652,12 @@ export function failureCount(result: object): number;       // (summary.ts, re-e
 export function printInstallSummary(out: Output, result: InstallResult, opts: SummaryOptions): void; // summary.ts, re-exported
 //   SummaryOptions { scope; targets: TargetId[]; dryRun?: boolean /* `would …` */; first?: boolean /* the "Commit palm.yaml, palm.lock.yaml and <dirs> together." line */;
 //   detected?: string[] /* where the targets were detected from, when this run wrote them */; from?: Record<string, LockSource> /* `from <source> <version>` cell */;
-//   alsoCommit?: string[] /* more paths the commit line names (the source `palm create` wrote into) */ }
+//   alsoCommit?: string[] /* more paths the commit line names (the source `palm create` wrote into) */; named?: boolean /* unchanged rows print; "Nothing installed." */;
+//   sourceWord?: (source: string) => string /* the source as a pasteable command names it */ } (rows built in summary-rows.ts)
 //   a program left out by `--all` or declined prints `! hook <name>  runs a program on your machine; not installed` with the `see it:` and `install it:` lines (DESIGN §6 step 6)
 export function formatTable(rows: string[][], header?: string[], colors?: Colors): string;   // format.ts, re-exported
 // ui/prompts.ts
-export function createClackUI(opts?: { input?: Readable; output?: Writable }): UI; // Esc / Ctrl-C → PalmError('E_CANCELLED', 'cancelled'); consent(): prints text, reads one key (y n v d Enter)
+export function createClackUI(opts?: { input?: Readable; output?: Writable }): UI; // Esc / Ctrl-C → PalmError('E_CANCELLED', 'cancelled'); consent(): prints text, reads one key (y n v d Enter); confirm(): `[y/N]` text, one key; a line (`n` + Enter) reads as its first key
 export function createNonInteractiveUI(): UI;             // every prompt throws PalmError('E_NON_INTERACTIVE', ...)
 // create/engine.ts: the CLI's port to the engine (lazy imports)
 export interface EngineApi { openScope; installFromSource; listSource; installMcp; syncScope; removeEntities; planUpdate; applyUpdate; planChanges; reviewText; checkScope; migrateScope;

@@ -16,7 +16,7 @@ async function confirmClean(ctx: PalmContext, shown: string): Promise<void> {
   if (!ctx.ui.isInteractive)
     throw new PalmError(
       'E_NON_INTERACTIVE',
-      `palm cache clean deletes ${shown} and there is no terminal to ask`,
+      `cache clean deletes ${shown} and there is no terminal to ask`,
       'confirm it',
       { retryWith: '--yes' },
     );

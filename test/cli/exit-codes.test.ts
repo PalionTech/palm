@@ -125,7 +125,7 @@ describe('exit codes through runCli', () => {
 
   it('E_NOT_FOUND exits 1 with its hint', async () => {
     const deps = fakeEngine({
-      describeEntity: async () => {
+      listInstalled: async () => {
         throw new PalmError('E_NOT_FOUND', 'nothing named tdd is installed', 'palm get');
       },
     });
@@ -156,9 +156,7 @@ describe('exit codes through runCli', () => {
     const deps = fakeEngine({ planUpdate: async () => plan, planChanges: () => 1 });
     const r = await palm(sb, ['update', 'mattpocock/skills'], { deps });
     expect(r.code).toBe(1);
-    expect(r.stderr).toContain(
-      'x palm update would apply 1 change and there is no terminal to ask',
-    );
+    expect(r.stderr).toContain('x the update would apply 1 change and there is no terminal to ask');
     expect(r.stderr).toContain(
       '  review it with --dry-run, then apply it: palm update mattpocock/skills --yes',
     );

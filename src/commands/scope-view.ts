@@ -14,7 +14,17 @@ import {
 } from '../create/engine.js';
 import { shortHash } from '../ui/format.js';
 import type { App } from './app.js';
-import { displayPath } from './shared.js';
+import { displayPath, homePath } from './shared.js';
+
+/** J10: a server declared in palm.yaml, whose lock source is `manifest`, reads as `palm.yaml`. */
+export function sourceLabel(source: string): string {
+  return source === 'manifest' ? 'palm.yaml' : source;
+}
+
+/** B16: the directory the scope's paths resolve against, as a person reads it. */
+export function scopeRoot(ctx: PalmContext, state: ScopeState): string {
+  return homePath(ctx, state.paths.root);
+}
 
 /** `v1.2.3`, `^1.2 → v1.2.3`, `tree 10934f8`. */
 export function refCell(s: Partial<LockSource>): string {
@@ -93,7 +103,7 @@ export async function targetViews(
       id,
       name: t.displayName,
       active: active.includes(id),
-      configDir: `${displayPath(ctx, dir)}/`,
+      configDir: `${displayPath(ctx, dir, state.paths.scope)}/`,
     });
   }
   return views;
