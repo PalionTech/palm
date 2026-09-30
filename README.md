@@ -28,7 +28,7 @@ palm init --target claude,codex              # palm.yaml with the harnesses for 
 palm install mattpocock/skills               # list what the repository offers; writes nothing
 palm install mattpocock/skills tdd grill-me  # install two skills, declare the source in palm.yaml
 palm install obra/superpowers plugin:superpowers   # every member of a plugin; its hook asks first
-pbpaste | palm install mcp --json -          # an MCP server from the JSON snippet in its README
+pbpaste | palm install mcp --snippet -       # an MCP server from the JSON snippet in its README
 palm check                                   # read-only: palm.yaml, lock, files and sources agree
 git add -A && git commit -m "Add agent setup"
 ```
@@ -44,7 +44,7 @@ moves sources to the newest commit their range allows.
 | `init [--target ids] [--here]` | | Write `palm.yaml` with the detected or given targets, and add `.palm/local/` and `palm.local.yaml` to `.gitignore`. |
 | `install <source> [[kind:]name...] [--all]` | `add`, `i` | Without names, list what the source offers and save nothing. With names or `--all`, render every entity for every target, declare the source in `palm.yaml` and pin it in the lock. `--all` leaves out hooks and stdio servers and prints the command for each. |
 | `install` | | Sync: make the disk match `palm.yaml` and the lock. Installs new entries, removes dropped ones, restores missing files, re-renders changed in-repo sources, keeps files you edited (exit 1). Offline when the cache holds every commit. |
-| `install mcp <name> [flags]`, `install mcp --json <file or ->` | | Declare an MCP server from flags or from a README snippet, rendered into every harness. |
+| `install mcp <name> [flags]`, `install mcp --snippet <file or ->` | | Declare an MCP server from flags or from a README snippet, rendered into every harness. |
 | `remove [source] <[kind:]name...> [--exclude]` | `uninstall`, `rm` | Delete exactly the files and merged entries the lock lists, and update both files. `--exclude` drops one plugin member for the team. |
 | `update [sources...] [--to ref] [--dry-run] [--review]` | `up` | Re-resolve refs within their ranges, print a plan with every changed entity and every new or changed program, ask (default no), then install. `--dry-run` is the outdated report. |
 | `check [--json]` | | Read-only CI gate. Fails when `palm.yaml`, the lock, the generated files or an in-repo source disagree, when a program is untrusted, when a tracked file holds a secret, or when git ignores an output folder. Prints the fix for every problem. |
@@ -145,7 +145,7 @@ An MCP server is declared once and rendered into every target's file and syntax,
 references instead of secrets. Four ways in, none of them a registry:
 
 - `palm install <source> mcp:<name>` takes a server a source ships in its `.mcp.json`.
-- `pbpaste | palm install mcp --json -` reads the JSON snippet from the server's README.
+- `pbpaste | palm install mcp --snippet -` reads the JSON snippet from the server's README.
 - `palm install mcp docs --url https://example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'`
   declares a remote server by flags, and
   `palm install mcp xcodebuild --command npx --arg -y --arg xcodebuildmcp@latest` a stdio one.
@@ -161,7 +161,8 @@ script with its mode, size and hash. `v` pages the script bodies, and on update 
 - Your yes is a hash over the commands and every script byte, recorded as `trust:` in the lock.
   Teammates and CI replay it silently; any change asks again.
 - Without a terminal, palm stops with `E_UNTRUSTED_EXEC` and prints the exact
-  `--allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911` line to consent.
+  `--allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911f2bd0a61d9686cbc62fcfb17c8e8276fa2ea5aa0c69e646a0b23ad60`
+  line to consent: the full hash (a prefix of at least 16 hex digits is accepted).
 - palm refuses hidden Unicode (bidi overrides, tag characters) in any file of an entity, including
   hook scripts, and refuses a hook command that names a script the source does not have.
 - palm never runs what it installs.
@@ -170,7 +171,8 @@ script with its mode, size and hash. `v` pages the script bodies, and on update 
 
 - A literal secret that arrives from a source or a pasted snippet is never written. palm writes
   `${NAME}`, in each harness's syntax, and names the variable to export.
-- A literal you type needs `--secrets literal`, and palm warns when git tracks the destination.
+- A literal you type needs `--secrets literal`, and palm warns when git would commit the
+  destination (inside a worktree and not ignored).
   Under `-g`, a literal is written only outside every git worktree, into a file with mode `0600`.
 - The index and the lock store redacted hashes, never values.
 - `palm check` fails on a literal in a tracked file and lists every variable the installed servers

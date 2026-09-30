@@ -119,9 +119,10 @@ relative path (`./x`, `x/y`) in a hook `command`, an MCP `command`, an `args[]` 
 that names a file or directory in the source (resolved against the hooks file's directory for
 APM layouts, else the plugin root), and the project-dir variables (`$CLAUDE_PROJECT_DIR`,
 `$CURSOR_PROJECT_DIR`, `$GEMINI_PROJECT_DIR`, translated to the target's idiom). A reference
-that resolves to nothing in the source (`eval`, `$(…)`, `~/…`, a missing file) is recorded as
-`unresolved` and becomes a critical `unresolvable-reference` issue: install refuses that hook
-or server with the offending line, and palm never merges a command it could not resolve.
+that resolves to nothing in the source is recorded with `unresolved` set: a missing file keeps
+its form, and `eval`, `$(…)`, backticks, `~/…` and `$HOME/…` get the form `unresolvable`.
+Either becomes a critical `unresolvable-reference` issue: install refuses that hook or server
+with the offending line, and palm never merges a command it could not resolve.
 
 ```
 x hook do-stop-guard from agency: cannot relocate "./scripts/do-stop-guard.sh"
@@ -133,8 +134,16 @@ Rendering: a resolved reference becomes `<PROJECT>/<assetsRoot>/<rel>`, quoted, 
 `<assetsRoot>` is `.palm/assets/<source>/<entity>` for git sources and the source's own
 directory for in-repo sources (`inPlace`: nothing is copied, `"$CLAUDE_PROJECT_DIR"/agent-kit/hooks/x.sh`,
 so a script edit is live). `<source>` in the asset path is the manifest key with `/` replaced
-by `__` and a leading `./` dropped. Global scope renders `"$HOME"/.palm/assets/<source>/<entity>/<rel>`,
-never an absolute path (`$PALM_HOME` when it is set is written as `"${PALM_HOME:-$HOME/.palm}"`).
+by `__` and a leading `./` dropped. `<rel>` is the source-relative path, so closure files keep
+their source-relative paths below the asset root (`.palm/assets/<source>/<entity>/<source-relative path>`,
+for example `.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/x.sh`). Global scope
+renders `"$HOME"/.palm/assets/<source>/<entity>/<rel>`, never an absolute path (`$PALM_HOME`
+when it is set is written as `"${PALM_HOME:-$HOME/.palm}"`). A command that names the plugin
+root also exports the harness's root variable (table below) as the plugin root inside the
+asset directory, `<PROJECT>/<assetsRoot>/<plugin root rel>`
+(`CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash …`),
+so a script that reads the variable finds its siblings; a PowerShell command gets the relocated
+paths without the `VAR=` prefix (`relocateCommand`, `src/targets/relocate.ts`).
 
 | harness | `<PROJECT>` in the command | root variable exported |
 |---|---|---|
@@ -150,7 +159,8 @@ holding the hook definition (`hooks/` in a plugin, the JSON's folder in an APM l
 every source path a command names, at the level named (`workflows/`, `scripts/x.sh`), listed
 once at index. Never copied: `SKILL.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `*-plugin/`
 manifests, `marketplace.json`, `plugin.json`, `.git*`, `node_modules`, so harnesses that scan
-downward find nothing under `.palm/assets`. Mode bits are preserved and part of the exec hash;
+downward find nothing under `.palm/assets`. Modes are preserved as git records them (755 or
+644), and the executable bit is part of the exec hash;
 symlinks are dereferenced (a link leaving the source refuses the entity). The asset directory
 of an entry holds exactly the closure files the lock lists; undeploy removes those and prunes
 empty parents up to `.palm/assets`.
@@ -177,7 +187,12 @@ Enforced in targets and engine:
   (for example ./agent-kit) and declare that`). A local source at `.` is scanned with every
   output directory and every lock-owned path excluded.
 - palm never deletes or overwrites a path whose real path is inside a declared source,
-  `--force` included.
+  `--force` included. Before apply, the engine checks the real path of every rendered path
+  against the real paths of the declared local sources; a hit is `E_SOURCE` for that entity
+  (targets never see the source list).
+- A literal secret found in a source is never written, `--force` included, and it is not a
+  refusal of the entity: the index redacts it, the render writes `${KEY}` in its place, and the
+  install summary says which variable to export (section 8).
 - Only `skills/*/SKILL.md`, or what the layout declares, are entities; a nested
   `references/*/SKILL.md` is content.
 - Symlinks inside a source are followed only when their real target stays inside the source,
@@ -210,7 +225,7 @@ sources:
     ref: ^4
     plugins:
       - name: superpowers
-        exclude: [skill:brainstorming, hook:session-start]
+        exclude: [skill:brainstorming, hook:superpowers]
   acme-kit:                             # a chosen name: url: or path: is required
     url: https://gitlab.acme.com/platform/agent-kit.git
     root: kit
@@ -236,18 +251,20 @@ mcp:                                    # hand-declared servers, keyed by config
 Rules:
 
 - The source key is the name. A key matching `^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$` with no
-  `url:`/`path:` is a GitHub repository. A key starting with `./`, `../` or `/` is a local
-  path (project scope stores it project-relative; a path outside the project is `E_SOURCE`). Any
-  other key needs `url:` (any form `validateSourceUrl` accepts) or `path:`. Names and aliases
+  `url:`/`path:` is a GitHub repository; a key of three or more such segments
+  (`owner/repo/sub/dir`) is that GitHub repository with `root: sub/dir` stored. A key that is
+  `.` or starts with `./`, `../` or `/` is a local path (project scope stores it
+  project-relative; a path outside the project is `E_SOURCE`, checked whenever the scope
+  opens). Any other key needs `url:` (any form `validateSourceUrl` accepts) or `path:`. Names and aliases
   are unique, case-insensitively; a clash is `E_PARSE` naming both.
 - Entries are strings (the name) or objects `{ name, targets?, at?, only?, exclude?, render? }`.
   `targets` narrows the scope's set (a target outside it is `E_PARSE`). `only`/`exclude` apply
-  to a plugin entry and list members as `kind:name` (`skill:tdd`, `hook:session-start`).
+  to a plugin entry and list members as `kind:name` (`skill:tdd`, `hook:superpowers`).
   `at` is stored and shown in 0.2 and honoured in 0.3. `render` is reserved.
 - The same name may appear under two sources only with different kinds; the CLI asks for the
   source when a bare name is ambiguous (`palm remove <source> <name>`).
 - `mcp:` at the top level holds servers written by hand, by `install mcp` flags or by
-  `install mcp --json`; keys are config names (`isSafeName`).
+  `install mcp --snippet`; keys are config names (`isSafeName`).
 - Old format detection: a top-level `origins:` list, kind lists at the top level, or `name@alias`
   strings anywhere is `E_USAGE`: `x palm.yaml is in the 0.1 format` with the hint `palm migrate`.
 - The loader keeps unknown keys and the file's comments and order (`Manifest.save` patches).
@@ -305,7 +322,7 @@ entries:
     content: sha256:…
     render: {}
     files: []
-    deps: [{ kind: skill, name: brainstorming }, { kind: hook, name: session-start }]
+    deps: [{ kind: skill, name: brainstorming }, { kind: hook, name: superpowers }]
   - kind: hook
     name: quality
     source: ./agent-kit
@@ -349,14 +366,21 @@ Rules:
 - `content` is `hashPath` of the entity's source (directory or file). `render.<target>` is the
   render hash: sha256 over the sorted list of `(lock path, mode, sha256 of content)` of the
   files the target writes plus `(file, at, key, canonical JSON of the value)` of the fragments it
-  merges, computed by `renderHashOf(rendered)` (domain) from `Target.render` alone, so it is the
-  same on every machine. Two hashes per entry per target, not one per file.
+  merges, computed by `renderHashOf(rendered)` (domain) from `Target.render` alone. Its inputs
+  are in lock form: paths are lock paths, and the target hands over file contents and fragment
+  values with the expanded home directory and `$PALM_HOME` replaced by `<home>` and `<palm>`,
+  and every secret value by its `${VAR}` reference plus a marker naming the variables written
+  literally (the secrets policy). So a global render hashes the same on every machine (the
+  absolute paths of a global Codex MCP entry included) and a rotated secret does not move it,
+  while the bytes on disk keep the real paths. Two hashes per entry per target, not one per
+  file.
 - `files` lists every path palm wrote for the entry (lock form, sorted, directories by their
   files, closure files included). `merged` lists fragments by `(file, at, id, key)`: `id` is
   palm's identity, `key` finds the fragment on disk (section 2 "merged" and `LockMerged`).
   "Changed" (found by key, value differs) and "missing" (not found) are distinct states, so one
   plugin's removal cannot take another plugin's hook.
-- `exec` and `trust` are section 7. `declined: true` marks a plugin hook the user said no to.
+- `exec` and `trust` are section 7. `declined: true` marks a program the user said no to, or
+  one that `install <source> --all` left out (section 6).
 - `notes` persist what install printed once (dropped fields, skipped targets, "from command",
   "cursor reads .claude/skills"), and `describe` shows them.
 - `targets` appears only when the entry is narrowed below the scope's set; the scope's set
@@ -382,9 +406,12 @@ pulled `~/.palm/palm.lock.yaml` reaches every machine.
 ### Source tree hash
 
 For a local source, `tree` is sha256 over the sorted `(relative path, mode bit, sha256 of
-content with CRLF normalised to LF)` of every file under the source root with the scan skip
-rules applied (`SCAN_IGNORE_DIRS`, `COPY_SKIP`, install output directories and lock-owned
-paths excluded for a source at `.`). The source is the truth: a bare install re-hashes local
+content with CRLF normalised to LF)` of every file under the source root. The scan's ignore
+list does not apply (no `SCAN_IGNORE_DIRS`), so an edit anywhere in an entity moves the tree.
+Left out are only `COPY_SKIP` (`.git`, `node_modules`, `.DS_Store`, `*.zip`), install output
+directories and `.palm` at any depth, the root-level repository files (`AGENTS.md`,
+`CLAUDE.md`, …), and for a source at `.` every lock-owned path (`isTreeExcluded`,
+`src/domain/ignore.ts`). The source is the truth: a bare install re-hashes local
 trees and re-renders entries whose `content` changed, updating `tree` and the entry hashes, and
 `check` fails on drift (`x source ./agent-kit changed since palm.lock.yaml (tree 10934f8 →
 f18c42f); run palm install and commit palm.lock.yaml`). A renamed directory is `E_SOURCE` on
@@ -400,13 +427,17 @@ a tagged checkout`).
 (warning), `ssh://`, `file://` URL or scp-like `user@host:path` address, optionally with
 `#ref`, and a local path (absolute, `~/…`, `./…`). On the first `install <source> <names>` of
 an undeclared source, palm declares it in palm.yaml: GitHub shorthand under its `owner/repo`
-key; a URL under a name derived from the repository (`repo`, or `owner-repo` when taken;
-`--as <name>` overrides); a path under its project-relative `./dir` key (a path outside the
-project is `E_SOURCE`). `#ref` becomes the source's `ref:`; with no tags and no `#ref` the
-default branch is written explicitly and reported (`i ref main saved to palm.yaml; edit ref: to
-pin a tag`); with tags, `ref: ^<latest major>` (`i ref ^1.0 saved to palm.yaml (latest tag
-v1.0.2)`). Re-declaring the same URL under another name prints `~ source acme → kit (renamed)`;
-another ref is `~ source acme: ref ^1.2 → main` and needs confirmation or `--yes`.
+key, and a subdirectory under the full input as its name (`owner/repo/sub/dir`, with
+`root: sub/dir` stored); a URL under a name derived from the repository (`repo`, or
+`owner-repo` when taken; `--as <name>` overrides); a path under its project-relative `./dir`
+key (a path outside the project is `E_SOURCE`). `#ref` becomes the source's `ref:`. Without
+`#ref`, a newly declared git source gets its ref written explicitly and reported: with release
+tags, `ref: ^M.m` of the latest one (`i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit
+ref: to track main`, where `main` is the repository's default branch); without tags, the
+default branch by name (`i ref main saved to palm.yaml; edit ref: to pin a tag`). Re-declaring
+an already declared location under a new `--as` name renames the source in palm.yaml and the
+lock and prints `~ source <old> → <new> (renamed)` (`~ source acme → kit (renamed)`); another
+ref is `~ source acme: ref ^1.2 → main` and needs confirmation or `--yes`.
 
 A source with no names and no `--all` is fetched and indexed, listed, and not saved.
 
@@ -427,7 +458,8 @@ in palm.yaml.
 
 `sourceId` (cache dir name) = sanitized `host/owner/repo[/root]` with `/` → `__`; local
 sources append a short hash of the real path. Checkouts live in `<cache>/<sourceId>/sha-<sha>/`
-(one per sha, fetched once) with `checkout.json` beside; the index file is
+(one per sha, fetched once) with the record `sha-<sha>.json` beside (url, sha, and the ref
+intents that resolved to it); the index file is
 `<sourceId>@<sha>[~<layout hash8>].index.json` (local: `<sourceId>@<tree8>…`). A checkout of a
 sha the lock names is the only network access a bare install needs. `palm cache clean` removes
 `$PALM_HOME/cache` (sources stay declared).
@@ -509,7 +541,10 @@ the values (section 8).
 Names: skill = frontmatter `name` (fallback dirname; if invalid slug, slugify dirname; if it
 differs from dirname keep frontmatter name and warn); a command-as-skill = file stem; agent =
 file stem minus `.agent`, `name` with spaces → `displayName`; plugin = manifest name →
-marketplace entry name → dirname; mcp = server key. A skill and a command with one name in
+marketplace entry name → dirname; mcp = server key; hook = a plugin's hook set is named after
+the plugin, `hooks/<name>/hooks.json` is named `<name>`, and a root `hooks/hooks.json` outside a
+plugin is named after the last path segment of the source's name (`agent-kit` for
+`./agent-kit`, `skills` for `mattpocock/skills`). A skill and a command with one name in
 one source: the skill wins, the command is dropped with a warning.
 Version = frontmatter `metadata.version` → `version` → manifest `version` → tag.
 
@@ -540,25 +575,27 @@ trojan-source character in a script the hook runs refuses the hook at install. B
 NUL byte in the first 8 KB) and files over 1 MB are skipped.
 
 Secret-shaped literals (section 8) in MCP `env`, `headers`, `args`, `url`, hook commands and
-closure files become `secret-literal` issues (critical for MCP values and hook commands, warning
-inside closure files); the index stores `<redacted sha256:8>` in place of the value.
+closure files become `secret-literal` issues (a warning inside a closure file, whose script is
+copied as it is); the index stores `<redacted sha256:8>` in place of the value. A literal secret
+is not a refusal of the entity: the render writes the `${KEY}` reference in its place and the
+install summary says which variable to export; `--force` never writes the literal.
 
 Each finding is one `Entity.issues` entry `{ code, severity, message, file }`; each affected
 entity also adds one line to `ScanResult.warnings`. Entities without findings have no `issues`
-key. A critical issue refuses the entity at install with no override for hidden Unicode and
-unresolvable references (fork the repository), and with `--secrets literal --force` never
-overriding a literal that came from a source.
+key. A critical hidden-Unicode or unresolvable-reference issue refuses the entity at install
+with no override (fork the repository).
 
 ## 6. Engine
 
 ### Install with names
 
 ```
-palm install <source> [[kind:]name…] [--all] [-g] [--dry-run] [--force] [--yes] [--allow-exec …] [--secrets literal]
+palm install <source> [[kind:]name…] [--all] [-g] [--dry-run] [--review] [--force] [--yes] [--allow-exec …] [--secrets literal]
 ```
 
-1. Scope guards (section 2), then take the scope lock. Load the manifest and the lock
-   (`E_USAGE` + `palm migrate` for old formats).
+1. Scope guards (section 2; a declared local source outside the project is `E_SOURCE`), then
+   take the scope lock. Load the manifest and the lock (`E_USAGE` + `palm migrate` for old
+   formats).
 2. Resolve `<source>`: a declared name or alias; else CLI input (section 5) fetched and indexed
    without saving. No names and no `--all`: print what it offers (kind, name, description,
    version; hooks and stdio servers marked "a program; asks before installing") with a
@@ -577,15 +614,33 @@ palm install <source> [[kind:]name…] [--all] [-g] [--dry-run] [--force] [--yes
 5. Render every (entity, target) with `Target.render` (pure) and compute `render` hashes.
    Refusals become failures with a runnable hint: critical issues (no override for hidden
    Unicode and unresolvable references), a whole-file collision with a foreign file (`--force`
-   replaces it), an edited owned file (`--force`), a secret decision `refused`.
+   replaces it), an edited owned file (`--force`), a secret decision `refused` for a literal the
+   user typed. A literal from a source is no refusal: it renders as `${KEY}` (section 8).
 6. Exec units (section 7): build one per hook entry and stdio server from the renders and the
    closure; units whose hash the lock already trusts pass; the rest go through `askConsent`
    (prompt, `--allow-exec`, or `E_UNTRUSTED_EXEC` without a terminal). A declined unit installs
-   nothing for that entry (`declined: true`), the run goes on.
+   nothing for that entry (`declined: true`), the run goes on. `install <source> --all` leaves
+   executables out without a prompt and prints, per skipped program:
+
+   ```
+   ! hook <name>  runs a program on your machine; not installed
+       see it:      palm install <source> <name> --dry-run
+       install it:  palm install <source> <name>
+   ```
+
+   They are recorded as declined, so bare installs stay quiet. A program named explicitly
+   (`palm install <source> <name>`) goes through consent, and `--allow-exec` entries on the
+   command line still allow a program under `--all`. `--review` (install and update) pages every
+   script body through `Output.page` before the prompt, and with `--dry-run` instead of it.
 7. Secrets (section 8): `decideSecret` per destination; `resolveSecrets` only under `literal`.
 8. Apply per (entity, target) through `Target.apply` (transaction per target; a failed target
-   leaves the others, status `partial`, exit 1). Copy the closure to the asset directory first,
-   with its modes.
+   leaves the others, status `partial`, exit 1). The closure files are part of the render
+   (`Rendered.files`, with their modes), so the asset directory is written in the same
+   transaction. Before overwriting a re-rendered or updated entity, hash the entry's files on
+   disk per target the way `renderHashOf` hashes a render's `files` (lock path, mode, sha256 of
+   the content, tokenised as in section 4) and compare with the lock's `render.<target>`: a
+   mismatch means a file changed since palm wrote it, so that target is `! modified (kept)` and
+   a failure (`palm install <source> <name> --force` overwrites it).
 9. Replace the previous entry: undeploy only what the new entry no longer lists (files by path,
    fragments by `(file, at, key)`), after the new deploy succeeded.
 10. Save the lock and the manifest after every entity and again in `finally`; SIGINT stops after
@@ -594,8 +649,9 @@ palm install <source> [[kind:]name…] [--all] [-g] [--dry-run] [--force] [--yes
     the hint), then the warnings, then `N installed. Commit palm.yaml, palm.lock.yaml and
     <dirs> together.` (project scope, first install).
 
-Statuses: `+ installed` (written on every target), `~ updated` (a new sha or content),
-`~ re-rendered` (same content, another render: a target added, a secrets policy changed),
+Statuses: `+ installed` (written on every target), `~ updated` (a new sha or content of a git
+source), `~ re-rendered` (another render: a target added, a secrets policy changed, a changed
+in-repo source),
 `↺ restored` (a missing generated file put back), `= unchanged` (render equals lock and disk
 equals render on every target), `! modified (kept)` (disk differs from the render; kept;
 `palm install <source> <name> --force` restores), `! partial` (one target refused or failed;
@@ -623,7 +679,10 @@ cache holds every sha:
   Render equals `L.render` and every file equals the render: `= unchanged`. A file missing:
   `↺ restored`. A file differing from the render: `! modified (kept)`, exit 1. A fragment
   missing: restored; changed: `! modified (kept)`. Render differs from `L.render` (a changed
-  local source, a palm upgrade that renders differently): apply, update L (`~ re-rendered`).
+  local source, a palm upgrade that renders differently): first hash the entry's files on disk
+  and compare with `L.render` as in "Install with names" step 8 (a mismatch is
+  `! modified (kept)`, exit 1), then apply and update L; a changed in-repo source reports
+  `~ re-rendered`.
 - A ref in palm.yaml that the lock's `ref` no longer equals (an edited pin) is resolved fresh.
 - Exec units are replayed from `trust`; a unit whose hash is not trusted asks (or fails without
   a terminal), never silently.
@@ -670,16 +729,18 @@ names the command that removes both).
    Update plan (project scope)
    mattpocock/skills   ^1.2   v1.2.0 (3f2a1c9) → v1.2.3 (8be01d4)
    ~ updated    skill   tdd
-   + added      skill   review (plugin:kit)          acme-kit
-   = unchanged  agent   reviewer                     acme-kit
-   ! hook team-skills: setup.sh changed (sha256:a7cc… → 3e01…); d shows the diff
+   acme-kit            ^1     v1.1.0 (5c0d2e1) → v1.1.1 (61ec102)
+   + added      skill   review (plugin:kit)
+   = unchanged  agent   reviewer
+   ~ updated    hook    team-skills
+   ! hook team-skills: setup.sh changed (sha256:b3f09e41… → 6d2a0c57…); d shows the diff
    ! you changed these files since palm wrote them; palm overwrites them only with --force:
        .claude/skills/tdd/SKILL.md  (skill tdd)
    ```
 
    `--review` prints, before the question, every changed executable's script bodies as a
-   unified diff against the trusted version and a text diff of every changed skill, instruction
-   and agent, paged on a terminal. `--dry-run` is the outdated report: it prints the plan and
+   unified diff against the trusted version (and, from 0.3, a text diff of every changed skill,
+   instruction and agent), paged on a terminal. `--dry-run` is the outdated report: it prints the plan and
    the source rows and exits 0 (1 with `--strict` when anything is behind its intent).
 3. Ask `Apply N changes? [y/N]` (default No; No changes nothing, exit 0). Without a terminal
    `--yes` is required, else `E_NON_INTERACTIVE` naming `palm update … --yes`. `--yes` never
@@ -769,9 +830,11 @@ the model's shell.
 One exec unit per hook entry and per stdio server (`ExecUnit`, `src/exec/units.ts`):
 `hash = sha256(canonical commands in id order ‖ events ‖ matchers ‖ env keys ‖ cwd ‖
 closure tree)`, where `canonical` is the command before per-harness rendering (placeholders
-intact), and the closure tree is the Merkle hash over sorted relative paths, mode bit and
-content. A commit bump with the same hash, a new target and a palm version do not move it; any
-change to a command, a script byte or mode, an env key or cwd does.
+intact), and the closure tree is the Merkle hash over sorted relative paths, executable bit and
+content. Unit ids are `<Event>//<matcher or ->[#n]` in Claude event names for hooks and `stdio`
+for an MCP server. A commit bump with the same hash, a new target and a palm version do not
+move it; any change to a command, a byte or the executable bit of a closure script (git
+sources; in-repo sources below), an env key or cwd does.
 
 Consent semantics:
 
@@ -859,10 +922,13 @@ Decisions (`decideSecret`):
 
 - A literal that arrives from a source is never written: palm writes `${<KEY>}` and says so
   (`! docs: headers.Authorization held a literal token in the source; written as
-  ${DOCS_TOKEN}; export it before starting Claude Code`). `--force` does not override.
+  ${DOCS_TOKEN}; export it before starting Claude Code`). `--force` does not override. It is
+  not a refusal of the entity: the index redacts the value, the render writes the reference,
+  and the install summary says which variable to export.
 - A literal typed by the user (`--env X=sk-…`, `--header`, a value in palm.yaml `mcp:`) in
   project scope needs `--secrets literal`; without it palm writes the reference and names the
-  variable. With it, palm warns when the destination is tracked (`git ls-files`).
+  variable. With it, palm warns when the destination is inside a git worktree and not ignored
+  (`git check-ignore`), so a new `.mcp.json` that git would commit warns before it is tracked.
 - Global scope writes environment references only. `literal` is allowed only when the
   destination's real path lies outside every git worktree (`git rev-parse --show-toplevel` on
   the destination's directory fails): `x ~/.cursor/mcp.json resolves to
@@ -899,9 +965,10 @@ none of them a registry:
 
 1. From a source: `palm install <source> mcp:<name>` takes the server from the source's
    `.mcp.json` or plugin manifest, like any other entity (a stdio server is an exec unit).
-2. From the README snippet: `palm install mcp --json -` reads a `{ "mcpServers": { … } }`
-   block (or the flat form, or the VS Code `servers` form) from stdin, `--json server.json`
-   from a file, and converts every server in it (`parseMcpJson`): `command`, `args`, `env`,
+2. From the README snippet: `palm install mcp --snippet -` reads a `{ "mcpServers": { … } }`
+   block (or the flat form, or the VS Code `servers` form) from stdin, `--snippet server.json`
+   from a file (`--json` stays the global flag for machine-readable output), and converts every
+   server in it (`parseMcpJson`): `command`, `args`, `env`,
    `cwd`, `url`, `headers`, `type` become an `mcp:` entry in palm.yaml; a secret-shaped literal
    in the snippet becomes `${NAME}` with a notice; an existing name is `E_CONFLICT` unless
    `--force`.
@@ -911,7 +978,8 @@ none of them a registry:
    (`--transport http|sse|stdio` when it cannot be inferred).
 4. By hand, under `mcp:` in palm.yaml, and a bare `palm install`.
 
-The lock records a hand-declared server as an entry with `source: manifest` and `path: mcp/<n>`.
+The lock records a hand-declared server as an entry with `source: manifest` and `path: mcp/<n>`;
+the `--allow-exec` key of such a stdio server is `mcp:<name>@manifest`.
 `get mcp` shows every server with the variables it needs and whether they are set;
 `describe mcp <name>` prints the rendered block for each harness. A stdio server goes through
 consent; a remote server does not, and the prompt says which is which.
@@ -924,7 +992,7 @@ codes.
 | Verb | Aliases | Arguments |
 |---|---|---|
 | `init` | | `[--target <ids>] [--here]` |
-| `install` | `add`, `i` | `<source> [[kind:]name…] [--all] [--as name] [--targets ids] [--at dir]`; bare; `mcp <name> [flags]`; `mcp --json <file or ->` |
+| `install` | `add`, `i` | `<source> [[kind:]name…] [--all] [--as name] [--targets ids] [--at dir] [--review]`; bare; `mcp <name> [flags]`; `mcp --snippet <file or ->` |
 | `remove` | `uninstall`, `rm` | `[source] <[kind:]name…> [--exclude]` |
 | `update` | `up` | `[sources…] [--to ref] [--dry-run] [--strict] [--review]` |
 | `check` | | `[--json]` |
@@ -1056,19 +1124,21 @@ Layers, lowest first; each imports only the layers below it (enforced by Biome).
 | Layer | What lives there |
 |---|---|
 | `src/lib` | palm-free primitives: fs (atomic and symlink-safe writes, `walkFiles`, `isSameFile`, `realpathInside`), json, canonical json, yaml, frontmatter, names, object, placeholders (`${VAR}` grammar), text, hidden-Unicode detection (`unicode.ts`), entropy |
-| `src/domain` | the model: `Source`/`SourceSet` (from a manifest), `EntityRefSpec` (`kind:name`), `EntityKey`/`LockKey`/`Via`, `Manifest` (v3), `Lock` (v3 as a collection), `ScopePaths` (tokens), `MergedRecord` (tagged union with id and key), `renderHashOf`, `AppliedRecord`, skip lists |
+| `src/domain` | the model: `Source`/`SourceSet` (from a manifest), `EntityRefSpec` (`kind:name`), `EntityKey`/`LockKey`/`Via`, `Manifest` (v3), `Lock` (v3 as a collection), `ScopePaths` (tokens), `MergedRecord` (tagged union with id and key), `renderHashOf`, `AppliedRecord`, skip lists, the pure placeholder helpers `detectSecrets`, `allSecrets`, `requiredSecretNames`, `optionalSecretNames` (`secret-refs.ts`) |
 | `src/core` | types and errors, kinds, source input parsing, context, paths, git (`git-exec` is the only place palm spawns git), the index cache (scanner injected), hashing (`hashPath`, `treeHash`) |
+| `src/secrets` | a leaf layer: shapes and entropy (`scan.ts`, which re-exports the placeholder helpers of `domain/secret-refs.ts`), the decision per destination (`policy.ts`), value resolution under `literal` (`resolve.ts`) |
 | `src/index` | the scanner: `scanner.ts` orchestrates, `detect.ts` picks the rule, `rules/` holds one module per scan rule, `files.ts` is the one-walk `FileIndex`, `references.ts` resolves plugin-root and relative references and lists closures, then the hidden-Unicode and secret passes |
-| `src/secrets` | shapes and entropy (`scan.ts`), the decision per destination (`policy.ts`), value resolution under `literal` (`resolve.ts`) |
+| `src/targets` | one `TargetSpec` per harness over a shared `GenericTarget`: kind renderers fill a `Rendered` (no IO beyond reading the source), an `Applier` checks collisions, merges, journals and rolls back; converters render agents, instructions, command-as-skills, hooks and MCP entries per harness; `assets.ts` reads closures into the render (and copies them for `migrate`) |
 | `src/exec` | exec units and hashes (`units.ts`), consent (`consent.ts`: prompt text, `--allow-exec`, viewer, diff), trust bookkeeping over lock entries (`trust.ts`) |
-| `src/targets` | one `TargetSpec` per harness over a shared `GenericTarget`: kind renderers fill a `Rendered` (no IO beyond reading the source), an `Applier` checks collisions, merges, journals and rolls back; converters render agents, instructions, command-as-skills, hooks and MCP entries per harness; `assets.ts` copies closures |
-| `src/engine` | the operations: `resolve.ts` (sources to checkouts and indexes), `render.ts` (entity to renders and hashes), `diff.ts` (the three-way diff), `install.ts`, `sync.ts`, `remove.ts`, `update.ts`, `check.ts`, `migrate.ts`, `applied.ts`, `query.ts`, `targets.ts` |
+| `src/engine` | the operations: `resolve.ts` (sources to checkouts and indexes), `render.ts` (entity to renders and hashes), `diff.ts` (the three-way diff), `install.ts`, `sync.ts`, `remove.ts`, `update.ts`, `check.ts`, `migrate.ts`, `query.ts`, `targets.ts` |
 | `src/commands`, `src/create`, `src/ui` | the CLI: grammar and registration (`program.ts`, lazy `dispatch.ts`), one module per command, the template writer, the one output writer and the prompts |
 
 Import rules: `lib` → nothing; `domain` → lib, core/types, core/errors, core/kinds; `core` →
-lib, domain; `index`, `secrets`, `targets` → lib, domain, core; `exec` → those plus targets
-(for rendered commands); `engine` → those plus index, secrets, exec, targets; `commands` →
-`create` → `ui`, never the reverse; `cli.ts` → commands, ui.
+lib, domain; `secrets`, `targets` → lib, domain, core; `index` → lib, domain, core, secrets
+(secrets is a leaf layer below index); `exec` → lib, domain, core plus targets (for rendered
+commands); `engine` → those plus index, secrets, exec, targets; `commands` → `create` → `ui`,
+never the reverse; `cli.ts` → commands, ui. The pure placeholder helpers live in
+`src/domain/secret-refs.ts` so targets use them without importing secrets.
 
 ## 13. Reserved for 0.3
 

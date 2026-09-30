@@ -12,7 +12,7 @@ mattpocock/skills  ──────►  skill tdd  ─────────
   ref: ^1.2                                          codex   ─────────►  .agents/skills/tdd/
 obra/superpowers   ──────►  plugin superpowers
   ref: ^4                     selects skill ...
-                              and hook session-start ► claude ───────►  .claude/settings.json (merged)
+                              and hook superpowers   ► claude ───────►  .claude/settings.json (merged)
                                                                          .palm/assets/obra__superpowers/...
                             palm.lock.yaml: commit per source, render hash per entry and target, trust
 ```

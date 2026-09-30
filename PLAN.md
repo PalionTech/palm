@@ -133,7 +133,7 @@ Scope. A project (the directory holding palm.yaml, found by walking up to the ne
 | `palm.yaml` | what the team wants: targets, sources with ref and layout, entries with filters | yes | `init`, `install`, `remove`, `update --to`, your editor |
 | `palm.lock.yaml` | what the sources resolved to and what was rendered: per source url, root, ref, sha and layout snapshot; per entry the source hash, one render hash per target, the file list, merged-entry identities, executable hashes, trust and notes | yes | `install`, `remove`, `update` |
 | `palm.local.yaml` | personal additions: extra targets, sources and entries for this checkout | no, ignored | `install --local`, `remove --local`, your editor |
-| `.palm/assets/<source>/` | scripts that hooks and MCP servers run, copied from remote sources | yes | `install`, `update` |
+| `.palm/assets/<source>/<entity>/` | scripts that hooks and MCP servers run, copied from remote sources at their source-relative paths (`<source>` is the source name with `/` as `__`) | yes | `install`, `update` |
 | `.palm/local/` | the overlay's lock and its exclude bookkeeping | no, ignored | the overlay commands |
 | `~/.palm/palm.yaml`, `~/.palm/palm.lock.yaml` | the global scope, same format; harness homes appear as tokens such as `<claude>/skills/x`, never as absolute paths | your choice (dotfiles) | the same verbs with `-g` |
 | `~/.palm/applied.yaml` | the lock as last applied on this machine, with real paths | never | every `-g` command that writes |
@@ -157,7 +157,7 @@ sources:
     ref: ^4
     plugins:
       - name: superpowers
-        exclude: [skill:brainstorming, hook:session-start]
+        exclude: [skill:brainstorming, hook:superpowers]
   acme-kit:
     url: https://gitlab.acme.com/platform/agent-kit.git
     root: kit
@@ -198,10 +198,12 @@ entries:
     content: sha256:77d0
     render: { claude: sha256:c4d5 }
     merged:
-      - { file: .claude/settings.json, at: /hooks/Stop, id: palm:hook:quality:0 }
+      - { file: .claude/settings.json, at: /hooks/Stop, id: palm:hook:quality:0, key: sha256:3e01a9f2 }
     exec:
-      - { id: Stop//quality, command: 'bash "$CLAUDE_PROJECT_DIR"/agent-kit/hooks/quality.sh', hash: sha256:a7cc }
-    trust: [sha256:a7cc]
+      commands:
+        - { id: Stop//-, command: 'bash "$CLAUDE_PROJECT_DIR"/agent-kit/hooks/quality.sh' }
+      hash: sha256:5d41
+    trust: [sha256:5d41]
 ```
 
 Two hashes per entry per target, not one per file (F062: 758 lines for four entries).
@@ -224,7 +226,7 @@ Eight verbs. `--help` fits on one screen.
 | `palm get [kind] [names] [--source s] [--files]` | `list`, `ls` | What is installed: source, ref, sha, targets, file counts, layer (team or local), and the bytes each harness loads at every session (F156). `--files` prints every generated path with its entry. |
 | `palm describe <name or path>` | `info` | One entity: source, version, files per harness, notes, what selected it (a plugin, the overlay), what depends on it. Given a path, the entity that wrote it. `describe source <s>` and `describe target <t>` stay. |
 | `palm create <kind> <name> [--in dir]` | `new` | Write a template for a skill, agent, instruction or hook into the project's in-repo source (default `./agent-kit`, declared in palm.yaml on first use; `~/.palm/kit` under `-g`), then install it. No prompts, no editor, no `mine` (F065, F066, F069). |
-| `palm install mcp <name> [flags]`, `palm install mcp --json <file or ->` | | Declare an MCP server by hand or from a README snippet; section 4.12. |
+| `palm install mcp <name> [flags]`, `palm install mcp --snippet <file or ->` | | Declare an MCP server by hand or from a README snippet; section 4.12. |
 
 Utilities: `completion`, `cache clean`, and `migrate` (0.2 only, section 8).
 
@@ -305,7 +307,7 @@ relevant), path-scoped (globs) and manual (`@name`).
 | skill | `.claude/skills/<n>/` | `.agents/skills/<n>/` | `.agents/skills/` | `.claude/skills` when claude is a target, else `.agents/skills` | `.agents/skills/` | as cursor |
 | agent | `.claude/agents/<n>.md` | `.codex/agents/<n>.toml` | `.github/agents/<n>.agent.md` | `.cursor/agents/<n>.md` | `.gemini/agents/<n>.md` | `.opencode/agents/<n>.md` |
 | hook | merged into `.claude/settings.json` | merged into `.codex/hooks.json` | `.github/hooks/<n>.json` | merged into `.cursor/hooks.json` | merged into `.gemini/settings.json` | skipped, noted |
-| hook scripts | `.palm/assets/<source>/`, committed; in place for in-repo sources | same | same | same | same | none |
+| hook scripts | `.palm/assets/<source>/<entity>/`, committed; in place for in-repo sources | same | same | same | same | none |
 | mcp | `.mcp.json` | `.codex/config.toml` | `.vscode/mcp.json` | `.cursor/mcp.json` | `.gemini/settings.json` | `opencode.json` |
 
 One carrier per harness. Cursor, OpenCode and Copilot read the root `AGENTS.md`; Claude
@@ -324,8 +326,8 @@ harness version it was verified against. An event or field with no row is skippe
 that target with a persisted note, never guessed (F052). Relocation follows one rule: a
 reference to the plugin root (`${CLAUDE_PLUGIN_ROOT}` and its variants,
 `${extensionPath}`, a relative path in a command, an argument or `cwd`) is resolved at
-index time against the source and rendered as `<project dir>/.palm/assets/<source>/<path>`
-in the harness's project-dir idiom, quoted (F133). Anything that resolves to nothing in
+index time against the source and rendered as `<project dir>/.palm/assets/<source>/<entity>/<path>`
+(`<path>` source-relative) in the harness's project-dir idiom, quoted (F133). Anything that resolves to nothing in
 the source refuses that hook and prints the offending line. What is copied is the
 directory holding the hook definition plus every source path a command names, never
 `SKILL.md`, `AGENTS.md` or manifests (F082). In-repo sources are not copied; their scripts
@@ -493,8 +495,9 @@ environment references instead of secrets. Four ways in, none of them a registry
 1. From a source. `palm install <source> mcp:<name>` takes the server from the source's
    `.mcp.json` or plugin manifest, like any other entity.
 2. From the README snippet. Every server's README ships a `mcpServers` JSON block.
-   `palm install mcp --json -` reads it from the clipboard or a pipe, `--json server.json`
-   from a file, and converts it: `command`, `args`, `env`, `url`, `headers` become an
+   `palm install mcp --snippet -` reads it from the clipboard or a pipe, `--snippet
+   server.json` from a file (`--json` stays the global flag for machine-readable output), and
+   converts it: `command`, `args`, `env`, `url`, `headers` become an
    `mcp:` entry in palm.yaml; a literal secret in the snippet becomes `${NAME}` with a
    notice (F074).
 3. By flags. `palm install mcp docs --url https://example.com/mcp --header
