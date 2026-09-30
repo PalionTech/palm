@@ -1,27 +1,23 @@
-// The docs site map: one source of truth for the sidebar order (R6 site map, PLAN.md section 5).
+// The docs site map: one source of truth for the sidebar order.
 //
 // Every slug here must have a page in src/content/docs. Pages marked `draft: true` show in
 // `astro dev` and are left out of `astro build`, together with any group that ends up empty.
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+// Verbs first, in the order of `palm --help`, then the utilities.
 const CLI_COMMANDS = [
+  'init',
   'install',
-  'uninstall',
+  'remove',
+  'update',
+  'check',
   'get',
   'describe',
-  'update',
-  'search',
   'create',
-  'init',
-  'doctor',
-  'config',
+  'migrate',
   'completion',
   'cache',
-  'audit',
-  'why',
-  'find',
-  'outdated',
 ];
 
 export const siteMap = [
@@ -32,30 +28,30 @@ export const siteMap = [
   {
     label: 'Concepts',
     items: [
+      'concepts/sources',
       'concepts/entities',
-      'concepts/origins',
       'concepts/targets',
       'concepts/scopes',
       'concepts/manifest-and-lockfile',
-      'concepts/dependencies',
+      'concepts/consent',
+      'concepts/secrets',
       'concepts/scanning',
-      'concepts/mcp-and-secrets',
     ],
   },
   {
     label: 'Guides',
     items: [
       'guides/new-project',
-      'guides/six-harnesses',
       'guides/team-baseline',
-      'guides/publish-your-own',
-      'guides/mcp-secrets',
-      'guides/migrate-from-apm',
-      'guides/adopt-existing-files',
-      'guides/agent-bundles',
-      'guides/plugins-and-marketplaces',
       'guides/ci',
-      'guides/palm-friendly-repos',
+      'guides/migrate-from-0-1',
+      'guides/migrate-from-apm',
+      'guides/mcp-servers',
+      'guides/adopt-existing-files',
+      'guides/plugins-and-marketplaces',
+      'guides/publish-your-own',
+      'guides/six-harnesses',
+      'guides/monorepos',
     ],
   },
   {
@@ -69,24 +65,23 @@ export const siteMap = [
       },
       'reference/palm-yaml',
       'reference/palm-lock-yaml',
-      'reference/config-yaml',
-      'reference/layout',
-      'reference/targets-matrix',
-      'reference/scan-rules',
       'reference/exit-codes',
       'reference/environment',
-      'reference/troubleshooting',
+      'reference/layout',
+      'reference/scan-rules',
+      'reference/targets-matrix',
       'reference/policies',
       'reference/glossary',
+      'reference/troubleshooting',
     ],
   },
   {
     label: 'Explanation',
     items: [
-      'explanation/why-origins',
       'explanation/why-native-files',
-      'explanation/security',
+      'explanation/why-sources',
       'explanation/comparison',
+      'explanation/security',
     ],
   },
 ];
