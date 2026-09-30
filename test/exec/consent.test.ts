@@ -260,7 +260,7 @@ describe('askConsent', () => {
     );
   });
 
-  it('asks nothing when --allow-exec covers every unit, even without a terminal', async () => {
+  it('asks nothing when --allow-exec covers every unit, even without a terminal (B9: the block is printed)', async () => {
     const allow = [ghCliUnit(), teamHelperUnit()].map((u) => ({ key: u.key, hash: u.hash }));
     const { ctx, consents, logs } = fakeContext({
       interactive: false,
@@ -268,7 +268,11 @@ describe('askConsent', () => {
     });
     expect((await askConsent(ctx, exampleRequest())).allowed).toHaveLength(2);
     expect(consents).toEqual([]);
-    expect(logs).toEqual([]);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toContain('info: This install adds 2 programs that will run on your machine.');
+    expect(logs[0]).toMatch(
+      /\nallowed by --allow-exec: hook:gh-cli@trailofbits\/skills \(sha256:[0-9a-f]{8}\), mcp:team-helper@acme-kit/,
+    );
   });
 
   it('--allow-exec all without a terminal is a usage error', async () => {

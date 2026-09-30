@@ -4,12 +4,16 @@
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { Closure, Entity } from '../../src/core/types.js';
 import { inPlaceClosure } from '../../src/exec/closure.js';
+import { askConsent, consentText } from '../../src/exec/consent.js';
+import { unpinnedLine } from '../../src/exec/pins.js';
 import { withScriptReads } from '../../src/exec/reads.js';
 import { previousStaysActive } from '../../src/exec/trust.js';
 import { closureTree, execUnitOf } from '../../src/exec/units.js';
+import { ghCliUnit, teamHelperUnit } from './examples.js';
+import { fakeContext } from './fakes.js';
 
 async function tree(files: Record<string, string>): Promise<string> {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'palm-exec-v3-')));
@@ -148,6 +152,98 @@ describe('Sofia S3 O10 in-repo reads outside the source folder are hashed in pla
     expect(closureOf(entity).reads).toEqual(['../.agents/hooks/main.go']);
     const files = await inPlaceClosure(kit, closureOf(entity));
     expect(files.map((f) => f.path)).toContain('../.agents/hooks/main.go');
+  });
+});
+
+describe('B11 an unpinned package runner in the review', () => {
+  it.each([
+    ['npx -y @upstash/context7-mcp@latest', 'npx resolves @upstash/context7-mcp@latest'],
+    ['npx -y server-fs', 'npx resolves server-fs@latest'],
+    ['uvx mcp-server-git', 'uvx resolves mcp-server-git@latest'],
+    ['pnpm dlx some-mcp@^1.2', 'pnpm dlx resolves some-mcp@^1.2'],
+    ['npx --package=tool@next tool', 'npx resolves tool@next'],
+  ])('B11 %s warns', (command, said) => {
+    expect(unpinnedLine(command)).toBe(
+      `unpinned: ${said} at run time; pin an exact version to review what runs`,
+    );
+  });
+
+  it.each([
+    'npx -y @upstash/context7-mcp@1.0.14',
+    'uvx mcp-server-git==0.6.2',
+    'node server.js',
+    'bash ./hooks/run.sh',
+  ])('B11 %s does not warn', (command) => {
+    expect(unpinnedLine(command)).toBeUndefined();
+  });
+
+  it('B11 the consent review shows the line under the unit', () => {
+    const unit = teamHelperUnit();
+    const npx = { ...unit, commands: [{ id: 'stdio', canonical: 'npx -y team-helper' }] };
+    const text = consentText(
+      { operation: 'install', units: [npx], prompts: [], lockFile: '' },
+      { scope: 'project', lockFile: 'palm.lock.yaml' },
+    );
+    expect(text).toContain(
+      '     ! unpinned: npx resolves team-helper@latest at run time; pin an exact version to review what runs',
+    );
+  });
+});
+
+describe('B9 a non-interactive --allow-exec consent leaves a text record', () => {
+  it('B9 the review block and the allowed keys are printed', async () => {
+    const unit = ghCliUnit();
+    const { ctx, logs } = fakeContext({
+      interactive: false,
+      flags: { allowExec: [{ key: unit.key, hash: unit.hash }] },
+    });
+    const req = {
+      operation: 'install' as const,
+      units: [unit],
+      prompts: [],
+      lockFile: 'palm.lock.yaml',
+    };
+    expect((await askConsent(ctx, req)).allowed).toEqual([unit.key]);
+    expect(logs[0]).toContain('info: This install adds 1 program that will run on your machine.');
+    expect(logs[0]).toContain(`allowed by --allow-exec: ${unit.key} (sha256:`);
+  });
+});
+
+describe('N10 the pager opens only for text taller than the terminal', () => {
+  const rows = process.stdout.rows;
+  afterEach(() => {
+    process.stdout.rows = rows;
+  });
+
+  it('N10 v on a unit with no scripts prints the short text without the pager', async () => {
+    process.stdout.rows = 40;
+    const unit = {
+      ...teamHelperUnit(),
+      closure: { root: 'x', inPlace: false, files: [], bytes: 0 },
+    };
+    const { ctx, logs } = fakeContext({ pager: true, consent: ['v', 'n'] });
+    const req = {
+      operation: 'install' as const,
+      units: [unit],
+      prompts: [],
+      lockFile: 'palm.lock.yaml',
+    };
+    await askConsent(ctx, req);
+    expect(logs.some((l) => l.startsWith('page:'))).toBe(false);
+    expect(logs.some((l) => l.includes('no scripts'))).toBe(true);
+  });
+
+  it('N10 text taller than the terminal goes through the pager', async () => {
+    process.stdout.rows = 3;
+    const { ctx, logs } = fakeContext({ pager: true, consent: ['v', 'n'] });
+    const req = {
+      operation: 'install' as const,
+      units: [ghCliUnit()],
+      prompts: [],
+      lockFile: 'palm.lock.yaml',
+    };
+    await askConsent(ctx, req);
+    expect(logs.some((l) => l.startsWith('page:'))).toBe(true);
   });
 });
 
