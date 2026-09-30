@@ -1610,7 +1610,6 @@ exports[`golden render: cursor @ global > pins the bytes of every kind 1`] = `
         "text": "---
 name: demo
 description: Demo agent
-readonly: true
 ---
 
 Be helpful.
@@ -1619,7 +1618,7 @@ Be helpful.
     ],
     "fragments": [],
     "notes": [
-      "<cursor>/agents/demo.md: dropped model (sonnet), tools (mapped to readonly: true), skills, mcpServers (not supported by Cursor)",
+      "<cursor>/agents/demo.md: dropped model (sonnet), tools, skills, mcpServers (not supported by Cursor)",
     ],
   },
   "command-as-skill": {
@@ -1869,7 +1868,6 @@ exports[`golden render: cursor @ project > pins the bytes of every kind 1`] = `
         "text": "---
 name: demo
 description: Demo agent
-readonly: true
 ---
 
 Be helpful.
@@ -1878,7 +1876,7 @@ Be helpful.
     ],
     "fragments": [],
     "notes": [
-      ".cursor/agents/demo.md: dropped model (sonnet), tools (mapped to readonly: true), skills, mcpServers (not supported by Cursor)",
+      ".cursor/agents/demo.md: dropped model (sonnet), tools, skills, mcpServers (not supported by Cursor)",
     ],
   },
   "command-as-skill": {

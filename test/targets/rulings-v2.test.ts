@@ -5,7 +5,13 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { isPalmError } from '../../src/core/errors.js';
-import type { Entity, InstructionDefinition, TargetId } from '../../src/core/types.js';
+import type {
+  AgentDefinition,
+  Entity,
+  InstructionDefinition,
+  TargetId,
+} from '../../src/core/types.js';
+import { renderAgent } from '../../src/targets/convert-agent.js';
 import { createTarget } from '../../src/targets/index.js';
 import { cleanupTmp, fakeEnv, mkEntity, renderInput, SKILL_MD, tmpDir, write } from './helpers.js';
 
@@ -237,5 +243,74 @@ describe('Y3 a widened instruction gets a notice per harness', () => {
       'instruction pick: manual in the source, always-on for claude until 0.3',
     ]);
     expect((await renderInstructionFor('codex', await mdc('all', 'always'))).notes).toEqual([]);
+  });
+});
+
+describe('Y10 foreign agent keys and readonly', () => {
+  const cursorAgent: AgentDefinition = {
+    name: 'worker',
+    description: 'Does work',
+    model: 'fast',
+    body: 'Work.\n',
+    extra: { readonly: true, is_background: true, permissionMode: 'plan' },
+    sourceFormat: 'cursor-md',
+  };
+
+  it('Y10 claude drops a model and keys it cannot use and maps readonly to a read-only tool list', () => {
+    const r = renderAgent(cursorAgent, 'claude');
+    expect(r.content).toBe(
+      '---\nname: worker\ndescription: Does work\ntools: Read, Grep, Glob, WebFetch, WebSearch\npermissionMode: plan\n---\n\nWork.\n',
+    );
+    expect(r.dropped).toEqual(['model (fast)', 'extra: is_background']);
+    expect(r.notes).toEqual([
+      'readonly: true written as tools: Read, Grep, Glob, WebFetch, WebSearch',
+    ]);
+  });
+
+  it('Y10 readonly with a tool list takes the write and run tools out', () => {
+    const r = renderAgent(
+      { ...cursorAgent, model: 'sonnet', tools: ['Read', 'Edit', 'Bash(git:*)'] },
+      'claude',
+    );
+    expect(r.content).toContain('model: sonnet\ntools: Read\n');
+    expect(r.notes).toEqual(['readonly: true: Edit, Bash(git:*) left out of tools']);
+  });
+
+  it('Y10 opencode gets permission denials for readonly; codex a read-only sandbox', () => {
+    const open = renderAgent(cursorAgent, 'opencode');
+    expect(open.content).toContain('permission:\n  edit: deny\n  bash: deny\n');
+    expect(open.dropped).not.toContain('extra: readonly');
+    expect(open.notes).toEqual(['readonly: true written as permission edit: deny, bash: deny']);
+    const codex = renderAgent(cursorAgent, 'codex');
+    expect(codex.content).toContain('sandbox_mode = "read-only"');
+  });
+
+  it('Y10 a Claude model and Claude keys stay for claude', () => {
+    const r = renderAgent(
+      {
+        name: 'a',
+        description: 'd',
+        model: 'fable',
+        body: 'b',
+        extra: { maxTurns: 5, effort: 'high' },
+      },
+      'claude',
+    );
+    expect(r.content).toBe(
+      '---\nname: a\ndescription: d\nmodel: fable\nmaxTurns: 5\neffort: high\n---\n\nb\n',
+    );
+    expect(r.dropped).toEqual([]);
+  });
+});
+
+describe('E9 Cursor readonly only when no tool writes or runs programs', () => {
+  it('E9 Bash in the tool list means no readonly', () => {
+    const base: AgentDefinition = { name: 'a', description: 'd', body: 'b' };
+    expect(renderAgent({ ...base, tools: ['Read', 'Bash'] }, 'cursor').content).not.toContain(
+      'readonly',
+    );
+    expect(renderAgent({ ...base, tools: ['Read', 'Grep'] }, 'cursor').content).toContain(
+      'readonly: true',
+    );
   });
 });

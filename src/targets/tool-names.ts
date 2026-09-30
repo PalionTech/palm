@@ -60,7 +60,7 @@ function lookup(table: Readonly<Record<string, string>>, key: string): string | 
 }
 
 /** The tool name of an entry: `Bash(git:*)` → `Bash`. */
-function toolName(entry: string): string {
+export function toolName(entry: string): string {
   return entry.trim().replace(/\(.*\)$/s, '');
 }
 
