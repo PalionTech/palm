@@ -119,18 +119,26 @@ function isTomlControl(code: number): boolean {
   return (code <= 0x1f && code !== 0x09 && code !== 0x0a) || code === 0x7f;
 }
 
+/** A backslash, a run of two or more quotes, or the quote that ends the string. */
+const TOML_ESCAPED = /\\|"{2,}|"$/g;
+
+/** One TOML_ESCAPED match, escaped: `\\` for a backslash, `\"` for each quote. */
+function escapeTomlMatch(match: string): string {
+  return match === '\\' ? '\\\\' : '\\"'.repeat(match.length);
+}
+
 /**
  * TOML multi-line basic string. Escapes backslashes, control characters and every
  * quote that is part of a run of two or more or that ends the string, so the
- * closing delimiter can never be formed by the content.
+ * closing delimiter can never be formed by the content. Backslashes and quotes are
+ * escaped in one pass, before control characters gain their own backslash.
  */
 export function tomlMultilineString(s: string): string {
-  const escaped = Array.from(s.replace(/\\/g, '\\\\').replace(/\r\n/g, '\n'), (c) => {
+  const escaped = s.replace(/\r\n/g, '\n').replace(TOML_ESCAPED, escapeTomlMatch);
+  const body = Array.from(escaped, (c) => {
     const code = c.charCodeAt(0);
     return isTomlControl(code) ? `\\u${code.toString(16).padStart(4, '0')}` : c;
   }).join('');
-  let body = escaped.replace(/"{2,}/g, (run) => run.replace(/"/g, '\\"'));
-  if (body.endsWith('"') && !body.endsWith('\\"')) body = `${body.slice(0, -1)}\\"`;
   return `"""\n${body}"""`;
 }
 

@@ -23,6 +23,7 @@ suffix, e.g. `import { isRecord } from '../lib/object.js'`.
 - `writeFileAtomic(file: string, data: string | Uint8Array, opts?: { mode?: number }): Promise<void>`: temp file + rename in the same dir, creates parents, keeps the old file's mode unless `mode` is given, removes the temp file on failure. A symlinked `file` (a chain, relative or dangling links included) is written through to its final target, so the link survives.
 - `resolveWriteTarget(file: string): Promise<string>`: the path a write to `file` lands on (the final target of a symlinked file, relative links resolved against the real directory holding them; ELOOP after 40 hops).
 - `readTextIfExists(file: string): Promise<string | undefined>`: undefined only for ENOENT.
+- `readFileAndMode(file: string): Promise<{ data: Buffer; mode: number }>`: bytes and mode of a regular file through one open handle (no stat-then-read race); a non-file is `EISDIR`, other fs errors propagate.
 - `readJsonFile<T = unknown>(file: string, opts?: { tolerant?: boolean }): Promise<T>`: BOM ignored; `tolerant` accepts `//` and `/* */` comments and trailing commas; invalid JSON throws `invalid JSON in <file>: …`.
 - `readJsonIfExists<T = unknown>(file: string, opts?: { tolerant?: boolean }): Promise<T | undefined>`: undefined when missing or blank.
 - `writeJsonFile(file: string, value: unknown, opts?: { mode?: number }): Promise<void>`: `stringifyJson` + `writeFileAtomic`.

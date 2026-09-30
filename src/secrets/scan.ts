@@ -80,7 +80,8 @@ const FILL_IN: readonly RegExp[] = [
   /^$/,
   /^<[^<>]*>$/,
   /^your[-_ .]/i,
-  /^x{3,}(?:[-_.]?x+)*$/i,
+  // Runs of x joined by one separator each; a group starts with its separator (no backtracking).
+  /^x{3,}(?:[-_.]x+)*$/i,
   /^(?:change|replace)[-_ ]?me$/i,
   /^\*{3,}$/,
 ];

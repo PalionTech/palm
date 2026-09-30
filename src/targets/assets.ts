@@ -17,7 +17,14 @@ import type { Closure, ClosureFile } from '../core/types.js';
 import { isClosureExcluded, shouldSkipFile } from '../domain/ignore.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
 import type { SourceRef } from '../domain/source.js';
-import { isEnoent, isWithin, toPosix, walkFiles, writeFileAtomic } from '../lib/fs.js';
+import {
+  isEnoent,
+  isWithin,
+  readFileAndMode,
+  toPosix,
+  walkFiles,
+  writeFileAtomic,
+} from '../lib/fs.js';
 import { isSafeName } from '../lib/names.js';
 
 /** One closure file as read from the source. */
@@ -85,8 +92,8 @@ export async function readClosure(
   }
   const out: ClosureEntry[] = [];
   for (const [rel, abs] of [...seen].sort(([a], [b]) => Number(a > b) - Number(a < b))) {
-    const st = await fs.stat(abs);
-    out.push({ rel, mode: gitMode(st.mode), data: await fs.readFile(abs) });
+    const { data, mode } = await readFileAndMode(abs);
+    out.push({ rel, mode: gitMode(mode), data });
   }
   return out;
 }

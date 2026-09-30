@@ -5,7 +5,7 @@
  * not read.
  */
 
-import { type FileHandle, open, readFile } from 'node:fs/promises';
+import { type FileHandle, open } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Closure, Entity } from '../core/types.js';
 import { isClosureExcluded, shouldSkipFile } from '../domain/ignore.js';
@@ -36,7 +36,7 @@ export async function readScannable(abs: string): Promise<string | undefined> {
     if (head.subarray(0, Math.min(bytesRead, BINARY_PROBE_BYTES)).includes(0)) return undefined;
     if (bytesRead < FIRST_READ_BYTES) return head.toString('utf8', 0, bytesRead);
     if ((await fh.stat()).size > MAX_BYTES) return undefined;
-    return (await readFile(abs)).toString('utf8');
+    return (await fh.readFile()).toString('utf8');
   } catch {
     return undefined;
   } finally {

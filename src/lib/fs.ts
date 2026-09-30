@@ -10,6 +10,7 @@ import {
   chmod,
   lstat,
   mkdir,
+  open,
   readdir,
   readFile,
   readlink,
@@ -157,6 +158,23 @@ export async function writeFileAtomic(
   } catch (e) {
     await rm(tmp, { force: true }).catch(() => undefined);
     throw e;
+  }
+}
+
+/**
+ * The bytes and permission mode of the regular file `file`, both read through one open handle,
+ * so they describe the same file even when it is replaced meanwhile. A directory or other
+ * non-file is `EISDIR`; fs errors (`ENOENT`, …) propagate.
+ */
+export async function readFileAndMode(file: string): Promise<{ data: Buffer; mode: number }> {
+  const handle = await open(file, 'r');
+  try {
+    const st = await handle.stat();
+    if (!st.isFile())
+      throw Object.assign(new Error(`not a file: ${file}`), { code: 'EISDIR', path: file });
+    return { data: await handle.readFile(), mode: st.mode };
+  } finally {
+    await handle.close();
   }
 }
 

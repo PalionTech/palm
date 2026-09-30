@@ -15,7 +15,7 @@ import { dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { PalmError } from '../core/errors.js';
 import type { InstallResult, LayoutDescriptor, PalmContext, Scope } from '../core/types.js';
 import { PLACEHOLDER_MARK } from '../index/placeholder-description.js';
-import { removeEmptyParents } from '../lib/fs.js';
+import { errnoCode, isEnoent, removeEmptyParents } from '../lib/fs.js';
 import {
   assertDirAllowed,
   assertName,
@@ -214,6 +214,17 @@ function existingAncestor(abs: string): string {
   return dir;
 }
 
+/** Creates `abs` with `content`; false when a file is already there (`wx`: no check first). */
+async function writeNew(abs: string, content: string): Promise<boolean> {
+  try {
+    await writeFile(abs, content, { flag: 'wx' });
+    return true;
+  } catch (e) {
+    if (errnoCode(e) === 'EEXIST') return false;
+    throw e;
+  }
+}
+
 /**
  * Writes each file of the template; one already there (with the same content, see
  * refuseExisting) stays. Returns what it created, with the directory each rollback stops at.
@@ -225,10 +236,10 @@ async function writeTemplate(
   const created: Array<{ abs: string; stop: string }> = [];
   for (const f of files) {
     const abs = join(dir, f.rel);
-    if (existsSync(abs)) continue;
-    created.push({ abs, stop: existingAncestor(abs) });
+    const stop = existingAncestor(abs);
     await mkdir(dirname(abs), { recursive: true });
-    await writeFile(abs, f.content, { flag: 'wx' });
+    if (!(await writeNew(abs, f.content))) continue;
+    created.push({ abs, stop });
     if (f.mode !== undefined) await chmod(abs, f.mode);
   }
   return created;
@@ -263,14 +274,24 @@ function sourceInput(ctx: PalmContext, dir: string): string {
   return rel === '' ? '.' : `./${rel}`;
 }
 
+/** UTF-8 content of `abs`, or undefined when it does not exist (read, not checked first). */
+function readTextSyncIfExists(abs: string): string | undefined {
+  try {
+    return readFileSync(abs, 'utf8');
+  } catch (e) {
+    if (isEnoent(e)) return undefined;
+    throw e;
+  }
+}
+
 /**
  * E_CONFLICT when a file of the template exists with other content. The same content is a rerun
  * (the install asked for consent without a terminal, and its `then:` line repeats the command).
  */
 function refuseExisting(ctx: PalmContext, dir: string, files: TemplateFile[], opts: CreateOptions) {
   const differs = (f: TemplateFile) => {
-    const abs = join(dir, f.rel);
-    return existsSync(abs) && readFileSync(abs, 'utf8') !== f.content;
+    const text = readTextSyncIfExists(join(dir, f.rel));
+    return text !== undefined && text !== f.content;
   };
   const taken = files.find(differs);
   if (!taken) return;

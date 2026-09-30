@@ -18,6 +18,7 @@ palm-free primitives. Unchanged from 0.1 unless listed.
 export async function writeFileAtomic(abs: string, data: string | Uint8Array, opts?: { mode?: number }): Promise<void>; // temp + rename next to the link's final target
 export async function pathExists(abs: string): Promise<boolean>;
 export async function isSameFile(a: string, b: string): Promise<boolean>;
+export async function readFileAndMode(abs: string): Promise<{ data: Buffer; mode: number }>; // NEW: one open handle for both (no stat-then-read race); a non-file is EISDIR
 export async function walkFiles(root: string, opts?: WalkOptions): Promise<WalkResult>;
 //   WalkOptions { skip?: (name: string, rel: string) => boolean /* decided on the name before the entry is examined */; boundary?: string /* default root */ }
 //   WalkResult { files: Array<{ rel; abs; mode; size }>; skipped: string[] /* links leaving the boundary, broken links, unreadable entries */; symlinksOutside: string[] /* the part of skipped that leaves the boundary; '.' for the root */ }

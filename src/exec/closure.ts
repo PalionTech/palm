@@ -6,12 +6,12 @@
  * same rules as the copy (`CLOSURE_NEVER` inside directories, the copy skip list), and a file a
  * script reads (`Closure.reads`) is kept whatever its name.
  */
-import { readFile, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { contentHash } from '../core/hash.js';
 import type { Closure, ClosureFile } from '../core/types.js';
 import { isClosureExcluded, shouldSkipFile } from '../domain/ignore.js';
-import { walkFiles } from '../lib/fs.js';
+import { readFileAndMode, walkFiles } from '../lib/fs.js';
 
 /** The mode git records: 755 for anything executable, else 644. */
 function gitMode(mode: number): number {
@@ -22,12 +22,10 @@ function gitMode(mode: number): number {
 export type KeepFile = (file: { rel: string; mode: number; data: Buffer }) => boolean;
 
 async function fileOf(abs: string, rel: string, keep?: KeepFile): Promise<ClosureFile | undefined> {
-  const [st, data] = await Promise.all([
-    stat(abs).catch(() => undefined),
-    readFile(abs).catch(() => undefined),
-  ]);
-  if (!st?.isFile() || !data) return undefined;
-  const mode = gitMode(st.mode);
+  const file = await readFileAndMode(abs).catch(() => undefined);
+  if (!file) return undefined;
+  const { data } = file;
+  const mode = gitMode(file.mode);
   if (keep && !keep({ rel, mode, data })) return undefined;
   return { path: rel, mode, size: data.byteLength, hash: contentHash(data) };
 }

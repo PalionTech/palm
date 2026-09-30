@@ -336,7 +336,20 @@ export function readable(r: Rendered, root: string): unknown {
   return JSON.parse(JSON.stringify(shown).replaceAll(root, '<ROOT>'));
 }
 
-/** Every directory (`dir/`) and file (`mode bytes`) below `root`, sorted. */
+/** A file as `snapshot` shows it: `mode bytes`, or `-> target bytes` for a symlink. */
+async function fileEntry(abs: string, isLink: boolean): Promise<string> {
+  const handle = await fs.open(abs, 'r');
+  try {
+    const kind = isLink
+      ? `-> ${await fs.readlink(abs)}`
+      : ((await handle.stat()).mode & 0o777).toString(8);
+    return `${kind} ${(await handle.readFile()).toString('base64')}`;
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Every directory (`dir/`), file (`mode bytes`) and symlink (`-> target bytes`) below `root`, sorted. */
 export async function snapshot(root: string): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   const walk = async (dir: string): Promise<void> => {
@@ -347,8 +360,7 @@ export async function snapshot(root: string): Promise<Record<string, string>> {
         out[`${rel}/`] = 'dir';
         await walk(abs);
       } else {
-        const mode = ((await fs.lstat(abs)).mode & 0o777).toString(8);
-        out[rel] = `${mode} ${(await fs.readFile(abs)).toString('base64')}`;
+        out[rel] = await fileEntry(abs, e.isSymbolicLink());
       }
     }
   };

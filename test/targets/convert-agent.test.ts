@@ -1,3 +1,4 @@
+import fc from 'fast-check';
 import { parse } from 'smol-toml';
 import { describe, expect, it } from 'vitest';
 import type { AgentDefinition } from '../../src/core/types.js';
@@ -100,6 +101,17 @@ describe('renderAgent', () => {
     );
     expect(parse(`x = ${tomlMultilineString('ends with "')}`)).toEqual({ x: 'ends with "' });
     expect(parse(`x = ${tomlMultilineString('')}`)).toEqual({ x: '' });
+    expect(parse(`x = ${tomlMultilineString('ends with \\"')}`)).toEqual({ x: 'ends with \\"' });
+  });
+
+  it('codex: any mix of quotes, backslashes and control characters round-trips', () => {
+    const unit = fc.constantFrom('a', '"', '\\', '\n', '\r', '\t', '\u0001', '\u007f');
+    fc.assert(
+      fc.property(fc.string({ unit }), (s) => {
+        const parsed = parse(`x = ${tomlMultilineString(s)}`) as { x: string };
+        expect(parsed.x).toBe(s.replace(/\r\n/g, '\n'));
+      }),
+    );
   });
 
   it('copilot: display name, tools list with MCP wildcards, skills dropped', () => {

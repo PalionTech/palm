@@ -1,5 +1,5 @@
 $ palm cache clean --yes
-- ~/.palm/cache (36 KB)
+- ~/.palm/cache (<size>)
 sources stay declared; the next install fetches what it needs
 $ palm install --offline
 x source mattpocock/skills: source "mattpocock/skills" at 2c0db90 is not in the cache and --offline is set
