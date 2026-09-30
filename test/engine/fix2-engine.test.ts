@@ -226,3 +226,45 @@ describe("R7' a ref move lists the entries the new commit lacks", () => {
     expect(await w.manifestText()).not.toContain('review');
   });
 });
+
+/** 24 distinct characters: random-looking to the scanner, built at runtime. */
+const RANDOM = 'Zx8kQ2mN7pL4vR9tW3yB6cF1';
+
+describe('S1 a high-entropy value a source ships under any key becomes a reference', () => {
+  it('S1 CREDENTIALS env and X-Session header are written as references', async () => {
+    const w = await makeWorld({ targets: ['claude'], interactive: true });
+    const url = await w.remote('srv', {
+      'v1.0.0': {
+        'mcp.json': JSON.stringify({
+          remote: {
+            transport: 'http',
+            url: 'https://srv.example/mcp',
+            headers: { 'X-Session': RANDOM, 'X-Mode': 'fast' },
+          },
+          local: { transport: 'stdio', command: 'srv-mcp', env: { CREDENTIALS: RANDOM } },
+        }),
+      },
+    });
+    const req = { source: url, names: [{ name: 'remote' }, { name: 'local' }] };
+    const r = await installFromSource(w.ctx, req, project, w.deps);
+    expect(r.failures).toEqual([]);
+    const written = (await w.read('.claude/mcp.json')) ?? '';
+    expect(written).not.toContain(RANDOM);
+    expect(written).toContain('${CREDENTIALS}');
+    expect(written).toContain('"X-Mode": "fast"');
+    expect(written).toMatch(/"X-Session": "\$\{[A-Z_]+\}"/);
+    expect(r.warnings.join('\n')).toContain('env.CREDENTIALS held a literal secret in the source');
+  });
+
+  it('S1 a server declared by hand keeps its plain values (J2 stays with the typed rules)', async () => {
+    const w = await makeWorld({ targets: ['claude'], interactive: true });
+    const cfg = {
+      name: 'own',
+      transport: 'stdio' as const,
+      command: 'own-mcp',
+      env: { MODE: RANDOM },
+    };
+    await installMcp(w.ctx, [{ config: cfg }], project, w.deps);
+    expect(await w.read('.claude/mcp.json')).toContain(RANDOM);
+  });
+});
