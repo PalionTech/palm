@@ -48,8 +48,14 @@ async function legacyLock(w: World, entries: Entry[]): Promise<void> {
   await w.write('palm.lock.yaml', JSON.stringify({ version: 2, targets: ['claude'], entries }));
 }
 
-async function legacyWorld(opts: { interactive?: boolean } = {}): Promise<World> {
-  const w = await makeWorld({ interactive: opts.interactive ?? true, consent: 'yes' });
+async function legacyWorld(
+  opts: { interactive?: boolean; failFor?: TargetId[] } = {},
+): Promise<World> {
+  const w = await makeWorld({
+    interactive: opts.interactive ?? true,
+    consent: 'yes',
+    ...(opts.failFor ? { failFor: opts.failFor } : {}),
+  });
   await w.remote('skills', { 'v1.0.0': REMOTE }, MP);
   await w.local('agent-kit', { 'skills/review/SKILL.md': 'Review.\n' });
   await writeTree(w.palmHome, {
@@ -233,6 +239,19 @@ describe('migrateScope', () => {
     expect(await w.read('.palm/hooks/guard/notes.txt')).toBe('mine\n');
     expect(r.warnings).toContain(
       'kept .palm/hooks/guard/notes.txt: you changed it after palm 0.1 copied it',
+    );
+  });
+
+  it('E3 a hook that did not migrate keeps its .palm/hooks copy, still ignored by git', async () => {
+    const w = await legacyWorld({ failFor: ['claude'] });
+    const r = await migrateScope(w.ctx, { scope: 'project', dryRun: false }, w.deps);
+    expect(r.failures.length).toBeGreaterThan(0);
+    expect(w.exists('.palm/hooks/guard/run.sh')).toBe(true);
+    expect(await w.read('.gitignore')).toBe(
+      'node_modules/\n.palm/local/\npalm.local.yaml\n.palm/hooks/\n',
+    );
+    expect(r.warnings).toContain(
+      'kept .palm/hooks/guard, still ignored by git: hook guard did not migrate',
     );
   });
 

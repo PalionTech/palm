@@ -157,6 +157,18 @@ function migratedHook(plan: Plan, item: LegacyItem): LockEntry | undefined {
 }
 
 /**
+ * A hook that did not migrate keeps its `.palm/hooks/<name>` copy (its 0.1 command still runs
+ * it), so the project's `.gitignore` keeps ignoring `.palm/hooks/` until it does.
+ */
+async function keepIgnored(paths: ScopePaths): Promise<void> {
+  if (paths.scope !== 'project') return;
+  const file = join(paths.root, '.gitignore');
+  const text = (await readTextIfExists(file)) ?? '';
+  if (text.split('\n').some((l) => l.trim() === '.palm/hooks/')) return;
+  await writeFileAtomic(file, `${text}${text && !text.endsWith('\n') ? '\n' : ''}.palm/hooks/\n`);
+}
+
+/**
  * `.palm/hooks/<name>` of every migrated hook goes: the scripts now live under `.palm/assets/`
  * (or run in place from an in-repo source). A hook that did not migrate keeps its copy, since
  * its 0.1 command still runs it.
@@ -171,7 +183,9 @@ async function dropHookDirs(plan: Plan, legacy: LegacyItem[], hashes: Map<string
     const shownDir = display(state.paths, dir);
     const e = migratedHook(plan, item);
     if (!e) {
-      result.warnings.push(`kept ${shownDir}: hook ${item.entry.name} did not migrate`);
+      await keepIgnored(state.paths);
+      const ignored = state.paths.scope === 'project' ? ', still ignored by git' : '';
+      result.warnings.push(`kept ${shownDir}${ignored}: hook ${item.entry.name} did not migrate`);
       continue;
     }
     await dropCopies(plan, dir, hashes);
