@@ -102,7 +102,11 @@ A `.gitignore` line, often `.palm/` from palm 0.1 or a blanket `.claude/`, keeps
 palm tests each file the lock lists, and each file palm merged into, not only the folders.
 
 Remove the line. palm needs only `.palm/local/` and `palm.local.yaml` ignored.
-A file that is not ignored but not yet added is a warning that names `git add`.
+When you ignore `.claude/` on purpose, for personal files such as `.claude/settings.local.json`, keep the rule and re-include palm's output folders only.
+The fix line names them, such as `!.claude/skills/` and `!.claude/rules/`.
+Git cannot re-include a path under an ignored folder, so write `.claude/*` in place of `.claude/` first.
+See [Gitignored outputs](/palm/guides/migrate-from-apm/#gitignored-outputs).
+A file that is not ignored but not yet added is a warning that names the exact paths to `git add`.
 
 ## A source is unreachable
 
