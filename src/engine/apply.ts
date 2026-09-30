@@ -19,6 +19,7 @@ import { isWithin } from '../lib/fs.js';
 import { deepEqual } from '../lib/object.js';
 import { fragmentKey, type TargetVerdict } from './diff.js';
 import { uncheckedNote } from './edits.js';
+import { mergeEnvNotes } from './env-notes.js';
 import type { Prepared, Run } from './jobs.js';
 import { keptProgram } from './moves.js';
 import { removeOrphans } from './orphans.js';
@@ -127,7 +128,7 @@ function entryFor(
   if (failed.size && p.previous) carry(entry, p.previous, failed, merged);
   entry.files.sort();
   if (merged.size) entry.merged = [...merged.values()];
-  if (notes.size) entry.notes = [...notes];
+  if (notes.size) entry.notes = mergeEnvNotes(notes);
   const { unit } = p.out;
   return unit && (p.consent === 'trusted' || p.consent === 'allowed')
     ? withTrust(entry, unit)
@@ -184,42 +185,49 @@ function insideSourceFailure(run: Run, p: Prepared, id: TargetId, lockPath: stri
   run.result.failures.push(failure(subjectOf(p), 'E_SOURCE', { message, hint }, id));
 }
 
+/** One target's write; the keys of the fragments whose shared file it created, or undefined when it failed. */
+async function writeTarget(
+  run: Run,
+  p: Prepared,
+  id: TargetId,
+  rendered: Rendered,
+): Promise<string[] | undefined> {
+  const { ctx, state } = run;
+  try {
+    const applied = await run.deps.getTarget(id).apply({
+      rendered,
+      scopeRoot: state.paths.root,
+      owned: ownedFor(run, p.previous),
+      force: ctx.flags.force,
+      dryRun: ctx.flags.dryRun,
+      env: ctx.env,
+    });
+    if (!ctx.flags.dryRun) {
+      noteWritten(state, rendered);
+      run.touched = true;
+    }
+    return (applied.merged ?? []).filter((m) => m.created).map(fragmentKey);
+  } catch (e) {
+    const f = failureOf(subjectOf(p), e, id);
+    if (isPalmError(e) && e.code === 'E_CONFLICT')
+      f.hint = installCommand(subjectOf(p), state.paths.scope, '--force');
+    run.result.failures.push(f);
+    return undefined;
+  }
+}
+
 /** Writes each target that needs it; returns the keys of the fragments whose shared file it created. */
 async function writeTargets(run: Run, p: Prepared, failed: Set<TargetId>): Promise<Set<string>> {
-  const { ctx, state } = run;
-  const owned = ownedFor(run, p.previous);
   const created = new Set<string>();
   for (const id of p.decision.toWrite) {
     const full = p.out.renders[id];
     if (!full || failed.has(id)) continue;
     const rendered = withoutKept(full, p.decision.kept);
     const hit = await insideSource(run, rendered);
-    if (hit) {
-      failed.add(id);
-      insideSourceFailure(run, p, id, hit);
-      continue;
-    }
-    try {
-      const applied = await run.deps.getTarget(id).apply({
-        rendered,
-        scopeRoot: state.paths.root,
-        owned,
-        force: ctx.flags.force,
-        dryRun: ctx.flags.dryRun,
-        env: ctx.env,
-      });
-      for (const m of applied.merged ?? []) if (m.created) created.add(fragmentKey(m));
-      if (!ctx.flags.dryRun) {
-        noteWritten(state, rendered);
-        run.touched = true;
-      }
-    } catch (e) {
-      failed.add(id);
-      const f = failureOf(subjectOf(p), e, id);
-      if (isPalmError(e) && e.code === 'E_CONFLICT')
-        f.hint = installCommand(subjectOf(p), state.paths.scope, '--force');
-      run.result.failures.push(f);
-    }
+    if (hit) insideSourceFailure(run, p, id, hit);
+    const keys = hit ? undefined : await writeTarget(run, p, id, rendered);
+    if (!keys) failed.add(id);
+    for (const k of keys ?? []) created.add(k);
   }
   return created;
 }
@@ -373,6 +381,7 @@ async function settled(
   const kept = p.decision.kept.length > 0;
   if (kept && (status === 'modified' || status === 'partial')) modifiedFailure(run, p);
   await record(run, p, entry, status);
+  if (status !== 'unchanged') run.result.warnings.push(...(p.job.notices ?? []));
   const notes = [...(entry.notes ?? [])];
   if (kept && p.unchecked) notes.push(uncheckedNote(p.unchecked));
   const stray = await strayFiles(run, entry);

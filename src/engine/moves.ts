@@ -7,9 +7,9 @@
  * nothing of it is written, so the lock never points at a commit the disk does not hold.
  */
 import { PalmError } from '../core/errors.js';
-import { short } from '../core/hash.js';
 import type { InstallOutcome, LockSource, SourceCheckout } from '../core/types.js';
 import type { SourceRef } from '../domain/source.js';
+import { previousStaysActive } from '../exec/trust.js';
 import type { Job, Prepared, Run } from './jobs.js';
 import { failure, label, palmCommand } from './report.js';
 import { lockedSource, type ScopeState } from './scope.js';
@@ -116,14 +116,9 @@ function restore(run: Run, m: Move): void {
 /** The outcome of a program whose new version the person declined: the trusted one stays (V5). */
 export function keptProgram(run: Run, p: Prepared): InstallOutcome {
   const entry = p.previous as NonNullable<Prepared['previous']>;
-  const s = { kind: entry.kind, name: entry.name, source: entry.source };
-  const trusted = entry.exec?.hash ? ` (trusted ${short(entry.exec.hash, 8)})` : '';
-  const remove = palmCommand('remove', [s.source, `${s.kind}:${s.name}`], run.state.paths.scope);
-  return {
-    entry,
-    status: 'skipped',
-    notes: [`previous version stays active${trusted}; ${remove} removes it`],
-  };
+  const line = previousStaysActive(entry, run.state.paths.scope);
+  const notes = line ? [line.replace(`${entry.kind} ${entry.name}: `, '')] : [];
+  return { entry, status: 'skipped', notes };
 }
 
 /** What keeps a source from moving: an entity refused (or not renderable) or a program declined. */

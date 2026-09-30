@@ -24,7 +24,7 @@ import type {
 import type { RecordState } from '../domain/merged-record.js';
 import type { SourceRef } from '../domain/source.js';
 import { allowed, checkoutReader } from '../exec/consent.js';
-import { needsConsent } from '../exec/trust.js';
+import { needsConsent, previousStaysActive } from '../exec/trust.js';
 import { refuseOversizedBlocks } from './block-size.js';
 import {
   type FileState,
@@ -80,6 +80,8 @@ export interface Job {
   values?: Record<string, string>;
   /** The entry's recorded `secrets: literal` (Y19), unless `--secrets` on the command line says otherwise. */
   policy?: SecretPolicy;
+  /** Lines the run prints once the entity changes on disk, never on an unchanged sync (K17). */
+  notices?: string[];
 }
 
 type ConsentState = 'none' | 'trusted' | 'ask' | 'allowed' | 'declined' | 'quiet';
@@ -236,4 +238,19 @@ export async function askForConsent(
   // A program the person named and then declined ends the run: exit 130, nothing written (Y22).
   if (asking.some((p) => p.consent === 'declined' && p.job.explicit && p.job.record))
     throw new PalmError('E_CANCELLED', 'cancelled; nothing was written');
+  keepTrusted(run, asking);
+}
+
+/**
+ * Ruling 30 (V5): declining the new version of a program the lock trusts ends the run (exit
+ * 130, nothing written); the trusted version stays active and a line says so.
+ */
+function keepTrusted(run: Run, asking: Prepared[]): void {
+  const scope = run.state.paths.scope;
+  const lines = asking
+    .filter((p) => p.consent === 'declined')
+    .flatMap((p) => previousStaysActive(p.previous, scope) ?? []);
+  if (!lines.length) return;
+  for (const line of lines) run.ctx.log.info(line);
+  throw new PalmError('E_CANCELLED', 'cancelled; nothing was written');
 }

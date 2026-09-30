@@ -6,11 +6,10 @@
  * and `source-paths` (a lock-owned path whose real path lies inside a declared source, C3).
  * Nothing is written.
  */
-import { existsSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { CheckProblem, CheckRun, LockEntry } from '../core/types.js';
-import { isWithin, walkFiles } from '../lib/fs.js';
+import { isWithin } from '../lib/fs.js';
 import {
   type CheckContext,
   checkRun,

@@ -6,7 +6,12 @@
  */
 
 import type { Entity, McpServerConfig } from '../core/types.js';
-import { detectSecrets } from '../domain/secret-refs.js';
+import {
+  argVariable,
+  detectSecrets,
+  envVariableName,
+  headerVariable,
+} from '../domain/secret-refs.js';
 import { isRecord } from '../lib/object.js';
 
 const REDACTED = /<redacted sha256:[0-9a-f]{8}>/g;
@@ -15,27 +20,6 @@ const REDACTED = /<redacted sha256:[0-9a-f]{8}>/g;
 export interface ReferencedSecret {
   where: string;
   variable: string;
-}
-
-/** `docs`, `api-key` → `DOCS_API_KEY`: an environment variable name. */
-function envName(...parts: string[]): string {
-  return parts
-    .join('_')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-}
-
-/**
- * The variable a secret header of `server` becomes (DESIGN §8): `Authorization` → `DOCS_TOKEN`;
- * another header without its `x-` prefix, named after the server unless it already is
- * (`x-inbound-api-key` of inbound → `INBOUND_API_KEY`, `x-api-key` of docs → `DOCS_API_KEY`).
- */
-export function headerVariable(server: string, header: string): string {
-  if (/^authorization$/i.test(header)) return envName(server, 'token');
-  const name = envName(header.replace(/^x-/i, ''));
-  const prefix = envName(server);
-  return name.startsWith(`${prefix}_`) ? name : `${prefix}_${name}`;
 }
 
 function hasRedaction(value: string): boolean {
@@ -59,25 +43,19 @@ class Referencer {
   }
 }
 
-/** The variable for a secret argument: `--api-key=…` or `--api-key …` name it, else `<SERVER>_SECRET`. */
-function argName(server: string, args: readonly string[], i: number): string {
-  const inline = /^--?([A-Za-z][A-Za-z0-9_-]*)=/.exec(args[i] ?? '')?.[1];
-  const flag = /^--?([A-Za-z][A-Za-z0-9_-]*)$/.exec(args[i - 1] ?? '')?.[1];
-  return envName(server, inline ?? flag ?? 'secret');
-}
-
 function referenceMcp(cfg: McpServerConfig, r: Referencer): McpServerConfig {
   const server = cfg.name;
   const out: McpServerConfig = { ...cfg };
   const where = `mcp:${server}`;
-  if (cfg.env) out.env = r.map(cfg.env, `${where}.env`, (k) => envName(k));
+  if (cfg.env) out.env = r.map(cfg.env, `${where}.env`, (k) => envVariableName(k));
   if (cfg.headers)
     out.headers = r.map(cfg.headers, `${where}.headers`, (h) => headerVariable(server, h));
   if (cfg.args)
     out.args = cfg.args.map((a, i) =>
-      r.replace(a, `${where}.args[${i}]`, argName(server, cfg.args ?? [], i)),
+      r.replace(a, `${where}.args[${i}]`, argVariable(server, cfg.args ?? [], i)),
     );
-  if (cfg.url !== undefined) out.url = r.replace(cfg.url, `${where}.url`, envName(server, 'url'));
+  if (cfg.url !== undefined)
+    out.url = r.replace(cfg.url, `${where}.url`, envVariableName(server, 'url'));
   const secrets = detectSecrets(out);
   if (secrets.length) out.secrets = secrets;
   return out;
@@ -108,7 +86,7 @@ export function referenceSecrets(entity: Entity): { entity: Entity; replaced: Re
     const raw = referenceJson(
       def.hooks.raw,
       `hook:${entity.name}`,
-      envName(entity.name, 'token'),
+      envVariableName(entity.name, 'token'),
       r,
     );
     next = { ...def, hooks: { ...def.hooks, raw } };

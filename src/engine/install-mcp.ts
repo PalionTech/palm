@@ -1,8 +1,8 @@
 /**
  * `palm install mcp` (DESIGN §9): servers declared by hand, from flags or a README snippet,
  * recorded under `mcp:` in palm.yaml and rendered like any entity of the pseudo source
- * `manifest`. A literal secret the person typed never reaches palm.yaml: it is written there
- * as `${VAR}`; the harness file gets the reference too, or the literal under
+ * `manifest`. A value the person typed never reaches palm.yaml (`referenceTyped`, J1): it is
+ * written there as `${VAR}`; the harness file gets the reference too, or the literal under
  * `--secrets literal` after `decideSecret` allowed that destination (DESIGN §8).
  */
 import { PalmError } from '../core/errors.js';
@@ -14,74 +14,16 @@ import type {
   McpRequest,
   McpServerConfig,
   PalmContext,
+  SecretPolicy,
 } from '../core/types.js';
 import { isSafeName } from '../lib/names.js';
+import { referenceTyped, type TypedReference, typedLine, typedValues } from '../secrets/typed.js';
 import { resolveEngineDeps } from './deps.js';
 import { type Job, jobPolicy, type Run, runOf } from './jobs.js';
 import { lockScope, runJobs, settle } from './runner.js';
 import { openScope, type ScopeState } from './scope.js';
-import { headerVariable, referencedLine } from './source-secrets.js';
 import { manifestSource, mcpConfigOf, mcpEntity, mcpManifestEntry } from './sources.js';
 import { activeTargets, narrowedTargets, refuseLocal, requestTargets } from './targets.js';
-
-interface Literal {
-  where: string;
-  variable: string;
-  value: string;
-}
-
-function reference(variable: string): string {
-  return `\${${variable}}`;
-}
-
-/** Whether `value`, under the key `key` (the key-name heuristics apply), is a secret. */
-type Scan = (value: string, key: string, where: string) => boolean;
-
-/** Env values that are literal secrets become `${KEY}`. */
-function envReferences(
-  env: Record<string, string>,
-  scan: Scan,
-  literals: Literal[],
-): Record<string, string> {
-  const out = { ...env };
-  for (const [k, v] of Object.entries(env)) {
-    if (!scan(v, k, `env.${k}`)) continue;
-    literals.push({ where: `env.${k}`, variable: k, value: v });
-    out[k] = reference(k);
-  }
-  return out;
-}
-
-/** Header values that are literal secrets become `${SERVER_TOKEN}` (keeping a `Bearer ` prefix). */
-function headerReferences(
-  cfg: McpServerConfig,
-  scan: Scan,
-  literals: Literal[],
-): Record<string, string> {
-  const out = { ...cfg.headers };
-  for (const [h, v] of Object.entries(cfg.headers ?? {})) {
-    if (!scan(v, h, `headers.${h}`)) continue;
-    const variable = headerVariable(cfg.name, h);
-    const bearer = /^Bearer\s+(.+)$/i.exec(v);
-    literals.push({ where: `headers.${h}`, variable, value: bearer?.[1] ?? v });
-    out[h] = bearer ? `Bearer ${reference(variable)}` : reference(variable);
-  }
-  return out;
-}
-
-/** `cfg` with every secret-shaped literal in env and headers replaced by an environment reference. */
-function withReferences(
-  run: Run,
-  cfg: McpServerConfig,
-): { cfg: McpServerConfig; literals: Literal[] } {
-  const literals: Literal[] = [];
-  const scan: Scan = (value, key, where) =>
-    run.deps.scanSecrets({ [key]: value }, where).length > 0;
-  const out: McpServerConfig = { ...cfg };
-  if (cfg.env) out.env = envReferences(cfg.env, scan, literals);
-  if (cfg.headers) out.headers = headerReferences(cfg, scan, literals);
-  return { cfg: out, literals };
-}
 
 function assertNew(ctx: PalmContext, state: ScopeState, reqs: McpRequest[], force: boolean): void {
   for (const { config } of reqs) {
@@ -103,16 +45,30 @@ function assertNew(ctx: PalmContext, state: ScopeState, reqs: McpRequest[], forc
   }
 }
 
+/**
+ * J1 L3 D7: what the person typed becomes an environment reference (`referenceTyped`); the line
+ * per reference names the variable to export. Under `--secrets literal` a typed value is written
+ * instead, so only fill-ins and VS Code inputs (which hold no value) are said. The lines print
+ * once the server changes on disk, never on an unchanged sync (K17).
+ */
+function typedNotices(
+  cfg: McpServerConfig,
+  references: readonly TypedReference[],
+  opts: { policy: SecretPolicy; harnesses: string[] },
+): string[] {
+  const said = opts.policy === 'literal' ? references.filter((r) => r.value === '') : references;
+  return said.map((r) => typedLine(cfg.name, r, opts.harnesses));
+}
+
 function jobOf(run: Run, req: McpRequest, recorded?: 'literal'): Job {
   const { state } = run;
-  const { cfg, literals } = withReferences(run, req.config);
+  const { cfg, references } = referenceTyped(req.config);
   const policy = jobPolicy(run, recorded ? { policy: recorded } : {});
   const harnesses = activeTargets(state, {
     name: cfg.name,
     ...(req.targets ? { targets: req.targets } : {}),
   }).map((t) => run.deps.getTarget(t).displayName);
-  if (policy !== 'literal')
-    for (const l of literals) run.result.warnings.push(referencedLine(cfg.name, l, harnesses, ''));
+  const notices = typedNotices(cfg, references, { policy, harnesses });
   const entry: McpManifestEntry = {
     ...mcpManifestEntry(cfg),
     ...(req.targets?.length ? { targets: req.targets } : {}),
@@ -134,7 +90,9 @@ function jobOf(run: Run, req: McpRequest, recorded?: 'literal'): Job {
   };
   const narrowed = narrowedTargets(state, targets);
   if (narrowed) job.narrowed = narrowed;
-  if (literals.length) job.values = Object.fromEntries(literals.map((l) => [l.variable, l.value]));
+  const values = typedValues(references);
+  if (Object.keys(values).length) job.values = values;
+  if (notices.length) job.notices = notices;
   return job;
 }
 

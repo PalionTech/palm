@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { messageOf, PalmError } from '../core/errors.js';
 import type { McpServerConfig, Scope } from '../core/types.js';
+import { isRecord } from '../lib/object.js';
 import { parseAdhocMcp } from './adhoc.js';
 import type { App } from './app.js';
 import { type Invocation, usage } from './grammar.js';
@@ -125,8 +126,20 @@ function pickServers(
   });
 }
 
+/**
+ * D7: a VS Code snippet's `inputs` (the prompts behind `${input:name}`) are not carried over;
+ * each input becomes an environment variable, and the line under the server names it.
+ */
+function noteInputs(app: App, json: unknown): void {
+  const inputs = isRecord(json) && Array.isArray(json.inputs) ? json.inputs : [];
+  if (!inputs.length) return;
+  const n = inputs.length === 1 ? '1 VS Code input' : `${inputs.length} VS Code inputs`;
+  app.out.info(`dropped the snippet's inputs (${n}): palm reads each one from the environment`);
+}
+
 async function fromSnippet(app: App, file: string, names: string[]): Promise<McpServerConfig[]> {
   const json = parseSnippet(await snippetText(app, file), file);
+  noteInputs(app, json);
   const servers = await engine(app).parseMcpJson(json);
   return pickServers(servers, names, { file, scope: scopeOfRun(app) }).map((s) => ({
     ...s,
