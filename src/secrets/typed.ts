@@ -327,20 +327,33 @@ function typedArgs(args: readonly string[]): string[] {
  */
 export function redactTypedArgs(args: readonly string[]): string[] {
   const server = serverOf(args);
-  const written = argsOf(new Typed(server, true), typedArgs(args));
+  const r = { server, written: argsOf(new Typed(server, true), typedArgs(args)) };
   const out: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i] ?? '';
-    const [option = '', inline] = arg.startsWith('--') ? arg.split(/=(.*)/s, 2) : [arg];
-    if (TYPED_OPTIONS.has(option) && inline !== undefined)
-      out.push(`${option}=${typedPair(option, inline, server)}`);
-    else if (TYPED_OPTIONS.has(arg) && i + 1 < args.length)
-      out.push(arg, typedPair(arg, args[++i] ?? '', server));
-    else if (option === '--arg' && inline !== undefined) out.push(`--arg=${written.shift() ?? ''}`);
-    else if (arg === '--arg' && i + 1 < args.length) {
-      i++;
-      out.push(arg, written.shift() ?? '');
-    } else out.push(redactedArg(arg));
+  for (let i = 0; i < args.length; ) {
+    const [words, used] = redactOne(args, i, r);
+    out.push(...words);
+    i += used;
   }
   return out;
+}
+
+/**
+ * Argument `i` (and the value it takes) as a hint repeats it: the words, and how many
+ * arguments they stand for. `r.written` holds the `--arg` values as palm writes them, in order.
+ */
+function redactOne(
+  args: readonly string[],
+  i: number,
+  r: { server: string; written: string[] },
+): [string[], number] {
+  const arg = args[i] ?? '';
+  const next = args[i + 1];
+  const [option = '', inline] = arg.startsWith('--') ? arg.split(/=(.*)/s, 2) : [arg];
+  if (inline !== undefined && TYPED_OPTIONS.has(option))
+    return [[`${option}=${typedPair(option, inline, r.server)}`], 1];
+  if (inline !== undefined && option === '--arg') return [[`--arg=${r.written.shift() ?? ''}`], 1];
+  if (next !== undefined && TYPED_OPTIONS.has(arg))
+    return [[arg, typedPair(arg, next, r.server)], 2];
+  if (next !== undefined && arg === '--arg') return [[arg, r.written.shift() ?? ''], 2];
+  return [[redactedArg(arg)], 1];
 }
