@@ -67,6 +67,15 @@ function skippedSkill(line: string, view: NoteView): string | undefined {
   return `${m[1]} (ignored name "${m[2]}"); ${suggestion(m[3] as string, view)}`;
 }
 
+/**
+ * R1' R10': an `apm.yml` dependency palm does not follow. The listing and `describe source`
+ * print it; an install of named entities does not repeat it (N1 S5 print only what the index
+ * left out of this source).
+ */
+export function isDependencyNote(line: string): boolean {
+  return DEPENDENCIES.test(line);
+}
+
 /** True for a warning the listing and the install print in full. */
 function isShownNote(line: string): boolean {
   return [NEAR_MISS, SKIPPED_SKILL, ZERO_MATCH, DEPENDENCIES, LINKS_LEAVING].some((re) =>

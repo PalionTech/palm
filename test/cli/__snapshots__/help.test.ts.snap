@@ -142,8 +142,8 @@ Arguments:
   name                  the new entity
 
 Options:
-  --in <dir>            the source directory (default ./agent-kit; ~/.palm/kit
-                        with -g)
+  --in <dir>            the source directory (default: the in-repo source, else
+                        ./agent-kit)
   --description <text>  the description in the template
   --review              print the scripts of a hook first; with --dry-run, only
                         print

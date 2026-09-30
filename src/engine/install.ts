@@ -19,7 +19,7 @@ import type {
 } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
 import { SourceRef } from '../domain/source.js';
-import { indexNotes } from '../index/notes.js';
+import { indexNotes, isDependencyNote } from '../index/notes.js';
 import { type Declared, declareSource, ensureRef, peekSource, reportRefs } from './declare.js';
 import { resolveEngineDeps } from './deps.js';
 import { dedupeJobs, manifestJobs, requestJobs } from './entries.js';
@@ -221,7 +221,7 @@ async function install(run: Run, req: InstallRequest, held: Held): Promise<void>
   const match = await matched(run, { ref, r, req, paste: decl.paste, declared: !decl.added });
   // N1 R1' S5: the notes a person acts on print at install too; the source is declared by now
   for (const note of indexNotes(r.index.warnings, { declared: true }).shown)
-    ctx.log.info(`${ref.name}: ${note}`);
+    if (!isDependencyNote(note)) ctx.log.info(`${ref.name}: ${note}`);
   notePreloads(run, ref, match, r.index);
   const targets = requestTargets(state, req.targets);
   const jobs = requestedJobs(run, ref, r, { ...req, ...(targets ? { targets } : {}), match });

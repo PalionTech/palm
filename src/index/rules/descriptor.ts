@@ -1,6 +1,8 @@
 /**
- * Rule 1 (DESIGN §5): a layout descriptor on the source replaces detection. Its globs are matched
- * against the file index (walked with the descriptor's own ignore rules), not the disk again.
+ * Rule 1 (DESIGN §5): a layout descriptor on the source replaces convention detection (the
+ * plugins a manifest or marketplace declares stay, scanner.ts `scanLayoutPlugins`). Its globs
+ * are matched against the file index (walked with the descriptor's own ignore rules), not the
+ * disk again.
  */
 
 import type { LayoutDescriptor } from '../../core/types.js';

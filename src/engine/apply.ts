@@ -404,6 +404,14 @@ async function strayFiles(run: Run, entry: LockEntry): Promise<string | undefine
   return note;
 }
 
+/** The outcome's notes: the entry's, what the writes said (X20), an unchecked edit, stray files removed. */
+async function outcomeNotes(run: Run, p: Prepared, entry: LockEntry): Promise<string[]> {
+  const notes = [...new Set([...(entry.notes ?? []), ...(p.applied ?? [])])];
+  if (p.decision.kept.length > 0 && p.unchecked) notes.push(uncheckedNote(p.unchecked));
+  const stray = await strayFiles(run, entry);
+  return stray ? [...notes, stray] : notes;
+}
+
 /** After the writes: the outcome, the failure for kept edits, and the lock and palm.yaml entries. */
 async function settled(
   run: Run,
@@ -419,11 +427,7 @@ async function settled(
   if (kept && (status === 'modified' || status === 'partial')) modifiedFailure(run, p);
   await record(run, p, entry, status);
   if (status !== 'unchanged') run.result.warnings.push(...(p.job.notices ?? []));
-  const notes = [...new Set([...(entry.notes ?? []), ...(p.applied ?? [])])];
-  if (kept && p.unchecked) notes.push(uncheckedNote(p.unchecked));
-  const stray = await strayFiles(run, entry);
-  if (stray) notes.push(stray);
-  const outcome: InstallOutcome = { entry, status, notes };
+  const outcome: InstallOutcome = { entry, status, notes: await outcomeNotes(run, p, entry) };
   if (status === 'partial') outcome.perTarget = perTarget(p, failed);
   if (p.consent === 'allowed' && p.out.unit) outcome.trusted = p.out.unit.hash;
   return outcome;

@@ -112,6 +112,6 @@ export function manifestKey(kind: Kind): (typeof MANIFEST_KEYS)[Kind] {
 
 /** `skill` for one, `skills` for any other count; `MCP servers` for mcp. */
 export function pluralize(kind: Kind, n: number): string {
-  if (n === 1) return kind;
+  if (n === 1) return kind === 'mcp' ? 'MCP server' : kind;
   return kind === 'mcp' ? 'MCP servers' : `${kind}s`;
 }

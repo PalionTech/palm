@@ -194,7 +194,11 @@ export interface InstructionDefinition {
    * frontmatter); installed for claude byte-identical, under its own file name (ruling B12).
    */
   sourceFormat?: 'md' | 'claude-md' | 'mdc' | 'instructions-md' | 'agents-md';
-  /** The source file name when a verbatim copy keeps it and it differs from `<name>.md`. */
+  /**
+   * The source file name when a verbatim copy keeps it and it differs from `<name>` plus the
+   * format's extension: a Claude `.md` rule, and a Cursor `.mdc` or Copilot `.instructions.md`
+   * file already in the harness's native format, passed through byte for byte (O9 Y8').
+   */
   fileName?: string;
 }
 

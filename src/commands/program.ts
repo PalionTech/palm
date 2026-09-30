@@ -272,7 +272,10 @@ const VERB_SETUP: Readonly<Record<Verb, VerbSetup>> = {
     ],
     options: (c) =>
       c
-        .option('--in <dir>', 'the source directory (default ./agent-kit; ~/.palm/kit with -g)')
+        .option(
+          '--in <dir>',
+          'the source directory (default: the in-repo source, else ./agent-kit)',
+        )
         .option('--description <text>', 'the description in the template')
         .option('--review', 'print the scripts of a hook first; with --dry-run, only print'),
     invocation: createInvocation,
