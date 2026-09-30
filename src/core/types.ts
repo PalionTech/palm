@@ -825,6 +825,12 @@ export interface InstallResult {
    * the lock records those, and the CLI exits 130 after printing the result (K16, L11).
    */
   interrupted?: { done: number; total: number };
+  /**
+   * Install with names: what the typed names resolved to, each with its kind, after any
+   * which-kind question (O4, Q4). A plugin's member the person declined is not among them, so
+   * declining it is no named decline.
+   */
+  requested?: EntityRef[];
 }
 
 /** A file `remove` left on disk, and why (C3, K18, R5). */
