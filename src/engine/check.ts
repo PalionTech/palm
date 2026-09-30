@@ -18,6 +18,7 @@ import {
 } from './check-entries.js';
 import { execTrusted, foreignHooks, hookScripts } from './check-exec.js';
 import { gitIgnored } from './check-git.js';
+import { withoutAcknowledged } from './check-ignore.js';
 import { applies, type CheckContext, notApplicable, renderAll } from './check-kit.js';
 import { localSources, manifestLock, preloads, sourcesDeclared } from './check-lock.js';
 import { agentNames, blockSize, doubleLoad, links } from './check-repo.js';
@@ -165,7 +166,7 @@ export async function checkScope(
   if (!existsSync(c.run.state.paths.manifestFile)) all = await withoutManifest(c);
   else {
     const byId = new Map<string, CheckRun>();
-    for (const [id, check] of ORDER) byId.set(id, await check(c));
+    for (const [id, check] of ORDER) byId.set(id, withoutAcknowledged(c, await check(c)));
     all = REPORT_ORDER.map((id) => byId.get(id) as CheckRun);
   }
   const checks = opts.strict ? all.map(strictly) : all;

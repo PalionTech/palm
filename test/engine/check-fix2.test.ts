@@ -14,6 +14,12 @@ import { Lock } from '../../src/domain/lock.js';
 import { fragmentKey } from '../../src/domain/merged-record.js';
 import { ScopePaths } from '../../src/domain/scope-paths.js';
 import { checkScope } from '../../src/engine/check.js';
+import {
+  acknowledgeable,
+  sourcePathOf,
+  withoutAcknowledged,
+} from '../../src/engine/check-ignore.js';
+import type { CheckContext } from '../../src/engine/check-kit.js';
 import { installFromSource } from '../../src/engine/install.js';
 import { setGitRunner } from '../../src/lib/git-query.js';
 import { remotes } from './fakes.js';
@@ -93,7 +99,7 @@ describe("Sofia S2 V2' foreign programs in every harness file palm parses", () =
     );
     expect(r['exec-trusted']?.status).toBe('ok');
     expect(report.checks.find((c) => c.id === 'foreign-hooks')?.problems[0]?.fix).toBe(
-      'keep it if you added it; else remove it from .claude/settings.json (palm does not manage it)',
+      'keep it if you added it; else remove it from .claude/settings.json (palm does not manage it); or acknowledge it: add foreign-hooks:.claude/settings.json#PreToolUse to ignore: in palm.yaml',
     );
   });
 
@@ -398,6 +404,39 @@ describe("E6' an item palm wrote earlier is palm's after a render move", () => {
     expect(messages(r['foreign-hooks'])).toBe(
       'foreign hook command in .claude/settings.json (Stop): echo mine',
     );
+  });
+});
+
+describe("O19 J13' warnings acknowledged in palm.yaml's ignore: list", () => {
+  function contextWith(ignore: string[]): CheckContext {
+    return { run: { state: { manifest: { ignore } } } } as unknown as CheckContext;
+  }
+
+  function warned(): CheckRun {
+    const hook = acknowledgeable(
+      { file: '.claude/settings.json', message: 'foreign hook command …', fix: 'keep it' },
+      'foreign-hooks:.claude/settings.json#Stop',
+    );
+    const other = { message: 'something else' };
+    return { id: 'foreign-hooks', label: '2 foreign', status: 'warn', problems: [hook, other] };
+  }
+
+  it("O19 J13' an acknowledged warning is dropped; the others name the line that acknowledges them", () => {
+    const kept = withoutAcknowledged(contextWith([]), warned());
+    expect(kept.problems[0]?.fix).toBe(
+      'keep it; or acknowledge it: add foreign-hooks:.claude/settings.json#Stop to ignore: in palm.yaml',
+    );
+    const run = withoutAcknowledged(
+      contextWith(['foreign-hooks:.claude/settings.json#Stop']),
+      warned(),
+    );
+    expect(run.problems).toEqual([{ message: 'something else' }]);
+    expect(run.status).toBe('warn');
+  });
+
+  it("O19 a zero-width warning's key is the path in the source", () => {
+    const e = { kind: 'skill' as const, name: 'tdd', source: 'kit', path: 'skills/tdd' };
+    expect(sourcePathOf(e, '.claude/skills/tdd/refs/a.md')).toBe('kit/skills/tdd/refs/a.md');
   });
 });
 

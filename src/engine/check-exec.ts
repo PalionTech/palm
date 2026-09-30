@@ -11,6 +11,7 @@ import type { CheckProblem, CheckRun, LockEntry } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
 import { visible } from '../exec/format.js';
 import { type HookFinding, hookFindings } from './check-hooks.js';
+import { acknowledgeable } from './check-ignore.js';
 import {
   type CheckContext,
   checkRun,
@@ -131,7 +132,9 @@ export async function execTrusted(c: CheckContext): Promise<CheckRun> {
  */
 export async function foreignHooks(c: CheckContext): Promise<CheckRun> {
   const f = found();
-  for (const h of await hookFindings(c)) if (!h.owner) f.warn.push(hookProblem(c, h));
+  for (const h of await hookFindings(c))
+    if (!h.owner)
+      f.warn.push(acknowledgeable(hookProblem(c, h), `foreign-hooks:${h.file}#${h.event}`));
   return checkRun(
     'foreign-hooks',
     {

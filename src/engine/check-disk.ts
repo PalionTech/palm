@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 import type { CheckProblem, CheckRun, LockEntry, Rendered, TargetId } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
 import { scanHiddenUnicode } from '../lib/unicode.js';
+import { acknowledgeable, sourcePathOf } from './check-ignore.js';
 import {
   type CheckContext,
   checkRun,
@@ -147,9 +148,9 @@ export async function hiddenUnicode(c: CheckContext): Promise<CheckRun> {
       const any = critical ?? findings[0];
       if (!any) continue;
       const message = `${file} holds ${any.name} (U+${any.codePoint.toString(16).toUpperCase()})`;
-      (critical ? f.fail : f.warn).push(
-        problem(e, file, message, `fix the source, then ${fixes(c, e).force}`),
-      );
+      const hit = problem(e, file, message, `fix the source, then ${fixes(c, e).force}`);
+      if (critical) f.fail.push(hit);
+      else f.warn.push(acknowledgeable(hit, `hidden-unicode:${sourcePathOf(e, file)}`));
     }
   return checkRun(
     'hidden-unicode',

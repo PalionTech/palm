@@ -10,6 +10,7 @@ import { visible } from '../exec/format.js';
 import { formatPointer } from '../lib/json-pointer.js';
 import { isRecord } from '../lib/object.js';
 import { type McpFile, mcpFiles } from './check-harness.js';
+import { acknowledgeable } from './check-ignore.js';
 import { type CheckContext, checkRun, count, found } from './check-kit.js';
 import { missingScript } from './check-scripts.js';
 import { readConfig } from './rotate.js';
@@ -69,11 +70,12 @@ export async function foreignServers(c: CheckContext): Promise<CheckRun> {
   const f = found();
   for (const s of await serverFindings(c)) {
     const missing = s.missing ? `; script missing: ${s.missing}` : '';
-    f.warn.push({
+    const problem = {
       file: s.file,
       message: `foreign stdio server ${visible(s.name)} in ${s.file}: ${visible(s.command)}${missing}`,
       fix: `keep it if you added it; else remove it from ${s.file} (palm does not manage it)`,
-    });
+    };
+    f.warn.push(acknowledgeable(problem, `foreign-servers:${s.file}#${s.name}`));
   }
   return checkRun(
     'foreign-servers',
