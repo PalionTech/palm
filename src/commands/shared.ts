@@ -21,6 +21,7 @@ import {
 import { redactTypedArgs } from '../secrets/typed.js';
 import type { App } from './app.js';
 import { usage } from './grammar.js';
+import { shellWord } from './hints.js';
 
 /** The global flags (DESIGN.md §10), as commander hands them to every command. */
 export interface GlobalOptions {
@@ -91,11 +92,25 @@ function localError(app: App, g: GlobalOptions & { targets?: string }): PalmErro
       `palm.local.yaml arrives in palm 0.3; until then targets are shared in ${manifest}`,
       `add ${g.targets} to targets: in ${manifest}, then run: palm install${g.global ? ' -g' : ''}`,
     );
+  const verb = positional[0] ?? '';
+  if (REMOVE_WORDS.has(verb))
+    return usage(
+      'palm.local.yaml arrives in palm 0.3; a team entry stays in palm.yaml until then',
+      `to turn it off for yourself, use the harness's own switch: ${OWN_SWITCHES}`,
+    );
+  const mine = rest.filter((a) => a !== '-g' && a !== '--global');
   return usage(
-    'palm.local.yaml arrives in palm 0.3',
-    `run it without --local: palm ${redactTypedArgs(rest).join(' ')}`,
+    'palm.local.yaml arrives in palm 0.3; until then a personal install goes in your global scope',
+    `for yourself: palm ${redactTypedArgs(mine).map(shellWord).join(' ')} -g`,
   );
 }
+
+/** M4: the verbs that remove, whose --local means "not for me". */
+const REMOVE_WORDS: ReadonlySet<string> = new Set(['remove', 'rm', 'uninstall']);
+
+/** M4: where a harness turns an entity off for one person. */
+const OWN_SWITCHES =
+  '.claude/settings.local.json for Claude, [[skills.config]] in ~/.codex/config.toml for Codex';
 
 async function flagsOf(app: App, g: GlobalOptions): Promise<PalmFlags> {
   if (g.local) throw localError(app, g);

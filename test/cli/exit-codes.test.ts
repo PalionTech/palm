@@ -187,11 +187,11 @@ describe('exit codes through runCli', () => {
     expect(deps.calls.applyUpdate).toBeUndefined();
   });
 
-  it('--local is palm 0.3', async () => {
+  it('E7, M4: --local is palm 0.3; a personal install goes in the global scope', async () => {
     const r = await palm(sb, ['install', 'mattpocock/skills', 'tdd', '--local']);
     expect(r.code).toBe(2);
     expect(r.stderr).toContain('x palm.local.yaml arrives in palm 0.3');
-    expect(r.stderr).toContain('run it without --local: palm install mattpocock/skills tdd');
+    expect(r.stderr).toContain('for yourself: palm install mattpocock/skills tdd -g');
   });
 
   it('the first Ctrl-C during an install stops after the current entity and exits 130', async () => {

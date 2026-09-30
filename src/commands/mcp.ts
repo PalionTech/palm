@@ -7,7 +7,8 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { messageOf, PalmError } from '../core/errors.js';
-import type { McpServerConfig, Scope } from '../core/types.js';
+import type { McpServerConfig, PalmContext, Scope } from '../core/types.js';
+import { mcpConfigOf } from '../engine/sources.js';
 import { isRecord } from '../lib/object.js';
 import { parseAdhocMcp } from './adhoc.js';
 import type { App } from './app.js';
@@ -147,6 +148,37 @@ async function fromSnippet(app: App, file: string, names: string[]): Promise<Mcp
   }));
 }
 
+/** Any flag that describes a server (so the command is not `palm install mcp <name>` alone). */
+function hasServerFlags(flags: McpFlags): boolean {
+  const given = [flags.url, flags.command, flags.header, flags.arg, flags.env, flags.cwd];
+  return flags.snippet !== undefined || given.some((f) => f !== undefined);
+}
+
+/**
+ * J10, R16': `palm install mcp <name>` alone (with `--force` after a hand edit) renders the
+ * server palm.yaml declares under that name again; undefined when it declares none.
+ */
+async function declaredServer(
+  app: App,
+  ctx: PalmContext,
+  names: string[],
+  flags: McpFlags,
+): Promise<McpServerConfig | undefined> {
+  const [name] = names;
+  if (!name || names.length > 1 || hasServerFlags(flags)) return undefined;
+  const state = await engine(app).openScope(ctx, scopeOf(flags), { readOnly: true });
+  const entry = state.manifest.mcp?.[name];
+  return entry ? mcpConfigOf(name, entry) : undefined;
+}
+
+/** The servers of this run: the one palm.yaml declares by name, the snippet's, or the flags'. */
+async function configsOf(app: App, ctx: PalmContext, names: string[], flags: McpFlags) {
+  const declared = await declaredServer(app, ctx, names, flags);
+  if (declared) return [declared];
+  if (flags.snippet === undefined) return [fromFlags(names, flags)];
+  return fromSnippet(app, flags.snippet, names);
+}
+
 function checkFlags(flags: McpFlags): void {
   const serverFlags = [flags.url, flags.command, flags.header, flags.arg, flags.env, flags.cwd];
   if (flags.snippet !== undefined && serverFlags.some((f) => f !== undefined))
@@ -161,11 +193,8 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   checkFlags(flags);
   const names = inv.names.map((n) => n.name);
   const targets = parseTargetList(flags.targets, '--targets');
-  const configs =
-    flags.snippet === undefined
-      ? [fromFlags(names, flags)]
-      : await fromSnippet(app, flags.snippet, names);
   const ctx = await makeContext(app, flags);
+  const configs = await configsOf(app, ctx, names, flags);
   const api = engine(app);
   const scope = scopeOf(flags);
   const before = await api.openScope(ctx, scope, { readOnly: true });
