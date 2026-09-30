@@ -1,11 +1,8 @@
 import { parse } from 'smol-toml';
 import { describe, expect, it } from 'vitest';
 import type { AgentDefinition } from '../../src/core/types.js';
-import {
-  isClaudeModel,
-  renderAgent,
-  tomlMultilineString,
-} from '../../src/targets/convert-agent.js';
+import { knownModel } from '../../src/targets/agent-models.js';
+import { renderAgent, tomlMultilineString } from '../../src/targets/convert-agent.js';
 
 const AGENT: AgentDefinition = {
   name: 'reviewer',
@@ -205,7 +202,8 @@ describe('renderAgent', () => {
       'sonnet[1m]',
       'claude-opus-5',
     ])
-      expect(isClaudeModel(m)).toBe(true);
-    for (const m of ['gpt-6-astra', 'o4-mini', 'composer-2']) expect(isClaudeModel(m)).toBe(false);
+      expect(knownModel('claude', m)).toBe(true);
+    for (const m of ['gpt-6-astra', 'o4-mini', 'composer-2'])
+      expect(knownModel('claude', m)).toBe(false);
   });
 });

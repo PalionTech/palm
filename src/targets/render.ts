@@ -285,16 +285,32 @@ function noteWidened(job: RenderJob, activation: InstructionDefinition['activati
   );
 }
 
-/** A Claude rule for claude: the source file byte for byte, under its own name (ruling B12). */
-async function copyClaudeRule(job: RenderJob, dir: string, def: InstructionDefinition) {
-  const fileName = def.fileName ?? `${job.entity.name}.md`;
+/**
+ * The file name an instruction already in `target`'s own format keeps, byte for byte: a Claude
+ * rule for claude (ruling B12), a Copilot `.instructions.md` for copilot and a Cursor `.mdc` for
+ * cursor (rulings O9, Y8'). Undefined when the target converts it.
+ */
+function nativeFileName(
+  target: TargetId,
+  def: InstructionDefinition,
+  name: string,
+): string | undefined {
+  if (target === 'claude' && def.sourceFormat === 'claude-md') return def.fileName ?? `${name}.md`;
+  if (target === 'copilot' && def.sourceFormat === 'instructions-md')
+    return `${name}.instructions.md`;
+  if (target === 'cursor' && def.sourceFormat === 'mdc') return `${name}.mdc`;
+  return undefined;
+}
+
+/** The source file byte for byte at `dest`. */
+async function copyNative(job: RenderJob, dest: string): Promise<void> {
   const bytes = await fs.readFile(job.input.absPath).catch((e: unknown) => {
     throw new PalmError(
       'E_IO',
       `instruction ${job.entity.name}: cannot read ${job.input.absPath}: ${messageOf(e)}`,
     );
   });
-  job.file(path.join(dir, fileName), bytes);
+  job.file(dest, bytes);
 }
 
 async function renderInstructionKind(job: RenderJob): Promise<void> {
@@ -305,8 +321,9 @@ async function renderInstructionKind(job: RenderJob): Promise<void> {
   }
   const { instruction } = defOf(job.entity, 'instruction');
   noteWidened(job, instruction.activation);
-  if (job.target.id === 'claude' && instruction.sourceFormat === 'claude-md' && 'dir' in where)
-    return copyClaudeRule(job, where.dir, instruction);
+  const native = nativeFileName(job.target.id, instruction, job.entity.name);
+  if (native !== undefined && 'dir' in where && !where.list)
+    return copyNative(job, path.join(where.dir, native));
   const r = renderInstruction({ ...instruction, name: job.entity.name }, job.target.id);
   if ('managedBlock' in r) {
     if (!('blockFile' in where))
