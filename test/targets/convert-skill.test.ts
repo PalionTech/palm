@@ -1,16 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { CommandAsSkill, SkillDefinition } from '../../src/core/types.js';
 import { TARGET_IDS } from '../../src/core/types.js';
 import { renderCommandAsSkill } from '../../src/targets/convert-skill.js';
 import { createTarget } from '../../src/targets/index.js';
 import { cleanupTmp, fakeEnv, mkEntity, renderInput, tmpDir } from './helpers.js';
-
-vi.mock('../../src/domain/scope-paths.js', async (orig) =>
-  (await import('./fakes.js')).withScopePaths(await orig()),
-);
-vi.mock('../../src/domain/lock.js', async (orig) =>
-  (await import('./fakes.js')).withLock(await orig()),
-);
 
 const FIX: SkillDefinition & { fromCommand: CommandAsSkill } = {
   name: 'fix',

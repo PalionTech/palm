@@ -3,14 +3,10 @@
  * never an absolute path), in-place local sources, quoting contexts, the canonical form, the
  * exported plugin-root variable, and MCP fields.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { McpServerConfig, SourceReference, TargetId } from '../../src/core/types.js';
 import { PROJECT_DIR } from '../../src/targets/index.js';
 import { relocateCommand, relocateMcp } from '../../src/targets/relocate.js';
-
-vi.mock('../../src/domain/ignore.js', async (orig) =>
-  (await import('./fakes.js')).withIgnore(await orig()),
-);
 
 const HOME = '/home/u';
 const ASSETS = '.palm/assets/acme__kit/fmt';

@@ -1,14 +1,10 @@
 /** Whether a shared file still holds a fragment palm merges into it, found by key. */
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { fragmentKey } from '../../src/domain/lock.js';
 import type { MergedRecord } from '../../src/domain/merged-record.js';
 import { mergedRecordState } from '../../src/targets/merged-state.js';
 import { cleanupTmp, tmpDir, write } from './helpers.js';
-
-vi.mock('../../src/domain/lock.js', async (orig) =>
-  (await import('./fakes.js')).withLock(await orig()),
-);
 
 afterEach(cleanupTmp);
 

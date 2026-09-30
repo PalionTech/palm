@@ -5,7 +5,7 @@
  * renders and round trips cover both targets in golden.test.ts.
  */
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type {
   AgentDefinition,
   HookSet,
@@ -39,23 +39,6 @@ import {
   tmpDir,
   write,
 } from './helpers.js';
-
-vi.mock('../../src/lib/fs.js', async (orig) => (await import('./fakes.js')).withFs(await orig()));
-vi.mock('../../src/domain/scope-paths.js', async (orig) =>
-  (await import('./fakes.js')).withScopePaths(await orig()),
-);
-vi.mock('../../src/domain/lock.js', async (orig) =>
-  (await import('./fakes.js')).withLock(await orig()),
-);
-vi.mock('../../src/domain/merged-record.js', async (orig) =>
-  (await import('./fakes.js')).withMergedRecord(await orig()),
-);
-vi.mock('../../src/domain/ignore.js', async (orig) =>
-  (await import('./fakes.js')).withIgnore(await orig()),
-);
-vi.mock('../../src/core/hash.js', async (orig) =>
-  (await import('./fakes.js')).withHash(await orig()),
-);
 
 const geminiMatcher = (m: string): string => hookMatcher(m, 'claude', 'gemini');
 

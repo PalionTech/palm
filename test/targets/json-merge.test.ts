@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { fragmentKey } from '../../src/domain/lock.js';
 import type { MergedRecord } from '../../src/domain/merged-record.js';
 import { formatPointer } from '../../src/lib/json-pointer.js';
@@ -12,10 +12,6 @@ import {
   unmergeJsonFile,
 } from '../../src/targets/json-merge.js';
 import { applyText, cleanupTmp, exists, read, readJson, tmpDir, write } from './helpers.js';
-
-vi.mock('../../src/domain/lock.js', async (orig) =>
-  (await import('./fakes.js')).withLock(await orig()),
-);
 
 afterEach(cleanupTmp);
 

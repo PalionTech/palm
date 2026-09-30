@@ -15,23 +15,6 @@ import {
   write,
 } from './helpers.js';
 
-vi.mock('../../src/lib/fs.js', async (orig) => (await import('./fakes.js')).withFs(await orig()));
-vi.mock('../../src/domain/scope-paths.js', async (orig) =>
-  (await import('./fakes.js')).withScopePaths(await orig()),
-);
-vi.mock('../../src/domain/lock.js', async (orig) =>
-  (await import('./fakes.js')).withLock(await orig()),
-);
-vi.mock('../../src/domain/merged-record.js', async (orig) =>
-  (await import('./fakes.js')).withMergedRecord(await orig()),
-);
-vi.mock('../../src/domain/ignore.js', async (orig) =>
-  (await import('./fakes.js')).withIgnore(await orig()),
-);
-vi.mock('../../src/core/hash.js', async (orig) =>
-  (await import('./fakes.js')).withHash(await orig()),
-);
-
 afterEach(cleanupTmp);
 
 describe('skills directory by active targets', () => {

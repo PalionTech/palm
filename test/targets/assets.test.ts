@@ -1,22 +1,11 @@
 /** The asset closure: what is copied, modes, links that leave the source, the asset root. */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { ScopePaths } from '../../src/domain/scope-paths.js';
 import type { SourceRef } from '../../src/domain/source.js';
 import { assetRootFor, copyClosure } from '../../src/targets/assets.js';
 import { cleanupTmp, exists, fakeEnv, read, tmpDir, write } from './helpers.js';
-
-vi.mock('../../src/lib/fs.js', async (orig) => (await import('./fakes.js')).withFs(await orig()));
-vi.mock('../../src/domain/scope-paths.js', async (orig) =>
-  (await import('./fakes.js')).withScopePaths(await orig()),
-);
-vi.mock('../../src/domain/ignore.js', async (orig) =>
-  (await import('./fakes.js')).withIgnore(await orig()),
-);
-vi.mock('../../src/core/hash.js', async (orig) =>
-  (await import('./fakes.js')).withHash(await orig()),
-);
 
 afterEach(cleanupTmp);
 

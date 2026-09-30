@@ -1,12 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { HookSet, Scope, SourceReference, TargetId } from '../../src/core/types.js';
 import { convertHooks, type Relocate } from '../../src/targets/convert-hooks.js';
 import { relocateCommand } from '../../src/targets/relocate.js';
 import { CLAUDE_HOOKS, FMT_HOOKS } from './helpers.js';
-
-vi.mock('../../src/domain/ignore.js', async (orig) =>
-  (await import('./fakes.js')).withIgnore(await orig()),
-);
 
 /** What codex and copilot project commands use for the project root. */
 const GIT_TOP = '$(git rev-parse --show-toplevel 2>/dev/null || pwd)';
