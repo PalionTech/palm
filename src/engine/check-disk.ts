@@ -3,16 +3,15 @@
  * `secrets` and `hidden-unicode`. Nothing is written.
  */
 import { readFile, stat } from 'node:fs/promises';
-import { parse as parseToml } from 'smol-toml';
 import type { CheckRun, LockEntry, Rendered, TargetId } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
 import { isGitTracked } from '../lib/fs.js';
-import { parseJson } from '../lib/json.js';
 import { findPlaceholders, isRuntimeVar } from '../lib/placeholders.js';
 import { scanHiddenUnicode } from '../lib/unicode.js';
 import { type CheckContext, checkRun, count, entityOf, type Found, found } from './check-kit.js';
 import { fileStates, fragmentStates } from './diff.js';
 import { palmCommand } from './report.js';
+import { readConfig } from './rotate.js';
 
 const MAX_TEXT_BYTES = 1024 * 1024;
 
@@ -158,18 +157,6 @@ export async function hookScripts(c: CheckContext): Promise<CheckRun> {
 // secrets
 // ---------------------------------------------------------------------------
 
-async function parsed(abs: string): Promise<unknown> {
-  const text = await readFile(abs, 'utf8').catch(() => undefined);
-  if (text === undefined) return undefined;
-  try {
-    if (abs.endsWith('.toml')) return parseToml(text);
-    if (abs.endsWith('.json')) return parseJson(text, { tolerant: true });
-  } catch {
-    return undefined;
-  }
-  return undefined;
-}
-
 /** Generated JSON and TOML files (whole files and the shared files palm merged into). */
 function configFiles(c: CheckContext): Map<string, LockEntry> {
   const out = new Map<string, LockEntry>();
@@ -183,7 +170,7 @@ async function literalSecrets(c: CheckContext, f: Found): Promise<void> {
   const { paths } = c.run.state;
   for (const [file, owner] of configFiles(c)) {
     const abs = paths.abs(file);
-    const findings = c.run.deps.scanSecrets(await parsed(abs), file);
+    const findings = c.run.deps.scanSecrets(await readConfig(abs), file);
     if (!findings.length) continue;
     const tracked = c.git ? await isGitTracked(abs, paths.root) : undefined;
     const others = ((await modeOf(abs)) ?? 0) & 0o004;
@@ -200,7 +187,7 @@ async function literalSecrets(c: CheckContext, f: Found): Promise<void> {
 }
 
 /** Every `${VAR}` the installed servers need, and whether it is set (unset: a warning). */
-function variables(c: CheckContext, f: Found): void {
+function variables(c: CheckContext, f: Found): string[] {
   const seen = new Set<string>();
   for (const e of c.run.state.lock.entries) {
     if (e.kind !== 'mcp') continue;
@@ -219,18 +206,17 @@ function variables(c: CheckContext, f: Found): void {
         });
     }
   }
+  return [...seen].filter((v) => c.run.ctx.env[v] !== undefined);
 }
 
 /** No literal secret in a tracked or world-readable generated file; required variables listed. */
 export async function secrets(c: CheckContext): Promise<CheckRun> {
   const f = found();
   await literalSecrets(c, f);
-  variables(c, f);
-  return checkRun(
-    'secrets',
-    { ok: 'no literal secret in generated files', bad: (n) => `${count(n, 'secret problem')}` },
-    f,
-  );
+  const set = variables(c, f);
+  const needs = set.length ? `; ${set.join(', ')} set` : '';
+  const bad = (n: number) => `${count(n, 'secret problem')}${needs}`;
+  return checkRun('secrets', { ok: `no literal secret in generated files${needs}`, bad }, f);
 }
 
 // ---------------------------------------------------------------------------

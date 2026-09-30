@@ -20,6 +20,7 @@ import { fragmentKey } from './diff.js';
 import type { Prepared, Run } from './jobs.js';
 import { protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failure, failureOf, installCommand, type Subject } from './report.js';
+import { literalsBefore, rotationWarnings } from './rotate.js';
 import { noteWritten, persistTargets } from './scope.js';
 
 function subjectOf(p: Prepared): Subject {
@@ -257,7 +258,9 @@ export async function applyPrepared(run: Run, p: Prepared): Promise<InstallOutco
   if (p.consent === 'declined' || unsettled) return declined(run, p);
   run.result.failures.push(...p.out.refusals);
   const failed = new Set(p.out.refusals.flatMap((f) => (f.target ? [f.target] : [])));
+  const literals = await literalsBefore(run, p);
   await writeTargets(run, p, failed);
+  await rotationWarnings(run, p, literals);
   const status = statusOf(p, failed);
   const entry = entryFor(p, failed);
   if (status === 'failed') return { entry: p.previous ?? entry, status, notes: entry.notes ?? [] };

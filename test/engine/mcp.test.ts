@@ -112,4 +112,26 @@ describe('installMcp (hand-declared servers)', () => {
     expect(sync.outcomes.map((o) => o.status)).toEqual(['unchanged']);
     expect(w.exec.requests).toHaveLength(1);
   });
+
+  it('re-renders when the secrets policy changes and says to rotate the literal it replaced', async () => {
+    const w = await makeWorld({ targets: ['claude'] });
+    const docs = {
+      name: 'docs',
+      transport: 'http' as const,
+      url: 'https://docs.example/mcp',
+      headers: { Authorization: 'Bearer sk-abcdefghijklmnop' },
+    };
+    await installMcp(
+      w.context({ secrets: 'literal' }),
+      [{ config: docs }],
+      { scope: 'project' },
+      w.deps,
+    );
+    expect(await w.read('.claude/mcp.json')).toContain('sk-abcdefghijklmnop');
+    const r = await syncScope(w.ctx, { scope: 'project' }, w.deps);
+    expect(r.outcomes.map((o) => o.status)).toEqual(['re-rendered']);
+    expect(await w.read('.claude/mcp.json')).not.toContain('sk-abcdefghijklmnop');
+    expect(r.warnings.join('\n')).toContain('palm replaced it with ${DOCS_TOKEN}');
+    expect(r.warnings.join('\n')).toContain('rotate it');
+  });
 });
