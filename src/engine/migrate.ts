@@ -11,7 +11,7 @@
  * nothing.
  */
 import { existsSync } from 'node:fs';
-import { readdir, rm } from 'node:fs/promises';
+import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { withScopeLock } from '../core/context.js';
 import { isPalmError, PalmError } from '../core/errors.js';
@@ -29,7 +29,12 @@ import type {
 import { Lock } from '../domain/lock.js';
 import { detectManifestFormat, Manifest } from '../domain/manifest.js';
 import { ScopePaths } from '../domain/scope-paths.js';
-import { readTextIfExists, removeEmptyTree, writeFileAtomic } from '../lib/fs.js';
+import {
+  readTextIfExists,
+  removeEmptyParents,
+  removeEmptyTree,
+  writeFileAtomic,
+} from '../lib/fs.js';
 import { parseYaml, readYamlFile, stringifyYaml } from '../lib/yaml.js';
 import { resolveEngineDeps } from './deps.js';
 import { ensureIgnoreLines } from './gitignore.js';
@@ -38,6 +43,7 @@ import { provisionalLock } from './migrate-lock.js';
 import { type Plan, planMigration } from './migrate-plan.js';
 import { display, filesToCommit, shown } from './migrate-report.js';
 import { withLegacyComments } from './migrate-text.js';
+import { orphansOf } from './orphans.js';
 import { applyAll } from './runner.js';
 import { assertScope, saveScope } from './scope.js';
 
@@ -211,7 +217,8 @@ async function finish(plan: Plan, report: MigrateReport): Promise<void> {
   report.failures = [...result.failures];
   report.warnings.push(...result.warnings);
   const commit = await filesToCommit(state);
-  if (commit) report.commit = commit;
+  const all = [...new Set([...(commit ?? []), ...(report.commit ?? [])])].sort();
+  if (all.length) report.commit = all;
 }
 
 // ---------------------------------------------------------------------------
@@ -275,6 +282,46 @@ function baseReport(mig: Migrating, manifest: Manifest, lock: Lock): MigrateRepo
   };
 }
 
+/** True when both files exist with the same bytes. */
+async function sameBytes(a: string, b: string): Promise<boolean> {
+  const [x, y] = await Promise.all([
+    readFile(a).catch(() => undefined),
+    readFile(b).catch(() => undefined),
+  ]);
+  return x !== undefined && y !== undefined && x.equals(y);
+}
+
+/**
+ * Files 0.1 copied into a folder palm owns that 0.2 does not write there (a skill's
+ * `agents/openai.yaml` goes only into `.agents/skills`): removed while they still match the
+ * source at the migrated commit, so the folder holds what the lock lists. Anything else stays,
+ * and `palm check` names it.
+ */
+async function dropStaleCopies(plan: Plan): Promise<string[]> {
+  const { state, ctx } = plan.run;
+  const removed: string[] = [];
+  for (const p of plan.prepared) {
+    const entry = state.lock.find(p.job.entity, p.job.source.name);
+    for (const { dir, file } of entry ? await orphansOf(state, entry) : []) {
+      const source = join(p.job.checkout.root, p.job.entity.path, file.slice(dir.length + 1));
+      if (!(await sameBytes(state.paths.abs(file), source))) continue;
+      await rm(state.paths.abs(file), { force: true });
+      await removeEmptyParents(state.paths.abs(file), state.paths.abs(dir));
+      removed.push(file);
+    }
+  }
+  if (removed.length)
+    ctx.log.info(
+      `removed ${removed.length === 1 ? '1 file' : `${removed.length} files`} palm 0.1 copied that palm 0.2 does not write there: ${removed[0]}${removed.length > 1 ? ', …' : ''}`,
+    );
+  return removed;
+}
+
+/** The top folder of each removed file (`.claude/`): its deletion is committed with the rest. */
+function topFolders(files: readonly string[]): string[] {
+  return [...new Set(files.map((f) => (f.includes('/') ? `${f.slice(0, f.indexOf('/'))}/` : f)))];
+}
+
 /** After the consent: the files, the install, `.palm/hooks`. */
 async function apply(ctx: PalmContext, mig: Migrating, plan: Plan, report: MigrateReport) {
   const { paths, m, legacy } = mig;
@@ -283,6 +330,8 @@ async function apply(ctx: PalmContext, mig: Migrating, plan: Plan, report: Migra
   const gitignore = await writeScope(plan, report.manifest);
   if (gitignore) report.gitignore = gitignore.replace(/^\.gitignore: /, '');
   await applyAll(plan.run, plan.prepared);
+  const stale = await dropStaleCopies(plan);
+  if (stale.length && paths.scope === 'project') report.commit = topFolders(stale);
   await saveScope(plan.run.state);
   report.lock = stringifyYaml(plan.run.state.lock.toJSON());
   report.movedAssets = await dropHookDirs(plan, m.legacy, plan.hashes);

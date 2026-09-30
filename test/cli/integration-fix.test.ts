@@ -3,6 +3,7 @@
  * 30), proven against the built binary with real git sources, targets and cache. Secret-shaped
  * values are built at runtime.
  */
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -348,5 +349,33 @@ describe('migrate guards', () => {
     const run = await m.palm(dir, 'migrate');
     expect(run.code).toBe(2);
     expect(run.all).toContain('is inside the global claude directory, not a project');
+  });
+});
+
+describe('migrate and the files 0.1 copied', () => {
+  it('a file 0.1 copied into a skill folder that 0.2 does not write there goes when it matches the source', async () => {
+    const tdd = {
+      ...skill('tdd'),
+      'skills/tdd/agents/openai.yaml': 'interface: {}\n',
+    };
+    const url = await m.source('kit', { 'v1.0.0': tdd });
+    const sha = execFileSync('git', ['ls-remote', url, 'refs/tags/v1.0.0'])
+      .toString()
+      .split('\t')[0];
+    const p = await m.project('app');
+    await writeFiles(m.palmHome, {
+      'config.yaml': `origins:\n  - alias: kit\n    type: git\n    url: ${url}\n`,
+    });
+    await writeFiles(p, {
+      'palm.yaml': 'targets: [claude]\nskills:\n  - tdd@kit\n',
+      'palm.lock.yaml': `version: 2\nentries:\n  - { kind: skill, name: tdd, origin: kit, ref: v1.0.0, sha: ${sha}, path: skills/tdd, targets: [claude] }\n`,
+      '.claude/skills/tdd/SKILL.md': tdd['skills/tdd/SKILL.md'] as string,
+      '.claude/skills/tdd/agents/openai.yaml': 'interface: {}\n',
+    });
+    const run = await m.palm(p, 'migrate');
+    expect(run.code, run.all).toBe(0);
+    expect(run.all).toContain('removed 1 file palm 0.1 copied that palm 0.2 does not write there');
+    expect(existsSync(join(p, '.claude/skills/tdd/agents/openai.yaml'))).toBe(false);
+    expect(existsSync(join(p, '.claude/skills/tdd/SKILL.md'))).toBe(true);
   });
 });
