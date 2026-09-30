@@ -33,21 +33,46 @@ async function world(): Promise<{ w: World; name: string }> {
 
 describe('update', () => {
   it('moves the sha within the range and leaves the intent in palm.yaml', async () => {
-    const { w, name } = await world();
+    const w = await makeWorld({ targets: ['claude'], interactive: true });
+    const V1 = { 'skills/tdd/SKILL.md': 'one\n', ...HOOK('echo one\n') };
+    const url = await w.remote('kit', { 'v1.0.0': V1 });
+    await installFromSource(
+      w.ctx,
+      { source: `${url}#^1.0`, names: [{ name: 'tdd' }, { name: 'guard' }] },
+      { scope: 'project' },
+      w.deps,
+    );
+    const before = (await w.lock()).sources.kit;
+    expect(before).toMatchObject({ ref: '^1.0', resolved: 'v1.0.0' });
     await w.remote('kit', {
-      'v1.0.0': { 'skills/tdd/SKILL.md': 'one\n', ...HOOK('echo one\n') },
-      'v1.1.0': { 'skills/tdd/SKILL.md': 'one point one\n', ...HOOK('echo one\n') },
+      'v1.0.0': V1,
+      'v1.1.0': { 'skills/tdd/SKILL.md': 'one point one\n', ...HOOK('echo one point one\n') },
       'v2.0.0': { 'skills/tdd/SKILL.md': 'two\n', ...HOOK('echo two\n') },
     });
-    const before = await w.lock();
-    expect(before.sources[name]).toMatchObject({ ref: '^1.0', resolved: 'v1.1.0' });
     const manifest = await w.manifestText();
     const plan = await planUpdate(w.ctx, [], { scope: 'project' }, w.deps);
-    expect(await w.lockText()).toBeDefined();
-    expect(plan.sources[0]).toMatchObject({ name, ref: '^1.0' });
-    await applyUpdate(w.ctx, plan, { scope: 'project' }, w.deps);
+    expect(plan.sources).toEqual([
+      {
+        name: 'kit',
+        ref: '^1.0',
+        from: expect.stringContaining('v1.0.0'),
+        to: expect.stringContaining('v1.1.0'),
+      },
+    ]);
+    expect(plan.items.find((i) => i.name === 'tdd')?.mark).toBe('updated');
+    expect(planChanges(plan)).toBe(1);
+    expect((await w.lock()).sources.kit).toEqual(before);
+    w.exec.requests.length = 0;
+    const r = await applyUpdate(w.ctx, plan, { scope: 'project' }, w.deps);
+    expect(r.failures).toEqual([]);
     expect(await w.manifestText()).toBe(manifest);
-    expect((await w.lock()).sources[name]).toMatchObject({ ref: '^1.0', resolved: 'v1.1.0' });
+    const after = (await w.lock()).sources.kit;
+    expect(after).toMatchObject({ ref: '^1.0', resolved: 'v1.1.0' });
+    expect(after?.sha).not.toBe(before?.sha);
+    expect(await w.read('.claude/skills/tdd/SKILL.md')).toBe('one point one\n');
+    expect(w.exec.requests).toHaveLength(1);
+    const again = await planUpdate(w.ctx, [], { scope: 'project' }, w.deps);
+    expect(planChanges(again)).toBe(0);
   });
 
   it('plans nothing when the locked sha is the newest in the range, and --dry-run writes nothing', async () => {
