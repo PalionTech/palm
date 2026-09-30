@@ -17,7 +17,7 @@ export function manifestFile(scope: Scope | undefined): string {
 }
 
 /** ` -g` under the global scope, else nothing. */
-export function scopeFlag(scope: Scope | undefined): string {
+function scopeFlag(scope: Scope | undefined): string {
   return scope === 'global' ? ' -g' : '';
 }
 

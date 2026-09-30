@@ -4,7 +4,9 @@
  * changed), ask once (default no; `--yes` without a terminal, never for programs), then apply.
  * `--dry-run` is the outdated report; with `--strict` it exits 1 when a source is behind.
  */
+import semver from 'semver';
 import { PalmError } from '../core/errors.js';
+import { runGit } from '../core/git-exec.js';
 import { parseKind } from '../core/kinds.js';
 import type {
   ExecUnit,
@@ -14,9 +16,9 @@ import type {
   UpdatePlanItem,
   UpdatePlanSource,
 } from '../core/types.js';
-import { gitDiffStat } from '../lib/git-query.js';
+import { gitToplevel } from '../lib/git-query.js';
 import { plural } from '../lib/text.js';
-import { formatColumns, listJoin, type Mark, shortHash } from '../ui/format.js';
+import { formatColumns, listJoin, type Mark, shortHash, shortRef } from '../ui/format.js';
 import type { Output } from '../ui/output.js';
 import { printFailures } from '../ui/summary.js';
 import type { App } from './app.js';
@@ -46,13 +48,32 @@ const MARKS: Readonly<Record<UpdateMark, Mark>> = {
   skipped: '⊘',
 };
 
-const arrow = (from?: string, to?: string) =>
-  from && to && from !== to ? `${from} → ${to}` : (to ?? from ?? '');
+/** O22: a version as a table shows it: a full commit sha as its first 7 characters. */
+const short = (v?: string) => v?.replace(/\b([0-9a-f]{7})[0-9a-f]{33}\b/g, '$1');
 
-function itemCells(i: UpdatePlanItem): string[] {
+const arrow = (from?: string, to?: string) =>
+  from && to && from !== to ? `${short(from)} → ${short(to)}` : (short(to ?? from) ?? '');
+
+/** The version a plan string names (`v1.2.3 (6acc160)` → `1.2.3`), when it is one. */
+function versionOf(text: string | undefined): string | undefined {
+  const ref = text?.replace(/\s*\(.*\)$/, '');
+  return ref ? (semver.valid(semver.coerce(ref)) ?? undefined) : undefined;
+}
+
+/** Q12: the sources this plan moves to an older version. */
+function downgrades(plan: UpdatePlan): Set<string> {
+  const older = (s: UpdatePlanSource) => {
+    const [from, to] = [versionOf(s.from), versionOf(s.to)];
+    return Boolean(from && to && semver.lt(to, from));
+  };
+  return new Set(plan.sources.filter(older).map((s) => s.name));
+}
+
+function itemCells(i: UpdatePlanItem, down: ReadonlySet<string>): string[] {
   const name = i.via ? `${i.name} (${i.via})` : i.name;
-  const change = [arrow(i.from, i.to), i.note].filter(Boolean).join('  ');
-  return [i.mark, i.kind, name, i.source, change];
+  const moved = down.has(i.source) && i.mark === 'updated' ? 'downgrade' : '';
+  const change = [arrow(i.from, i.to), i.note, moved].filter(Boolean).join('  ');
+  return [i.mark === 'updated' && moved ? 'downgraded' : i.mark, i.kind, name, i.source, change];
 }
 
 function changedScripts(before: ExecUnit, after: ExecUnit): string[] {
@@ -85,6 +106,23 @@ function quiet(i: UpdatePlanItem): boolean {
   return i.mark === 'unchanged' && !i.note && (!i.from || !i.to || i.from === i.to) && !i.exec;
 }
 
+/** O23: an entry whose source moved while its content stayed the same: re-pinned, counted. */
+function repinned(i: UpdatePlanItem): boolean {
+  const moved = Boolean(i.from && i.to && i.from !== i.to);
+  return i.mark === 'unchanged' && moved && !i.exec && (!i.note || i.note === 'same content');
+}
+
+/** `= 9 re-pinned (same content), 1 unchanged`. */
+function countsLine(items: UpdatePlanItem[]): string | undefined {
+  const moved = items.filter(repinned).length;
+  const same = items.filter(quiet).length;
+  const parts = [
+    moved ? `${moved} re-pinned (same content)` : '',
+    same ? `${same} unchanged` : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(', ') : undefined;
+}
+
 /** B21: skipped entries of one source as one line (`⊘ ./kit   100 entries   a directory source…`). */
 function skippedLines(items: UpdatePlanItem[]): string[][] {
   const bySource = new Map<string, UpdatePlanItem[]>();
@@ -106,19 +144,25 @@ function behindCell(s: UpdatePlanSource): string {
 
 function printPlan(out: Output, plan: UpdatePlan, force: boolean): void {
   out.out(`Update plan (${plan.scope} scope)`);
-  const sources = plan.sources.map((s) => [s.name, s.ref, arrow(s.from, s.to), behindCell(s)]);
+  const down = downgrades(plan);
+  const sources = plan.sources.map((s) => [
+    s.name,
+    shortRef(s.ref) ?? '',
+    arrow(s.from, s.to),
+    [behindCell(s), down.has(s.name) ? 'downgrade' : ''].filter(Boolean).join('; '),
+  ]);
   for (const line of formatColumns(sources)) out.out(line);
   // D11: why a source counts as a change when no entry changes.
   for (const s of plan.sources) if (s.reason) out.mark('i', `${s.name}: ${s.reason}`);
-  const listed = plan.items.filter((i) => !quiet(i) && i.mark !== 'skipped');
-  const rows = [...listed.map(itemCells), ...skippedLines(plan.items)];
+  const listed = plan.items.filter((i) => !quiet(i) && !repinned(i) && i.mark !== 'skipped');
+  const rows = [...listed.map((i) => itemCells(i, down)), ...skippedLines(plan.items)];
   const marks = [
     ...listed.map((i) => MARKS[i.mark]),
     ...skippedLines(plan.items).map(() => MARKS.skipped),
   ];
   for (const [n, line] of formatColumns(rows).entries()) out.mark(marks[n] ?? '=', line);
-  const same = plan.items.filter(quiet).length;
-  if (same) out.mark('=', `${same} unchanged`);
+  const counts = countsLine(plan.items);
+  if (counts) out.mark('=', counts);
   for (const line of plan.items.map(execLine)) if (line) out.mark('!', line);
   printAtRisk(out, plan.items, force);
   printFailures(out, plan.failures);
@@ -219,16 +263,25 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const before = await api.openScope(ctx, opts.scope, { readOnly: true });
   const result = await interruptible(app, () => api.applyUpdate(ctx, plan, opts, engineDeps(app)));
   const after = await api.openScope(ctx, opts.scope, { readOnly: true });
+  const down = downgrades(plan);
   try {
     await reportInstall(ctx, app, result, {
       before,
       after,
       json: { plan: planJson(plan), ...result },
+      downgraded: (source) => down.has(source),
     });
   } finally {
-    // What the update changed, as the review of the commit will show it (DESIGN §6).
+    // Q12: what the update changed, new files included, as `git status --short` lists them.
     const show = !app.out.jsonMode && opts.scope === 'project';
-    const stat = show ? await gitDiffStat(after.paths.root) : undefined;
-    if (stat) app.out.out(stat);
+    const status = show ? await gitStatus(after.paths.root) : undefined;
+    if (status) app.out.out(status);
   }
+}
+
+/** `git status --short` of the scope's root; undefined outside a repository or without git. */
+async function gitStatus(root: string): Promise<string | undefined> {
+  if (!(await gitToplevel(root))) return undefined;
+  const out = await runGit(['status', '--short', '--', '.'], { cwd: root }).catch(() => '');
+  return out.trimEnd() || undefined;
 }

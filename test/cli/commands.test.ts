@@ -483,15 +483,18 @@ describe('palm install (bare): make the disk match palm.yaml', () => {
     expect(deps.calls.syncScope?.[0]).toEqual([{ scope: 'project' }, expect.any(Object)]);
   });
 
-  it('says when palm.yaml lists nothing', async () => {
-    const deps = fakeEngine({
-      scopes: [fakeScope({ root: sb.project })],
-      syncScope: async () => ({ outcomes: [], failures: [], warnings: [] }),
-    });
-    const r = await palm(sb, ['install'], { deps });
-    expect(r.stdout).toBe(
-      'i nothing to install: palm.yaml lists no entries\nsee what a source offers, for example: palm install mattpocock/skills\n',
-    );
+  it('Q10: says when there is no palm.yaml, and when palm.yaml lists nothing', async () => {
+    const deps = () =>
+      fakeEngine({
+        scopes: [fakeScope({ root: sb.project })],
+        syncScope: async () => ({ outcomes: [], failures: [], warnings: [] }),
+      });
+    const next = 'see what a source offers, for example: palm install mattpocock/skills\n';
+    const none = await palm(sb, ['install'], { deps: deps() });
+    expect(none.stdout).toBe(`i no palm.yaml here\n${next}`);
+    await write(join(sb.project, 'palm.yaml'), 'targets: [claude]\n');
+    const empty = await palm(sb, ['install'], { deps: deps() });
+    expect(empty.stdout).toBe(`i nothing to install: palm.yaml lists no entries\n${next}`);
   });
 
   it('--all needs a source', async () => {

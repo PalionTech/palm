@@ -9,6 +9,7 @@
  * Every command it suggests names the source as the person can paste it: the key once palm.yaml
  * declares it, else what they typed (K9). `palm install mcp …` is src/commands/mcp.ts.
  */
+import { existsSync } from 'node:fs';
 import type { Entity, InstallRequest, LayoutDescriptor, PalmContext } from '../core/types.js';
 import type { ScopeState, SourceListing } from '../create/engine.js';
 import { parseLayoutFlags } from '../index/layout-flags.js';
@@ -195,7 +196,9 @@ async function sync(ctx: PalmContext, app: App, before: ScopeState): Promise<voi
   const result = await interruptible(app, () => api.syncScope(ctx, { scope }, engineDeps(app)));
   const after = await api.openScope(ctx, scope, { readOnly: true });
   if (!result.outcomes.length && !result.failures.length && !app.out.jsonMode) {
-    app.out.info('nothing to install: palm.yaml lists no entries');
+    const file = manifestFile(scope);
+    const none = !existsSync(before.paths.manifestFile);
+    app.out.info(none ? `no ${file} here` : `nothing to install: ${file} lists no entries`);
     app.out.hint(
       `see what a source offers, for example: ${palmLine('install', ['mattpocock/skills'], scope)}`,
     );
