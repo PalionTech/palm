@@ -86,18 +86,23 @@ function readAll(fd) {
 }
 
 /**
- * Run one command (an argument array, no shell) with stdout and stderr interleaved in order, as
- * a terminal shows them: both go to one log file, read back through the descriptor they wrote.
+ * What `spawn(stdio)` printed, stdout and stderr interleaved in order as a terminal shows them:
+ * both go to one log file, read back through the descriptor they wrote.
  */
-function run(box, command, args, cwd = box.project, env = box.env) {
+function logged(box, spawn) {
   const fd = openSync(join(box.root, 'output.log'), 'w+');
   try {
-    const result = spawnSync(command, args, { cwd, env, stdio: ['ignore', fd, fd] });
+    const result = spawn(['ignore', fd, fd]);
     if (result.error) throw result.error;
     return { status: result.status, output: readAll(fd) };
   } finally {
     closeSync(fd);
   }
+}
+
+/** Run one program with an argument array; never a shell (bash steps go through `sh`). */
+function run(box, command, args, cwd = box.project, env = box.env) {
+  return logged(box, (stdio) => spawnSync(command, args, { cwd, env, stdio }));
 }
 
 function palm(box, args) {
@@ -108,7 +113,7 @@ function palm(box, args) {
   return run(box, process.execPath, [CLI, ...expanded]);
 }
 
-// Shell steps commit with a fixed identity and date, so git sources get the same shas every run.
+// Sources and shell steps commit with a fixed identity and date, so shas repeat on every run.
 const GIT_FIXED = {
   GIT_AUTHOR_NAME: 'palm docs',
   GIT_AUTHOR_EMAIL: 'docs@example.com',
@@ -126,7 +131,7 @@ const GIT_FIXED = {
 function sh(box, script, cwd = box.project) {
   const env = { ...box.env, ...GIT_FIXED, FIXTURES, SRC: join(box.home, 'src') };
   if (box.allowExec) env.ALLOW_EXEC = box.allowExec;
-  return run(box, 'bash', ['-c', script], cwd, env);
+  return logged(box, (stdio) => spawnSync('bash', ['-c', script], { cwd, env, stdio }));
 }
 
 /** `{{allow-exec}}` in a step: the `--allow-exec` value an earlier step printed. */
