@@ -16,8 +16,8 @@ vi.mock('../../src/domain/ignore.js', async (original) => ({
   ...(await import('./contract-fakes.js')).domainIgnore,
 }));
 
-const TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
-const KEY = 'sk-live-0123456789abcdef';
+const TOKEN = `ghp_${'Zx8kQ2mN7pL4vR9t'.repeat(3).slice(0, 36)}`;
+const KEY = `sk-proj-${'Zx8kQ2mN7pL4vR9t'.repeat(2).slice(0, 24)}`;
 
 let tmp: string;
 beforeEach(async () => {
