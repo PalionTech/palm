@@ -30,6 +30,47 @@ async function clonedWith(url: string): Promise<string> {
   return clone;
 }
 
+/** 24 distinct characters; token bodies are built from them at runtime. */
+const RANDOM = 'Zx8kQ2mN7pL4vR9tW3yB6cF1';
+
+describe("S6 J3' Y2' a server palm just wrote literally", () => {
+  it("S6 J3' check finds no render mismatch right after --secrets literal", async () => {
+    const p = await m.project('app');
+    await writeFiles(m.palmHome, { 'palm.yaml': 'targets: [claude]\n' });
+    const header = ['--header', `X-Api-Key=${RANDOM}${RANDOM}`, '--secrets', 'literal'];
+    const args = ['install', 'mcp', 'docs', '--url', 'https://docs.example.com/mcp', ...header];
+    const global = await m.palm(p, ...args, '-g');
+    expect(global.code, global.all).toBe(0);
+    const check = await m.palm(p, 'check', '-g');
+    expect(check.all).not.toContain('renders differently');
+    expect(check.code, check.all).toBe(0);
+  });
+});
+
+describe("Y1' J2' servers typed with flags", () => {
+  it("Y1' a ${VAR} header is header auth in the typed and the bare install alike", async () => {
+    const p = await m.project('app', ['.claude', '.opencode']);
+    await writeFiles(p, { 'palm.yaml': 'targets: [claude, opencode]\n' });
+    const url = ['--url', 'https://docs.example.com/mcp'];
+    const add = await m.palm(p, 'install', 'mcp', 'docs', ...url, '--header', 'X-Key=${DOCS_KEY}');
+    expect(add.code, add.all).toBe(0);
+    const typed = readFileSync(join(p, 'opencode.json'), 'utf8');
+    expect(typed).toContain('"oauth": false');
+    expect((await m.palm(p, 'install')).code).toBe(0);
+    expect(readFileSync(join(p, 'opencode.json'), 'utf8')).toBe(typed);
+  });
+
+  it("J2' a typed value that is no secret is written as typed, and a line says so", async () => {
+    const p = await m.project('app');
+    await writeFiles(p, { 'palm.yaml': 'targets: [claude]\n' });
+    const url = ['--url', 'https://docs.example.com/mcp'];
+    const run = await m.palm(p, 'install', 'mcp', 'docs', ...url, '--header', 'X-Region=eu');
+    expect(run.code, run.all).toBe(0);
+    expect(run.all).toContain('docs: headers.X-Region is written as you typed it (not a secret)');
+    expect(readFileSync(join(p, '.mcp.json'), 'utf8')).toContain('"X-Region": "eu"');
+  });
+});
+
 describe("S4' a committed palm.yaml naming a file:// source outside the project", () => {
   it("S4' a bare install and check are refused with the flag that allows them", async () => {
     const url = await m.source('kit', { 'v1.0.0': skill('tdd') });

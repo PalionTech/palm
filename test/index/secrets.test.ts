@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Entity, ScanResult } from '../../src/core/types.js';
 import { scanSourceWith } from '../../src/index/scanner.js';
 import type { SecretScanner } from '../../src/index/secrets.js';
-import { detectSecrets, redact, scanText } from '../../src/secrets/scan.js';
+import { detectSecrets, redact, scanText, urlSecret } from '../../src/secrets/scan.js';
 import { putFile, removeDir, tempDir } from '../support/sandbox.js';
 import { scanSource } from './helpers.js';
 
@@ -70,7 +70,7 @@ describe('secrets pass', () => {
     const remote = find(r, 'mcp', 'remote');
     expect(remote.def).toMatchObject({
       mcp: {
-        url: redact(`https://example.com/mcp?token=${TOKEN}`),
+        url: `https://example.com/mcp?token=${redact(TOKEN)}`,
         headers: { Authorization: `Bearer ${redact(KEY)}`, 'X-Team': '${TEAM}' },
       },
     });
@@ -154,6 +154,7 @@ describe('secrets pass', () => {
       scanText,
       redact,
       detectSecrets,
+      urlSecret,
       scanSecrets: (value, where) =>
         Array.isArray(value) ? [{ where, shape: 'high-entropy', redacted: redact('abc') }] : [],
     };

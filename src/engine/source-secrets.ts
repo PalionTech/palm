@@ -12,6 +12,7 @@ import {
   detectSecrets,
   envVariableName,
   headerVariable,
+  serverVariable,
 } from '../domain/secret-refs.js';
 import { isRecord } from '../lib/object.js';
 import { secretPart } from '../secrets/scan.js';
@@ -67,6 +68,16 @@ class Referencer {
   }
 }
 
+/**
+ * S10: the variable for the secret the index redacted in a server's URL, named after the
+ * parameter it sits under (`?key=` of remote → `REMOTE_KEY`, as for a typed URL), else
+ * `<SERVER>_TOKEN`.
+ */
+function urlVariable(server: string, url: string): string {
+  const param = /[?&]([A-Za-z0-9_.-]+)=<redacted sha256:/.exec(url)?.[1];
+  return serverVariable(server, param ?? 'token');
+}
+
 function referenceMcp(cfg: McpServerConfig, r: Referencer): McpServerConfig {
   const server = cfg.name;
   const out: McpServerConfig = { ...cfg };
@@ -79,7 +90,7 @@ function referenceMcp(cfg: McpServerConfig, r: Referencer): McpServerConfig {
       r.replace(a, `${where}.args[${i}]`, argVariable(server, cfg.args ?? [], i)),
     );
   if (cfg.url !== undefined)
-    out.url = r.replace(cfg.url, `${where}.url`, envVariableName(server, 'url'));
+    out.url = r.replace(cfg.url, `${where}.url`, urlVariable(server, cfg.url));
   const secrets = detectSecrets(out);
   if (secrets.length) out.secrets = secrets;
   return out;

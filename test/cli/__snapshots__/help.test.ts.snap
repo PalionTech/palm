@@ -75,19 +75,22 @@ exports[`palm --help > palm check --help 1`] = `
 Verify palm.yaml, the lock and the files (CI gate).
 
 Options:
-  --quiet              print only the problems (nothing when there are none)
-  -h, --help           display help for command
+  --quiet                print only the problems (nothing when there are none)
+  --strict               fail on foreign hooks and servers and on checks that
+                         could not run
+  --allow-local-sources  palm.yaml may name file:// sources outside the project
+  -h, --help             display help for command
 
 Global Options:
-  -g, --global         use ~/.palm/palm.yaml and the harness home directories
-  --dry-run            show what would change; write nothing
-  --force              replace files you changed or that palm does not own
-  -y, --yes            accept plan confirmations (never consents to programs)
-  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
-  --offline            use the cache only; no network
-  --json               one JSON document on stdout; everything else on stderr
-  --secrets <policy>   env-ref (default) or literal, for secrets you type
-  -V, --version        print the palm version
+  -g, --global           use ~/.palm/palm.yaml and the harness home directories
+  --dry-run              show what would change; write nothing
+  --force                replace files you changed or that palm does not own
+  -y, --yes              accept plan confirmations (never consents to programs)
+  --allow-exec <list>    allow programs: hook:x@source=sha256:hash,... or all
+  --offline              use the cache only; no network
+  --json                 one JSON document on stdout; everything else on stderr
+  --secrets <policy>     env-ref (default) or literal, for secrets you type
+  -V, --version          print the palm version
 
 Prints every check it ran, then one line per problem with the command that fixes it.
 Exit 1 when a check fails; warnings alone exit 0.
@@ -275,40 +278,40 @@ exports[`palm --help > palm install --help 1`] = `
 Install from a source; bare, sync with palm.yaml.
 
 Arguments:
-  source               owner/repo, a git URL, a directory, or a source in
-                       palm.yaml
-  names                [kind:]name of what to install
+  source                 owner/repo, git URL, directory, or a source in
+                         palm.yaml
+  names                  [kind:]name of what to install
 
 Options:
-  --all                everything the source offers
-  --grep <text>        list only what matches the text (name or description)
-  --as <name>          the name a URL source gets in palm.yaml
-  --layout <k=glob>    a new source’s layout: skills=packages/* (repeatable)
-  --targets <ids>      only these targets for these entries (recorded per entry)
-  --review             print the scripts of every program first; with --dry-run,
-                       only print
-  -h, --help           display help for command
+  --all                  everything the source offers
+  --grep <text>          list only what matches the text (name or description)
+  --as <name>            the name a URL source gets in palm.yaml
+  --layout <k=glob>      a new source’s layout: skills=packages/* (repeatable)
+  --targets <ids>        only these targets for these entries (kept per entry)
+  --review               print program scripts first; with --dry-run, only print
+  --allow-local-sources  palm.yaml may name file:// sources outside the project
+  -h, --help             display help for command
 
 MCP servers (palm install mcp):
-  --url <url>          a remote server
-  --header <K=V>       an HTTP header (repeatable)
-  --command <cmd>      a local (stdio) server: the program
-  --arg <arg>          an argument for --command (repeatable)
-  --env <K=V>          an environment variable (repeatable)
-  --transport <t>      stdio, http or sse, when palm cannot tell
-  --cwd <dir>          working directory for --command
-  --snippet <file>     the mcpServers block of a README: a file, or - for stdin
+  --url <url>            a remote server
+  --header <K=V>         an HTTP header (repeatable)
+  --command <cmd>        a local (stdio) server: the program
+  --arg <arg>            an argument for --command (repeatable)
+  --env <K=V>            an environment variable (repeatable)
+  --transport <t>        stdio, http or sse, when palm cannot tell
+  --cwd <dir>            working directory for --command
+  --snippet <file>       a README's mcpServers block: a file, or - for stdin
 
 Global Options:
-  -g, --global         use ~/.palm/palm.yaml and the harness home directories
-  --dry-run            show what would change; write nothing
-  --force              replace files you changed or that palm does not own
-  -y, --yes            accept plan confirmations (never consents to programs)
-  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
-  --offline            use the cache only; no network
-  --json               one JSON document on stdout; everything else on stderr
-  --secrets <policy>   env-ref (default) or literal, for secrets you type
-  -V, --version        print the palm version
+  -g, --global           use ~/.palm/palm.yaml and the harness home directories
+  --dry-run              show what would change; write nothing
+  --force                replace files you changed or that palm does not own
+  -y, --yes              accept plan confirmations (never consents to programs)
+  --allow-exec <list>    allow programs: hook:x@source=sha256:hash,... or all
+  --offline              use the cache only; no network
+  --json                 one JSON document on stdout; everything else on stderr
+  --secrets <policy>     env-ref (default) or literal, for secrets you type
+  -V, --version          print the palm version
 
 Forms:
   palm install <source>                       list what the source offers; saves nothing
@@ -369,23 +372,24 @@ exports[`palm --help > palm remove --help 1`] = `
 Delete exactly what palm wrote for some entities.
 
 Arguments:
-  names                an optional source, then [kind:]name of what to remove
+  names                  an optional source, then [kind:]name of what to remove
 
 Options:
-  --exclude            a plugin member: exclude it for the team in palm.yaml
-  --all                every entry of the source, after a question
-  -h, --help           display help for command
+  --exclude              a plugin member: exclude it for the team in palm.yaml
+  --all                  every entry of the source, after a question
+  --allow-local-sources  palm.yaml may name file:// sources outside the project
+  -h, --help             display help for command
 
 Global Options:
-  -g, --global         use ~/.palm/palm.yaml and the harness home directories
-  --dry-run            show what would change; write nothing
-  --force              replace files you changed or that palm does not own
-  -y, --yes            accept plan confirmations (never consents to programs)
-  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
-  --offline            use the cache only; no network
-  --json               one JSON document on stdout; everything else on stderr
-  --secrets <policy>   env-ref (default) or literal, for secrets you type
-  -V, --version        print the palm version
+  -g, --global           use ~/.palm/palm.yaml and the harness home directories
+  --dry-run              show what would change; write nothing
+  --force                replace files you changed or that palm does not own
+  -y, --yes              accept plan confirmations (never consents to programs)
+  --allow-exec <list>    allow programs: hook:x@source=sha256:hash,... or all
+  --offline              use the cache only; no network
+  --json                 one JSON document on stdout; everything else on stderr
+  --secrets <policy>     env-ref (default) or literal, for secrets you type
+  -V, --version          print the palm version
 
 A file you changed since palm wrote it keeps the entity installed (exit 1); --force removes it.
 Removing something that is not installed is not an error.
@@ -404,25 +408,27 @@ exports[`palm --help > palm update --help 1`] = `
 Move sources to newer commits within their refs.
 
 Arguments:
-  sources              sources to update (default: all)
+  sources                sources to update (default: all)
 
 Options:
-  --to <ref>           move the ref in palm.yaml (a tag, branch, sha or range
-                       such as ^2)
-  --review             print changed scripts and entities as diffs before asking
-  --strict             with --dry-run: exit 1 when a source is behind its ref
-  -h, --help           display help for command
+  --to <ref>             move the ref in palm.yaml (a tag, branch, sha or range
+                         such as ^2)
+  --review               print changed scripts and entities as diffs before
+                         asking
+  --strict               with --dry-run: exit 1 when a source is behind its ref
+  --allow-local-sources  palm.yaml may name file:// sources outside the project
+  -h, --help             display help for command
 
 Global Options:
-  -g, --global         use ~/.palm/palm.yaml and the harness home directories
-  --dry-run            show what would change; write nothing
-  --force              replace files you changed or that palm does not own
-  -y, --yes            accept plan confirmations (never consents to programs)
-  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
-  --offline            use the cache only; no network
-  --json               one JSON document on stdout; everything else on stderr
-  --secrets <policy>   env-ref (default) or literal, for secrets you type
-  -V, --version        print the palm version
+  -g, --global           use ~/.palm/palm.yaml and the harness home directories
+  --dry-run              show what would change; write nothing
+  --force                replace files you changed or that palm does not own
+  -y, --yes              accept plan confirmations (never consents to programs)
+  --allow-exec <list>    allow programs: hook:x@source=sha256:hash,... or all
+  --offline              use the cache only; no network
+  --json                 one JSON document on stdout; everything else on stderr
+  --secrets <policy>     env-ref (default) or literal, for secrets you type
+  -V, --version          print the palm version
 
 Prints the plan, every new or changed program, and the files you changed, then asks
 (default no). Without a terminal it needs --yes; --yes never consents to programs.

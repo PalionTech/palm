@@ -104,10 +104,12 @@ function pluginJobs(b: Build, plugin: Entity, entry: ManifestEntryObject): Job[]
   const via = Via.of({ kind: 'plugin', name: plugin.name }).toString();
   const listed = (e: Entity) => b.state.manifest.hasEntry(b.ref.name, e.kind, e.name);
   const picked = members.filter((m) => memberSelected(entry, { kind: m.kind, name: m.name }));
-  const jobs = picked.map((m) => ({
-    ...jobFor(b, m, entry, listed(m) ? undefined : via),
-    explicit: false,
-  }));
+  const excluded = members.filter((m) => !picked.includes(m));
+  const jobs = picked.map((m) => {
+    const job: Job = { ...jobFor(b, m, entry, listed(m) ? undefined : via), explicit: false };
+    if (m.kind === 'hook' && excluded.length) job.excluded = excluded;
+    return job;
+  });
   return [own, ...jobs];
 }
 

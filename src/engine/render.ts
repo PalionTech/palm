@@ -9,6 +9,7 @@ import { join, posix } from 'node:path';
 import { retryCommand } from '../core/errors.js';
 import { commitDate } from '../core/git.js';
 import { contentHash, hashPath, lfText, sha256 } from '../core/hash.js';
+import { worktreeRoot } from '../core/paths.js';
 import type {
   Closure,
   ClosureFile,
@@ -29,6 +30,7 @@ import { isSkillCopySkipped } from '../domain/skill-copy.js';
 import type { SourceRef } from '../domain/source.js';
 import { inPlaceClosure } from '../exec/closure.js';
 import { withScriptReads } from '../exec/reads.js';
+import { excludedReferenceNote, hookReadsExcluded } from '../index/excluded-refs.js';
 import { canonicalJson } from '../lib/json.js';
 import { redactTypedArgs } from '../secrets/typed.js';
 import {
@@ -50,6 +52,8 @@ export interface RenderJob {
   targets: TargetId[];
   policy: SecretPolicy;
   values?: Record<string, string>;
+  /** M8: the plugin members palm.yaml leaves out; a hook reading their files gets a notice. */
+  excluded?: readonly Entity[];
 }
 
 interface EntityClosure {
@@ -244,6 +248,8 @@ async function secretPass(
 ): Promise<Rendered | undefined> {
   const dest = destinationOf(rendered);
   if (run.job.entity.def.kind !== 'mcp' || run.job.policy !== 'literal' || !dest) return rendered;
+  // J2': with no value to write literally (a server without secrets) there is nothing to decide
+  if (!Object.keys(run.job.values ?? {}).length) return rendered;
   const decision = await run.deps.decideSecret({
     scope: run.state.paths.scope,
     fromSource: false,
@@ -358,7 +364,11 @@ export async function renderEntity(
     source: job.source.name,
   };
   const referenced = referenceSecrets(job.entity);
-  const read = await withScriptReads(referenced.entity, job.checkout.root);
+  const read = await withScriptReads(
+    referenced.entity,
+    job.checkout.root,
+    await readScope(state, job),
+  );
   const run: RenderRun = { ctx, deps, state, job: { ...job, entity: read.entity }, subject };
   const root = assetsRootOf(state, job.source, job.entity, job.checkout);
   const issues = scanIssues(run);
@@ -372,13 +382,30 @@ export async function renderEntity(
       ...referenced.replaced.map((s) => referencedLine(job.entity.name, s, harnesses)),
       ...issues.warnings,
       ...read.warnings,
+      ...excludedReads(read.entity, job.excluded),
     ],
   };
   if (out.refusals.length) return out;
   await renderTargets(run, out);
   out.closure = await closureOf(run, out, root);
   const unit = await unitOf(run, out);
-  if (unit && issues.review.length) unit.warnings = issues.review;
+  if (unit && issues.review.length) unit.warnings = [...(unit.warnings ?? []), ...issues.review];
   if (unit) out.unit = unit;
   return out;
+}
+
+/**
+ * Sofia S3 O10: an in-repo source's scripts may read files elsewhere in the worktree; those are
+ * hashed in place. A git source's reads stay inside its checkout.
+ */
+async function readScope(state: ScopeState, job: RenderJob): Promise<{ worktree?: string }> {
+  if (!job.source.isLocal) return {};
+  const top = worktreeRoot(state.paths.root) ?? state.paths.root;
+  return { worktree: (await state.paths.realInside(top)).real };
+}
+
+/** M8: a hook whose closure reads an excluded member's files: its text still reaches the model. */
+function excludedReads(entity: Entity, excluded: readonly Entity[] | undefined): string[] {
+  if (!excluded?.length) return [];
+  return hookReadsExcluded(entity, excluded).map(excludedReferenceNote);
 }

@@ -515,7 +515,11 @@ describe('Y19 secrets: literal is recorded', () => {
     await installMcp(w.context({ secrets: 'literal' }), [{ config: cfg }], project, w.deps);
     expect(await w.manifest()).toMatchObject({ mcp: { docs: { secrets: 'literal' } } });
     w.secrets.decisions.length = 0;
+    // J2': without a value to write literally there is nothing to decide
     await syncScope(w.ctx, project, w.deps);
+    expect(w.secrets.decisions).toEqual([]);
+    const withValue = { ...w.ctx, env: { ...w.ctx.env, DOCS_TOKEN: 'from-the-environment' } };
+    await syncScope(withValue, project, w.deps);
     expect(w.secrets.decisions.map((d) => d.requested)).toEqual(['literal']);
     const deps = await resolveEngineDeps(w.deps);
     const state = await openScope(w.ctx, 'project', { deps, readOnly: true });

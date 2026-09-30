@@ -26,7 +26,6 @@ export async function realpathInside(abs: string, roots: readonly string[]): Pro
 export async function isGitIgnored(abs: string, cwd: string): Promise<boolean | undefined>;   // NEW: `git check-ignore -q`, undefined when git or a repository is missing
 export async function isGitTracked(abs: string, cwd: string): Promise<boolean | undefined>;   // NEW: `git ls-files --error-unmatch`
 export async function gitToplevel(dir: string): Promise<string | undefined>;                   // NEW: `git rev-parse --show-toplevel`, undefined outside a repository
-export async function gitDiffStat(dir: string): Promise<string | undefined>;                   // NEW: `git diff --stat -- .` below dir (printed after `palm update`), undefined outside a repository or when clean
 // (the three git helpers live in lib/git-query.ts, re-exported by fs.ts; they call core/git-exec runGit through an injected runner
 //  to keep lib palm-free: `setGitRunner(next: GitRunner | undefined)`, installed by core/context createContext)
 // json.ts, yaml.ts, frontmatter.ts, names.ts, object.ts, placeholders.ts, text.ts, unicode.ts: as in 0.1

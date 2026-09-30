@@ -193,7 +193,7 @@ describe('palm migrate on the persona projects', () => {
       url: 'https://docs.example/mcp',
       headers: { Authorization: 'Bearer ${DOCS_TOKEN}' },
     });
-    const check = await m.palm(p, 'check');
+    const check = await m.palm(p, 'check', '--allow-local-sources');
     expect(check.code, check.all).toBe(0);
   });
 
@@ -646,7 +646,7 @@ describe('palm migrate on the persona projects, continued', () => {
       args: string[];
     };
     expect(helper.args).toEqual(['.palm/assets/powers/team-helper/scripts/helper.js']);
-    const check = await m.palm(p, 'check');
+    const check = await m.palm(p, 'check', '--allow-local-sources');
     expect(check.code, check.all).toBe(0);
   });
 

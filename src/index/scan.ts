@@ -5,9 +5,9 @@
  */
 
 import type { ScanResult, Source } from '../core/types.js';
-import { detectSecrets, redact, scanSecrets, scanText } from '../secrets/scan.js';
+import { detectSecrets, redact, scanSecrets, scanText, urlSecret } from '../secrets/scan.js';
 import { scanSourceWith } from './scanner.js';
 
 export function scanSource(root: string, source: Source): Promise<ScanResult> {
-  return scanSourceWith(root, source, { scanSecrets, scanText, redact, detectSecrets });
+  return scanSourceWith(root, source, { scanSecrets, scanText, redact, detectSecrets, urlSecret });
 }

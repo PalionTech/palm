@@ -42,6 +42,8 @@ export interface TypedReference {
   why: TypedWhy;
   /** The placeholder as written, for a fill-in (`YOUR_API_KEY`) or an input (`${input:pat}`). */
   placeholder?: string;
+  /** Q8: written as `${VAR:-}`, empty until exported (a header fill-in: the key is optional). */
+  optional?: boolean;
 }
 
 /** An auth scheme kept in front of the reference: `Bearer ${DOCS_TOKEN}`. */
@@ -55,14 +57,6 @@ function reference(variable: string): string {
 
 function hasReference(value: string): boolean {
   return REFERENCE_RE.test(value);
-}
-
-/** The name a fill-in placeholder spells (`YOUR_API_KEY` → `API_KEY`, `<your-token>` → `token`). */
-function fillInName(text: string): string | undefined {
-  const t = text.trim();
-  if (!/^(?:<.*>|your[-_ .].*)$/i.test(t)) return undefined;
-  const name = t.replace(/^<|>$/g, '').replace(/^your[-_ .]+/i, '');
-  return /^[A-Za-z][A-Za-z0-9_ .-]*$/.test(name) ? name : undefined;
 }
 
 function isPathLike(text: string): boolean {
@@ -124,21 +118,25 @@ class Typed {
     return secretKey && !isPathLike(text) ? 'secret' : undefined;
   }
 
-  /** An env or header value: the whole value (after an auth scheme) becomes the reference. */
-  whole(raw: string, site: Site, named?: (placeholder: string) => string | undefined): string {
+  /**
+   * An env or header value: the whole value (after an auth scheme) becomes the reference. A
+   * header's fill-in (`Bearer YOUR_API_KEY`) is optional, `${VAR:-}` under the header's own
+   * variable name, as the index writes a source's (Q8, Q9: one derivation).
+   */
+  whole(raw: string, site: Site, optionalFillIn = false): string {
     const value = this.inputs(raw, site.where);
     if (hasReference(value)) return value;
     const [, scheme = '', text = value] = SCHEME.exec(value) ?? [];
     const why = this.why(text, site);
     if (!why) return value;
-    const fillIn = why === 'fill-in';
-    const variable = (fillIn && named?.(text)) || site.variable;
-    this.references.push(
-      fillIn
-        ? { where: site.where, variable, value: '', why, placeholder: text }
-        : { where: site.where, variable, value: text, why },
-    );
-    return `${scheme}${reference(variable)}`;
+    const { where, variable } = site;
+    if (why !== 'fill-in') {
+      this.references.push({ where, variable, value: text, why });
+      return `${scheme}${reference(variable)}`;
+    }
+    const fill: TypedReference = { where, variable, value: '', why, placeholder: text };
+    this.references.push(optionalFillIn ? { ...fill, optional: true } : fill);
+    return `${scheme}${optionalFillIn ? `\${${variable}:-}` : reference(variable)}`;
   }
 
   /**
@@ -179,14 +177,10 @@ function envOf(t: Typed, env: Record<string, string>): Record<string, string> {
 }
 
 function headersOf(t: Typed, headers: Record<string, string>): Record<string, string> {
-  const named = (text: string) => {
-    const name = fillInName(text);
-    return name === undefined ? undefined : serverVariable(t.server, name);
-  };
   return Object.fromEntries(
     Object.entries(headers).map(([h, v]) => [
       h,
-      t.whole(v, { key: h, where: `headers.${h}`, variable: headerVariable(t.server, h) }, named),
+      t.whole(v, { key: h, where: `headers.${h}`, variable: headerVariable(t.server, h) }, true),
     ]),
   );
 }
@@ -272,6 +266,8 @@ export function typedLine(
   harnesses: readonly string[],
 ): string {
   const who = harnesses.length ? orList([...harnesses]) : 'your agent';
+  if (ref.optional)
+    return `${server}: ${whatWasThere(ref)}; written as \${${ref.variable}:-} (optional: empty until you export ${ref.variable})`;
   const tail = ref.why === 'typed' ? ' (--secrets literal stores the value instead)' : '';
   return `${server}: ${whatWasThere(ref)}; written as ${reference(ref.variable)}; export ${ref.variable}=… before starting ${who}${tail}`;
 }

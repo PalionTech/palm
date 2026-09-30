@@ -85,6 +85,8 @@ export interface Job {
   policy?: SecretPolicy;
   /** Lines the run prints once the entity changes on disk, never on an unchanged sync (K17). */
   notices?: string[];
+  /** M8: a plugin hook's members palm.yaml leaves out (a hook reading them gets a notice). */
+  excluded?: Entity[];
 }
 
 type ConsentState = 'none' | 'trusted' | 'ask' | 'allowed' | 'declined';
@@ -157,6 +159,7 @@ export async function prepareJob(run: Run, job: Job): Promise<Prepared> {
     targets: job.targets,
     policy,
     ...(values ? { values } : {}),
+    ...(job.excluded ? { excluded: job.excluded } : {}),
   });
   const subject = { kind: job.entity.kind, name: job.entity.name, source: job.source.name };
   await refuseOversizedBlocks(run, subject, out);

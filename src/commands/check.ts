@@ -139,8 +139,8 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const flags = inv.opts as CheckFlags;
   const ctx = await makeContext(app, flags);
   const scope = scopeOf(flags);
-  const strict = Boolean(flags.strict);
-  const report = await engine(app).checkScope(ctx, { scope, strict }, engineDeps(app));
+  const opts = flags.strict ? { scope, strict: true } : { scope };
+  const report = await engine(app).checkScope(ctx, opts, engineDeps(app));
   if (app.out.jsonMode) app.out.json({ ok: report.ok, checks: report.checks });
   else printCheck(app.out, report, Boolean(flags.quiet));
   await noteForeignLists(ctx, app, scope);

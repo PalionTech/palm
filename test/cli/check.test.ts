@@ -100,4 +100,10 @@ describe('palm check', () => {
     await palm(sb, ['check', '-g'], { deps });
     expect(deps.calls.checkScope?.[0]?.[0]).toEqual({ scope: 'global' });
   });
+
+  it('passes --strict to the engine (Sofia S2, O12)', async () => {
+    const deps = fakeEngine({ checkScope: async () => report(CLEAN) });
+    await palm(sb, ['check', '--strict'], { deps });
+    expect(deps.calls.checkScope?.[0]?.[0]).toEqual({ scope: 'project', strict: true });
+  });
 });

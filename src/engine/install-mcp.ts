@@ -17,7 +17,13 @@ import type {
   SecretPolicy,
 } from '../core/types.js';
 import { isSafeName } from '../lib/names.js';
-import { referenceTyped, type TypedReference, typedLine, typedValues } from '../secrets/typed.js';
+import {
+  plainLine,
+  referenceTyped,
+  type TypedReference,
+  typedLine,
+  typedValues,
+} from '../secrets/typed.js';
 import { resolveEngineDeps } from './deps.js';
 import { type Job, jobPolicy, type Run, runOf } from './jobs.js';
 import { runJobs, settle, withLockedScope } from './runner.js';
@@ -62,13 +68,17 @@ function typedNotices(
 
 function jobOf(run: Run, req: McpRequest, recorded?: 'literal'): Job {
   const { state } = run;
-  const { cfg, references } = referenceTyped(req.config);
+  const { cfg, references, plain } = referenceTyped(req.config);
   const policy = jobPolicy(run, recorded ? { policy: recorded } : {});
   const harnesses = activeTargets(state, {
     name: cfg.name,
     ...(req.targets ? { targets: req.targets } : {}),
   }).map((t) => run.deps.getTarget(t).displayName);
-  const notices = typedNotices(cfg, references, { policy, harnesses });
+  // J2': a typed value that is no secret is written as typed, and a line says so
+  const notices = [
+    ...typedNotices(cfg, references, { policy, harnesses }),
+    ...plain.map((p) => plainLine(cfg.name, p)),
+  ];
   const entry: McpManifestEntry = {
     ...mcpManifestEntry(cfg),
     ...(req.targets?.length ? { targets: req.targets } : {}),

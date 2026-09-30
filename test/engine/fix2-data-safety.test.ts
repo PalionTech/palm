@@ -42,7 +42,7 @@ describe('O1 LF-normalised text renders and hashes', () => {
 
     const clone = join(m.root, 'clone');
     await git(m.root, 'clone', '-q', p, clone);
-    const check = await m.palm(clone, 'check');
+    const check = await m.palm(clone, 'check', '--allow-local-sources');
     expect(check.code, check.all).toBe(0);
     // S4: a file:// source outside the clone is typed, never taken from palm.yaml alone.
     const bare = await m.palm(clone, 'install', url, 'crlf');
@@ -63,7 +63,7 @@ describe('O1 LF-normalised text renders and hashes', () => {
     expect(first.code, first.all).toBe(0);
     const file = join(p, '.claude/skills/lf/SKILL.md');
     await writeFile(file, (await readFile(file, 'utf8')).replaceAll('\n', '\r\n'));
-    const check = await m.palm(p, 'check');
+    const check = await m.palm(p, 'check', '--allow-local-sources');
     expect(check.code, check.all).toBe(0);
     const bare = await m.palm(p, 'install', url, 'lf');
     expect(bare.code, bare.all).toBe(0);
@@ -93,7 +93,7 @@ describe('T1 no delete through a link into another target', () => {
     expect(await readFile(codexOnly, 'utf8')).toBe(codexText);
     expect((await lstat(join(p, '.claude/skills/fmt'))).isSymbolicLink()).toBe(true);
 
-    const check = await m.palm(p, 'check');
+    const check = await m.palm(p, 'check', '--allow-local-sources');
     expect(check.all).toContain('no stray file in a folder palm owns');
     expect(check.all).not.toContain('does not list');
 
@@ -128,7 +128,7 @@ describe('B1 two installs started together', () => {
       expect(await readFile(join(p, `.claude/skills/${n}/SKILL.md`), 'utf8')).toContain(n);
     }
     expect(manifest).toContain('many');
-    const check = await m.palm(p, 'check');
+    const check = await m.palm(p, 'check', '--allow-local-sources');
     expect(check.code, check.all).toBe(0);
   });
 });
@@ -222,7 +222,7 @@ describe('S4 a file:// URL outside the project', () => {
     const bare = await m.palm(p, 'install');
     expect(bare.code).not.toBe(0);
     expect(bare.all).toContain(`source "private" is ${url}, outside the project`);
-    expect(bare.all).toContain(`palm install ${url} lint`);
+    expect(bare.all).toContain('palm install --allow-local-sources');
     await expect(readFile(join(p, '.claude/skills/lint/SKILL.md'), 'utf8')).rejects.toThrow();
     const typed = await m.palm(p, 'install', url, 'lint');
     expect(typed.code, typed.all).toBe(0);

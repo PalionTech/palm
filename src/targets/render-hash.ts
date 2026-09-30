@@ -4,8 +4,9 @@
  * lock form. Under -g, text has the expanded palm home and home directory written as `<palm>`
  * and `<home>`, so the hash is the same on every machine while the bytes keep real paths.
  * Fragment values have every secret value replaced by its `${VAR}` placeholder, plus a marker
- * naming the variables written literally, so a policy change re-renders and a rotated secret
- * does not.
+ * for the `literal` policy, so a policy change re-renders and a rotated secret does not. The
+ * marker does not depend on the values at hand (S6 J3' Y2'): `check` renders a `secrets:
+ * literal` server without the values palm never stores, and must hash it as the install did.
  */
 import type { RenderedFile, RenderedFragment, Scope, SecretPolicy } from '../core/types.js';
 import { renderHashOf } from '../domain/lock.js';
@@ -59,9 +60,8 @@ function hashedFragments(
     key: f.key,
     value: tokenise(redactSecrets(f.value, values)),
   }));
-  const literal = Object.keys(values ?? {}).sort();
-  if (form.secretPolicy === 'literal' && literal.length > 0)
-    out.push({ file: '', at: 'secrets', id: 'policy', key: 'literal', value: literal });
+  if (form.secretPolicy === 'literal')
+    out.push({ file: '', at: 'secrets', id: 'policy', key: 'literal', value: 'literal' });
   return out;
 }
 

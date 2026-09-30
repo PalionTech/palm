@@ -38,6 +38,8 @@ export interface SecretScanner {
   scanText(text: string, where: string): SecretFinding[];
   redact(value: string): string;
   detectSecrets(cfg: McpServerConfig): SecretRef[];
+  /** S10: the secret part of a URL (a password, a `key=` parameter), so the host stays. */
+  urlSecret(url: string): { secret: string; param?: string } | undefined;
 }
 
 const SHAPES: Record<SecretShape, string> = {
@@ -78,6 +80,15 @@ class Redactor {
     return this.scanner.redact(value);
   }
 
+  /** S10: a URL with only its secret part redacted (`?key=<redacted …>`); the host stays. */
+  url(value: string, where: string): string {
+    const findings = this.scanner.scanSecrets(value, where);
+    if (findings.length === 0) return value;
+    this.record(findings);
+    const part = this.scanner.urlSecret(value)?.secret;
+    return part ? value.replace(part, this.scanner.redact(part)) : this.scanner.redact(value);
+  }
+
   /**
    * An argument list scanned whole, so a value after `--api-key` is judged by the flag's name;
    * findings name the item as `<where>[i]`. An item it cannot place redacts every argument.
@@ -106,7 +117,7 @@ function redactMcp(cfg: McpServerConfig, r: Redactor): void {
   if (cfg.env) cfg.env = r.map(cfg.env, `${where}.env`);
   if (cfg.headers) cfg.headers = r.map(cfg.headers, `${where}.headers`);
   if (cfg.args) cfg.args = r.list(cfg.args, `${where}.args`);
-  if (cfg.url !== undefined) cfg.url = r.value(cfg.url, `${where}.url`);
+  if (cfg.url !== undefined) cfg.url = r.url(cfg.url, `${where}.url`);
 }
 
 function redactHooks(name: string, raw: unknown, r: Redactor): void {

@@ -42,7 +42,7 @@ type Opts = Record<string, unknown>;
 /** S4': the flag that lets palm.yaml name a `file://` source outside the project. */
 const LOCAL_SOURCES: [string, string] = [
   '--allow-local-sources',
-  'palm.yaml may name file:// sources outside the project (local mirrors, air-gapped CI)',
+  'palm.yaml may name file:// sources outside the project',
 ];
 
 /** Collect a repeatable option into an array. */
@@ -181,10 +181,10 @@ function installOptions(cmd: Command): void {
     .option('--grep <text>', 'list only what matches the text (name or description)')
     .option('--as <name>', 'the name a URL source gets in palm.yaml')
     .option('--layout <k=glob>', 'a new source’s layout: skills=packages/* (repeatable)', collect)
-    .option('--targets <ids>', 'only these targets for these entries (recorded per entry)')
+    .option('--targets <ids>', 'only these targets for these entries (kept per entry)')
     .addOption(hidden('--target <ids>', 'the same as --targets'))
     .addOption(hidden('--at <dir>', 'placement directory for these entries (honoured in 0.3)'))
-    .option('--review', 'print the scripts of every program first; with --dry-run, only print')
+    .option('--review', 'print program scripts first; with --dry-run, only print')
     .option(...LOCAL_SOURCES);
   for (const [flags, description] of REMOVED_INSTALL_FLAGS)
     cmd.addOption(hidden(flags, description));
@@ -197,7 +197,7 @@ function installOptions(cmd: Command): void {
     .option('--env <K=V>', 'an environment variable (repeatable)', collect)
     .option('--transport <t>', 'stdio, http or sse, when palm cannot tell')
     .option('--cwd <dir>', 'working directory for --command')
-    .option('--snippet <file>', 'the mcpServers block of a README: a file, or - for stdin');
+    .option('--snippet <file>', "a README's mcpServers block: a file, or - for stdin");
 }
 
 const VERB_SETUP: Readonly<Record<Verb, VerbSetup>> = {
@@ -215,7 +215,7 @@ const VERB_SETUP: Readonly<Record<Verb, VerbSetup>> = {
   },
   install: {
     args: [
-      ['[source]', 'owner/repo, a git URL, a directory, or a source in palm.yaml'],
+      ['[source]', 'owner/repo, git URL, directory, or a source in palm.yaml'],
       ['[names...]', '[kind:]name of what to install'],
     ],
     options: installOptions,

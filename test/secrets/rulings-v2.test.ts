@@ -166,7 +166,7 @@ describe('J11 hints that repeat the command redact typed values', () => {
 });
 
 describe('L3 fill-in placeholders become references', () => {
-  it('L3 Bearer YOUR_API_KEY in a snippet becomes Bearer ${CONTEXT7_API_KEY} with a notice', () => {
+  it('L3 Q8 Q9 Bearer YOUR_API_KEY in a snippet becomes the optional header reference with a notice', () => {
     const { cfg, references } = referenceTyped({
       name: 'context7',
       transport: 'http',
@@ -174,19 +174,20 @@ describe('L3 fill-in placeholders become references', () => {
       headers: { Authorization: 'Bearer YOUR_API_KEY' },
       from: { type: 'snippet' },
     });
-    expect(cfg.headers).toEqual({ Authorization: 'Bearer ${CONTEXT7_API_KEY}' });
+    expect(cfg.headers).toEqual({ Authorization: 'Bearer ${CONTEXT7_TOKEN:-}' });
     expect(references).toEqual([
       {
         where: 'headers.Authorization',
-        variable: 'CONTEXT7_API_KEY',
+        variable: 'CONTEXT7_TOKEN',
         value: '',
         why: 'fill-in',
         placeholder: 'YOUR_API_KEY',
+        optional: true,
       },
     ]);
     expect(typedValues(references)).toEqual({});
     expect(typedLine('context7', references[0]!, ['Cursor'])).toBe(
-      'context7: headers.Authorization held the placeholder YOUR_API_KEY; written as ${CONTEXT7_API_KEY}; export CONTEXT7_API_KEY=… before starting Cursor',
+      'context7: headers.Authorization held the placeholder YOUR_API_KEY; written as ${CONTEXT7_TOKEN:-} (optional: empty until you export CONTEXT7_TOKEN)',
     );
   });
 
