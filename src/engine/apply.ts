@@ -194,12 +194,17 @@ function insideSourceFailure(run: Run, p: Prepared, id: TargetId, lockPath: stri
   run.result.failures.push(failure(subjectOf(p), 'E_SOURCE', { message, hint }, id));
 }
 
+/** The files each job's earlier targets wrote in this run (a shared `.agents/skills` copy). */
+const writtenBy = new WeakMap<Prepared, Set<string>>();
+
 /**
  * X20 O11: what one target's write said: a hook already there adopted, a literal's file mode,
- * and the files palm found already there with its own content (`adopted`, never `merged`).
+ * and the files palm found already there with its own content (`adopted`, never `merged`); a
+ * file another target of the same entity wrote a moment ago is no adoption.
  */
-function applyNotes(applied: ApplyResult): string[] {
-  const adopted = applied.adopted ?? [];
+function applyNotes(p: Prepared, applied: ApplyResult): string[] {
+  const earlier = writtenBy.get(p) ?? new Set<string>();
+  const adopted = (applied.adopted ?? []).filter((f) => !earlier.has(f));
   const [only] = adopted;
   const files = adopted.length === 1 ? only : `${adopted.length} files`;
   const line = adopted.length ? [`adopted ${files} already there (the same content)`] : [];
@@ -227,7 +232,8 @@ async function writeTarget(
       noteWritten(state, rendered);
       run.touched = true;
     }
-    p.applied = [...new Set([...(p.applied ?? []), ...applyNotes(applied)])];
+    p.applied = [...new Set([...(p.applied ?? []), ...applyNotes(p, applied)])];
+    writtenBy.set(p, new Set([...(writtenBy.get(p) ?? []), ...applied.files]));
     return (applied.merged ?? []).filter((m) => m.created).map(fragmentKey);
   } catch (e) {
     throwIfCancelled(e);

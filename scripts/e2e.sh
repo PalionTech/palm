@@ -189,7 +189,7 @@ s02_list_saves_nothing() {
   has "palm install obra/superpowers --all"
   has "(a program; asks before installing)"
   run "$P1" install anthropics/skills
-  has "skill  pdf"
+  grep -qE '^  skill +pdf ' <<<"$OUT" || fail "no skill pdf row"
   run "$P1" install microsoft/apm-sample-package
   has "agent        design-reviewer"
   # L15: the index notes for maintainers are one count line (details under PALM_DEBUG).
@@ -274,7 +274,7 @@ s06_four_targets() {
   # A README snippet from stdin; a stdio server is a program and needs consent.
   OUT="$(cd "$P4" && printf '%s' '{ "mcpServers": { "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "."] } } }' | palm install mcp --snippet - 2>&1)" && fail "a stdio server installed without consent"
   echo "$OUT"
-  has "mcp:fs@manifest="
+  has "mcp:fs@palm.yaml="
   local allow
   allow="$(allow_exec)"
   OUT="$(cd "$P4" && printf '%s' '{ "mcpServers": { "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "."] } } }' | palm install mcp --snippet - --allow-exec "$allow" 2>&1)" || { echo "$OUT"; fail "install mcp --snippet failed"; }
@@ -301,22 +301,22 @@ s07_apm_gemini_opencode() {
   js "$P5/opencode.json" 'd.instructions.includes(".opencode/instructions/design-standards.md")'
   # The package installed as a plugin: a member leaves it for the team with --exclude.
   run_exit 1 "$P5" remove design-standards
-  has "palm remove microsoft/apm-sample-package design-standards --exclude"
-  run "$P5" remove microsoft/apm-sample-package design-standards --exclude
+  has "palm remove microsoft/apm-sample-package instruction:design-standards --exclude"
+  run "$P5" remove microsoft/apm-sample-package instruction:design-standards --exclude
   nofile "$P5/GEMINI.md"
   nofile "$P5/.opencode/instructions"
   nofile "$P5/opencode.json"
 }
 
 s08_in_repo_source() {
-  run "$P1" create skill review
+  run "$P1" create skill review --description "Reviews a change before it merges"
   has "+ source ./agent-kit → palm.yaml"
   file "$P1/agent-kit/skills/review/SKILL.md"
   file "$P1/.claude/skills/review/SKILL.md"
-  run_exit 1 "$P1" create hook quality
+  run_exit 1 "$P1" create hook quality --description "Runs the quality gate"
   local allow
   allow="$(allow_exec)"
-  run "$P1" create hook quality --allow-exec "$allow"
+  run "$P1" create hook quality --description "Runs the quality gate" --allow-exec "$allow"
   js "$P1/.claude/settings.json" 'JSON.stringify(d.hooks.SessionStart).includes("agent-kit/hooks/quality/scripts/quality.sh")'
   nofile "$P1/.palm/assets/agent-kit"
   # The source is the truth: an edit fails check until a bare install re-renders it.
@@ -422,8 +422,9 @@ s13_global() {
   file "$PALM_HOME/applied.yaml"
   contains "$PALM_HOME/palm.lock.yaml" "<claude>/skills/tdd/SKILL.md"
   portable "$PALM_HOME/palm.yaml" "$PALM_HOME/palm.lock.yaml"
+  # X13 M9: the same skill in this project and with -g is listed twice by Claude Code.
   run "$P1" check -g
-  has "no problems"
+  has "skill tdd: also installed in this project; Claude Code lists it twice"
   run "$P1" remove -g tdd
   nofile "$HOME/.claude/skills/tdd"
 }
@@ -452,7 +453,71 @@ s14_old_format() {
   has "no problems"
 }
 
-s15_real_home_untouched() {
+# A source repository at $1 (a directory under the sandbox) with the files given as
+# path=content pairs, committed byte for byte (no line-end conversion) and tagged v1.0.0.
+local_source() {
+  local dir="$1"
+  shift
+  mkdir -p "$dir"
+  git init -q -b main "$dir"
+  local pair
+  for pair in "$@"; do
+    mkdir -p "$dir/$(dirname "${pair%%=*}")"
+    printf '%b' "${pair#*=}" >"$dir/${pair%%=*}"
+  done
+  (cd "$dir" && git -c core.autocrlf=false add -A && git commit -q -m v1 && git tag v1.0.0) || fail "source $dir"
+}
+
+s15_crlf_under_eol_lf() {
+  # O1: a source written on Windows, a project whose .gitattributes normalises to LF. palm
+  # writes LF and hashes LF text, so a fresh clone is clean and check passes there.
+  local src="$SB/src-crlf" p="$SB/proj6" clone="$SB/clone6"
+  local_source "$src" 'skills/crlf/SKILL.md=---\r\nname: crlf\r\ndescription: A skill written on Windows\r\n---\r\n\r\nLine one.\r\nLine two.\r\n'
+  mkdir -p "$p/.claude"
+  git init -q -b main "$p"
+  printf '* text=auto eol=lf\n' >"$p/.gitattributes"
+  run "$p" install "file://$src" crlf
+  lacks_in "$p/.claude/skills/crlf/SKILL.md" $'\r'
+  commit_all "$p" "crlf skill"
+  [[ -z "$(cd "$p" && git status --porcelain)" ]] || fail "the install left changes: $(cd "$p" && git status --porcelain)"
+  git clone -q "$p" "$clone"
+  # S4': palm.yaml names a file:// source outside the clone; the flag reads it on purpose.
+  run_exit 1 "$clone" check
+  has "palm check --allow-local-sources"
+  run "$clone" check --allow-local-sources
+  has "no problems"
+  run "$clone" install --allow-local-sources
+  lacks "modified"
+  [[ -z "$(cd "$clone" && git status --porcelain)" ]] || fail "bare install in the clone changed files: $(cd "$clone" && git status --porcelain)"
+}
+
+s16_per_skill_symlinks() {
+  # T1: .claude/skills/<n> is a link into .agents/skills/<n>; neither --force nor dropping a
+  # target deletes the Codex-only file through the link.
+  local src="$SB/src-links" p="$SB/proj7" codex_only
+  local_source "$src" \
+    'skills/fmt/SKILL.md=---\nname: fmt\ndescription: Formats code\n---\n\nFormat it.\n' \
+    'skills/fmt/agents/openai.yaml=interface:\n  display_name: Fmt\n'
+  mkdir -p "$p/.claude" "$p/.codex"
+  git init -q -b main "$p"
+  printf 'targets: [claude, codex]\n' >"$p/palm.yaml"
+  run "$p" install "file://$src" fmt
+  codex_only="$p/.agents/skills/fmt/agents/openai.yaml"
+  file "$codex_only"
+  rm -rf "$p/.claude/skills/fmt"
+  ln -s ../../.agents/skills/fmt "$p/.claude/skills/fmt"
+  run "$p" install "file://$src" fmt --force
+  file "$codex_only"
+  [[ -L "$p/.claude/skills/fmt" ]] || fail ".claude/skills/fmt is no longer a link"
+  run "$p" check --allow-local-sources
+  has "no stray file in a folder palm owns"
+  sed -i.bak 's/targets: \[claude, codex\]/targets: [codex]/' "$p/palm.yaml" && rm "$p/palm.yaml.bak"
+  run "$p" install --allow-local-sources
+  file "$codex_only"
+  contains "$p/.agents/skills/fmt/SKILL.md" "Format it."
+}
+
+s17_real_home_untouched() {
   [[ "$(find "$REAL_HOME/.palm" -newer "$LOG" -print -quit 2>/dev/null)" == "" ]] || fail "the real ~/.palm changed during the run"
 }
 
@@ -476,7 +541,9 @@ step "11 CI: clean clone passes check, bare install writes nothing, restores, ke
 step "12 remove: plugin member --exclude, hook with assets, absent, in-repo entities" s12_remove
 step "13 global scope: tokens in the lock, applied.yaml, remove" s13_global
 step "14 a 0.1 palm.yaml points at palm migrate" s14_old_format
-step "15 real home untouched" s15_real_home_untouched
+step "15 a CRLF source under eol=lf: LF writes, a clean clone passes check (--allow-local-sources)" s15_crlf_under_eol_lf
+step "16 per-skill symlinks: --force and a dropped target keep the Codex-only file" s16_per_skill_symlinks
+step "17 real home untouched" s17_real_home_untouched
 
 echo
 echo "== summary =="

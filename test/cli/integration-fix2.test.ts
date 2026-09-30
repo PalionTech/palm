@@ -196,6 +196,14 @@ describe('X20 O11 what the write found already there', () => {
       'adopted .claude/skills/tdd/SKILL.md already there (the same content)',
     );
   });
+
+  it('X20 a copy two targets share is written once and adopted by neither', async () => {
+    const url = await m.source('kit', { 'v1.0.0': skill('tdd') });
+    const p = await m.project('app', ['.gemini', '.opencode']);
+    const run = await m.palm(p, 'install', url, 'tdd', '--as', 'kit');
+    expect(run.code, run.all).toBe(0);
+    expect(run.stdout).not.toContain('adopted');
+  });
 });
 
 describe("R14' one edited hook, one line", () => {

@@ -340,12 +340,12 @@ describe('X13 M9 one entity in two scopes', () => {
     const { r } = await check(w);
     expect(r['double-load']?.status).toBe('warn');
     expect(r['double-load']?.problems[0]).toMatchObject({
-      message: 'skill tdd is installed here and globally (-g); Fake claude lists it twice',
+      message: 'also installed globally (-g); Fake claude lists it twice',
       fix: 'keep one: palm remove kit skill:tdd -g, or remove it here',
     });
     const g = await checkScope(w.ctx, { scope: 'global' }, w.deps);
     const twice = g.checks.find((x) => x.id === 'double-load');
-    expect(twice?.problems[0]?.message).toContain('is installed here and in this project');
+    expect(twice?.problems[0]?.message).toContain('also installed in this project');
   });
 });
 

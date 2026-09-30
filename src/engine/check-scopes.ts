@@ -18,7 +18,7 @@ export async function scopesTwice(c: CheckContext, f: Found): Promise<void> {
     const lists = t.targets.length === 1 ? 'lists' : 'list';
     f.warn.push({
       entity: { kind: t.kind, name: t.name, source: t.source },
-      message: `${t.kind} ${t.name} is installed here and ${where(t.other.scope)}; ${harnesses} ${lists} it twice`,
+      message: `also installed ${where(t.other.scope)}; ${harnesses} ${lists} it twice`,
       fix: `keep one: ${remove}, or remove it here`,
     });
   }
