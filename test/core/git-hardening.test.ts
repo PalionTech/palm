@@ -3,7 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { fetchOrigin } from '../../src/core/git.js';
+import { fetchSource } from '../../src/core/git.js';
 import { makeContext } from '../support/fakes.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 import { commitFile, git, makeRemote } from './gitrepo.js';
@@ -52,9 +52,9 @@ describe('git runs with a clean environment (PLAN §2 item 1)', () => {
     process.env.GIT_INDEX_FILE = join(victim, '.git', 'index');
     process.env.GIT_OBJECT_DIRECTORY = join(victim, '.git', 'objects');
     const ctx = await makeContext(sb);
-    const co = await fetchOrigin(ctx, { alias: 'r', type: 'git', url: remote.bare });
-    const again = await fetchOrigin(ctx, {
-      alias: 'r',
+    const co = await fetchSource(ctx, { name: 'r', type: 'git', url: remote.bare });
+    const again = await fetchSource(ctx, {
+      name: 'r',
       type: 'git',
       url: remote.bare,
       ref: 'main',

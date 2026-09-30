@@ -239,11 +239,14 @@ export interface WalkOptions {
 export interface WalkResult {
   /**
    * Regular files, depth first, each directory's names sorted: `rel` relative to the root (posix
-   * separators), `abs` below the root (through any followed link), `mode` the permission bits.
+   * separators), `abs` below the root (through any followed link), `mode` the permission bits,
+   * `size` in bytes.
    */
-  files: Array<{ rel: string; abs: string; mode: number }>;
+  files: Array<{ rel: string; abs: string; mode: number; size: number }>;
   /** Entries not followed: symlinks leaving the boundary, broken links, unreadable entries. `'.'` when the root itself leaves the boundary. */
   skipped: string[];
+  /** The part of `skipped` that are symlinks whose real target lies outside the boundary (`'.'` for the root). */
+  symlinksOutside: string[];
 }
 
 interface Walk {
@@ -254,14 +257,20 @@ interface Walk {
   out: WalkResult;
 }
 
-/** Stats of `abs` (following a link whose real target stays inside `boundary`); undefined otherwise. */
-async function statInside(abs: string, boundary: string): Promise<Stats | undefined> {
+/**
+ * Stats of `abs`, following a link whose real target stays inside `boundary`; `'outside'` for a
+ * link that leaves it, `'unreadable'` for a broken link or an entry that cannot be read.
+ */
+async function statInside(
+  abs: string,
+  boundary: string,
+): Promise<Stats | 'outside' | 'unreadable'> {
   try {
     const lst = await lstat(abs);
     if (!lst.isSymbolicLink()) return lst;
-    return isWithin(await realpath(abs), boundary) ? await stat(abs) : undefined;
+    return isWithin(await realpath(abs), boundary) ? await stat(abs) : 'outside';
   } catch {
-    return undefined; // broken link or unreadable entry
+    return 'unreadable';
   }
 }
 
@@ -274,26 +283,76 @@ async function walkDir(dir: string, relDir: string, w: Walk): Promise<void> {
     if (w.skip(name, rel)) continue;
     const abs = path.join(dir, name);
     const st = await statInside(abs, w.boundary);
-    if (!st) w.out.skipped.push(rel);
-    else if (st.isDirectory()) await walkDir(abs, rel, w);
-    else if (st.isFile()) w.out.files.push({ rel, abs, mode: st.mode & 0o777 });
+    if (typeof st === 'string') {
+      w.out.skipped.push(rel);
+      if (st === 'outside') w.out.symlinksOutside.push(rel);
+    } else if (st.isDirectory()) await walkDir(abs, rel, w);
+    else if (st.isFile()) w.out.files.push({ rel, abs, mode: st.mode & 0o777, size: st.size });
   }
 }
 
 /**
  * Every regular file below the directory `root`. Symlinks are followed only when their real
  * target stays inside `boundary` (default: `root`); a link that points anywhere else, or is
- * broken, is never read and is reported in `skipped`. A symlinked `root` is resolved and checked
- * the same way. Each real directory is walked once, so links cannot loop. Errors reading `root`
- * itself propagate.
+ * broken, is never read and is reported in `skipped` (links leaving the boundary also in
+ * `symlinksOutside`). A symlinked `root` is resolved and checked the same way. Each real
+ * directory is walked once, so links cannot loop. Errors reading `root` itself propagate.
  */
 export async function walkFiles(root: string, opts: WalkOptions = {}): Promise<WalkResult> {
   const boundary = await realpath(opts.boundary ?? root);
-  const out: WalkResult = { files: [], skipped: [] };
+  const out: WalkResult = { files: [], skipped: [], symlinksOutside: [] };
   if (!isWithin(await realpath(root), boundary)) {
     out.skipped.push('.');
+    out.symlinksOutside.push('.');
     return out;
   }
   await walkDir(root, '', { boundary, skip: opts.skip ?? (() => false), seen: new Set(), out });
   return out;
 }
+
+/** What `realpathInside` found out about a path. */
+export interface RealPathInfo {
+  /** The real path: the deepest existing ancestor resolved, the missing rest appended. */
+  real: string;
+  /** True when `real` lies inside (or equals) one of the roots. */
+  inside: boolean;
+  /** True when a dangling symlink on the way was followed to where its target would be. */
+  dangling: boolean;
+}
+
+/** The real path of `abs` as far as it exists, following dangling links (see RealPathInfo). */
+async function resolveDeepest(
+  abs: string,
+  hops: number,
+): Promise<{ real: string; dangling: boolean }> {
+  const rest: string[] = [];
+  let cur = abs;
+  for (;;) {
+    const real = await realpath(cur).catch(() => undefined);
+    if (real !== undefined) return { real: path.join(real, ...rest), dangling: false };
+    const link = await readlink(cur).catch(() => undefined);
+    if (link !== undefined && hops < MAX_LINK_HOPS) {
+      const parent = await resolveDeepest(path.dirname(cur), hops + 1);
+      const target = path.resolve(parent.real, link, ...rest);
+      return { real: (await resolveDeepest(target, hops + 1)).real, dangling: true };
+    }
+    const parent = path.dirname(cur);
+    if (parent === cur) return { real: path.join(cur, ...rest), dangling: false };
+    rest.unshift(path.basename(cur));
+    cur = parent;
+  }
+}
+
+/**
+ * Where a write to or delete of `abs` really lands, and whether that lies inside one of `roots`
+ * (each resolved to its real path as well). The deepest existing ancestor is resolved and the
+ * missing rest appended; a dangling symlink on the way is followed to its would-be target, so a
+ * link pointing outside the roots is caught before anything is created through it.
+ */
+export async function realpathInside(abs: string, roots: readonly string[]): Promise<RealPathInfo> {
+  const { real, dangling } = await resolveDeepest(path.resolve(abs), 0);
+  const realRoots = await Promise.all(roots.map((r) => realpath(r).catch(() => path.resolve(r))));
+  return { real, inside: realRoots.some((r) => isWithin(real, r)), dangling };
+}
+
+export { gitToplevel, isGitIgnored, isGitTracked } from './git-query.js';

@@ -1,9 +1,15 @@
+/**
+ * Every error palm raises (DESIGN.md section 11). `E_USAGE` exits 2, `E_CANCELLED` 130, the
+ * rest 1. `E_SOURCE`: a source cannot be declared, fetched or read. `E_UNTRUSTED_EXEC`: an
+ * executable needs consent and there is no terminal. `E_SECRET`: a literal secret may not be
+ * written. `E_CHECK`: `palm check` found a problem.
+ */
 export type PalmErrorCode =
   | 'E_USAGE'
   | 'E_NOT_FOUND'
   | 'E_AMBIGUOUS'
   | 'E_CONFLICT'
-  | 'E_ORIGIN'
+  | 'E_SOURCE'
   | 'E_GIT'
   | 'E_NETWORK'
   | 'E_PARSE'
@@ -11,6 +17,9 @@ export type PalmErrorCode =
   | 'E_IO'
   | 'E_NON_INTERACTIVE'
   | 'E_CANCELLED'
+  | 'E_UNTRUSTED_EXEC'
+  | 'E_SECRET'
+  | 'E_CHECK'
   | 'E_INTERNAL';
 
 export class PalmError extends Error {

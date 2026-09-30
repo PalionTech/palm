@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { isHomeAsProject, resolvePaths } from '../../src/core/paths.js';
+import { enclosingProject, isHomeAsProject, resolvePaths } from '../../src/core/paths.js';
 import { removeDir, tempDir } from '../support/sandbox.js';
 
 describe('resolvePaths', () => {
@@ -11,12 +11,20 @@ describe('resolvePaths', () => {
   });
   afterEach(async () => removeDir(root));
 
-  it('prefers the nearest palm.yaml ancestor over a closer .git', async () => {
+  it('takes the nearest palm.yaml inside the repository', async () => {
+    await mkdir(join(root, 'repo', '.git'), { recursive: true });
+    await mkdir(join(root, 'repo', 'pkg', 'src'), { recursive: true });
+    await writeFile(join(root, 'repo', 'pkg', 'palm.yaml'), 'targets: [claude]\n');
+    const p = resolvePaths(join(root, 'repo', 'pkg', 'src'), { HOME: join(root, 'home') });
+    expect(p.projectRoot).toBe(join(root, 'repo', 'pkg'));
+  });
+
+  it('stops at the nearest .git: a palm.yaml above it belongs to another repository', async () => {
     await mkdir(join(root, 'a', 'b', 'c'), { recursive: true });
-    await writeFile(join(root, 'a', 'palm.yaml'), 'skills: []\n');
+    await writeFile(join(root, 'a', 'palm.yaml'), 'targets: [claude]\n');
     await mkdir(join(root, 'a', 'b', '.git'));
     const p = resolvePaths(join(root, 'a', 'b', 'c'), { HOME: join(root, 'home') });
-    expect(p.projectRoot).toBe(join(root, 'a'));
+    expect(p.projectRoot).toBe(join(root, 'a', 'b'));
   });
 
   it('falls back to the nearest .git ancestor', async () => {
@@ -36,7 +44,7 @@ describe('resolvePaths', () => {
   it('never treats PALM_HOME (global manifest) as a project root', async () => {
     const palmHome = join(root, 'ph');
     await mkdir(join(palmHome, 'mine'), { recursive: true });
-    await writeFile(join(palmHome, 'palm.yaml'), 'skills: []\n');
+    await writeFile(join(palmHome, 'palm.yaml'), 'targets: [claude]\n');
     const p = resolvePaths(join(palmHome, 'mine'), {
       HOME: join(root, 'home'),
       PALM_HOME: palmHome,
@@ -77,7 +85,33 @@ describe('isHomeAsProject', () => {
     await mkdir(join(home, '.git'), { recursive: true });
     await mkdir(join(home, 'notes'), { recursive: true });
     expect(isHomeAsProject(resolvePaths(join(home, 'notes'), env), env)).toBe(true);
-    await writeFile(join(home, 'palm.yaml'), 'skills: []\n');
+    await writeFile(join(home, 'palm.yaml'), 'targets: [claude]\n');
     expect(isHomeAsProject(resolvePaths(join(home, 'notes'), env), env)).toBe(false);
+  });
+});
+
+describe('enclosingProject', () => {
+  let root: string;
+  beforeEach(async () => {
+    root = await tempDir();
+  });
+  afterEach(async () => removeDir(root));
+
+  it('finds a palm.yaml strictly above cwd, up to the repository root', async () => {
+    const pkg = join(root, 'repo', 'packages', 'jobs');
+    await mkdir(pkg, { recursive: true });
+    expect(enclosingProject(pkg, join(root, 'repo'))).toBeUndefined();
+    await writeFile(join(root, 'repo', 'palm.yaml'), 'targets: [claude]\n');
+    expect(enclosingProject(pkg, join(root, 'repo'))).toBe(join(root, 'repo'));
+    expect(enclosingProject(join(root, 'repo'), join(root, 'repo'))).toBeUndefined();
+    await writeFile(join(pkg, 'palm.yaml'), 'targets: [claude]\n');
+    expect(enclosingProject(pkg, join(root, 'repo'))).toBe(join(root, 'repo'));
+    expect(enclosingProject(root, join(root, 'repo'))).toBeUndefined();
+  });
+
+  it('never looks above the repository root', async () => {
+    await mkdir(join(root, 'repo', 'sub'), { recursive: true });
+    await writeFile(join(root, 'palm.yaml'), 'targets: [claude]\n');
+    expect(enclosingProject(join(root, 'repo', 'sub'), join(root, 'repo'))).toBeUndefined();
   });
 });

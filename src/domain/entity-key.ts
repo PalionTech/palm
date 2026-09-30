@@ -6,9 +6,13 @@ interface Keyed {
   name: string;
 }
 
+interface Sourced extends Keyed {
+  source: string;
+}
+
 /**
  * Identity of an entity in a scope: kind + name, names compared case-insensitively.
- * `id` is the Map key; `toString()` is `<kind>:<name>` (the `via` form).
+ * `id` is the Map key; `toString()` is `<kind>:<name>`.
  */
 export class EntityKey {
   private constructor(
@@ -22,7 +26,7 @@ export class EntityKey {
 
   /** Stable map key: `<kind>:<lower-cased name>`. */
   get id(): string {
-    return `${this.kind}:${this.name.toLowerCase()}`;
+    return entityId(this);
   }
 
   /** Same kind and name (case-insensitive). */
@@ -35,77 +39,70 @@ export class EntityKey {
   }
 }
 
-/** Map key of an entity without building an EntityKey. */
+/** Map key of an entity without building an EntityKey: `<kind>:<lower-cased name>`. */
 export function entityId(e: Keyed): string {
   return `${e.kind}:${e.name.toLowerCase()}`;
 }
 
-/** Identity of a lock entry: kind + name (case-insensitive) + origin (exact). */
+/** Identity of a lock entry: kind + name (case-insensitive) + source name (exact). */
 export class LockKey {
   private constructor(
     readonly kind: Kind,
     readonly name: string,
-    readonly origin: string,
+    readonly source: string,
   ) {}
 
-  static of(e: Keyed & { origin: string }): LockKey {
-    return new LockKey(e.kind, e.name, e.origin);
+  static of(e: Sourced): LockKey {
+    return new LockKey(e.kind, e.name, e.source);
   }
 
   get entity(): EntityKey {
     return EntityKey.of(this);
   }
 
-  /** Stable map key: `<kind>:<lower-cased name>@<origin>`. */
+  /** Stable map key: `<kind>:<lower-cased name>@<source>`. */
   get id(): string {
-    return `${entityId(this)}@${this.origin}`;
+    return lockId(this);
   }
 
-  is(e: Keyed & { origin: string }): boolean {
-    return this.entity.is(e) && e.origin === this.origin;
+  is(e: Sourced): boolean {
+    return this.entity.is(e) && e.source === this.source;
   }
 
   toString(): string {
-    return `${this.kind}:${this.name}@${this.origin}`;
+    return `${this.kind}:${this.name}@${this.source}`;
   }
 }
 
-/** Map key of a lock entry without building a LockKey. */
-export function lockId(e: Keyed & { origin: string }): string {
-  return `${entityId(e)}@${e.origin}`;
+/** Map key of a lock entry without building a LockKey: `<kind>:<lower-cased name>@<source>`. */
+export function lockId(e: Sourced): string {
+  return `${entityId(e)}@${e.source}`;
 }
 
-export type ViaKind = 'plugin' | 'agent';
+const VIA_PREFIX = 'plugin:';
 
-/** Plugins and agents install dependencies (`via`); nothing else does. */
-export function isViaKind(kind: Kind): kind is ViaKind {
-  return kind === 'plugin' || kind === 'agent';
-}
-
-/** Why a dependency was installed: `plugin:<name>` or `agent:<name>` (LockEntry.via). */
+/**
+ * Why an entry was installed: `plugin:<name>`, the plugin that selected it (LockEntry.via).
+ * Plugins are the only selectors; the entry and its plugin share the source.
+ */
 export class Via {
-  private constructor(
-    readonly kind: ViaKind,
-    readonly name: string,
-  ) {}
+  private constructor(readonly name: string) {}
 
-  /** Parses `plugin:<name>` / `agent:<name>`; the name may itself contain `:`. */
+  /** Parses `plugin:<name>`; anything else is E_PARSE. */
   static parse(text: string): Via {
-    const colon = text.indexOf(':');
-    const kind = text.slice(0, colon);
-    const name = text.slice(colon + 1);
-    if (colon < 0 || !isViaKind(kind as Kind) || !name) {
+    const name = text.startsWith(VIA_PREFIX) ? text.slice(VIA_PREFIX.length) : '';
+    if (!name) {
       throw new PalmError(
         'E_PARSE',
-        `Invalid via "${text}"`,
-        'Expected plugin:<name> or agent:<name>',
+        `invalid via "${text}": expected plugin:<name>`,
+        'restore palm.lock.yaml from git, then run palm install',
       );
     }
-    return new Via(kind as ViaKind, name);
+    return new Via(name);
   }
 
   /** Parses, or undefined for a missing or malformed value. */
-  static tryParse(text: string | undefined): Via | undefined {
+  static tryParse(text?: string): Via | undefined {
     if (!text) return undefined;
     try {
       return Via.parse(text);
@@ -114,29 +111,23 @@ export class Via {
     }
   }
 
-  /** The `via` a dependency of `parent` records; `parent` must be a plugin or an agent. */
-  static of(parent: Keyed): Via {
-    if (!isViaKind(parent.kind)) {
-      throw new PalmError(
-        'E_INTERNAL',
-        `${parent.kind} ${parent.name} cannot install dependencies`,
-      );
-    }
-    return new Via(parent.kind, parent.name);
+  /** The `via` a member of `parent` records. */
+  static of(parent: { kind: 'plugin'; name: string }): Via {
+    return new Via(parent.name);
   }
 
-  /** The parent entity's key. */
+  /** The plugin's entity key. */
   get key(): EntityKey {
-    return EntityKey.of(this);
+    return EntityKey.of({ kind: 'plugin', name: this.name });
   }
 
-  /** True when `text` names the same parent (names compared case-insensitively). */
-  is(text: string | undefined): boolean {
+  /** True when `text` names the same plugin (names compared case-insensitively). */
+  is(text?: string): boolean {
     const other = Via.tryParse(text);
     return !!other && other.key.id === this.key.id;
   }
 
   toString(): string {
-    return `${this.kind}:${this.name}`;
+    return `${VIA_PREFIX}${this.name}`;
   }
 }

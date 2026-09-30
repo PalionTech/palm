@@ -1,144 +1,123 @@
-import { messageOf, PalmError } from '../core/errors.js';
+/**
+ * palm.yaml v3 (DESIGN.md section 3): targets, sources with their entries, and hand-declared
+ * MCP servers. Mutators change the object and return it; `save` patches the file so comments,
+ * key order and unknown keys survive.
+ */
 import { manifestKey } from '../core/kinds.js';
 import type {
-  DepRef as DepRefData,
-  DepSpec,
+  EntityRef,
   Kind,
-  LockEntry,
   Manifest as ManifestData,
+  ManifestEntry,
+  ManifestEntryObject,
+  ManifestSource,
   McpManifestEntry,
-  OriginSpec,
+  Source,
   TargetId,
 } from '../core/types.js';
-import { errnoCode } from '../lib/fs.js';
+import { KINDS } from '../core/types.js';
 import { isRecord, withoutUndefined } from '../lib/object.js';
-import { readYamlFile, writeYamlFile } from '../lib/yaml.js';
-import { DepRef, sameName } from './dep-ref.js';
+import { writeYamlFile, type YamlPath } from '../lib/yaml.js';
+import { parseEntityRef, sameName } from './entity-ref.js';
+import { checkedManifest, ENTRY_KEYS } from './manifest-check.js';
+import { SourceSet, toManifestSource } from './source.js';
+import { loadYaml } from './yaml-file.js';
 
-/** One dependency as the manifest lists it: a reference, or (MCP only) an inline definition. */
-export type ManifestDep = DepRef | McpManifestEntry;
+export { detectManifestFormat } from './manifest-check.js';
 
-/** What a manifest dependency is matched against: an installed lock entry. */
-export type Installed = Pick<LockEntry, 'kind' | 'name' | 'origin' | 'path'>;
+type Body = ManifestSource & Record<string, unknown>;
 
-/**
- * Reads and parses a palm YAML file (manifest, lockfile, config); undefined when it is
- * missing or empty. Read failures are E_IO, invalid YAML is E_PARSE.
- */
-export async function loadYaml(file: string): Promise<unknown> {
-  try {
-    return await readYamlFile(file);
-  } catch (e) {
-    if (errnoCode(e)) throw new PalmError('E_IO', `Cannot read ${file}: ${messageOf(e)}`);
-    throw new PalmError('E_PARSE', messageOf(e));
-  }
+/** A manifest entry as an object (a string is its name). */
+function toObject(entry: ManifestEntry): ManifestEntryObject {
+  return typeof entry === 'string' ? { name: entry } : entry;
 }
 
-const MCP_ENTRY_KEYS = [
-  'transport',
-  'command',
-  'args',
-  'env',
-  'url',
-  'headers',
-  'registry',
-  'version',
-] as const;
-
-/** True when the object is an MCP manifest entry rather than a plain dependency reference. */
-export function isMcpManifestEntry(dep: unknown): dep is McpManifestEntry {
-  return isRecord(dep) && MCP_ENTRY_KEYS.some((k) => dep[k] !== undefined);
+/** The written form of an entry: the bare name when it has no options. */
+function toItem(entry: ManifestEntry): ManifestEntry {
+  if (typeof entry === 'string') return entry;
+  const clean = withoutUndefined(entry);
+  return Object.keys(clean).length === 1 ? clean.name : clean;
 }
 
-/**
- * Does the installed entry realise the manifest dependency (refs ignored)? Names compare
- * case-insensitively; registry MCP servers are listed under their registry name
- * (`io.github.upstash/context7`) but locked under their config key, with the registry name
- * in the entry's `path`.
- */
-export function depMatches(kind: Kind, dep: DepRefData | McpManifestEntry, e: Installed): boolean {
-  if (e.kind !== kind) return false;
-  if (sameName(dep.name, e.name)) return true;
-  if (kind !== 'mcp' || e.origin !== 'registry') return false;
-  const registry = isMcpManifestEntry(dep) ? dep.registry : undefined;
-  return [registry, dep.name].some((r) => r !== undefined && sameName(r, e.path));
+function entryName(entry: ManifestEntry): string {
+  return typeof entry === 'string' ? entry : entry.name;
 }
 
-/** Lower-cased names a raw manifest item answers to (name, and registry name for MCP). */
-function itemNames(item: unknown): string[] {
-  if (typeof item === 'string') {
-    try {
-      return [DepRef.parse(item).name.toLowerCase()];
-    } catch {
-      return [];
-    }
-  }
-  if (!isRecord(item)) return [];
-  return [item.name, item.registry]
-    .filter((n): n is string => typeof n === 'string')
-    .map((n) => n.toLowerCase());
+/** The collections palm writes in flow style when it creates them (targets, entry objects, small maps). */
+function isFlow(p: YamlPath): boolean {
+  const [top, , key, index] = p;
+  if (top === 'targets') return p.length === 1;
+  if (top === 'sources')
+    return (p.length === 4 && typeof index === 'number') || (p.length === 3 && key === 'layout');
+  return (
+    top === 'mcp' && p.length === 3 && ['args', 'env', 'headers', 'targets'].includes(String(key))
+  );
 }
 
-/** The manifest form of a dependency: `name@origin#ref`, or the MCP entry without undefined keys. */
-function toItem(dep: DepRefData | McpManifestEntry | DepSpec): string | McpManifestEntry {
-  if (isMcpManifestEntry(dep)) return withoutUndefined(dep);
-  return DepRef.from(dep).toString();
+/** True when a source body lists at least one entry. */
+function hasEntries(body: Body | undefined): boolean {
+  return (
+    !!body && ENTRY_KEYS.some((k) => Array.isArray(body[k]) && (body[k] as unknown[]).length > 0)
+  );
 }
 
-const SECTION_KEYS = [
-  'skills',
-  'agents',
-  'instructions',
-  'commands',
-  'hooks',
-  'mcp',
-  'plugins',
-] as const;
-const ORDER = ['targets', 'origins', ...SECTION_KEYS];
-
-/** The sections in canonical order, then any other keys; undefined values dropped. */
-function ordered(m: ManifestData): Record<string, unknown> {
-  const src = m as Record<string, unknown>;
-  return withoutUndefined({ ...Object.fromEntries(ORDER.map((k) => [k, src[k]])), ...src });
+/** `body` without empty entry lists. */
+function withoutEmptyLists(body: Body): Body {
+  const out: Body = { ...body };
+  for (const k of ENTRY_KEYS)
+    if (Array.isArray(out[k]) && (out[k] as unknown[]).length === 0) delete out[k];
+  return out;
 }
 
-function validated(file: string, data: unknown): ManifestData {
-  if (data === undefined || data === null) return {};
-  if (!isRecord(data)) throw new PalmError('E_PARSE', `${file} must be a YAML mapping`);
-  for (const k of ORDER) {
-    if (data[k] !== undefined && data[k] !== null && !Array.isArray(data[k])) {
-      throw new PalmError('E_PARSE', `${file}: "${k}" must be a list`);
-    }
-    if (data[k] === null) delete data[k];
-  }
-  return data as ManifestData;
+/** Only/exclude say whether a plugin member is selected (`kind:name`, names in any case). */
+export function memberSelected(entry: ManifestEntryObject, member: EntityRef): boolean {
+  const names = (list: string[] | undefined) =>
+    (list ?? []).some((text) => {
+      const ref = parseEntityRef(text);
+      return sameName(ref.name, member.name) && (!ref.kind || ref.kind === member.kind);
+    });
+  if (entry.only?.length && !names(entry.only)) return false;
+  return !names(entry.exclude);
 }
 
-/**
- * palm.yaml: targets, project origins and one dependency list per kind. Mutating methods
- * change this object and return it; untouched sections stay shared with the loaded data.
- * `toJSON()` is the plain `Manifest` data (so `JSON.stringify` works for change detection).
- */
 export class Manifest {
-  private data: ManifestData;
+  private data: ManifestData & Record<string, unknown>;
 
   private constructor(data: ManifestData) {
-    this.data = data;
+    this.data = data as ManifestData & Record<string, unknown>;
   }
 
-  /** Wraps plain manifest data (shallow copy: the input object is never changed). */
+  /** Wraps plain manifest data (the input object is never changed). */
   static of(data: ManifestData = {}): Manifest {
-    return new Manifest({ ...data });
+    return new Manifest(structuredClone(data));
   }
 
-  /** Reads palm.yaml; an empty manifest when the file is missing. */
+  /**
+   * Reads palm.yaml: empty when missing; the 0.1 format is E_USAGE (hint `palm migrate`); a
+   * malformed key is E_PARSE naming it. Unknown keys are kept.
+   */
   static async load(file: string): Promise<Manifest> {
-    return new Manifest(validated(file, await loadYaml(file)));
+    return new Manifest(checkedManifest(file, await loadYaml(file)));
   }
 
-  /** Writes palm.yaml, patching the existing file so comments and key order survive. */
+  /**
+   * Writes palm.yaml by patching the file, so comments, key order and a flow `targets:` survive.
+   * Empty entry lists, sources without entries and empty `sources:`/`mcp:` sections are dropped.
+   */
   async save(file: string): Promise<void> {
-    await writeYamlFile(file, ordered(this.data), { flowKeys: ['targets'] });
+    await writeYamlFile(file, this.written(), { flow: isFlow });
+  }
+
+  /** The document `save` writes. */
+  private written(): Record<string, unknown> {
+    const sources = Object.entries(this.data.sources ?? {})
+      .filter(([, body]) => hasEntries(body as Body))
+      .map(([name, body]) => [name, withoutEmptyLists(body as Body)] as const);
+    return withoutUndefined({
+      ...this.data,
+      sources: sources.length ? Object.fromEntries(sources) : undefined,
+      mcp: Object.keys(this.data.mcp ?? {}).length ? this.data.mcp : undefined,
+    });
   }
 
   get targets(): TargetId[] | undefined {
@@ -146,71 +125,147 @@ export class Manifest {
   }
 
   setTargets(targets: TargetId[]): this {
-    this.data = { ...this.data, targets };
+    this.data = { ...this.data, targets: [...targets] };
     return this;
   }
 
-  get origins(): Array<string | OriginSpec> | undefined {
-    return this.data.origins;
+  /** The declared sources, local paths resolved against `baseDir`; `where` names the file in errors. */
+  sources(baseDir: string, where: string): SourceSet {
+    return SourceSet.fromManifest(this, baseDir, where);
   }
 
-  private items(kind: Kind): unknown[] {
-    return (this.data[manifestKey(kind)] as unknown[] | undefined) ?? [];
+  sourceNames(): string[] {
+    return Object.keys(this.data.sources ?? {});
   }
 
-  private setItems(kind: Kind, items: unknown[]): void {
-    const key = manifestKey(kind);
-    const next = { ...this.data, [key]: items } as Record<string, unknown>;
-    // An emptied section disappears instead of lingering as `agents: []`.
-    if (items.length === 0) delete next[key];
-    this.data = next as ManifestData;
+  /** The key of the source named `name` (any case), if declared. */
+  private keyOf(name: string): string | undefined {
+    return this.sourceNames().find((k) => sameName(k, name));
   }
 
-  /** The kind's dependencies: references, plus inline entries in the `mcp` section. */
-  deps(kind: Kind): ManifestDep[] {
-    return this.items(kind).map((e) =>
-      kind === 'mcp' && isMcpManifestEntry(e) ? e : DepRef.from(e as DepSpec),
+  hasSource(name: string): boolean {
+    return this.keyOf(name) !== undefined;
+  }
+
+  private body(name: string): Body | undefined {
+    const key = this.keyOf(name);
+    return key === undefined ? undefined : ((this.data.sources?.[key] ?? {}) as Body);
+  }
+
+  private setBody(name: string, body: Body | undefined): void {
+    const key = this.keyOf(name) ?? name;
+    const sources: Record<string, ManifestSource> = { ...(this.data.sources ?? {}) };
+    if (body) sources[key] = body;
+    else delete sources[key];
+    this.data = { ...this.data, sources };
+  }
+
+  /**
+   * Declares `source` (by name), or updates its location, ref, alias and layout; its entries and
+   * unknown keys stay. `baseDir` makes a local path relative.
+   */
+  addSource(source: Source, baseDir: string): this {
+    const old = this.body(source.name) ?? {};
+    const location = toManifestSource(source, baseDir);
+    const rest = Object.fromEntries(
+      Object.entries(old).filter(
+        ([k]) => !['url', 'path', 'root', 'ref', 'alias', 'layout'].includes(k),
+      ),
+    );
+    this.setBody(source.name, { ...location, ...rest });
+    return this;
+  }
+
+  removeSource(name: string): this {
+    this.setBody(name, undefined);
+    return this;
+  }
+
+  /** The entries of one source and kind, as objects (strings become `{ name }`). */
+  entries(name: string, kind: Kind): ManifestEntryObject[] {
+    const list = this.body(name)?.[manifestKey(kind)];
+    return Array.isArray(list) ? list.map(toObject) : [];
+  }
+
+  /** Every entry of every source, in file order. */
+  allEntries(): Array<{ source: string; kind: Kind; entry: ManifestEntryObject }> {
+    return this.sourceNames().flatMap((source) =>
+      KINDS.flatMap((kind) => this.entries(source, kind).map((entry) => ({ source, kind, entry }))),
     );
   }
 
-  /** True when the kind's section lists `name` (or, for MCP, a registry name) in any case. */
-  hasDep(kind: Kind, name: string): boolean {
-    const lower = name.toLowerCase();
-    return this.items(kind).some((e) => itemNames(e).includes(lower));
+  /** True when the source lists `entity` under `kind` (names in any case). */
+  hasEntry(name: string, kind: Kind, entity: string): boolean {
+    return this.entries(name, kind).some((e) => sameName(e.name, entity));
   }
 
-  /** The dependency that the installed entry realises, if the manifest lists it directly. */
-  depFor(e: Installed): ManifestDep | undefined {
-    return this.deps(e.kind).find((d) => depMatches(e.kind, d, e));
+  private setList(name: string, kind: Kind, list: ManifestEntry[]): void {
+    const body: Body = { ...(this.body(name) ?? {}) };
+    if (list.length) body[manifestKey(kind)] = list;
+    else delete body[manifestKey(kind)];
+    this.setBody(name, body);
   }
 
-  /** True when the manifest lists the installed entry directly. */
-  lists(e: Installed): boolean {
-    return this.depFor(e) !== undefined;
+  private list(name: string, kind: Kind): ManifestEntry[] {
+    const list = this.body(name)?.[manifestKey(kind)];
+    return Array.isArray(list) ? [...list] : [];
   }
 
-  /** Adds the dependency, or replaces the one with the same name (case-insensitive). */
-  addDep(kind: Kind, dep: DepRefData | McpManifestEntry | DepSpec): this {
-    const list = [...this.items(kind)];
-    const item = toItem(dep);
-    const wanted = new Set(itemNames(item));
-    const at = list.findIndex((e) => itemNames(e).some((n) => wanted.has(n)));
-    if (at >= 0) list[at] = item;
-    else list.push(item);
-    this.setItems(kind, list);
+  /** Adds the entry, or replaces the one with the same name; one without options is written as its name. */
+  addEntry(name: string, kind: Kind, entry: ManifestEntry): this {
+    const list = this.list(name, kind);
+    const at = list.findIndex((e) => sameName(entryName(e), entryName(entry)));
+    if (at >= 0) list[at] = toItem(entry);
+    else list.push(toItem(entry));
+    this.setList(name, kind, list);
     return this;
   }
 
-  /** Drops every dependency named `name` (or, for MCP, with that registry name). */
-  removeDep(kind: Kind, name: string): this {
-    const lower = name.toLowerCase();
-    const list = this.items(kind);
-    const next = list.filter((e) => !itemNames(e).includes(lower));
-    if (next.length !== list.length) this.setItems(kind, next);
+  /** Removes the entry; an emptied list goes, and so does a source left without entries. */
+  removeEntry(name: string, kind: Kind, entity: string): this {
+    if (!this.hasSource(name)) return this;
+    this.setList(
+      name,
+      kind,
+      this.list(name, kind).filter((e) => !sameName(entryName(e), entity)),
+    );
+    if (!hasEntries(this.body(name))) this.removeSource(name);
     return this;
   }
 
+  /** Adds `kind:name` to the `exclude:` of the plugin entry `plugin` (no duplicates). */
+  excludeMember(name: string, plugin: string, member: EntityRef): this {
+    const entry = this.entries(name, 'plugin').find((e) => sameName(e.name, plugin));
+    if (!entry) return this;
+    const text = `${member.kind}:${member.name}`;
+    const exclude = entry.exclude ?? [];
+    if (!exclude.some((x) => sameName(x, text)))
+      this.addEntry(name, 'plugin', { ...entry, exclude: [...exclude, text] });
+    return this;
+  }
+
+  /** Hand-declared MCP servers, by config name. */
+  get mcp(): Record<string, McpManifestEntry> {
+    return { ...(this.data.mcp ?? {}) };
+  }
+
+  setMcp(name: string, e: McpManifestEntry): this {
+    this.data = { ...this.data, mcp: { ...(this.data.mcp ?? {}), [name]: withoutUndefined(e) } };
+    return this;
+  }
+
+  removeMcp(name: string): this {
+    const mcp = { ...(this.data.mcp ?? {}) };
+    delete mcp[name];
+    this.data = { ...this.data, mcp };
+    return this;
+  }
+
+  /** The plain data (for `JSON.stringify` change detection). */
   toJSON(): ManifestData {
-    return this.data;
+    const out = { ...this.data };
+    if (!isRecord(out.sources) || Object.keys(out.sources).length === 0) delete out.sources;
+    if (!isRecord(out.mcp) || Object.keys(out.mcp).length === 0) delete out.mcp;
+    return out;
   }
 }
