@@ -37,6 +37,9 @@ import { renderMcp } from './mcp-config.js';
 import { redactSecrets } from './placeholder-match.js';
 import { relocateCommand, relocateMcp } from './relocate.js';
 
+/** Bytes checked for a NUL before a file counts as binary (git's rule). */
+const BINARY_SNIFF = 8000;
+
 /** Permission bits of a file that can hold secrets. */
 const PRIVATE_MODE = 0o600;
 
@@ -106,15 +109,42 @@ export class RenderJob {
     this.exec.push(line);
   }
 
-  /** The fragments as the render hash sees them: secret values replaced by placeholders. */
+  /**
+   * Under -g, `text` with the expanded palm home and home directory written as `<palm>` and
+   * `<home>`: the render hash is the same on every machine while the bytes keep real paths
+   * (a global Codex MCP config names absolute paths). Project scope: `text` as it is.
+   */
+  private tokenised(text: string): string {
+    if (this.input.scope !== 'global') return text;
+    const pairs: Array<[string, string]> = [
+      [this.paths.token('palm'), '<palm>'],
+      [this.paths.token('home'), '<home>'],
+    ];
+    pairs.sort((a, b) => b[0].length - a[0].length);
+    return pairs.reduce((t, [abs, token]) => t.split(abs).join(token), text);
+  }
+
+  /** The files as the render hash sees them: text contents tokenised (binary files as they are). */
+  private hashedFiles(files: RenderedFile[]): RenderedFile[] {
+    if (this.input.scope !== 'global') return files;
+    return files.map((f) => {
+      if (Buffer.from(f.data).subarray(0, BINARY_SNIFF).includes(0)) return f;
+      const text = Buffer.from(f.data).toString('utf8');
+      return { ...f, data: Buffer.from(this.tokenised(text), 'utf8') };
+    });
+  }
+
+  /** The fragments as the render hash sees them: secret values replaced by placeholders, tokenised. */
   private hashedFragments(): RenderedFragment[] {
     const values = this.input.secretValues;
+    const tokenise = (v: unknown): unknown =>
+      JSON.parse(this.tokenised(JSON.stringify(v) ?? 'null'));
     const out: RenderedFragment[] = this.fragments.map((f) => ({
       file: f.file,
       at: f.at,
       id: f.id,
       key: f.key,
-      value: redactSecrets(f.value, values),
+      value: tokenise(redactSecrets(f.value, values)),
     }));
     const literal = Object.keys(values ?? {}).sort();
     if (this.input.secretPolicy === 'literal' && literal.length > 0)
@@ -130,7 +160,7 @@ export class RenderJob {
       exec: this.exec,
       notes: this.notes,
       ...(this.skipped ? { skipped: true } : {}),
-      hash: renderHashOf({ files, fragments: this.hashedFragments() }),
+      hash: renderHashOf({ files: this.hashedFiles(files), fragments: this.hashedFragments() }),
     };
   }
 }
