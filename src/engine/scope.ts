@@ -111,7 +111,8 @@ function manifestLabel(scope: Scope): string {
 /**
  * Opens a scope (DESIGN §6 step 1): the home-as-project guard, palm.yaml and the lock (old
  * formats are E_USAGE naming `palm migrate`), the target set (palm.yaml, else detection when
- * `deps` is given; never saved here) and, unless `readOnly`, the overlap rule (E_SOURCE).
+ * `deps` is given; never saved here) and, unless `readOnly`, the overlap rule and the rule for
+ * `file://` sources outside the project (S4), both E_SOURCE.
  */
 export async function openScope(
   ctx: PalmContext,
@@ -147,6 +148,7 @@ export async function openScope(
   });
   if (opts.deps && !opts.readOnly) {
     await assertNoOverlap(ctx, state, opts.deps);
+    await assertNoOutsideUrl(ctx, state);
     await noteOutputLinks(ctx, state, opts.deps);
   }
   return state;
@@ -352,7 +354,6 @@ export async function assertNoOverlap(
   deps: EngineDeps,
 ): Promise<void> {
   await assertInsideProject(state);
-  await assertNoOutsideUrl(ctx, state);
   const [overlap] = await findOverlaps(ctx, state, deps);
   if (overlap) throw overlapError(overlap);
 }
