@@ -198,6 +198,39 @@ describe('exit codes through runCli', () => {
     expect(r.stderr).toContain('run it without --local: palm install mattpocock/skills tdd');
   });
 
+  it('the first Ctrl-C during an install stops after the current entity and exits 130', async () => {
+    const stops: string[] = [];
+    const exits: number[] = [];
+    const deps = fakeEngine({
+      scopes: [fakeScope({ root: sb.project, manifestTargets: ['claude'], entries: [tdd] })],
+      requestInstallStop: () => void stops.push('stop'),
+      installFromSource: async () => {
+        process.emit('SIGINT');
+        await new Promise((r) => setTimeout(r, 5));
+        return { outcomes: [outcome(tdd)], failures: [], warnings: [] };
+      },
+    });
+    const r = await palm(sb, ['install', 'mattpocock/skills', 'tdd'], {
+      deps,
+      exit: (c) => void exits.push(c),
+    });
+    expect(stops).toEqual(['stop']);
+    expect(exits).toEqual([]);
+    expect(r.code).toBe(130);
+    expect(r.stdout).toContain('stopping after the current entity; press Ctrl-C again to quit now');
+    expect(r.stdout).toContain('+ skill  tdd');
+    expect(process.listenerCount('SIGINT')).toBe(0);
+  });
+
+  it('Ctrl-C outside an install ends palm at once', async () => {
+    const exits: number[] = [];
+    const dispatch = async () => {
+      process.emit('SIGINT');
+    };
+    await palm(sb, ['get'], { dispatch, exit: (c) => void exits.push(c) });
+    expect(exits).toEqual([130]);
+  });
+
   it('bare palm prints help and exits 0', async () => {
     let out = '';
     const code = await runCli([], { stdout: { write: (s: string) => (out += s) }, env: {} });

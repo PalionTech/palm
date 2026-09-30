@@ -4,7 +4,7 @@
  * file with `--files`, and `get sources`, `get targets`, `get all`.
  */
 import { PalmError } from '../core/errors.js';
-import { type Kind, type PalmContext, TARGET_IDS } from '../core/types.js';
+import { type Kind, type PalmContext, type Scope, TARGET_IDS } from '../core/types.js';
 import type { InstalledRow, ScopeState } from '../create/engine.js';
 import { displayLockPath, shortHash } from '../ui/format.js';
 import type { App } from './app.js';
@@ -99,11 +99,11 @@ async function installed(ctx: PalmContext, app: App, inv: Invocation, flags: Get
   return rows;
 }
 
-async function printVariables(ctx: PalmContext, app: App, rows: InstalledRow[], scope: GetFlags) {
+async function printVariables(ctx: PalmContext, app: App, rows: InstalledRow[], scope: Scope) {
   const api = engine(app);
   for (const { entry } of rows.filter((r) => r.entry.kind === 'mcp')) {
     const q = { kind: entry.kind, name: entry.name, source: entry.source };
-    const info = await api.describeEntity(ctx, q, { scope: scopeOf(scope) }, engineDeps(app));
+    const info = await api.describeEntity(ctx, q, { scope }, engineDeps(app));
     const vars = (info.secrets ?? []).map((s) => `${s.name} (${s.set ? 'set' : 'not set'})`);
     if (vars.length) app.out.out(`${entry.name} needs ${vars.join(', ')}`);
   }
@@ -126,7 +126,7 @@ async function getInstalled(ctx: PalmContext, app: App, inv: Invocation, flags: 
     return out.hint('see what a source offers: palm install <owner/repo>');
   }
   out.table(rows.map(installedRow), INSTALLED_HEADER);
-  if (kind === 'mcp') await printVariables(ctx, app, rows, flags);
+  if (kind === 'mcp') await printVariables(ctx, app, rows, scopeOf(flags));
 }
 
 async function getSources(app: App, state: ScopeState): Promise<void> {
