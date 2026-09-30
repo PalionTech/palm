@@ -38,7 +38,16 @@ import {
 export function sourceNameKind(key: string): 'github' | 'local' | 'named' {
   if (key === '.' || key === '..') return 'local';
   if (key.startsWith('./') || key.startsWith('../') || key.startsWith('/')) return 'local';
-  return GITHUB_REPO.test(key) ? 'github' : 'named';
+  return GITHUB_REPO.test(key) || GITHUB_SUBDIR.test(key) ? 'github' : 'named';
+}
+
+/** `owner/repo/sub/dir`: a GitHub repository and the subdirectory that is the source root (ruling 20). */
+const GITHUB_SUBDIR = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)+$/;
+
+/** `owner/repo` and the root (`sub/dir`, or undefined) a GitHub source key names. */
+function githubParts(key: string): { repo: string; root?: string } {
+  const [owner, repo, ...rest] = key.split('/');
+  return rest.length ? { repo: `${owner}/${repo}`, root: rest.join('/') } : { repo: key };
 }
 
 function badSource(where: string, name: string, why: string, hint?: string): PalmError {
@@ -106,7 +115,10 @@ function gitSource(name: string, raw: ManifestSource, where: string): Source {
     return { name, type: 'git', url: raw.url };
   }
   if (raw.url !== undefined) throw badSource(where, name, 'has a url that is not a string');
-  if (sourceNameKind(name) === 'github') return { name, type: 'git', url: githubUrl(name) };
+  if (sourceNameKind(name) === 'github') {
+    const { repo, root } = githubParts(name);
+    return { name, type: 'git', url: githubUrl(repo), ...(root ? { root } : {}) };
+  }
   throw badSource(
     where,
     name,
@@ -153,21 +165,27 @@ export function toManifestSource(
   baseDir: string,
 ): Pick<ManifestSource, 'url' | 'path' | 'root' | 'ref' | 'alias' | 'layout'> {
   const out: Pick<ManifestSource, 'url' | 'path' | 'root' | 'ref' | 'alias' | 'layout'> = {};
-  if (source.type === 'git' && source.url) {
-    const repo = githubRepoOf(source.url);
-    const shorthand =
-      sourceNameKind(source.name) === 'github' && repo?.toLowerCase() === source.name.toLowerCase();
-    if (!shorthand) out.url = source.url;
-  }
+  const implied = impliedByKey(source);
+  if (source.type === 'git' && source.url && !implied.url) out.url = source.url;
   if (source.type === 'local' && source.path) {
     const rel = relativePath(baseDir, source.path);
     if (rel !== source.name) out.path = rel;
   }
-  if (source.root) out.root = source.root;
+  if (source.root && !implied.root) out.root = source.root;
   if (source.ref) out.ref = source.ref;
   if (source.alias) out.alias = source.alias;
   if (source.layout) out.layout = source.layout;
   return out;
+}
+
+/** Whether the GitHub shorthand key already says the url (and, for `owner/repo/sub/dir`, the root). */
+function impliedByKey(source: Source): { url: boolean; root: boolean } {
+  if (source.type !== 'git' || !source.url || sourceNameKind(source.name) !== 'github')
+    return { url: false, root: false };
+  const { repo, root } = githubParts(source.name);
+  const url = githubRepoOf(source.url)?.toLowerCase() === repo.toLowerCase();
+  const sameRoot = (root ?? '') === (source.root ?? '');
+  return { url: url && sameRoot, root: url && sameRoot && root !== undefined };
 }
 
 function sanitizeId(s: string): string {

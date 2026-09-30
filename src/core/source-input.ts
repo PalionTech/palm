@@ -273,8 +273,11 @@ function nameCandidates(source: Source): string[] {
   const parts = new SourceRef(source).repoParts();
   const clean = (s: string) =>
     s.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[^A-Za-z0-9]+|-+$/g, '');
+  // A GitHub subdirectory keeps the full input as its name: `owner/repo/sub/dir` (ruling 20).
+  const github =
+    repo && GITHUB_REPO.test(repo) ? [source.root ? `${repo}/${source.root}` : repo] : [];
   const out = [
-    ...(repo && GITHUB_REPO.test(repo) ? [repo] : []),
+    ...github,
     clean(parts.repo),
     parts.owner ? clean(`${parts.owner}-${parts.repo}`) : '',
   ].filter(Boolean);
@@ -283,7 +286,7 @@ function nameCandidates(source: Source): string[] {
 
 /**
  * The manifest key for a source not declared yet (DESIGN.md section 5): `owner/repo` for a
- * GitHub repository, else `repo`, else `owner-repo`, else the last of those with `-2`, `-3`, …;
+ * GitHub repository (`owner/repo/sub/dir` for a subdirectory of one), else `repo`, else `owner-repo`, else the last of those with `-2`, `-3`, …;
  * never one of `existing` (compared case-insensitively). A local source keeps its `./rel` name
  * (a path names one directory), or gets `./<basename>`.
  */

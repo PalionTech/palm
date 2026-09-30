@@ -24,7 +24,7 @@ describe('sourceNameKind', () => {
     ['/abs/kit', 'local'],
     ['.', 'local'],
     ['acme-kit', 'named'],
-    ['a/b/c', 'named'],
+    ['a/b/c', 'github'],
   ])('%s → %s', (key, kind) => {
     expect(sourceNameKind(key)).toBe(kind);
   });
@@ -93,6 +93,24 @@ describe('normalizeSource', () => {
     expect(() => normalizeSource('evil', { url: '--upload-pack=touch x' }, BASE, W)).toThrowError(
       expect.objectContaining({ code: 'E_SOURCE' }),
     );
+  });
+});
+
+describe('a GitHub subdirectory source (ruling 20)', () => {
+  it('owner/repo/sub/dir names the repository and its root, and palm.yaml repeats neither', () => {
+    const s = normalizeSource('cursor/plugins/pstack/sub', { ref: 'main' }, BASE, 'palm.yaml');
+    expect(s).toEqual({
+      name: 'cursor/plugins/pstack/sub',
+      type: 'git',
+      url: 'https://github.com/cursor/plugins.git',
+      root: 'pstack/sub',
+      ref: 'main',
+    });
+    expect(toManifestSource(s, BASE)).toEqual({ ref: 'main' });
+    expect(toManifestSource({ ...s, root: 'other' }, BASE)).toMatchObject({
+      url: 'https://github.com/cursor/plugins.git',
+      root: 'other',
+    });
   });
 });
 

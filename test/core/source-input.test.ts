@@ -44,7 +44,7 @@ describe('parseSourceInput: repositories', () => {
     [
       'cursor/plugins/pstack/sub',
       {
-        name: 'cursor/plugins',
+        name: 'cursor/plugins/pstack/sub',
         type: 'git',
         url: 'https://github.com/cursor/plugins.git',
         root: 'pstack/sub',
@@ -66,7 +66,7 @@ describe('parseSourceInput: repositories', () => {
     [
       'https://github.com/o/r/tree/main/plugins/x',
       {
-        name: 'o/r',
+        name: 'o/r/plugins/x',
         type: 'git',
         url: 'https://github.com/o/r.git',
         ref: 'main',
