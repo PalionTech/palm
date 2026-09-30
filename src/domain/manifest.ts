@@ -46,20 +46,39 @@ function entryName(entry: ManifestEntry): string {
 /** Entry lists longer than this are written one entry per line (B14). */
 const FLOW_LIST_MAX = 3;
 
+function isLongList(value: unknown): boolean {
+  return Array.isArray(value) && value.length > FLOW_LIST_MAX;
+}
+
+function isNameList(value: unknown): boolean {
+  return Array.isArray(value) && value.every((v) => typeof v === 'string');
+}
+
+/**
+ * An entry list, an entry object (`{name: superpowers, exclude: [...]}`) or a list inside one:
+ * flow while short, block once a list in it holds more than three names (B14, M7).
+ */
+function entryFlow(p: YamlPath, value: unknown): boolean | 'block' {
+  const [, , key, index] = p;
+  if (p.length === 3 && Array.isArray(value) && key !== 'layout')
+    return isLongList(value) ? 'block' : isNameList(value);
+  if (p.length === 4 && typeof index === 'number')
+    return isRecord(value) && Object.values(value).some(isLongList) ? 'block' : true;
+  if (p.length === 5 && typeof index === 'number' && Array.isArray(value))
+    return isLongList(value) ? 'block' : isNameList(value);
+  return p.length === 3 && key === 'layout';
+}
+
 /**
  * The collections palm writes in flow style when it creates them (DESIGN §3): `targets`, entry
  * lists of up to three names (`skills: [tdd, handoff]`), entry objects, layouts and a server's
- * small maps. A longer entry list is written in block style, one entry per line, even where the
- * file had it on one line.
+ * small maps. A longer entry list, at any depth (a plugin's `exclude:`), is written in block
+ * style, one entry per line, even where the file had it on one line.
  */
 function isFlow(p: YamlPath, value: unknown): boolean | 'block' {
-  const [top, , key, index] = p;
+  const [top, , key] = p;
   if (top === 'targets') return p.length === 1;
-  const names = Array.isArray(value) && value.every((v) => typeof v === 'string');
-  if (top === 'sources' && p.length === 3 && Array.isArray(value) && key !== 'layout')
-    return value.length > FLOW_LIST_MAX ? 'block' : names;
-  if (top === 'sources')
-    return (p.length === 4 && typeof index === 'number') || (p.length === 3 && key === 'layout');
+  if (top === 'sources') return entryFlow(p, value);
   return (
     top === 'mcp' && p.length === 3 && ['args', 'env', 'headers', 'targets'].includes(String(key))
   );
