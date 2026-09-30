@@ -9,7 +9,7 @@ import { hostname } from 'node:os';
 import { dirname } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { errnoCode, isEnoent } from '../lib/fs.js';
-import { PalmError } from './errors.js';
+import { deniedError, PalmError } from './errors.js';
 
 /** A lock whose mtime is older than this is abandoned, whoever holds it. */
 const LOCK_STALE_MS = 10 * 60_000;
@@ -147,7 +147,10 @@ export async function withLock<T>(
   fn: () => Promise<T>,
   opts: LockOptions = {},
 ): Promise<T> {
-  const mine = await acquireLock(file, opts);
+  // B6: a directory palm may not write (a read-only PALM_HOME or project) is E_IO naming it.
+  const mine = await acquireLock(file, opts).catch((e: unknown) => {
+    throw deniedError(e, dirname(file)) ?? e;
+  });
   const unwatch = releaseOnExit(file, mine);
   const heartbeat = setInterval(() => {
     const now = new Date();
