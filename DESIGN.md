@@ -1094,7 +1094,14 @@ Per command:
   script) into the in-repo source `<dir>` (default `./agent-kit`; `~/.palm/kit` under `-g`),
   declares the source in palm.yaml when absent (`+ source ./agent-kit → palm.yaml`), and
   installs the entity. No prompts, no editor; an existing file is `E_CONFLICT`. A `kind` of
-  `command` is `E_USAGE` naming `create skill`.
+  `command` is `E_USAGE` naming `create skill`. When the source's layout names globs, the
+  template lands at the kind's first glob with its `*` replaced by the name (`packages/*` →
+  `packages/<name>/SKILL.md`; `.mdc` instructions get `alwaysApply: true`); a layout without a
+  glob for the kind is `E_USAGE`. Before anything is written (a dry run too) create checks the
+  name, `--in` (inside the project or its git worktree; under `-g`, inside the home directory
+  or palm's home), the scope's targets, an overlap with an output directory, and a name the
+  source already indexes elsewhere (`E_CONFLICT`, `skill x already exists in ./skill (x)`). A
+  run that installs nothing removes the template again.
 - `palm cache clean [--yes]` removes `$PALM_HOME/cache`; without a terminal it needs `--yes`.
 - `palm completion bash|zsh|fish` prints a static script generated from the command tree.
 - `--dry-run` tables say what would happen (`would install`, `would restore`), never
