@@ -935,6 +935,49 @@ export interface MigrateReport {
    * `git status` lists it (untracked output folders as `dir/`), to commit together.
    */
   commit?: string[];
+  /**
+   * X8 B7 J5' Y4': every file the migration deleted (in a dry run: would delete), in path
+   * order, with why. Printed one line each: `- removed <file>: <reason>` (`- would remove` in a
+   * dry run).
+   */
+  removed?: MigrateRemoval[];
+  /**
+   * N15 M11: in a dry run, the files the install would write or change (as people type them), in
+   * path order. Printed one line each: `~ would write <file>`.
+   */
+  written?: string[];
+  /**
+   * X8: the notes palm 0.2 keeps on the migrated entries (a harness skipped, a variable a server
+   * needs), one line each as `<kind> <name>: <note>`. Printed with `i`.
+   */
+  notes?: string[];
+  /** V5': fragments palm 0.1 wrote that someone changed since, and what palm did with each. */
+  changed?: MigrateChanged[];
+}
+
+/** A file `palm migrate` deleted (or, in a dry run, would delete). */
+export interface MigrateRemoval {
+  /** Project-relative, or `~/…` under -g. */
+  file: string;
+  /** Why, in plain words: `palm 0.1 copied it; palm 0.2 writes agents/openai.yaml only into .agents/skills`. */
+  reason: string;
+}
+
+/**
+ * V5': a fragment palm 0.1 wrote (a hook command, a server block) that differs from what 0.1
+ * recorded. `replaced`: the person agreed (or `--force`), palm 0.2's render replaced it;
+ * `kept`: the person declined, it stays as they changed it (check reports it as foreign);
+ * `ask`: a dry run, nothing decided. Printed `! <kind> <name>: <file> (<at>) changed since palm
+ * 0.1 wrote it; <replaced with palm 0.2's render | kept as you changed it | palm migrate asks>`.
+ */
+export interface MigrateChanged {
+  kind: Kind;
+  name: string;
+  /** Project-relative, or `~/…` under -g. */
+  file: string;
+  /** The JSON pointer or block the fragment sits at (`/hooks/Stop`). */
+  at: string;
+  action: 'replaced' | 'kept' | 'ask';
 }
 
 // ---------------------------------------------------------------------------
