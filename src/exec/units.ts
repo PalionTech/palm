@@ -117,6 +117,16 @@ function commandsOf(renders: Renders): Command[] {
   return [...seen.values()];
 }
 
+/** X16: the targets that render nothing for the unit, each with its note. */
+function skippedOf(renders: Renders): ExecUnit['skipped'] {
+  const out: NonNullable<ExecUnit['skipped']> = {};
+  for (const target of TARGET_IDS) {
+    const r = renders[target];
+    if (r?.skipped) out[target] = r.notes[0] ?? 'nothing to install there';
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 function renderedOf(renders: Renders): ExecUnit['rendered'] {
   const out: ExecUnit['rendered'] = {};
   for (const target of TARGET_IDS) {
@@ -169,6 +179,8 @@ export function execUnitOf(
   if (closure.abs !== undefined) unit.closure.abs = closure.abs;
   const reads = readsOf(entity, files);
   if (reads.length) unit.reads = reads;
+  const skipped = skippedOf(renders);
+  if (skipped) unit.skipped = skipped;
   if (from) unit.from = from;
   if (env) unit.env = env;
   if (mcp?.cwd !== undefined) unit.cwd = mcp.cwd;

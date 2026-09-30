@@ -17,6 +17,18 @@ export interface PromptOptions {
   scope: Scope;
   /** The lock file as shown to the user (`palm.lock.yaml`, `~/.palm/palm.lock.yaml`). */
   lockFile: string;
+  /**
+   * J16' M14: a lock path or command as people read it: `~/.claude/settings.json`, never the
+   * lock's `<home>` tokens or the home directory spelled out. Default: as it is.
+   */
+  shown?: (text: string) => string;
+  /** Q13: the block is printed without a question (a dry run, no terminal): `--review`, not `v`. */
+  noPrompt?: boolean;
+}
+
+/** `text` as the prompt shows it: `shown` applied, then made visible. */
+function shownText(text: string, opts: PromptOptions): string {
+  return visible(opts.shown ? opts.shown(text) : text);
 }
 
 /** Width of the event and matcher column (a longer label widens it for its unit). */
@@ -57,7 +69,7 @@ function otherTargets(unit: ExecUnit, first: TargetId | undefined, i: number): s
     .map(([t, command]) => `${SUB_ROW}${t}: ${visible(command)}`);
 }
 
-function hookRows(unit: ExecUnit): string[] {
+function hookRows(unit: ExecUnit, opts: PromptOptions): string[] {
   const first = firstTarget(unit);
   const labels = unit.commands.map((c) => {
     const event = c.event ?? c.id;
@@ -65,28 +77,35 @@ function hookRows(unit: ExecUnit): string[] {
   });
   const width = Math.max(LABEL_WIDTH, ...labels.map((l) => l.length));
   return unit.commands.flatMap((_, i) => [
-    `${ROW}${(labels[i] ?? '').padEnd(width)}  ${visible(commandAt(unit, first, i))}`,
+    `${ROW}${(labels[i] ?? '').padEnd(width)}  ${shownText(commandAt(unit, first, i), opts)}`,
     ...otherTargets(unit, first, i),
   ]);
 }
 
-function mcpRows(unit: ExecUnit): string[] {
+function mcpRows(unit: ExecUnit, opts: PromptOptions): string[] {
   const first = firstTarget(unit);
   const env = unit.env?.length ? unit.env.join(', ') : 'none';
   const cwd = unit.cwd ? `   cwd: ${unit.cwd}` : '';
   return [
-    `${ROW}stdio  ${visible(commandAt(unit, first, 0))}   env: ${visible(env)}${visible(cwd)}`,
+    `${ROW}stdio  ${shownText(commandAt(unit, first, 0), opts)}   env: ${visible(env)}${visible(cwd)}`,
     ...otherTargets(unit, first, 0),
   ];
 }
 
-/** `targets: claude (.claude/settings.json), cursor (.cursor/hooks.json)`. */
-function targetsLine(unit: ExecUnit): string[] {
+/**
+ * `targets: claude (.claude/settings.json), cursor (.cursor/hooks.json)`, then the targets the
+ * program is not installed for and why (X16: `skipped: copilot (…)`).
+ */
+function targetsLine(unit: ExecUnit, opts: PromptOptions): string[] {
   const parts = TARGET_IDS.flatMap((t) => {
     const files = [...new Set((unit.rendered[t] ?? []).map((r) => r.file))];
     return files.length ? [`${t} (${files.join(', ')})`] : [];
   });
-  return parts.length ? [`${ROW}targets: ${visible(parts.join(', '))}`] : [];
+  const skipped = Object.entries(unit.skipped ?? {}).map(([t, why]) => `${t} (${why})`);
+  return [
+    ...(parts.length ? [`${ROW}targets: ${shownText(parts.join(', '), opts)}`] : []),
+    ...(skipped.length ? [`${ROW}skipped: ${visible(skipped.join(', '))}`] : []),
+  ];
 }
 
 function names(command: string, path: string): boolean {
@@ -120,24 +139,26 @@ function scriptRows(files: ClosureFile[]): string[] {
 }
 
 /** Where the scripts live: copied into the assets directory, or run in place from the repository. */
-function scriptsHead(unit: ExecUnit, scope: Scope): string {
+function scriptsHead(unit: ExecUnit, opts: PromptOptions): string {
   const { files, inPlace, root, bytes } = unit.closure;
-  const dir = visible(root.endsWith('/') ? root : `${root}/`);
+  const dir = shownText(root.endsWith('/') ? root : `${root}/`, opts);
   const count = `${plural(files.length, 'file')}, ${formatSize(bytes)}`;
   if (inPlace) return `${ROW}scripts: ${count}  in  ${dir}  (run in place from your repository)`;
-  const where = scope === 'project' ? '  (committed with your repo)' : '';
+  const where = opts.scope === 'project' ? '  (committed with your repo)' : '';
   return `${ROW}scripts: ${count}  ->  ${dir}${where}`;
 }
 
-function scriptLines(unit: ExecUnit, scope: Scope): string[] {
+function scriptLines(unit: ExecUnit, opts: PromptOptions): string[] {
   const { files } = unit.closure;
   if (files.length === 0) return [];
   const shown = shownScripts(unit);
   const more = files.length - shown.length;
   return [
-    scriptsHead(unit, scope),
+    scriptsHead(unit, opts),
     ...scriptRows(shown),
-    ...(more > 0 ? [`${SUB_ROW}... ${more} more  (v shows every script)`] : []),
+    ...(more > 0
+      ? [`${SUB_ROW}... ${more} more  (${opts.noPrompt ? '--review' : 'v'} shows every script)`]
+      : []),
   ];
 }
 
@@ -150,18 +171,18 @@ function readsLines(unit: ExecUnit): string[] {
   return [`${ROW}reads:   ${shown}${more}`];
 }
 
-function unitLines(unit: ExecUnit, n: number, scope: Scope): string[] {
+function unitLines(unit: ExecUnit, n: number, opts: PromptOptions): string[] {
   const name = visible(unit.entity.name);
   const head = `  ${n}. ${unit.kind} ${name}  from ${visible(unit.entity.source)}${fromText(unit.from)}`;
-  const rows = unit.kind === 'mcp' ? mcpRows(unit) : hookRows(unit);
+  const rows = unit.kind === 'mcp' ? mcpRows(unit, opts) : hookRows(unit, opts);
   const warnings = [...(unit.warnings ?? []), ...unpinnedLines(unit)].map(
     (w) => `${ROW}! ${visible(w)}`,
   );
   return [
     head,
     ...rows,
-    ...targetsLine(unit),
-    ...scriptLines(unit, scope),
+    ...targetsLine(unit, opts),
+    ...scriptLines(unit, opts),
     ...readsLines(unit),
     ...warnings,
   ];
@@ -211,7 +232,7 @@ export function consentSummary(req: ConsentRequest, opts: PromptOptions): string
   return [
     `This ${req.operation} adds ${programs(n)} that will run on your machine.`,
     '',
-    ...req.units.flatMap((u, i) => unitLines(u, i + 1, opts.scope)),
+    ...req.units.flatMap((u, i) => unitLines(u, i + 1, opts)),
     ...promptHooksLines(req.prompts),
     '',
     ...closing(n, opts),

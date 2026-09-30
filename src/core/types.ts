@@ -600,6 +600,8 @@ export interface ExecUnit {
   hash: string;
   /** Per target: the rendered command line and the file it lands in (for the prompt). */
   rendered: Partial<Record<TargetId, Array<{ id: string; command: string; file: string }>>>;
+  /** X16: targets the program is not installed for, with the reason (never part of the hash). */
+  skipped?: Partial<Record<TargetId, string>>;
   /** Commit and ref the unit comes from, for the prompt header. */
   from?: { sha?: string; ref?: string; date?: string };
   /** MCP only: environment keys and cwd, part of the identity. */

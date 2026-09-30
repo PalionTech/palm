@@ -12,6 +12,7 @@ import {
   parseAllowExec,
   viewScripts,
 } from '../../src/exec/consent.js';
+import { consentSummary } from '../../src/exec/prompt.js';
 import { designBlock, ghCliUnit, teamHelperUnit } from './examples.js';
 import { fakeContext } from './fakes.js';
 
@@ -127,6 +128,57 @@ describe('consentText', () => {
       'scripts: 8 files, 21 KB  ->  .palm/assets/trailofbits__skills/gh-cli/\n',
     );
     expect(text).toContain('go into ~/.palm/palm.lock.yaml,\nso your other machines install them');
+  });
+
+  it('X16 J16 M14 Q13 names skipped targets, reads ~/ paths, and says --review without a prompt', () => {
+    const unit: ExecUnit = {
+      ...ghCliUnit(),
+      skipped: { copilot: 'hooks gh-cli: nothing GitHub Copilot can run' },
+      closure: { ...ghCliUnit().closure, root: '<palm>/assets/trailofbits__skills/gh-cli' },
+      rendered: {
+        claude: [
+          { id: 'PreToolUse//Bash', command: '/h/.palm/run.sh', file: '<claude>/settings.json' },
+        ],
+      },
+    };
+    const shown = (t: string) =>
+      t.replace('<claude>/', '~/.claude/').replace('<palm>/', '~/.palm/').split('/h/').join('~/');
+    const req = { operation: 'install' as const, units: [unit], prompts: [], lockFile: '' };
+    const opts = { scope: 'global' as const, lockFile: '~/.palm/palm.lock.yaml', shown };
+    const text = consentText(req, opts);
+    expect(text).toContain('skipped: copilot (hooks gh-cli: nothing GitHub Copilot can run)');
+    expect(text).toContain('targets: claude (~/.claude/settings.json)');
+    expect(text).toContain('->  ~/.palm/assets/trailofbits__skills/gh-cli/');
+    expect(text).toContain('~/.palm/run.sh');
+    expect(text).not.toMatch(/<(home|palm|claude)>/);
+    expect(text).toContain('(v shows every script)');
+    expect(consentSummary(req, { ...opts, noPrompt: true })).toContain(
+      '(--review shows every script)',
+    );
+  });
+
+  it('M14 under -g the printed block reads ~/ where the lock has tokens and the home spelled out', async () => {
+    const { ctx, logs } = fakeContext({ interactive: false, flags: { dryRun: true } });
+    const unit: ExecUnit = {
+      ...ghCliUnit(),
+      closure: { ...ghCliUnit().closure, root: '<palm>/assets/trailofbits__skills/gh-cli' },
+      rendered: {
+        claude: [
+          {
+            id: 'PreToolUse//Bash',
+            command: '/home/u/.palm/assets/run.sh',
+            file: '<home>/.claude/settings.json',
+          },
+        ],
+      },
+    };
+    const lockFile = '/home/u/.palm/palm.lock.yaml';
+    await askConsent(ctx, { operation: 'install', units: [unit], prompts: [], lockFile });
+    const text = logs.join('\n');
+    expect(text).toContain('~/.claude/settings.json');
+    expect(text).toContain('~/.palm/assets/trailofbits__skills/gh-cli/');
+    expect(text).toContain('~/.palm/assets/run.sh');
+    expect(text).not.toMatch(/<(home|palm)>|\/home\/u\//);
   });
 
   it('shows a target whose command differs beyond the project-dir idiom', () => {

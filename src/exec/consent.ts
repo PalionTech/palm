@@ -17,6 +17,7 @@ import type {
   PalmContext,
   ScriptReader,
 } from '../core/types.js';
+import { ScopePaths } from '../domain/scope-paths.js';
 import { isWithin } from '../lib/fs.js';
 import { shellWord } from '../lib/text.js';
 import { redactTypedArgs } from '../secrets/typed.js';
@@ -186,6 +187,29 @@ export function checkoutReader(
 
 const unreadable: ScriptReader = async () => undefined;
 
+/** A lock token path (`<home>/.claude/settings.json`) inside a line of text. */
+const TOKEN_PATH = /<[a-z]+>(?:\/[^\s,()'"]*)?/g;
+
+/**
+ * J16' M14: under -g, lock paths and commands as people read them: the lock's `<home>` tokens
+ * and the home directory itself become `~/`.
+ */
+function globalShown(ctx: PalmContext): (text: string) => string {
+  const { home } = ctx.paths;
+  const paths = ScopePaths.of(ctx, 'global');
+  const tilde = (abs: string) =>
+    isWithin(abs, home, { strict: true }) ? `~/${relative(home, abs)}` : abs;
+  const expand = (token: string) => {
+    try {
+      const abs = tilde(paths.abs(token));
+      return token.endsWith('/') ? `${abs}/` : abs;
+    } catch {
+      return token;
+    }
+  };
+  return (text) => text.replace(TOKEN_PATH, expand).split(`${home}/`).join('~/');
+}
+
 /** Scope and display form of the lock file the request names. */
 function promptOptions(ctx: PalmContext, lockFile: string): PromptOptions {
   const { projectRoot, palmHome, home } = ctx.paths;
@@ -195,7 +219,9 @@ function promptOptions(ctx: PalmContext, lockFile: string): PromptOptions {
   if (scope === 'project' && isWithin(abs, projectRoot, { strict: true }))
     shown = relative(projectRoot, abs);
   else if (isWithin(abs, home, { strict: true })) shown = `~/${relative(home, abs)}`;
-  return { scope, lockFile: shown };
+  return scope === 'global'
+    ? { scope, lockFile: shown, shown: globalShown(ctx) }
+    : { scope, lockFile: shown };
 }
 
 /** Asks until the answer is yes or no; `v` pages the scripts, `d` the diff, then it asks again. */
@@ -250,12 +276,13 @@ export async function askConsent(ctx: PalmContext, req: ConsentRequest): Promise
   const passing = req.units.filter((u) => allowed(u, allow));
   const covered = passing.map((u) => u.key);
   const rest: ConsentRequest = { ...req, units: req.units.filter((u) => !allowed(u, allow)) };
-  if (passing.length) show(ctx, allowedBlock({ ...req, units: passing }, opts));
+  if (passing.length)
+    show(ctx, allowedBlock({ ...req, units: passing }, { ...opts, noPrompt: true }));
   if (rest.units.length === 0) return { allowed: covered, declined: [] };
   const review = () =>
     ctx.flags.review ? viewScripts(ctx, rest.units, req.read ?? unreadable) : undefined;
   if (ctx.flags.dryRun || !ctx.ui.isInteractive) {
-    show(ctx, consentSummary(rest, opts));
+    show(ctx, consentSummary(rest, { ...opts, noPrompt: true }));
     await review();
     if (ctx.flags.dryRun) return { allowed: covered, declined: [] };
     throw nonInteractiveError(rest, { args });
