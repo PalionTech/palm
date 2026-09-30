@@ -227,7 +227,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -495,7 +495,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -1146,7 +1146,8 @@ Review $ARGUMENTS
     "sessionStart": [
       {
         "type": "command",
-        "bash": "echo hi"
+        "bash": "echo hi",
+        "powershell": "echo hi"
       }
     ]
   }
@@ -1159,11 +1160,6 @@ Review $ARGUMENTS
         "text": "#!/bin/sh
 prettier --write "$1"
 ",
-      },
-      {
-        "mode": "644",
-        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
-        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
       },
       {
         "mode": "644",
@@ -1293,7 +1289,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -1419,7 +1415,8 @@ Review $ARGUMENTS
     "sessionStart": [
       {
         "type": "command",
-        "bash": "echo hi"
+        "bash": "echo hi",
+        "powershell": "echo hi"
       }
     ]
   }
@@ -1432,11 +1429,6 @@ Review $ARGUMENTS
         "text": "#!/bin/sh
 prettier --write "$1"
 ",
-      },
-      {
-        "mode": "644",
-        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
-        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
       },
       {
         "mode": "644",
@@ -1554,7 +1546,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -1666,11 +1658,6 @@ Review $ARGUMENTS
         "text": "#!/bin/sh
 prettier --write "$1"
 ",
-      },
-      {
-        "mode": "644",
-        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
-        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
       },
       {
         "mode": "644",
@@ -1810,7 +1797,7 @@ prettier --write "$1"
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -1924,11 +1911,6 @@ Review $ARGUMENTS
         "text": "#!/bin/sh
 prettier --write "$1"
 ",
-      },
-      {
-        "mode": "644",
-        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
-        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
       },
       {
         "mode": "644",
@@ -2072,7 +2054,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -2192,11 +2174,6 @@ Review $ARGUMENTS
         "text": "#!/bin/sh
 prettier --write "$1"
 ",
-      },
-      {
-        "mode": "644",
-        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
-        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
       },
       {
         "mode": "644",
@@ -2349,7 +2326,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -2467,11 +2444,6 @@ Review $ARGUMENTS
         "text": "#!/bin/sh
 prettier --write "$1"
 ",
-      },
-      {
-        "mode": "644",
-        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
-        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
       },
       {
         "mode": "644",
@@ -2619,7 +2591,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -2844,7 +2816,7 @@ Strict.
     ],
     "notes": [
       "OpenCode has no default syntax: PORT is empty when unset (default "8080" dropped)",
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -3067,7 +3039,7 @@ Strict.
     ],
     "notes": [
       "OpenCode has no default syntax: PORT is empty when unset (default "8080" dropped)",
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
