@@ -238,7 +238,7 @@ export function referenceTyped(cfg: McpServerConfig): {
  * sits under (`?key=…` of remote → `REMOTE_KEY`), else `<SERVER>_TOKEN`; the rest of the URL,
  * host included, stays as written.
  */
-export function urlVariable(server: string, url: string): string {
+function urlVariable(server: string, url: string): string {
   return serverVariable(server, urlSecret(url)?.param ?? 'token');
 }
 
