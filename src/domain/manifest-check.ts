@@ -8,10 +8,38 @@ import { manifestKey } from '../core/kinds.js';
 import { KINDS, type Manifest as ManifestData, TARGET_IDS, type TargetId } from '../core/types.js';
 import { isSafeName } from '../lib/names.js';
 import { isRecord } from '../lib/object.js';
+import { closestWord } from '../lib/text.js';
 import { isLegacyDepString, parseEntityRef, REF_GRAMMAR } from './entity-ref.js';
 
 /** The per-kind entry lists under a source, in KINDS order. */
 export const ENTRY_KEYS: readonly string[] = KINDS.map(manifestKey);
+
+/** The keys an entry object may carry (DESIGN §3); `secrets: literal` records `--secrets literal`. */
+const ENTRY_OBJECT_KEYS: readonly string[] = [
+  'name',
+  'targets',
+  'at',
+  'only',
+  'exclude',
+  'render',
+  'secrets',
+];
+
+/** The keys a source body may carry besides its entry lists. */
+const SOURCE_KEYS: readonly string[] = ['url', 'path', 'root', 'ref', 'alias', 'layout'];
+
+/** The keys a hand-declared server under `mcp:` may carry. */
+const MCP_KEYS: readonly string[] = [
+  'transport',
+  'command',
+  'args',
+  'env',
+  'cwd',
+  'url',
+  'headers',
+  'targets',
+  'secrets',
+];
 
 /** 0.1 top-level entry lists (`commands` included). */
 const LEGACY_TOP_KEYS = ['skills', 'agents', 'instructions', 'commands', 'hooks', 'plugins'];
@@ -54,6 +82,40 @@ function bad(file: string, key: string, why: string, hint?: string): PalmError {
   );
 }
 
+/**
+ * E_PARSE for the first key of `body` that is not in `known`, with the closest known key as a
+ * did-you-mean (`target` → `targets`); palm never guesses what an unknown key meant.
+ */
+function checkKeys(
+  file: string,
+  key: string,
+  body: Record<string, unknown>,
+  known: readonly string[],
+) {
+  const unknown = Object.keys(body).find((k) => !known.includes(k));
+  if (unknown === undefined) return;
+  const near = closestWord(unknown, known);
+  const guess = near ? ` (did you mean ${near}?)` : '';
+  throw bad(
+    file,
+    key,
+    `has an unknown key "${unknown}"${guess}`,
+    near
+      ? `rename it to ${near} in ${file}`
+      : `remove it from ${file} (known: ${known.join(', ')})`,
+  );
+}
+
+function checkSecretsKey(file: string, key: string, raw: unknown): void {
+  if (raw === undefined || raw === 'literal') return;
+  throw bad(
+    file,
+    key,
+    `must be literal (got "${String(raw)}")`,
+    `remove it, or write secrets: literal`,
+  );
+}
+
 function checkTargets(file: string, key: string, raw: unknown): void {
   if (raw === undefined) return;
   if (!Array.isArray(raw)) throw bad(file, key, 'must be a list of targets');
@@ -71,6 +133,8 @@ function checkEntry(file: string, key: string, item: unknown, scopeTargets: unkn
   if (typeof item === 'string' && item.trim()) return;
   if (!isRecord(item) || typeof item.name !== 'string' || !item.name.trim())
     throw bad(file, key, 'must be a name or a mapping with a name');
+  checkKeys(file, key, item, ENTRY_OBJECT_KEYS);
+  checkSecretsKey(file, `${key}.secrets`, item.secrets);
   checkTargets(file, `${key}.targets`, item.targets);
   const outside =
     Array.isArray(item.targets) && Array.isArray(scopeTargets)
@@ -104,6 +168,7 @@ function checkSource(file: string, name: string, body: unknown, scopeTargets: un
   const key = `sources."${name}"`;
   if (body === null || body === undefined) return;
   if (!isRecord(body)) throw bad(file, key, 'must be a mapping');
+  checkKeys(file, key, body, [...SOURCE_KEYS, ...ENTRY_KEYS]);
   for (const listKey of ENTRY_KEYS) {
     const list = body[listKey];
     if (list === undefined || list === null) continue;
@@ -119,6 +184,8 @@ function checkMcp(file: string, raw: unknown): void {
   for (const [name, entry] of Object.entries(raw)) {
     if (!isSafeName(name)) throw bad(file, `mcp."${name}"`, 'is not a valid server name');
     if (!isRecord(entry)) throw bad(file, `mcp."${name}"`, 'must be a mapping');
+    checkKeys(file, `mcp."${name}"`, entry, MCP_KEYS);
+    checkSecretsKey(file, `mcp."${name}".secrets`, entry.secrets);
     checkTargets(file, `mcp."${name}".targets`, entry.targets);
   }
 }

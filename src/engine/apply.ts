@@ -17,9 +17,10 @@ import {
 import { withDeclined, withTrust } from '../exec/trust.js';
 import { isWithin } from '../lib/fs.js';
 import { deepEqual } from '../lib/object.js';
-import { fragmentKey } from './diff.js';
+import { fragmentKey, type TargetVerdict } from './diff.js';
 import { uncheckedNote } from './edits.js';
 import type { Prepared, Run } from './jobs.js';
+import { keptProgram } from './moves.js';
 import { protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failure, failureOf, installCommand, type Subject } from './report.js';
 import { literalsBefore, rotationWarnings } from './rotate.js';
@@ -184,7 +185,10 @@ async function writeTargets(run: Run, p: Prepared, failed: Set<TargetId>): Promi
         dryRun: ctx.flags.dryRun,
         env: ctx.env,
       });
-      if (!ctx.flags.dryRun) noteWritten(state, rendered);
+      if (!ctx.flags.dryRun) {
+        noteWritten(state, rendered);
+        run.touched = true;
+      }
     } catch (e) {
       failed.add(id);
       const f = failureOf(subjectOf(p), e, id);
@@ -219,8 +223,17 @@ async function replacePrevious(
   const sources = await sourceRoots(state);
   const job = { paths: state.paths, entries: [stale], protect, dryRun: ctx.flags.dryRun, sources };
   const report = await undeploy(ctx, run.deps, job);
+  if (!ctx.flags.dryRun) run.touched = true;
   run.result.failures.push(...report.failures);
   run.result.warnings.push(...report.warnings);
+}
+
+/** ` (codex moved on)` when other targets were written while these paths were kept (R8). */
+function movedOn(p: Prepared): string {
+  const moved = (Object.entries(p.decision.targets) as Array<[TargetId, TargetVerdict]>)
+    .filter(([, v]) => v === 'render' || v === 'restore')
+    .map(([t]) => t);
+  return moved.length && p.decision.status === 'partial' ? `; ${moved.join(', ')} moved on` : '';
 }
 
 function modifiedFailure(run: Run, p: Prepared): void {
@@ -228,11 +241,11 @@ function modifiedFailure(run: Run, p: Prepared): void {
   const them = kept.length === 1 ? 'it' : 'them';
   const text = p.unchecked
     ? {
-        message: `${kept.join(', ')} may have changed since palm wrote ${them}; kept (${p.unchecked.reason})`,
+        message: `${kept.join(', ')} may have changed since palm wrote ${them}; kept (${p.unchecked.reason})${movedOn(p)}`,
         hint: p.unchecked.command,
       }
     : {
-        message: `${kept.join(', ')} changed since palm wrote ${them}; kept`,
+        message: `${kept.join(', ')} changed since palm wrote ${them}; kept${movedOn(p)}`,
         hint: installCommand(subjectOf(p), run.state.paths.scope, '--force'),
       };
   run.result.failures.push(failure(subjectOf(p), 'E_CONFLICT', text));
@@ -280,10 +293,20 @@ async function record(
   if (WROTE.has(status)) await persistTargets(state);
 }
 
+/** A target's verdict as the status it shows in a `partial` breakdown. */
+function targetStatus(p: Prepared, verdict: TargetVerdict | undefined): OutcomeStatus {
+  if (verdict === 'kept') return 'modified';
+  if (verdict === 'restore') return 'restored';
+  if (verdict === 'unchanged') return 'unchanged';
+  if (verdict === 'skipped') return 'skipped';
+  if (!p.previous) return 'installed';
+  return p.previous.content !== p.out.content && !p.job.source.isLocal ? 'updated' : 're-rendered';
+}
+
 function perTarget(p: Prepared, failed: Set<TargetId>): Partial<Record<TargetId, OutcomeStatus>> {
   const out: Partial<Record<TargetId, OutcomeStatus>> = {};
   for (const id of Object.keys(p.out.renders) as TargetId[])
-    out[id] = failed.has(id) ? 'failed' : p.decision.status;
+    out[id] = failed.has(id) ? 'failed' : targetStatus(p, p.decision.targets[id]);
   for (const f of p.out.refusals) if (f.target) out[f.target] = 'failed';
   return out;
 }
@@ -301,13 +324,19 @@ export async function applyPrepared(run: Run, p: Prepared): Promise<InstallOutco
   const literals = await literalsBefore(run, p);
   await writeTargets(run, p, failed);
   await rotationWarnings(run, p, literals);
+  return settled(run, p, failed);
+}
+
+/** After the writes: the outcome, the failure for kept edits, and the lock and palm.yaml entries. */
+async function settled(run: Run, p: Prepared, failed: Set<TargetId>): Promise<InstallOutcome> {
   const status = statusOf(p, failed);
   const entry = entryFor(p, failed);
   if (status === 'failed') return { entry: p.previous ?? entry, status, notes: entry.notes ?? [] };
-  if (status === 'modified') modifiedFailure(run, p);
+  const kept = p.decision.kept.length > 0;
+  if (kept && (status === 'modified' || status === 'partial')) modifiedFailure(run, p);
   await record(run, p, entry, status);
   const notes = [...(entry.notes ?? [])];
-  if (status === 'modified' && p.unchecked) notes.push(uncheckedNote(p.unchecked));
+  if (kept && p.unchecked) notes.push(uncheckedNote(p.unchecked));
   const outcome: InstallOutcome = { entry, status, notes };
   if (status === 'partial') outcome.perTarget = perTarget(p, failed);
   return outcome;
@@ -327,7 +356,8 @@ function declined(run: Run, p: Prepared): InstallOutcome {
     `see it: ${installCommand(s, scope, '--dry-run --review')}`,
     `install it: ${installCommand({ ...s, name: `${s.kind}:${s.name}` }, scope)}`,
   ];
-  if (p.previous && !p.previous.declined) return { entry: p.previous, status: 'skipped', notes };
+  // The trusted version is still merged and runs (V5): say so, and how to remove it.
+  if (p.previous && !p.previous.declined) return keptProgram(run, p);
   const entry = withDeclined({ ...baseEntry(p), render: {}, files: [] });
   if (p.job.via) run.state.lock.upsert(entry);
   return { entry, status: 'skipped', notes };

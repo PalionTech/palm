@@ -33,7 +33,7 @@ describe('installFromSource', () => {
       path: 'agent-kit',
       descriptor: 'convention',
     });
-    expect(lock.sources['./agent-kit']?.tree).toMatch(/^sha256:/);
+    expect(lock.sources['./agent-kit']?.tree).toBeUndefined();
     const entry = lock.entries.find((e) => e.name === 'review');
     expect(entry).toMatchObject({
       kind: 'skill',
@@ -85,7 +85,9 @@ describe('installFromSource', () => {
       w.deps,
     );
     expect(r.outcomes.map((o) => o.entry.name)).toEqual(['reviewer']);
-    expect(w.ctx.log.text()).toContain('palm install ./agent-kit tdd ghost');
+    expect(w.ctx.log.text()).toContain(
+      'agent reviewer preloads skill tdd, skill ghost, not installed: palm install ./agent-kit tdd (ghost not in source ./agent-kit)',
+    );
   });
 
   it('lists a source without saving anything', async () => {

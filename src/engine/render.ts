@@ -21,10 +21,11 @@ import type {
   SourceCheckout,
   TargetId,
 } from '../core/types.js';
+import { isTreeExcluded } from '../domain/ignore.js';
 import type { SourceRef } from '../domain/source.js';
 import { canonicalJson } from '../lib/json.js';
 import { failure, failureOf, installCommand, label, type Subject } from './report.js';
-import type { ScopeState } from './scope.js';
+import { localPathOf, type ScopeState } from './scope.js';
 import { referencedLine, referenceSecrets } from './source-secrets.js';
 
 export interface RenderJob {
@@ -60,13 +61,45 @@ interface RenderRun {
   subject: Subject;
 }
 
+/** palm's own files at a project root; never part of an entity's content. */
+const PALM_FILES = ['palm.yaml', 'palm.lock.yaml', 'palm.local.yaml'];
+
+/**
+ * For an in-repo source at the scope root (`.`): what its entities' content leaves out, so a
+ * run that writes outputs never moves the content it rendered from (R1, K7): palm's files,
+ * the output directories of the active targets, every path the lock lists or merges into, and
+ * what a local tree never holds (`isTreeExcluded`). Undefined for any other source.
+ */
+async function rootSkip(run: RenderRun): Promise<((rel: string) => boolean) | undefined> {
+  const { state, job, deps, ctx } = run;
+  if (!job.source.isLocal) return undefined;
+  const root = (await state.paths.realInside(state.paths.root)).real;
+  if (job.checkout.root !== root) return undefined;
+  const { lock, paths } = state;
+  const dirs = state.targets.flatMap((t) =>
+    deps.getTarget(t).outputDirs(paths.scope, paths.root, ctx.env),
+  );
+  const owned = new Set([
+    ...PALM_FILES,
+    ...lock.entries.flatMap((e) => [...e.files, ...(e.merged ?? []).map((m) => m.file)]),
+  ]);
+  const prefix = job.entity.path === '.' ? '' : `${job.entity.path}/`;
+  return (rel) => {
+    const p = `${prefix}${rel}`;
+    return owned.has(p) || isTreeExcluded(p) || dirs.some((d) => p === d || p.startsWith(`${d}/`));
+  };
+}
+
 /** The content hash: the entity's files, or a server's canonical config (one file holds many servers). */
-async function contentOf(entity: Entity, checkout: SourceCheckout): Promise<string> {
+async function contentOf(run: RenderRun): Promise<string> {
+  const { entity, checkout } = run.job;
   if (entity.def.kind === 'mcp') {
     const { from: _from, secrets: _secrets, ...server } = entity.def.mcp;
     return sha256(canonicalJson(server));
   }
-  return hashPath(join(checkout.root, entity.path), { boundary: checkout.root });
+  const skip = await rootSkip(run);
+  const abs = join(checkout.root, entity.path);
+  return hashPath(abs, { boundary: checkout.root, ...(skip ? { skip } : {}) });
 }
 
 /** Lock-form directory of the entity's scripts: `.palm/assets/<source>/<entity>`, or the in-repo source itself. */
@@ -76,7 +109,7 @@ function assetsRootOf(
   entity: Entity,
   checkout: SourceCheckout,
 ): string {
-  if (source.isLocal) return state.paths.lockForm(checkout.root);
+  if (source.isLocal) return localPathOf(state, checkout.root);
   return state.paths.assetRoot(source, entity.name);
 }
 
@@ -240,7 +273,7 @@ export async function renderEntity(
   const out: RenderOutput = {
     renders: {},
     closure: { root, inPlace: job.source.isLocal, files: [] },
-    content: await contentOf(job.entity, job.checkout),
+    content: await contentOf({ ...run, job }),
     refusals: issues.refusals,
     warnings: [
       ...referenced.replaced.map((s) => referencedLine(job.entity.name, s, harnesses)),

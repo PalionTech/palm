@@ -40,7 +40,8 @@ describe('removeEntities', () => {
     const w = await world(['tdd']);
     const r = await removeEntities(w.ctx, [{ name: 'nothing' }], { scope: 'project' }, w.deps);
     expect(r).toMatchObject({ removed: [], failures: [] });
-    expect(w.ctx.log.text()).toContain('nothing is not installed');
+    // The CLI says it once, from what `removed` lacks (K24): the engine prints nothing.
+    expect(w.ctx.log.text()).not.toContain('nothing is not installed');
   });
 
   it('keeps an entity whose file the person changed, unless --force', async () => {
@@ -143,9 +144,9 @@ describe('removeEntities', () => {
 
   it('asks for the source when a name is installed from two sources', async () => {
     const w = await world(['tdd']);
-    const src = await w.local('agent-kit', { 'skills/tdd/SKILL.md': 'other\n' });
+    const src = await w.local('agent-kit', { 'agents/tdd.md': 'An agent named tdd.\n' });
     await installFromSource(
-      w.context({ force: true }),
+      w.ctx,
       { source: src, names: [{ name: 'tdd' }] },
       { scope: 'project' },
       w.deps,

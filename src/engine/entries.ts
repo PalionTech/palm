@@ -8,8 +8,10 @@ import type {
   EntityRef,
   InstallFailure,
   Kind,
+  LockEntry,
   ManifestEntry,
   ManifestEntryObject,
+  SecretPolicy,
   SourceIndex,
 } from '../core/types.js';
 import { lockId, Via } from '../domain/entity-key.js';
@@ -54,6 +56,7 @@ function jobFor(b: Build, entity: Entity, entry: ManifestEntryObject, via?: stri
   const narrowed = narrowedTargets(b.state, targets);
   if (narrowed) job.narrowed = narrowed;
   if (entry.at) job.at = entry.at;
+  if (entry.secrets === 'literal') job.policy = 'literal';
   return job;
 }
 
@@ -126,7 +129,7 @@ function memberOf(b: Omit<Build, 'explicit'>, entity: Entity): string | undefine
 export function requestJobs(
   b: Omit<Build, 'explicit'>,
   entity: Entity,
-  opts: { targets?: ManifestEntryObject['targets']; at?: string },
+  opts: { targets?: ManifestEntryObject['targets']; at?: string; secrets?: SecretPolicy },
 ): Job[] {
   const via = memberOf(b, entity);
   if (via && !opts.targets && !opts.at)
@@ -137,9 +140,23 @@ export function requestJobs(
   const entry: ManifestEntryObject = { ...(current ?? {}), name: current?.name ?? entity.name };
   if (opts.targets?.length) entry.targets = opts.targets;
   if (opts.at) entry.at = opts.at;
+  // `--secrets` on the command line is recorded for a server, so a bare install keeps it (Y19).
+  if (entity.kind === 'mcp' && opts.secrets === 'literal') entry.secrets = 'literal';
+  if (opts.secrets === 'env-ref') delete entry.secrets;
   const record = { kind: entity.kind, entry: manifestEntryOf(entry) };
   const build = { ...b, explicit: true };
   if (entity.kind !== 'plugin') return [{ ...jobFor(build, entity, entry), record }];
   const [own, ...members] = pluginJobs(build, entity, entry);
   return [{ ...(own as Job), record }, ...members];
+}
+
+/**
+ * The secrets policy palm.yaml records for an installed entry (`secrets: literal`, Y19): on its
+ * source entry, or on its `mcp:` server; undefined when none. `check` renders the entry with it.
+ */
+export function recordedPolicy(state: ScopeState, entry: LockEntry): SecretPolicy | undefined {
+  const { manifest } = state;
+  const server = entry.source === 'manifest' ? manifest.mcp[entry.name] : undefined;
+  const own = manifest.entries(entry.source, entry.kind).find((e) => sameName(e.name, entry.name));
+  return server?.secrets ?? own?.secrets;
 }

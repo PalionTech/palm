@@ -170,7 +170,10 @@ describe('fetchSource and resolveRef (local bare remote)', () => {
     await expect(listRemoteRefs('-oops')).rejects.toMatchObject({ code: 'E_SOURCE' });
     await expect(
       fetchSource(ctx, source({ url: join(sb.root, 'no-such.git') })),
-    ).rejects.toMatchObject({ code: 'E_GIT' });
+    ).rejects.toMatchObject({
+      code: 'E_SOURCE',
+      message: `repository not found or private: ${join(sb.root, 'no-such.git')}`,
+    });
   });
 
   it('reads the author date and a file at a commit, trailing newline kept', async () => {

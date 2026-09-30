@@ -267,10 +267,14 @@ describe('SourceSet', () => {
     );
   });
 
-  it('add replaces a source at the same location (a rename) and refuses a taken name', () => {
+  it('add replaces the source of that name and location, keeps a second name for one location (Z2), and refuses a taken name', () => {
     const set = SourceSet.of([s('acme', { url: 'https://h/acme.git' }), s('other')]);
-    const renamed = set.add({ name: 'kit', type: 'git', url: 'https://h/acme' });
-    expect(renamed.names()).toEqual(['kit', 'other']);
+    const moved = set.add({ name: 'ACME', type: 'git', url: 'https://h/acme', ref: 'v2' });
+    expect(moved.names()).toEqual(['ACME', 'other']);
+    const second = set.add({ name: 'kit', type: 'git', url: 'https://h/acme', ref: 'v2' });
+    expect(second.names()).toEqual(['acme', 'other', 'kit']);
+    const renamed = set.without('acme').add({ name: 'kit', type: 'git', url: 'https://h/acme' });
+    expect(renamed.names()).toEqual(['other', 'kit']);
     expect(() => set.add({ name: 'OTHER', type: 'git', url: 'https://h/new.git' })).toThrowError(
       expect.objectContaining({ code: 'E_CONFLICT' }),
     );

@@ -332,6 +332,8 @@ export interface ManifestEntryObject {
   only?: string[];
   exclude?: string[];
   render?: Record<string, unknown>;
+  /** `--secrets literal` recorded for the entry, so a bare install keeps the policy (Y19). */
+  secrets?: 'literal';
 }
 
 export type ManifestEntry = string | ManifestEntryObject;
@@ -362,6 +364,8 @@ export interface McpManifestEntry {
   url?: string;
   headers?: Record<string, string>;
   targets?: TargetId[];
+  /** `--secrets literal` recorded for the server, so a bare install keeps the policy (Y19). */
+  secrets?: 'literal';
 }
 
 export interface Manifest {
@@ -780,12 +784,32 @@ export interface InstallResult {
   warnings: string[];
   /** Per-entity/target failures (never thrown): the lock records only what succeeded. */
   failures: InstallFailure[];
+  /**
+   * Set when a stop request (the first Ctrl-C) ended the run after `done` of `total` entities;
+   * the lock records those, and the CLI exits 130 after printing the result (K16, L11).
+   */
+  interrupted?: { done: number; total: number };
+}
+
+/** A file `remove` left on disk, and why (C3, K18, R5). */
+export interface KeptFile {
+  kind: Kind;
+  name: string;
+  source: string;
+  /** Lock form. */
+  file: string;
+  /** `owned`: another entry lists it (`owner` names it); `source`: it lies inside a declared source. */
+  reason: 'owned' | 'source';
+  /** `kind name from source` of the entry that still owns the file. */
+  owner?: string;
 }
 
 export interface RemoveResult {
   removed: LockEntry[];
   failures: InstallFailure[];
   warnings: string[];
+  /** Files of removed entries that stayed on disk (another owner, or inside a source). */
+  kept?: KeptFile[];
 }
 
 export type UpdateMark = 'updated' | 'added' | 'removed' | 'unchanged' | 'failed' | 'skipped';
@@ -806,12 +830,28 @@ export interface UpdatePlanItem {
   note?: string;
 }
 
+/** One source row of an update plan. */
+export interface UpdatePlanSource {
+  name: string;
+  from?: string;
+  to?: string;
+  ref: string;
+  /** The newest release tag, when the ref is a tag or sha pin below it (D4, C19). */
+  latest?: string;
+  /** The default branch and its head, for a tag or sha pin (`93f5a2d; main is 063bee9`, C19). */
+  head?: { branch: string; sha: string };
+  /** Why the source counts as a change with no entry changing (`--strict`, D11). */
+  reason?: string;
+}
+
 export interface UpdatePlan {
   scope: Scope;
-  sources: Array<{ name: string; from?: string; to?: string; ref: string }>;
+  sources: UpdatePlanSource[];
   items: UpdatePlanItem[];
   failures: InstallFailure[];
   warnings: string[];
+  /** Programs a source ships that nothing installs (new since the locked commit), V7. */
+  available?: Array<{ kind: Kind; name: string; source: string; command: string }>;
 }
 
 export type CheckStatus = 'ok' | 'warn' | 'fail';

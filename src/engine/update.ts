@@ -4,6 +4,8 @@
  * writing anything; then apply the plan like an install. Local sources are skipped: a bare
  * install re-renders them. `--yes` never covers executables: changed and new units go through
  * consent with the trusted version for the diff. Files the person edited stay unless `--force`.
+ * A source moves as a unit (V4): an entry refused at the new commit, or a changed program the
+ * person declines, keeps the whole source at its locked commit, and nothing of it is written.
  */
 import { PalmError } from '../core/errors.js';
 import { short } from '../core/hash.js';
@@ -12,23 +14,27 @@ import type {
   ExecUnit,
   InstallResult,
   LockEntry,
-  LockSource,
   PalmContext,
   Scope,
+  SourceIndex,
   UpdatePlan,
   UpdatePlanItem,
+  UpdatePlanSource,
 } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
 import { sameName } from '../domain/entity-ref.js';
 import { SourceRef } from '../domain/source.js';
+import { baseDirOf } from './declare.js';
 import { resolveEngineDeps } from './deps.js';
 import { manifestJobs } from './entries.js';
-import { askForConsent, type Job, type Prepared, prepareJob, type Run, runOf } from './jobs.js';
+import { type Job, type Prepared, prepareJob, type Run, runOf } from './jobs.js';
+import { type Move, moveOf, versionLabel } from './moves.js';
 import { protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failureOf, palmCommand } from './report.js';
-import { lockSourceOf, type Resolved, resolveSource } from './resolve.js';
-import { applyAll, lockScope, prepareAll } from './runner.js';
-import { openScope, type ScopeState, saveScope } from './scope.js';
+import { lockSourceOf, type Resolved, resolveSource, rethrowCancel } from './resolve.js';
+import { applyAll, lockScope, prepareRun, settle } from './runner.js';
+import { openScope, type ScopeState } from './scope.js';
+import { describePin, newPreloads, newPrograms, refOnlyReason } from './update-notes.js';
 
 type Scripts = { before: Map<string, Uint8Array>; after: Map<string, Uint8Array> };
 
@@ -42,10 +48,8 @@ interface PlanMemo {
 
 const memos = new WeakMap<UpdatePlan, PlanMemo>();
 
-function versionLabel(ref: string | undefined, sha: string | undefined): string | undefined {
-  if (!sha) return ref;
-  const s = sha.slice(0, 7);
-  return ref && ref !== sha ? `${ref} (${s})` : s;
+function label(ref: string | undefined, sha: string | undefined): string | undefined {
+  return versionLabel(ref, sha) || undefined;
 }
 
 function selectSources(state: ScopeState, names: string[], to?: string): SourceRef[] {
@@ -68,7 +72,15 @@ function markOf(p: Prepared): UpdatePlanItem['mark'] {
   return p.previous.content !== p.out.content ? 'updated' : 'unchanged';
 }
 
-function itemOf(p: Prepared, range: { from?: string; to?: string }): UpdatePlanItem {
+/**
+ * One plan line per entry; when the source's commit moves, an entry whose bytes do not change
+ * says so (`same content`, C12) and every entry carries the move.
+ */
+function itemOf(
+  p: Prepared,
+  range: { from?: string; to?: string },
+  moved: boolean,
+): UpdatePlanItem {
   const { entity } = p.job;
   const mark = markOf(p);
   const item: UpdatePlanItem = {
@@ -79,30 +91,34 @@ function itemOf(p: Prepared, range: { from?: string; to?: string }): UpdatePlanI
     atRisk: [],
   };
   if (p.job.via) item.via = p.job.via;
-  if (mark !== 'unchanged' && range.from) item.from = range.from;
-  if (mark !== 'unchanged' && range.to) item.to = range.to;
+  const shown = mark !== 'unchanged' || moved;
+  if (shown && range.from) item.from = range.from;
+  if (shown && range.to) item.to = range.to;
+  if (mark === 'unchanged' && moved) item.note = 'same content';
   if (mark === 'failed') item.note = p.out.refusals[0]?.message;
   if (p.decision.kept.length) item.atRisk = [...p.decision.kept];
   return item;
 }
 
-/** The same entity rendered at the locked sha: the trusted version of its unit and scripts. */
-async function renderedBefore(run: Run, job: Job, lockSha: string): Promise<Prepared | undefined> {
+/** The source's index at a commit (the locked one), or undefined when unavailable. */
+async function indexAt(run: Run, ref: SourceRef, sha: string): Promise<Resolved | undefined> {
   try {
-    const r = await resolveSource({
-      ctx: run.ctx,
-      deps: run.deps,
-      state: run.state,
-      ref: job.source,
-      sha: lockSha,
-    });
-    const entity = r.index.entities.find(
-      (e) => e.kind === job.entity.kind && sameName(e.name, job.entity.name),
-    );
-    return entity ? await prepareJob(run, { ...job, entity, checkout: r.checkout }) : undefined;
-  } catch {
+    const { ctx, deps, state } = run;
+    return await resolveSource({ ctx, deps, state, ref, sha });
+  } catch (e) {
+    rethrowCancel(e);
     return undefined;
   }
+}
+
+/** The same entity rendered at the locked sha: the trusted version of its unit and scripts. */
+async function renderedBefore(run: Run, job: Job, lockSha: string): Promise<Prepared | undefined> {
+  const r = await indexAt(run, job.source, lockSha);
+  const entity = r?.index.entities.find(
+    (e) => e.kind === job.entity.kind && sameName(e.name, job.entity.name),
+  );
+  if (!r || !entity) return undefined;
+  return prepareJob(run, { ...job, entity, checkout: r.checkout }).catch(() => undefined);
 }
 
 function scriptsOf(p?: Prepared): Map<string, Uint8Array> {
@@ -151,24 +167,64 @@ async function resolveIntent(
   target: SourceRef,
 ): Promise<Resolved | undefined> {
   try {
-    return await resolveSource({
-      ctx: run.ctx,
-      deps: run.deps,
-      state: run.state,
-      ref: target,
-      refresh: true,
-    });
+    const { ctx, deps, state } = run;
+    return await resolveSource({ ctx, deps, state, ref: target, refresh: true });
   } catch (e) {
+    rethrowCancel(e);
     plan.failures.push(failureOf({ kind: 'source', name: target.name, source: target.name }, e));
     return undefined;
   }
 }
 
-function withDefined(o: { from?: string | undefined; to?: string | undefined }): {
-  from?: string;
-  to?: string;
-} {
-  return { ...(o.from ? { from: o.from } : {}), ...(o.to ? { to: o.to } : {}) };
+/** The source row: versions, how far a pin is behind (D4, C19), why it counts (D11). */
+async function sourceRow(run: Run, target: SourceRef, r: Resolved): Promise<UpdatePlanSource> {
+  const ls = run.state.lock.source(target.name);
+  const from = label(ls?.resolved ?? ls?.ref, ls?.sha);
+  const to = label(r.checkout.ref, r.checkout.sha);
+  const row: UpdatePlanSource = {
+    name: target.name,
+    ref: target.source.ref ?? '',
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+  };
+  await describePin(run, target, r, row);
+  const reason = r.checkout.sha === ls?.sha ? refOnlyReason(target, ls) : undefined;
+  if (reason) row.reason = reason;
+  return row;
+}
+
+/** One source's planning facts: the new resolution, the row, and the index at the locked commit. */
+interface SourcePlan {
+  target: SourceRef;
+  r: Resolved;
+  row: UpdatePlanSource;
+  lockSha?: string;
+  /** The commit moves (not only the ref intent). */
+  moved: boolean;
+  old?: SourceIndex;
+}
+
+/** The plan items of one source's entries; returns the lock ids they keep. */
+async function planEntries(
+  run: Run,
+  plan: UpdatePlan,
+  memo: PlanMemo,
+  s: SourcePlan,
+): Promise<Job[]> {
+  const m = manifestJobs(run.state, s.target, s.r);
+  plan.failures.push(...m.failures);
+  const kept = new Set(m.missing);
+  for (const job of m.jobs) {
+    kept.add(lockId({ kind: job.entity.kind, name: job.entity.name, source: s.target.name }));
+    const p = await prepareJob(run, job);
+    const item = itemOf(p, s.row, s.moved);
+    const exec = await execChange(run, memo, p, s.lockSha);
+    if (exec) item.exec = exec;
+    plan.items.push(item);
+    if (s.moved) newPreloads(run, p, { index: s.r.index, ...(s.old ? { old: s.old } : {}) });
+  }
+  plan.items.push(...removedItems(run.state, s.target.name, kept));
+  return m.jobs;
 }
 
 async function planGitSource(
@@ -177,30 +233,19 @@ async function planGitSource(
   memo: PlanMemo,
   target: SourceRef,
 ): Promise<void> {
-  const { state } = run;
-  const ls: LockSource | undefined = state.lock.source(target.name);
+  const ls = run.state.lock.source(target.name);
   const r = await resolveIntent(run, plan, target);
   if (!r) return;
-  const range = withDefined({
-    from: versionLabel(ls?.resolved ?? ls?.ref, ls?.sha),
-    to: versionLabel(r.checkout.ref, r.checkout.sha),
-  });
-  plan.sources.push({ name: target.name, ref: target.source.ref ?? '', ...range });
+  const row = await sourceRow(run, target, r);
+  plan.sources.push(row);
   if (r.checkout.sha) memo.shas.set(target.name, r.checkout.sha);
-  const moved = r.checkout.sha !== ls?.sha || (target.source.ref ?? '') !== (ls?.ref ?? '');
-  if (moved) memo.moved.add(target.name);
-  const m = manifestJobs(state, target, r);
-  plan.failures.push(...m.failures);
-  const kept = new Set(m.missing);
-  for (const job of m.jobs) {
-    kept.add(lockId({ kind: job.entity.kind, name: job.entity.name, source: target.name }));
-    const p = await prepareJob(run, job);
-    const item = itemOf(p, range);
-    const exec = await execChange(run, memo, p, ls?.sha);
-    if (exec) item.exec = exec;
-    plan.items.push(item);
-  }
-  plan.items.push(...removedItems(state, target.name, kept));
+  const moved = r.checkout.sha !== ls?.sha;
+  if (moved || (target.source.ref ?? '') !== (ls?.ref ?? '')) memo.moved.add(target.name);
+  const old = ls?.sha && moved ? (await indexAt(run, target, ls.sha))?.index : undefined;
+  const s: SourcePlan = { target, r, row, moved, ...(ls?.sha ? { lockSha: ls.sha } : {}) };
+  if (old) s.old = old;
+  const jobs = await planEntries(run, plan, memo, s);
+  if (moved) newPrograms(run, plan, { target, index: r.index, jobs, ...(old ? { old } : {}) });
 }
 
 function skippedItems(state: ScopeState, ref: SourceRef): UpdatePlanItem[] {
@@ -264,6 +309,8 @@ interface SourceUpdate {
   jobs: Job[];
   /** Lock entries the new version no longer declares. */
   gone: LockEntry[];
+  /** The move of the source's commit, held back as a unit when an entry cannot follow (V4). */
+  move?: Move;
 }
 
 /** Moves one source to its planned sha (and `--to` intent): its jobs and the entries it dropped. */
@@ -278,26 +325,20 @@ async function sourceUpdate(
   if (!declared || declared.isLocal) return { jobs: [], gone: [] };
   const ref = intentOf(declared, to);
   if (to) {
-    state.manifest.addSource(
-      ref.source,
-      state.paths.scope === 'global' ? state.paths.palmHome : state.paths.root,
-    );
+    state.manifest.addSource(ref.source, baseDirOf(state));
     state.sources = state.sources.add(ref.source);
   }
   const sha = memos.get(plan)?.shas.get(name);
-  const r = await resolveSource({
-    ctx: run.ctx,
-    deps: run.deps,
-    state,
-    ref,
-    ...(sha ? { sha } : { refresh: true }),
-  });
+  const { ctx, deps } = run;
+  const r = await resolveSource({ ctx, deps, state, ref, ...(sha ? { sha } : { refresh: true }) });
+  const move = moveOf(state, ref, r.checkout, to ? declared : undefined);
   state.lock.setSource(name, lockSourceOf(state, ref, r));
   const m = manifestJobs(state, ref, r);
   run.result.failures.push(...m.failures);
   const ids = m.jobs.map((j) => lockId({ kind: j.entity.kind, name: j.entity.name, source: name }));
   const kept = new Set([...m.missing, ...ids]);
-  return { jobs: m.jobs, gone: state.lock.entriesOf(name).filter((e) => !kept.has(lockId(e))) };
+  const gone = state.lock.entriesOf(name).filter((e) => !kept.has(lockId(e)));
+  return { jobs: m.jobs, gone, ...(move ? { move } : {}) };
 }
 
 /** Undeploys the entries a new version no longer declares and drops them from the lock. */
@@ -312,6 +353,7 @@ async function dropGone(run: Run, gone: LockEntry[]): Promise<void> {
     dryRun: ctx.flags.dryRun,
     sources: await sourceRoots(state),
   });
+  if (!ctx.flags.dryRun) run.touched = true;
   run.result.failures.push(...report.failures);
   for (const e of gone) {
     state.lock.remove(e);
@@ -325,7 +367,10 @@ function previousUnits(plan: UpdatePlan): Record<string, ExecUnit> {
   return out;
 }
 
-/** DESIGN §6 "Update" step 4: install the planned sources at their new sha; consent for changed units. */
+/**
+ * DESIGN §6 "Update" step 4: install the planned sources at their new sha; consent for changed
+ * units. The plan was confirmed already; a source that cannot move as a unit stays (V4).
+ */
 export async function applyUpdate(
   ctx: PalmContext,
   plan: UpdatePlan,
@@ -336,21 +381,24 @@ export async function applyUpdate(
   const state = await openScope(ctx, opts.scope, { deps });
   const run = runOf(ctx, deps, state, 'update');
   return lockScope(ctx, state, async () => {
+    let failed = true;
     try {
       const updates: SourceUpdate[] = [];
       for (const s of plan.sources) updates.push(await sourceUpdate(run, plan, s.name, opts.to));
-      const prepared = await prepareAll(
-        run,
-        updates.flatMap((u) => u.jobs),
-      );
-      await askForConsent(run, prepared, previousUnits(plan));
+      const moves = updates.flatMap((u) => (u.move ? [u.move] : []));
+      const gone = updates.flatMap((u) => u.gone);
+      const jobs = updates.flatMap((u) => u.jobs);
+      const leaving = new Set(gone.map(lockId));
+      const previous = previousUnits(plan);
+      const ready = await prepareRun(run, jobs, { moves, leaving, previous, confirmed: true });
       await dropGone(
         run,
-        updates.flatMap((u) => u.gone),
+        gone.filter((e) => !ready.held.has(e.source)),
       );
-      await applyAll(run, prepared);
+      await applyAll(run, ready.prepared);
+      failed = false;
     } finally {
-      await saveScope(state);
+      await settle(run, failed);
     }
     run.result.failures.push(...plan.failures.filter((f) => f.kind === 'source'));
     return run.result;

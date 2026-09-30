@@ -265,17 +265,24 @@ function notCached(job: CheckoutJob, what: string): PalmError {
   );
 }
 
-/** A locked sha: from the cache, else fetched (never re-resolved). */
+/**
+ * A locked sha: from the cache, else fetched (never re-resolved). `resolved` is the tag or
+ * branch a fresh resolution just found for it (the one resolution of a new source, K8).
+ */
 async function checkoutSha(
   ctx: PalmContext,
   job: CheckoutJob,
-  sha: string,
+  pin: { sha: string; resolved?: string },
 ): Promise<SourceCheckout> {
+  const { sha, resolved } = pin;
   const requested = job.ref.source.ref;
+  const intent = { requested, ...(resolved ? { resolved } : {}) };
   const cached = await cachedSha(job, sha);
+  if (cached && resolved)
+    return checkoutOf(job, await ensureCommit(ctx, job, cached.sha, intent), resolved);
   if (cached) return checkoutOf(job, cached, requested && cached.refs[requested]?.resolved);
   if (ctx.flags.offline) throw notCached(job, ` at ${sha.slice(0, 7)}`);
-  return checkoutOf(job, await ensureCommit(ctx, job, sha, { requested }));
+  return checkoutOf(job, await ensureCommit(ctx, job, sha, intent), resolved);
 }
 
 /** The ref intent: a cache hit (no network) unless `refresh`, else resolved and fetched. */
@@ -323,7 +330,7 @@ async function localCheckout(
 export async function fetchSource(
   ctx: PalmContext,
   source: Source,
-  opts: { sha?: string; refresh?: boolean; exclude?: ReadonlySet<string> } = {},
+  opts: { sha?: string; resolved?: string; refresh?: boolean; exclude?: ReadonlySet<string> } = {},
 ): Promise<SourceCheckout> {
   assertSafe(source);
   const ref = SourceRef.of(source);
@@ -338,7 +345,10 @@ export async function fetchSource(
   await ensureCacheDir(cache);
   const job: CheckoutJob = { ref, url: source.url, cache };
   const result = opts.sha
-    ? await checkoutSha(ctx, job, opts.sha)
+    ? await checkoutSha(ctx, job, {
+        sha: opts.sha,
+        ...(opts.resolved ? { resolved: opts.resolved } : {}),
+      })
     : await checkoutIntent(ctx, job, !!opts.refresh);
   if (source.root && !existsSync(result.root)) {
     throw new PalmError(

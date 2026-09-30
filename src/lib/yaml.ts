@@ -33,8 +33,12 @@ export function parseYaml<T = unknown>(text: string, source?: string): T | undef
 /** Where a node sits in a document: the keys and indexes from the root. */
 export type YamlPath = ReadonlyArray<string | number>;
 
-/** Whether the collection at `path`, holding `value`, is written in flow style (`[a, b]`, `{ a: 1 }`). */
-type FlowRule = (path: YamlPath, value: unknown) => boolean;
+/**
+ * Whether the collection at `path`, holding `value`, is written in flow style (`[a, b]`,
+ * `{ a: 1 }`): `true` for flow, `false` for the default (block, or the file's own style), and
+ * `'block'` to write it in block style even where the file has it in flow style.
+ */
+type FlowRule = (path: YamlPath, value: unknown) => boolean | 'block';
 
 export interface StringifyYamlOptions {
   /** Collections this accepts are written in flow style. */
@@ -43,17 +47,21 @@ export interface StringifyYamlOptions {
   comment?: string;
 }
 
-/** Decides whether the collection `node` at `path` is written in flow style. */
-type FlowTest = (path: YamlPath, node: YAMLMap | YAMLSeq) => boolean;
+/** Decides whether the collection `node` at `path` is written in flow style (see FlowRule). */
+type FlowTest = (path: YamlPath, node: YAMLMap | YAMLSeq) => boolean | 'block';
 
-/** Sets `flow` on every collection below `node` that `test` accepts. */
+/** Sets `flow` on every collection below `node` that `test` accepts, and clears it for `'block'`. */
 function markFlow(node: unknown, path: YamlPath, test: FlowTest): void {
   let children: Array<[string | number, unknown]> = [];
   if (isMap(node)) children = node.items.map((p) => [keyString(p.key), p.value]);
   else if (isSeq(node)) children = node.items.map((child, i) => [i, child]);
   for (const [key, child] of children) {
     const at = [...path, key];
-    if ((isMap(child) || isSeq(child)) && test(at, child)) child.flow = true;
+    if (isMap(child) || isSeq(child)) {
+      const style = test(at, child);
+      if (style === true) child.flow = true;
+      else if (style === 'block') child.flow = false;
+    }
     markFlow(child, at, test);
   }
 }
@@ -65,10 +73,11 @@ function markFlow(node: unknown, path: YamlPath, test: FlowTest): void {
  */
 function flowTest(opts: WriteYamlOptions, onlyNew: boolean): FlowTest {
   return (p, node) => {
-    if (onlyNew && node.range) return false;
+    const style = opts.flow?.(p, node.toJSON()) ?? false;
+    if (onlyNew && node.range) return style === 'block' ? 'block' : false;
     const key = p.length === 1 ? String(p[0]) : undefined;
     if (key !== undefined && isSeq(node) && opts.flowKeys?.includes(key)) return true;
-    return !!opts.flow?.(p, node.toJSON());
+    return style;
   };
 }
 

@@ -5,12 +5,14 @@
  */
 import type {
   Entity,
+  LockEntry,
   LockSource,
   McpManifestEntry,
   McpServerConfig,
   Source,
   SourceCheckout,
 } from '../core/types.js';
+import { lockId } from '../domain/entity-key.js';
 import { SourceRef } from '../domain/source.js';
 import { lockedSource, type ScopeState } from './scope.js';
 
@@ -73,6 +75,27 @@ export function mcpManifestEntry(cfg: McpServerConfig): McpManifestEntry {
   if (cfg.url) e.url = cfg.url;
   if (cfg.headers && Object.keys(cfg.headers).length) e.headers = { ...cfg.headers };
   return e;
+}
+
+/**
+ * B3: the entries of in-repo sources whose content changed since palm rendered them (the
+ * entity's files, hashed as `content`, differ from the lock's). With no source tree hash in
+ * the lock, this is the drift signal of `check local-sources`, one problem per entry; two pull
+ * requests that edit different entries never conflict in palm.lock.yaml. `renders` are the
+ * entries rendered again from the working tree (check-kit `renderAll`), by lock id.
+ */
+export function localDrift(
+  state: ScopeState,
+  renders: ReadonlyMap<string, { content: string } | undefined>,
+): Array<{ entry: LockEntry; content: string }> {
+  const out: Array<{ entry: LockEntry; content: string }> = [];
+  for (const entry of state.lock.entries) {
+    if (entry.declined || entry.source === MANIFEST_SOURCE) continue;
+    if (!state.sources.byName(entry.source)?.isLocal) continue;
+    const content = renders.get(lockId(entry))?.content;
+    if (content !== undefined && content !== entry.content) out.push({ entry, content });
+  }
+  return out;
 }
 
 /** The entity of a hand-declared server. */

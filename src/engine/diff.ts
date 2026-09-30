@@ -118,9 +118,11 @@ export interface OutcomeDecision {
   toWrite: TargetId[];
   /** Lock paths (and `file#at#key` fragments) the user changed: left as they are. */
   kept: string[];
+  /** What happens per target (the `partial` breakdown). */
+  targets: Partial<Record<TargetId, TargetVerdict>>;
 }
 
-type TargetVerdict = 'unchanged' | 'restore' | 'render' | 'kept' | 'skipped';
+export type TargetVerdict = 'unchanged' | 'restore' | 'render' | 'kept' | 'skipped';
 
 interface Inspection {
   /** Paths and fragment keys whose disk state differs from the render. */
@@ -194,14 +196,28 @@ function verdictFor(
     : { verdict: 'unchanged', write: false };
 }
 
-function overall(input: OutcomeInput, verdicts: TargetVerdict[], dropped: boolean): OutcomeStatus {
-  if (!verdicts.length && !dropped) return input.previous ? 'unchanged' : 'installed';
-  if (verdicts.includes('kept')) return 'modified';
-  const rendering = verdicts.includes('render') || dropped;
-  if (!input.previous) return verdicts.every((v) => v === 'skipped') ? 'skipped' : 'installed';
-  const moved = input.content !== undefined && input.content !== input.previous.content;
-  if (rendering && moved && !input.local) return 'updated';
-  if (rendering) return 're-rendered';
+/** One target keeps an edit while another moves on: the entity is split across targets (R8, K10). */
+function split(targets: OutcomeDecision['targets']): boolean {
+  const v = Object.values(targets);
+  return v.includes('kept') && (v.includes('render') || v.includes('restore'));
+}
+
+/** A render that differs from the lock: `updated` with new content from a git source, else `re-rendered`. */
+function rendered(input: OutcomeInput, previous: LockEntry): OutcomeStatus {
+  const moved = input.content !== undefined && input.content !== previous.content;
+  return moved && !input.local ? 'updated' : 're-rendered';
+}
+
+function overall(
+  input: OutcomeInput,
+  verdicts: TargetVerdict[],
+  seen: { dropped: boolean; targets: OutcomeDecision['targets'] },
+): OutcomeStatus {
+  const { previous } = input;
+  if (!verdicts.length && !seen.dropped) return previous ? 'unchanged' : 'installed';
+  if (verdicts.includes('kept')) return split(seen.targets) ? 'partial' : 'modified';
+  if (!previous) return verdicts.every((v) => v === 'skipped') ? 'skipped' : 'installed';
+  if (verdicts.includes('render') || seen.dropped) return rendered(input, previous);
   return verdicts.includes('restore') ? 'restored' : 'unchanged';
 }
 
@@ -226,11 +242,13 @@ export function outcomeStatus(input: OutcomeInput): OutcomeDecision {
   const kept: string[] = [];
   const toWrite: TargetId[] = [];
   const verdicts: TargetVerdict[] = [];
+  const targets: OutcomeDecision['targets'] = {};
   for (const id of TARGET_IDS) {
     const rendered = input.renders[id];
     if (!rendered) continue;
     const { verdict, write } = verdictFor(input, id, rendered, kept);
     verdicts.push(verdict);
+    targets[id] = verdict;
     if (write) toWrite.push(id);
   }
   const orphans = keptDropped(input);
@@ -240,5 +258,6 @@ export function outcomeStatus(input: OutcomeInput): OutcomeDecision {
   }
   const rendered = new Set(Object.keys(input.renders));
   const dropped = Object.keys(input.previous?.render ?? {}).some((t) => !rendered.has(t));
-  return { status: overall(input, verdicts, dropped), toWrite, kept: [...new Set(kept)] };
+  const status = overall(input, verdicts, { dropped, targets });
+  return { status, toWrite, kept: [...new Set(kept)], targets };
 }

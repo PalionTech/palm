@@ -40,7 +40,10 @@ async function hashFile(h: Hash, abs: string): Promise<void> {
  * content hash covers exactly the files a deploy copies. A root whose real path leaves the
  * boundary is an E_IO error.
  */
-export async function hashPath(absPath: string, opts: { boundary?: string } = {}): Promise<string> {
+export async function hashPath(
+  absPath: string,
+  opts: { boundary?: string; skip?: (rel: string) => boolean } = {},
+): Promise<string> {
   const real = await realpath(absPath).catch(() => undefined);
   if (real === undefined)
     throw new PalmError('E_IO', `cannot hash ${absPath}: no such file or directory`);
@@ -51,7 +54,7 @@ export async function hashPath(absPath: string, opts: { boundary?: string } = {}
   if ((await stat(real)).isDirectory()) {
     const { files } = await walkFiles(absPath, {
       boundary,
-      skip: (name) => matchesSkip(HASH_SKIP, name),
+      skip: (name, rel) => matchesSkip(HASH_SKIP, name) || !!opts.skip?.(rel),
     });
     const byRel = new Map(files.map((f) => [f.rel, f.abs]));
     for (const rel of [...byRel.keys()].sort()) {

@@ -4,11 +4,12 @@
  * `openScope` applies the scope guards and the overlap rule; `saveScope` writes only what
  * changed since it was opened or last saved.
  */
-import { readFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { readdir, readFile, readlink, stat } from 'node:fs/promises';
+import { dirname, relative } from 'node:path';
 import { PalmError } from '../core/errors.js';
 import { sha256 } from '../core/hash.js';
-import { isHomeAsProject } from '../core/paths.js';
+import { globalDirHolding, isHomeAsProject, worktreeRoot } from '../core/paths.js';
 import type {
   EngineDeps,
   LockSource,
@@ -22,7 +23,7 @@ import { Lock } from '../domain/lock.js';
 import { Manifest } from '../domain/manifest.js';
 import { ScopePaths } from '../domain/scope-paths.js';
 import type { SourceSet } from '../domain/source.js';
-import { isWithin } from '../lib/fs.js';
+import { isWithin, toPosix } from '../lib/fs.js';
 import { ensureIgnoreLines } from './gitignore.js';
 import { detectTargets } from './targets.js';
 
@@ -55,13 +56,35 @@ function snapshotOf(state: ScopeState): Snapshot {
 
 const text = (v: { toJSON(): unknown }): string => JSON.stringify(v.toJSON());
 
+/** The command line as typed with `-g` added, or the words that say so. */
+function withGlobal(ctx: PalmContext): string {
+  const argv = ctx.argv?.filter((w) => w !== '--');
+  return argv?.length ? `palm ${[...argv, '-g'].join(' ')}` : 'run the command again with -g';
+}
+
+/**
+ * The scope guards (DESIGN §2): project scope is never the home directory without a palm.yaml,
+ * never inside palm home (or the directory the global palm.yaml really lives in) and never
+ * inside a harness's global directory (J4, J5); the fix is `-g`.
+ */
 function assertScope(ctx: PalmContext, scope: Scope): void {
-  if (scope !== 'project' || !isHomeAsProject(ctx.paths, ctx.env)) return;
-  throw new PalmError(
-    'E_USAGE',
-    'run inside a project or use -g: the home directory is not a project',
-    'cd into a project and run palm again, or add -g to install for yourself',
-  );
+  if (scope !== 'project') return;
+  if (isHomeAsProject(ctx.paths, ctx.env))
+    throw new PalmError(
+      'E_USAGE',
+      'run inside a project or use -g: the home directory is not a project',
+      'cd into a project and run palm again, or add -g to install for yourself',
+    );
+  const { cwd, projectRoot } = ctx.paths;
+  for (const dir of [cwd, projectRoot]) {
+    const what = globalDirHolding(dir, ctx.paths, ctx.env);
+    if (what)
+      throw new PalmError(
+        'E_USAGE',
+        `${dir} is inside ${what}, not a project; your own setup takes -g`,
+        withGlobal(ctx),
+      );
+  }
 }
 
 /** Where palm.yaml sits, for E_PARSE messages. */
@@ -101,7 +124,10 @@ export async function openScope(
     written: new Map(),
     sources: lock.sources,
   });
-  if (opts.deps && !opts.readOnly) await assertNoOverlap(ctx, state, opts.deps);
+  if (opts.deps && !opts.readOnly) {
+    await assertNoOverlap(ctx, state, opts.deps);
+    await noteOutputLinks(ctx, state, opts.deps);
+  }
   return state;
 }
 
@@ -110,14 +136,23 @@ export interface Overlap {
   source: string;
   sourceRel: string;
   target: TargetId | 'palm';
+  /** The output directory, or the symlinked directory inside it that leads into the source. */
   dir: string;
+  /** Set when a symlink leads there (`.claude/skills -> ../skill`): what the link says (C1). */
+  link?: string;
+}
+
+/** The overlap in words (install, listing and `check` say the same). */
+export function overlapMessage(o: Overlap): string {
+  const what = o.target === 'palm' ? 'palm asset directory' : `${o.target} output directory`;
+  const through = o.link ? ` through the symlink ${o.dir} -> ${o.link}` : ` ${o.dir}/`;
+  return `source "${o.source}" (${o.sourceRel}) overlaps the ${what}${through}`;
 }
 
 function overlapError(o: Overlap): PalmError {
-  const what = o.target === 'palm' ? 'palm asset directory' : `${o.target} output directory`;
   return new PalmError(
     'E_SOURCE',
-    `source "${o.source}" (${o.sourceRel}) overlaps the ${what} ${o.dir}/`,
+    overlapMessage(o),
     'move the source files to a directory of their own (for example ./agent-kit) and declare that in palm.yaml',
   );
 }
@@ -139,10 +174,65 @@ function overlaps(source: string, dir: string, root: string): boolean {
   return isWithin(dir, source) || isWithin(source, dir);
 }
 
+/** A directory palm writes through: an output directory or a directory one level inside it. */
+interface OutputDir {
+  target: TargetId | 'palm';
+  /** Lock form. */
+  dir: string;
+  /** Real path. */
+  real: string;
+  /** What the symlink says, when `dir` is one. */
+  link?: string;
+}
+
+async function linkOf(abs: string): Promise<string | undefined> {
+  return readlink(abs).catch(() => undefined);
+}
+
+/** The symlinked directories directly inside an output directory (`.claude/skills -> ../skill`). */
+async function linkedChildren(state: ScopeState, o: OutputDir): Promise<OutputDir[]> {
+  const { paths } = state;
+  const entries = await readdir(paths.abs(o.dir), { withFileTypes: true }).catch(() => []);
+  const out: OutputDir[] = [];
+  for (const e of entries) {
+    if (!e.isSymbolicLink()) continue;
+    const dir = `${o.dir}/${e.name}`;
+    const abs = paths.abs(dir);
+    const isDir = await stat(abs).then(
+      (s) => s.isDirectory(),
+      () => false,
+    );
+    const link = await linkOf(abs);
+    if (isDir && link)
+      out.push({ target: o.target, dir, real: (await paths.realInside(abs)).real, link });
+  }
+  return out;
+}
+
+/**
+ * The directories palm writes through, on real paths: each output directory and every
+ * symlinked directory one level inside it (C1: `.claude/skills -> ../skill`).
+ */
+async function writtenDirs(
+  ctx: PalmContext,
+  state: ScopeState,
+  deps: EngineDeps,
+): Promise<OutputDir[]> {
+  const out: OutputDir[] = [];
+  for (const { target, dir } of outputDirs(ctx, state, deps)) {
+    const abs = state.paths.abs(dir);
+    const link = await linkOf(abs);
+    const own: OutputDir = { target, dir, real: (await state.paths.realInside(abs)).real };
+    out.push(link ? { ...own, link } : own, ...(await linkedChildren(state, own)));
+  }
+  return out;
+}
+
 /**
  * Every local source that contains, equals or lies inside an output directory of an active
- * target or `.palm/assets`, on real paths (DESIGN §2). A source at the scope root is scanned
- * with the output directories excluded, so it only overlaps a directory equal to the root.
+ * target or `.palm/assets`, on real paths (DESIGN §2), a symlinked directory inside an output
+ * directory included (C1). A source at the scope root is scanned with the output directories
+ * excluded, so it only overlaps a directory equal to the root.
  */
 export async function findOverlaps(
   ctx: PalmContext,
@@ -151,35 +241,51 @@ export async function findOverlaps(
 ): Promise<Overlap[]> {
   const { paths } = state;
   const root = (await paths.realInside(paths.root)).real;
-  const dirs = outputDirs(ctx, state, deps);
+  const dirs = await writtenDirs(ctx, state, deps);
   const found: Overlap[] = [];
   for (const ref of state.sources.all()) {
     if (!ref.isLocal || !ref.source.path) continue;
     const real = (await paths.realInside(ref.source.path)).real;
-    for (const { target, dir } of dirs) {
-      const dirReal = (await paths.realInside(paths.abs(dir))).real;
+    const sourceRel = localPathOf(state, ref.source.path);
+    for (const { target, dir, real: dirReal, link } of dirs) {
       if (!overlaps(real, dirReal, root)) continue;
-      found.push({ source: ref.name, sourceRel: paths.lockForm(ref.source.path), target, dir });
+      found.push({ source: ref.name, sourceRel, target, dir, ...(link ? { link } : {}) });
     }
   }
   return found;
 }
 
 /**
- * A declared local source outside the project (DESIGN §3): E_SOURCE on real paths. Project scope
- * only; normalizeSource cannot tell, since it does not know the scope (ruling 9).
+ * One line per symlinked output directory, once per run (C1): palm writes through the link, and
+ * the person should know where the files land.
+ */
+export async function noteOutputLinks(
+  ctx: PalmContext,
+  state: ScopeState,
+  deps: EngineDeps,
+): Promise<void> {
+  for (const d of await writtenDirs(ctx, state, deps))
+    if (d.link && d.target !== 'palm')
+      ctx.log.info(`${shownPath(state, d.dir)} is a symlink to ${d.link}; palm writes through it`);
+}
+
+/**
+ * A declared local source outside the project (DESIGN §3): E_SOURCE on real paths. A nested
+ * project may use a directory anywhere in its repository (B9). Project scope only;
+ * normalizeSource cannot tell, since it does not know the scope (ruling 9).
  */
 async function assertInsideProject(state: ScopeState): Promise<void> {
   const { paths } = state;
   if (paths.scope !== 'project') return;
-  const root = (await paths.realInside(paths.root)).real;
+  const top = worktreeRoot(paths.root) ?? paths.root;
+  const root = (await paths.realInside(top)).real;
   for (const ref of state.sources.all()) {
     if (!ref.isLocal || !ref.source.path) continue;
     const { real } = await paths.realInside(ref.source.path);
     if (isWithin(real, root)) continue;
     throw new PalmError(
       'E_SOURCE',
-      `source "${ref.name}" is outside the project ${paths.root}; a local source is a directory inside it`,
+      `source "${ref.name}" is outside the project ${top}; a local source is a directory inside it`,
       'move the directory into the project (for example ./agent-kit) and declare that in palm.yaml',
     );
   }
@@ -194,6 +300,34 @@ export async function assertNoOverlap(
   await assertInsideProject(state);
   const [overlap] = await findOverlaps(ctx, state, deps);
   if (overlap) throw overlapError(overlap);
+}
+
+/**
+ * A local source's path in lock form: project-relative (`agent-kit`, or `../kit` for a
+ * directory elsewhere in the repository, B9), or a token path under -g (`<home>/dotfiles/kit`).
+ */
+export function localPathOf(state: ScopeState, abs: string): string {
+  const { paths } = state;
+  if (paths.scope !== 'project') return paths.lockForm(abs);
+  const real = (p: string) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  return toPosix(relative(real(paths.root), real(abs))) || '.';
+}
+
+/**
+ * A lock path as people read it: itself in a project, `~/…` under -g (tokens are for the lock
+ * only, J24).
+ */
+export function shownPath(state: ScopeState, lockPath: string): string {
+  const { paths } = state;
+  if (paths.scope === 'project') return lockPath;
+  const abs = paths.abs(lockPath);
+  return isWithin(abs, paths.home) ? `~/${toPosix(relative(paths.home, abs))}` : abs;
 }
 
 /** The lock's record of `name` as the scope was opened (before this run moved any sha). */

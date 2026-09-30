@@ -112,7 +112,7 @@ describe('syncScope (bare install)', () => {
     expect(await w.read('.claude/skills/tdd/SKILL.md')).toBe('my edit\n');
   });
 
-  it('re-renders an in-repo source that changed and updates its tree hash', async () => {
+  it('re-renders an in-repo source that changed and updates the entry content hash', async () => {
     const w = await makeWorld({ targets: ['claude'] });
     const src = await w.local('agent-kit', { 'skills/review/SKILL.md': 'v1\n' });
     await installFromSource(
@@ -121,14 +121,15 @@ describe('syncScope (bare install)', () => {
       { scope: 'project' },
       w.deps,
     );
-    const before = (await w.lock()).sources['./agent-kit']?.tree;
+    const before = (await w.entry('skill', 'review'))?.content;
     await w.write('agent-kit/skills/review/SKILL.md', 'v2\n');
     const r = await syncScope(w.ctx, { scope: 'project' }, w.deps);
     expect(r.outcomes.map((o) => o.status)).toEqual(['re-rendered']);
     expect(await w.read('.claude/skills/review/SKILL.md')).toBe('v2\n');
-    const after = (await w.lock()).sources['./agent-kit']?.tree;
+    const after = (await w.entry('skill', 'review'))?.content;
     expect(after).toMatch(/^sha256:/);
     expect(after).not.toBe(before);
+    expect((await w.lock()).sources['./agent-kit']?.tree).toBeUndefined();
   });
 
   it('undeploys an entry removed from palm.yaml by hand, keeping an edited file', async () => {
@@ -160,7 +161,7 @@ describe('syncScope (bare install)', () => {
     await m
       .addSource({ ...(src?.source ?? { name: '', type: 'git' }), ref: 'v2.0.0' }, w.project)
       .save(w.path('palm.yaml'));
-    const r = await syncScope(w.ctx, { scope: 'project' }, w.deps);
+    const r = await syncScope(w.context({ yes: true }), { scope: 'project' }, w.deps);
     expect(r.outcomes.map((o) => o.status)).toEqual(['updated']);
     expect(await w.read('.claude/skills/tdd/SKILL.md')).toBe('Test first, v2.\n');
     expect((await w.lock()).sources[name as string]).toMatchObject({ ref: 'v2.0.0' });
@@ -191,7 +192,7 @@ describe('syncScope (bare install)', () => {
     const sha = unreachable(url, 'v1.0.0');
     await pin(w, 'skills', 'v2.0.0');
     fetchCalls.length = 0;
-    const r = await syncScope(w.ctx, { scope: 'project' }, w.deps);
+    const r = await syncScope(w.context({ yes: true }), { scope: 'project' }, w.deps);
     expect(fetchCalls.filter((c) => c.sha === sha)).toHaveLength(1);
     const status = (n: string) => r.outcomes.find((o) => o.entry.name === n);
     expect(status('tdd')).toMatchObject({

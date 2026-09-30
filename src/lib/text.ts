@@ -37,3 +37,37 @@ function pluralWord(n: number, word: string): string {
 export function plural(n: number, word: string): string {
   return `${n} ${pluralWord(n, word)}`;
 }
+
+/** Levenshtein distance between `a` and `b` (insertions, deletions and substitutions cost 1). */
+export function editDistance(a: string, b: string): number {
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0] ?? 0;
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j] ?? 0;
+      prev[j] = Math.min(tmp + 1, (prev[j - 1] ?? 0) + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = tmp;
+    }
+  }
+  return prev[b.length] ?? 0;
+}
+
+/**
+ * The candidate closest to `word` (any case) within `max` edits, or one that contains it or is
+ * contained in it (`target` for `targets`); undefined when none is close.
+ */
+export function closestWord(
+  word: string,
+  candidates: Iterable<string>,
+  max = 2,
+): string | undefined {
+  const q = word.toLowerCase();
+  let best: { word: string; d: number } | undefined;
+  for (const c of candidates) {
+    const n = c.toLowerCase();
+    const d = n.includes(q) || q.includes(n) ? Math.min(editDistance(q, n), 1) : editDistance(q, n);
+    if (d <= max && (!best || d < best.d)) best = { word: c, d };
+  }
+  return best?.word;
+}

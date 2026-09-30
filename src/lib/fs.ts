@@ -57,9 +57,30 @@ export async function isSameFile(a: string, b: string): Promise<boolean> {
   }
 }
 
-/** Creates `dir` and its missing parents. */
+/** Creates `dir` and its missing parents (through a dangling link, see `makeDir`). */
 export async function ensureDir(dir: string): Promise<void> {
-  await mkdir(dir, { recursive: true });
+  await makeDir(dir);
+}
+
+/**
+ * Creates `dir` and its missing parents; returns the directory to write into. When a part of
+ * `dir` is a dangling symbolic link (`.claude/skills/x -> ../../.agents/skills/x` before the
+ * target exists), the link's target is created instead, so the write goes through the link in
+ * one run (DESIGN §2: a dangling link inside the scope is created through; callers check the
+ * scope first).
+ */
+async function makeDir(dir: string): Promise<string> {
+  try {
+    await mkdir(dir, { recursive: true });
+    return dir;
+  } catch (e) {
+    const code = errnoCode(e);
+    if (!['ENOENT', 'EEXIST', 'ENOTDIR'].includes(code ?? '')) throw e;
+    const { real, dangling } = await resolveDeepest(path.resolve(dir), 0);
+    if (!dangling) throw e;
+    await mkdir(real, { recursive: true });
+    return real;
+  }
 }
 
 /**
@@ -124,9 +145,9 @@ export async function writeFileAtomic(
   data: string | Uint8Array,
   opts: { mode?: number } = {},
 ): Promise<void> {
-  const target = await resolveWriteTarget(file);
-  const dir = path.dirname(target);
-  await mkdir(dir, { recursive: true });
+  const resolved = await resolveWriteTarget(file);
+  const dir = await makeDir(path.dirname(resolved));
+  const target = path.join(dir, path.basename(resolved));
   const mode = opts.mode ?? (await fileMode(target));
   const tmp = path.join(dir, `.${path.basename(target)}.${randomBytes(6).toString('hex')}.tmp`);
   try {

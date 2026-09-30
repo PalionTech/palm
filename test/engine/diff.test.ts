@@ -55,7 +55,7 @@ describe('outcomeStatus', () => {
       force: false,
       content: 'c1',
     });
-    expect(d).toEqual({ status: 'unchanged', toWrite: [], kept: [] });
+    expect(d).toMatchObject({ status: 'unchanged', toWrite: [], kept: [] });
   });
 
   it('restores a missing file', () => {
@@ -66,7 +66,7 @@ describe('outcomeStatus', () => {
       fragments: none,
       force: false,
     });
-    expect(d).toEqual({ status: 'restored', toWrite: ['claude'], kept: [] });
+    expect(d).toMatchObject({ status: 'restored', toWrite: ['claude'], kept: [] });
   });
 
   it('keeps an edited file (modified) unless forced', () => {
@@ -76,12 +76,12 @@ describe('outcomeStatus', () => {
       files: files('modified'),
       fragments: none,
     };
-    expect(outcomeStatus({ ...input, force: false })).toEqual({
+    expect(outcomeStatus({ ...input, force: false })).toMatchObject({
       status: 'modified',
       toWrite: [],
       kept: [FILE],
     });
-    expect(outcomeStatus({ ...input, force: true })).toEqual({
+    expect(outcomeStatus({ ...input, force: true })).toMatchObject({
       status: 'restored',
       toWrite: ['claude'],
       kept: [],
@@ -97,7 +97,7 @@ describe('outcomeStatus', () => {
       force: false,
       content: 'c2',
     });
-    expect(d).toEqual({ status: 'updated', toWrite: ['claude'], kept: [] });
+    expect(d).toMatchObject({ status: 'updated', toWrite: ['claude'], kept: [] });
     const same = outcomeStatus({
       previous: previous({ claude: 'h1' }),
       renders: { claude: rendered('h2') },
@@ -134,7 +134,7 @@ describe('outcomeStatus', () => {
       fragments: new Map([[key, 'changed']]),
       force: false,
     });
-    expect(changed).toEqual({ status: 'modified', toWrite: [], kept: [key] });
+    expect(changed).toMatchObject({ status: 'modified', toWrite: [], kept: [key] });
     const missing = outcomeStatus({
       previous: prev,
       renders: { claude: rendered('h1', { fragment: true }) },

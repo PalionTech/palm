@@ -166,12 +166,15 @@ export class ScopePaths {
 
   /**
    * Lock form of an entity's asset directory: `.palm/assets/<segment>/<entity>` (project) or
-   * `<palm>/assets/<segment>/<entity>` (global). An entity name that is not one safe path
-   * segment is E_USAGE.
+   * `<palm>/assets/<segment>/<entity>` (global), collapsed to `.palm/assets/<segment>` when the
+   * entity is named like the source segment (a root hook named after its source, K23). An
+   * entity name that is not one safe path segment is E_USAGE.
    */
   assetRoot(source: SourceRef, entity: string): string {
     if (!isSafeName(entity)) throw new PalmError('E_USAGE', `invalid entity name "${entity}"`);
-    return this.lockForm(path.join(this.assetsDir, source.assetDir, entity));
+    const segment = source.assetDir;
+    const parts = entity === segment ? [segment] : [segment, entity];
+    return this.lockForm(path.join(this.assetsDir, ...parts));
   }
 
   /**
