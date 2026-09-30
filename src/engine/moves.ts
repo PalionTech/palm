@@ -46,9 +46,15 @@ export function moveOf(
 ): Move | undefined {
   const locked = lockedSource(state, ref.name);
   if (ref.isLocal || !locked?.sha || !checkout.sha || checkout.sha === locked.sha) return undefined;
-  const from = `${locked.ref ?? ''} ${versionLabel(locked.resolved, locked.sha)}`.trim();
-  const to = `${ref.source.ref ?? ''} ${versionLabel(checkout.ref, checkout.sha)}`.trim();
+  const from = intentLabel(locked.ref, locked.resolved, locked.sha);
+  const to = intentLabel(ref.source.ref, checkout.ref, checkout.sha);
   return { source: ref.name, locked, from, to, ...(before ? { before } : {}) };
+}
+
+/** `v1.2.3 (6acc160)`, or `^1.2 v1.2.3 (6acc160)` when the intent is a range. */
+function intentLabel(intent: string | undefined, tag: string | undefined, sha: string): string {
+  const version = versionLabel(tag ?? intent, sha);
+  return intent && intent !== (tag ?? intent) ? `${intent} ${version}` : version;
 }
 
 /** One plan line per entry of a moving source (C12). */

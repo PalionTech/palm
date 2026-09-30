@@ -19,7 +19,7 @@ import { type Declared, declareSource, ensureRef, peekSource, reportRefs } from 
 import { resolveEngineDeps } from './deps.js';
 import { dedupeJobs, manifestJobs, requestJobs } from './entries.js';
 import { type Job, type Run, runOf } from './jobs.js';
-import { moveOf } from './moves.js';
+import { type Move, moveOf } from './moves.js';
 import { gapOf, installedNames, preloadLine } from './preloads.js';
 import { palmCommand } from './report.js';
 import {
@@ -73,11 +73,13 @@ function requestedJobs(
   return [...direct, ...plugins];
 }
 
-/** When the source moved to another sha, its other entries are rendered from the new one too. */
-function movedJobs(state: ScopeState, ref: SourceRef, r: Resolved, run: Run): Job[] {
-  const before = state.lock.source(ref.name)?.sha;
-  if (!before || before === r.checkout.sha) return [];
-  const { jobs, failures } = manifestJobs(state, ref, r);
+/**
+ * When the source moves to another commit, its other entries are rendered from the new one
+ * too: one commit per source (C12 shows them before the move).
+ */
+function movedJobs(run: Run, ref: SourceRef, r: Resolved, move: Move | undefined): Job[] {
+  if (!move) return [];
+  const { jobs, failures } = manifestJobs(run.state, ref, r);
   run.result.failures.push(...failures);
   return jobs;
 }
@@ -122,7 +124,7 @@ async function install(run: Run, req: InstallRequest, held: { added?: string }):
   const move = moveOf(state, ref, r.checkout, decl.before);
   state.lock.setSource(ref.name, lockSourceOf(state, ref, r));
   if (req.all) run.leaveOutPrograms = true;
-  const all = dedupeJobs([...jobs, ...movedJobs(state, ref, r, run)]);
+  const all = dedupeJobs([...jobs, ...movedJobs(run, ref, r, move)]);
   await runJobs(run, all, move ? { moves: [move] } : {});
 }
 
