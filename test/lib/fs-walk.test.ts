@@ -15,7 +15,12 @@ describe('walkFiles', () => {
     await write(join(root, 'a-c.md'), 'c');
     const { files, skipped } = await walkFiles(root);
     expect(files.map((f) => f.rel)).toEqual(['a/y/x.sh', 'a/z.md', 'a-c.md', 'b.md']);
-    expect(files[0]).toEqual({ rel: 'a/y/x.sh', abs: join(root, 'a/y/x.sh'), mode: 0o755, size: 1 });
+    expect(files[0]).toEqual({
+      rel: 'a/y/x.sh',
+      abs: join(root, 'a/y/x.sh'),
+      mode: 0o755,
+      size: 1,
+    });
     expect(skipped).toEqual([]);
   });
 

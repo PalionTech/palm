@@ -1,32 +1,34 @@
 import { KINDS, type Kind } from './types.js';
 
 /**
- * What a CLI verb acts on (`palm <verb> <resource> [names...]`): an entity kind, the origins
- * palm installs from, the targets it installs into, or `all` (only `palm get all`).
+ * What a CLI verb acts on (`palm get <resource> [names...]`): an entity kind, the sources palm
+ * installs from, the targets it installs into, or `all` (only `palm get all`).
  */
-type ResourceKind = Kind | 'origin' | 'target';
-export type Resource = ResourceKind | 'all';
+export type Resource = Kind | 'source' | 'target' | 'all';
 
-export const RESOURCES: readonly Resource[] = [...KINDS, 'origin', 'target', 'all'] as const;
+export const RESOURCES: readonly Resource[] = [...KINDS, 'source', 'target', 'all'] as const;
 
-/** kubectl-style short names (`palm get sk`, `palm describe orig mattpocock`). */
+/** kubectl-style short names (`palm get sk`, `palm describe src mattpocock/skills`). */
 export const SHORT_NAMES: Readonly<Record<Resource, string | undefined>> = {
   skill: 'sk',
   agent: 'ag',
   instruction: 'ins',
-  command: 'cmd',
   hook: 'hk',
   mcp: 'mcp',
   plugin: 'pl',
-  origin: 'orig',
+  source: 'src',
   target: 'tg',
   all: undefined,
 };
+
+/** Words that name commands and prompts: those install as skills (DESIGN.md section 1). */
+const COMMAND_WORDS: readonly string[] = ['command', 'commands', 'cmd', 'prompt', 'prompts'];
 
 const ALIASES: Record<string, Kind> = {
   skill: 'skill',
   skills: 'skill',
   sk: 'skill',
+  ...Object.fromEntries(COMMAND_WORDS.map((w) => [w, 'skill' as const])),
   agent: 'agent',
   agents: 'agent',
   ag: 'agent',
@@ -37,11 +39,6 @@ const ALIASES: Record<string, Kind> = {
   ins: 'instruction',
   rule: 'instruction',
   rules: 'instruction',
-  command: 'command',
-  commands: 'command',
-  cmd: 'command',
-  prompt: 'command',
-  prompts: 'command',
   hook: 'hook',
   hooks: 'hook',
   hk: 'hook',
@@ -58,10 +55,14 @@ const ALIASES: Record<string, Kind> = {
   bundles: 'plugin',
 };
 
+/** Resource words that are not kinds. `origin` words map to `source` for one release. */
 const RESOURCE_ALIASES: Record<string, Exclude<Resource, Kind>> = {
-  origin: 'origin',
-  origins: 'origin',
-  orig: 'origin',
+  source: 'source',
+  sources: 'source',
+  src: 'source',
+  origin: 'source',
+  origins: 'source',
+  orig: 'source',
   target: 'target',
   targets: 'target',
   tg: 'target',
@@ -69,18 +70,24 @@ const RESOURCE_ALIASES: Record<string, Exclude<Resource, Kind>> = {
 };
 
 /**
- * Parse a user-supplied entity kind word (singular, plural, short name or alias).
- * Returns undefined when it is not an entity kind (`origin` and `target` are not).
+ * A user-supplied entity kind word (singular, plural, short name or alias), any case.
+ * `command(s)`, `cmd` and `prompt(s)` give `skill` (commands install as skills; the caller
+ * prints the note, see `isCommandWord`). Undefined when the word is not a kind.
  */
-export function parseKind(word: string | undefined): Kind | undefined {
+export function parseKind(word?: string): Kind | undefined {
   if (!word) return undefined;
   return ALIASES[word.toLowerCase()];
 }
 
-/** Parse any resource word: an entity kind, `origin(s)`/`orig`, `target(s)`/`tg` or `all`. */
-export function parseResource(word: string | undefined): Resource | undefined {
+/** Any resource word: an entity kind, `source(s)`/`src`, `target(s)`/`tg` or `all`. */
+export function parseResource(word?: string): Resource | undefined {
   if (!word) return undefined;
   return parseKind(word) ?? RESOURCE_ALIASES[word.toLowerCase()];
+}
+
+/** True for `command`, `commands`, `cmd`, `prompt` and `prompts`: the "installs as a skill" note. */
+export function isCommandWord(word?: string): boolean {
+  return !!word && COMMAND_WORDS.includes(word.toLowerCase());
 }
 
 /** Every word `parseResource` maps to `resource` (for shell completion). */
@@ -89,28 +96,21 @@ export function resourceWords(resource: Resource): string[] {
   return Object.keys(table).filter((w) => table[w] === resource);
 }
 
-/** Manifest section name for a kind. */
-export function manifestKey(
-  kind: Kind,
-): 'skills' | 'agents' | 'instructions' | 'commands' | 'hooks' | 'mcp' | 'plugins' {
-  switch (kind) {
-    case 'skill':
-      return 'skills';
-    case 'agent':
-      return 'agents';
-    case 'instruction':
-      return 'instructions';
-    case 'command':
-      return 'commands';
-    case 'hook':
-      return 'hooks';
-    case 'mcp':
-      return 'mcp';
-    case 'plugin':
-      return 'plugins';
-  }
+const MANIFEST_KEYS = {
+  skill: 'skills',
+  agent: 'agents',
+  instruction: 'instructions',
+  hook: 'hooks',
+  mcp: 'mcp',
+  plugin: 'plugins',
+} as const satisfies Record<Kind, string>;
+
+/** The list under a source in palm.yaml that holds entries of `kind`. */
+export function manifestKey(kind: Kind): (typeof MANIFEST_KEYS)[Kind] {
+  return MANIFEST_KEYS[kind];
 }
 
+/** `skill` for one, `skills` for any other count; `MCP servers` for mcp. */
 export function pluralize(kind: Kind, n: number): string {
   if (n === 1) return kind;
   return kind === 'mcp' ? 'MCP servers' : `${kind}s`;

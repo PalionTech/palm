@@ -1,18 +1,20 @@
+/** Where palm runs: the home, palm home and project root of one invocation (DESIGN.md section 2). */
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { homeOf, MANIFEST_FILE, palmHomeOf } from '../domain/scope-paths.js';
+import { isWithin } from '../lib/fs.js';
 import type { PalmPaths } from './types.js';
 
-const CONFIG_FILE = 'config.yaml';
-
-/** Walk from `start` up to the filesystem root, returning the first dir for which `test` is true. */
-function findUp(start: string, test: (dir: string) => boolean): string | undefined {
-  let dir = start;
-  for (;;) {
-    if (test(dir)) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return undefined;
-    dir = parent;
+/**
+ * The project root for `cwd`: walking up, the first directory holding palm.yaml, else the first
+ * holding `.git` (discovery stops there: a palm.yaml above belongs to another repository), else
+ * `cwd`. palm home holds the global manifest and never counts as a project.
+ */
+function projectRootOf(cwd: string, palmHome: string): string {
+  for (let dir = cwd; ; dir = dirname(dir)) {
+    if (dir !== palmHome && existsSync(join(dir, MANIFEST_FILE))) return dir;
+    if (existsSync(join(dir, '.git'))) return dir;
+    if (dirname(dir) === dir) return cwd;
   }
 }
 
@@ -20,12 +22,7 @@ export function resolvePaths(cwd: string, env: NodeJS.ProcessEnv): PalmPaths {
   const home = homeOf(env);
   const palmHome = palmHomeOf(env, home);
   const absCwd = resolve(cwd);
-  // palmHome holds the *global* manifest; it must never be mistaken for a project root.
-  const projectRoot =
-    findUp(absCwd, (d) => d !== palmHome && existsSync(join(d, MANIFEST_FILE))) ??
-    findUp(absCwd, (d) => existsSync(join(d, '.git'))) ??
-    absCwd;
-  return { palmHome, home, projectRoot, cwd: absCwd };
+  return { palmHome, home, projectRoot: projectRootOf(absCwd, palmHome), cwd: absCwd };
 }
 
 /**
@@ -40,15 +37,18 @@ export function isHomeAsProject(paths: PalmPaths, env: NodeJS.ProcessEnv): boole
   return resolve(paths.projectRoot) === home && !existsSync(join(home, MANIFEST_FILE));
 }
 
-/** The project's palm.yaml (`ScopePaths` has every scope-dependent path). */
-export function projectManifest(paths: PalmPaths): string {
-  return join(paths.projectRoot, MANIFEST_FILE);
-}
-
-export function configPath(paths: PalmPaths): string {
-  return join(paths.palmHome, CONFIG_FILE);
-}
-
-export function cacheDir(paths: PalmPaths): string {
-  return join(paths.palmHome, 'cache');
+/**
+ * The directory holding a palm.yaml strictly above `cwd` and at or below `stopAt` (the root of
+ * the repository `cwd` is in): `palm init` refuses to start a nested project there without
+ * `--here`. Undefined when there is none.
+ */
+export function enclosingProject(cwd: string, stopAt: string): string | undefined {
+  const stop = resolve(stopAt);
+  let dir = resolve(cwd);
+  if (!isWithin(dir, stop)) return undefined;
+  while (dir !== stop) {
+    dir = dirname(dir);
+    if (existsSync(join(dir, MANIFEST_FILE))) return dir;
+  }
+  return undefined;
 }

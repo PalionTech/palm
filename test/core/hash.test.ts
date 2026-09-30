@@ -1,9 +1,15 @@
-import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { hashPath, hashValue } from '../../src/core/hash.js';
-import { listCopyFiles } from '../../src/targets/fs-utils.js';
+import { hashPath, hashValue, short, treeHash } from '../../src/core/hash.js';
+import { shouldSkipFile } from '../../src/domain/ignore.js';
+import { walkFiles } from '../../src/lib/fs.js';
 import { removeDir, tempDir, writeFiles } from '../support/sandbox.js';
+
+/** The copy walk targets deploy with: COPY_SKIP by name, links only inside the boundary. */
+const copyWalk = (root: string, opts: { boundary?: string } = {}) =>
+  walkFiles(root, { ...opts, skip: (name) => shouldSkipFile(name) });
 
 describe('hashPath', () => {
   let dir: string;
@@ -112,7 +118,7 @@ describe('hashPath: CRLF', () => {
   });
 });
 
-describe('hashPath: one walk policy with the copy (listCopyFiles)', () => {
+describe('hashPath: one walk policy with the copy (the copy walk)', () => {
   let origin: string;
   let outside: string;
   beforeEach(async () => {
@@ -134,7 +140,7 @@ describe('hashPath: one walk policy with the copy (listCopyFiles)', () => {
       'bundle.ZIP': 'PK',
     });
     expect(await hashPath(join(origin, 'b'))).toBe(await hashPath(join(origin, 'a')));
-    const { files } = await listCopyFiles(join(origin, 'b'));
+    const { files } = await copyWalk(join(origin, 'b'));
     expect(files.map((f) => f.rel)).toEqual(['SKILL.md']);
   });
 
@@ -154,7 +160,7 @@ describe('hashPath: one walk policy with the copy (listCopyFiles)', () => {
     const before = await hash(linked);
     expect(before).toBe(await hash(plain));
     // The copy deploys the same file set.
-    expect((await listCopyFiles(linked, { boundary: origin })).files.map((f) => f.rel)).toEqual([
+    expect((await copyWalk(linked, { boundary: origin })).files.map((f) => f.rel)).toEqual([
       'SKILL.md',
       'ref.md',
     ]);
@@ -184,7 +190,7 @@ describe('hashPath: one walk policy with the copy (listCopyFiles)', () => {
     await writeFile(join(outside, 'secret'), 'rotated');
     expect(await hashPath(skill, { boundary: origin })).toBe(hashed);
 
-    const { files, skipped } = await listCopyFiles(skill, { boundary: origin });
+    const { files, skipped } = await copyWalk(skill, { boundary: origin });
     expect(files.map((f) => f.rel)).toEqual(['SKILL.md']);
     expect(skipped).toEqual(['leak.md', 'refs']);
   });
@@ -200,5 +206,63 @@ describe('hashPath: one walk policy with the copy (listCopyFiles)', () => {
     await expect(hashPath(join(origin, 'escape'), { boundary: origin })).rejects.toMatchObject({
       code: 'E_IO',
     });
+  });
+});
+
+describe('treeHash', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await tempDir();
+  });
+  afterEach(async () => removeDir(dir));
+  const none = { skip: () => false };
+
+  it('lists files with 755/644 modes and content hashes, sorted', async () => {
+    await writeFiles(dir, { 'b.md': 'b', 'hooks/run.sh': 'echo\n' });
+    await chmod(join(dir, 'hooks/run.sh'), 0o700);
+    const { tree, files } = await treeHash(dir, none);
+    expect(tree).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(files.map((f) => [f.path, f.mode])).toEqual([
+      ['b.md', 0o644],
+      ['hooks/run.sh', 0o755],
+    ]);
+    expect(files[0]?.hash).toMatch(/^sha256:/);
+    expect(short(tree)).toHaveLength(8);
+  });
+
+  it('does not depend on creation order or line endings, and moves with a byte or a mode', async () => {
+    const names = ['z.md', 'a/b.md', 'a/c.sh', 'm.txt'];
+    const make = async (root: string, order: string[], eol: string) => {
+      for (const n of order) await writeFiles(root, { [n]: `line one${eol}line two${eol}` });
+      return (await treeHash(root, none)).tree;
+    };
+    let run = 0;
+    await fc.assert(
+      fc.asyncProperty(
+        fc.shuffledSubarray(names, { minLength: 4, maxLength: 4 }),
+        async (order) => {
+          run++;
+          expect(await make(join(dir, `crlf-${run}`), order, '\r\n')).toBe(
+            await make(join(dir, `lf-${run}`), names, '\n'),
+          );
+        },
+      ),
+      { numRuns: 5 },
+    );
+    const base = join(dir, 'base');
+    const tree = await make(base, names, '\n');
+    await writeFile(join(base, 'm.txt'), 'line one\nline 2\n');
+    expect((await treeHash(base, none)).tree).not.toBe(tree);
+    await writeFile(join(base, 'm.txt'), 'line one\nline two\n');
+    expect((await treeHash(base, none)).tree).toBe(tree);
+    await chmod(join(base, 'a/c.sh'), 0o755);
+    expect((await treeHash(base, none)).tree).not.toBe(tree);
+  });
+
+  it('skip(rel) leaves files and directories out', async () => {
+    await writeFiles(dir, { 'keep.md': 'k', 'out/x.md': 'x', '.claude/skills/s/SKILL.md': 's' });
+    const skip = (rel: string) => rel === 'out' || rel.startsWith('.claude');
+    const { files } = await treeHash(dir, { skip });
+    expect(files.map((f) => f.path)).toEqual(['keep.md']);
   });
 });
