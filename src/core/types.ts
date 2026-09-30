@@ -948,6 +948,14 @@ export interface Target {
   configDir(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): string;
   /** Output directories this target writes to at a scope (lock form), for overlap checks. */
   outputDirs(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): string[];
+  /**
+   * Where each installable kind goes at a scope (`describe target`): lock-form places with
+   * `<name>` for the entity; `active` is the scope's target set (shared skill directories).
+   */
+  placements?(
+    at: { scope: Scope; scopeRoot: string; env: NodeJS.ProcessEnv },
+    active: readonly TargetId[],
+  ): Array<{ kind: Exclude<Kind, 'plugin'>; where: string }>;
   /** Compute every file and fragment for the entity. No writes. */
   render(input: RenderInput): Promise<Rendered>;
   /** Write a render: collision policy, merges, journaling and rollback (DESIGN.md section 2). */

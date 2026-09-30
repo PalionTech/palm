@@ -24,15 +24,36 @@ import { displayLockPath, shortHash } from '../ui/format.js';
 import type { Output } from '../ui/output.js';
 import type { App } from './app.js';
 import { formatName, type Invocation, usage } from './grammar.js';
-import { refCell, sourceView, targetViews } from './scope-view.js';
-import { engine, engineDeps, type GlobalOptions, makeContext, scopeOf } from './shared.js';
+import { activeTargets, refCell, sourceView, targetViews } from './scope-view.js';
+
+type TokenName = Parameters<ScopeState['paths']['token']>[0];
+const TOKEN_NAMES: ReadonlySet<string> = new Set([
+  'home',
+  'palm',
+  'agents',
+  'claude',
+  'codex',
+  'copilot',
+  'cursor',
+  'gemini',
+  'opencode',
+]);
+
+import {
+  displayPath,
+  engine,
+  engineDeps,
+  type GlobalOptions,
+  makeContext,
+  scopeOf,
+} from './shared.js';
 
 interface DescribeFlags extends GlobalOptions {
   source?: string;
 }
 
 function field(out: Output, label: string, value: string | undefined): void {
-  if (value) out.out(`  ${out.colors.dim(label.padEnd(12))}${value}`);
+  if (value) out.out(`  ${out.colors.dim(label.padEnd(Math.max(12, label.length + 1)))}${value}`);
 }
 
 function isPath(name: string): boolean {
@@ -149,6 +170,15 @@ async function describeTarget(ctx: PalmContext, app: App, state: ScopeState, id:
   out.out(`${out.colors.bold(`target ${view.id}`)}  (${view.name})`);
   field(out, 'active', view.active ? 'yes' : 'no (add it to targets: in palm.yaml)');
   field(out, 'config dir', view.configDir);
+  const at = { scope: state.paths.scope, scopeRoot: state.paths.root, env: ctx.env };
+  const scopeSet = await activeTargets(app, ctx, state);
+  const active = view.active ? scopeSet : [...scopeSet, view.id];
+  // Global places are tokens (<claude>/skills); a person reads them as ~/.claude/skills.
+  const shown = (where: string) =>
+    where.replace(/<([a-z]+)>/g, (m, t: string) =>
+      TOKEN_NAMES.has(t) ? displayPath(ctx, state.paths.token(t as TokenName)) : m,
+    );
+  for (const p of target.placements?.(at, active) ?? []) field(out, p.kind, shown(p.where));
   field(out, 'writes to', dirs.map(displayLockPath).join(', '));
 }
 

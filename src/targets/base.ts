@@ -31,6 +31,7 @@ import { removeFileIfExists } from './fs-utils.js';
 import { unmergeJsonFile } from './json-merge.js';
 import type { CleanupRoot, TargetLayout, TargetSpec } from './layout.js';
 import { removeManagedBlock } from './managed-block.js';
+import { type Placement, placements } from './placements.js';
 import { RENDERERS, RenderJob } from './render.js';
 import { unmergeTomlTable } from './toml-merge.js';
 
@@ -150,6 +151,14 @@ export class GenericTarget implements Target {
 
   outputDirs(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): string[] {
     return this.spec.outputDirs(this.paths(scope, scopeRoot, env));
+  }
+
+  placements(
+    at: { scope: Scope; scopeRoot: string; env: NodeJS.ProcessEnv },
+    active: readonly TargetId[],
+  ): Placement[] {
+    const paths = this.paths(at.scope, at.scopeRoot, at.env);
+    return placements(paths, this.spec.layout(paths), { id: this.id, active });
   }
 
   async render(input: RenderInput): Promise<Rendered> {

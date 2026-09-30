@@ -133,8 +133,8 @@ describe('palm get', () => {
       './agent-kit               local  tree 10934f8   10934f8   0',
     ]);
     const targets = await palm(sb, ['get', 'targets'], { deps: fakeEngine({ scopes: [state] }) });
-    expect(targets.stdout).toContain('claude    Claude    yes     .claude');
-    expect(targets.stdout).toContain('codex     Codex     no      .codex');
+    expect(targets.stdout).toContain('claude    Claude    yes     .claude/');
+    expect(targets.stdout).toContain('codex     Codex     no      .codex/');
   });
 });
 
@@ -221,7 +221,7 @@ describe('palm describe', () => {
       [
         'target cursor  (Cursor)',
         '  active      no (add it to targets: in palm.yaml)',
-        '  config dir  .cursor',
+        '  config dir  .cursor/',
         '  writes to   .cursor/skills, .cursor/agents',
         '',
       ].join('\n'),

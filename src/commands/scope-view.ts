@@ -5,7 +5,13 @@
 
 import type { PalmContext } from '../core/types.js';
 import { type LockSource, TARGET_IDS, type TargetId } from '../core/types.js';
-import { type ScopeState, type SourceRef, targetOf } from '../create/engine.js';
+import {
+  engineDepsOf,
+  engineOf,
+  type ScopeState,
+  type SourceRef,
+  targetOf,
+} from '../create/engine.js';
 import { shortHash } from '../ui/format.js';
 import type { App } from './app.js';
 import { displayPath } from './shared.js';
@@ -62,20 +68,32 @@ export interface TargetView {
   configDir: string;
 }
 
+/** palm.yaml's targets, else what an install would detect here. */
+export async function activeTargets(
+  app: App,
+  ctx: PalmContext,
+  state: ScopeState,
+): Promise<TargetId[]> {
+  if (state.manifest.targets || state.targets.length) return state.targets;
+  const api = engineOf(app.deps);
+  return api.detectTargets(ctx, state.paths, await api.resolveEngineDeps(engineDepsOf(app.deps)));
+}
+
 export async function targetViews(
   app: App,
   ctx: PalmContext,
   state: ScopeState,
 ): Promise<TargetView[]> {
   const views: TargetView[] = [];
+  const active = await activeTargets(app, ctx, state);
   for (const id of TARGET_IDS) {
     const t = await targetOf(app.deps ?? {}, id);
     const dir = t.configDir(state.paths.scope, state.paths.root, ctx.env);
     views.push({
       id,
       name: t.displayName,
-      active: state.targets.includes(id),
-      configDir: displayPath(ctx, dir),
+      active: active.includes(id),
+      configDir: `${displayPath(ctx, dir)}/`,
     });
   }
   return views;
