@@ -625,7 +625,9 @@ describe('palm migrate on the persona projects, continued', () => {
     const p = await hookProject();
     const run = await migrateWithConsent(p, p);
     expect(run.all).toContain('hook keybase from ./skill is hook skill in palm 0.2');
-    expect(run.all).toContain('hook skill runs in place from ./skill; removed .palm/hooks/keybase');
+    expect(run.all).toContain(
+      'hook skill runs in place from your repository (./skill); removed .palm/hooks/keybase',
+    );
     expect(run.all).toContain('moved .palm/hooks/powers → .palm/assets/powers/powers');
     expect(await snapshot(join(p, '.palm'))).toEqual({
       'assets/powers/powers/hooks/hooks.json': expect.any(String),

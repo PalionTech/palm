@@ -177,7 +177,10 @@ async function dropHookDirs(plan: Plan, legacy: LegacyItem[], hashes: Map<string
     await dropCopies(plan, dir, hashes);
     const root = e.exec?.closure?.root;
     if (root) moved.push(`${shownDir} → ${display(state.paths, state.paths.abs(root))}`);
-    else ctx.log.info(`hook ${e.name} runs in place from ${e.source}; removed ${shownDir}`);
+    else
+      ctx.log.info(
+        `hook ${e.name} runs in place from your repository (${e.source}); removed ${shownDir}`,
+      );
   }
   await removeEmptyTree(hooksDir);
   return moved;
