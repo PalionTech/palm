@@ -15,6 +15,7 @@ import type {
 import { renderAgent } from '../../src/targets/convert-agent.js';
 import { convertHooks, type Relocate } from '../../src/targets/convert-hooks.js';
 import { createTarget } from '../../src/targets/index.js';
+import { sameContent } from '../../src/targets/same-content.js';
 import { cleanupTmp, fakeEnv, mkEntity, renderInput, SKILL_MD, tmpDir, write } from './helpers.js';
 
 afterEach(cleanupTmp);
@@ -400,5 +401,49 @@ describe('C6 Copilot matchers with arguments', () => {
       'PreToolUse: matcher "Bash(git commit*)" has an argument copilot cannot match',
     ]);
     expect(r.exec.map((e) => e.command)).toEqual(['fmt']);
+  });
+});
+
+describe('Y13 adoption compares meaning, not bytes', () => {
+  const rendered = '---\ndescription: TS rules\napplyTo: "**/*.ts"\n---\n\nUse strict.\n';
+
+  async function applyOver(existing: string) {
+    const root = await tmpDir();
+    const file = '.github/instructions/ts.instructions.md';
+    await write(path.join(root, file), existing);
+    const target = createTarget('copilot', fakeEnv(root));
+    const rendering = {
+      files: [{ path: file, data: Buffer.from(rendered) }],
+      fragments: [],
+      exec: [],
+      notes: [],
+      hash: 'sha256:0',
+    };
+    const input = { rendered: rendering, scopeRoot: root, owned: [], force: false, dryRun: false };
+    return { root, file, result: target.apply(input) };
+  }
+
+  it('Y13 other quoting, key order, CRLF and trailing spaces are adopted and rewritten', async () => {
+    const existing =
+      "---\r\napplyTo: '**/*.ts'\r\ndescription: TS rules\r\n---\r\nUse strict.   \r\n\r\n";
+    const { root, file, result } = await applyOver(existing);
+    expect((await result).adopted).toEqual([file]);
+    expect(await fs.readFile(path.join(root, file), 'utf8')).toBe(rendered);
+  });
+
+  it('Y13 other words are still a conflict', async () => {
+    const { result } = await applyOver(rendered.replace('strict', 'loose'));
+    await expect(result).rejects.toThrow(/refusing to overwrite/);
+  });
+
+  it('Y13 JSON with the same value is adopted', () => {
+    expect(
+      sameContent(
+        Buffer.from('{"a":1,"b":[2]}'),
+        Buffer.from('{\n  "b": [2],\n  "a": 1\n}\n'),
+        'x.json',
+      ),
+    ).toBe(true);
+    expect(sameContent(Buffer.from('{"a":1}'), Buffer.from('{"a":2}'), 'x.json')).toBe(false);
   });
 });

@@ -3,7 +3,8 @@
  *
  * 1. Check, before anything is written: every destination's real path lies inside the scope;
  *    a whole file that exists, is not owned by the entry and differs from the render is
- *    E_CONFLICT (an identical one is adopted and listed); each shared file is read once and every
+ *    E_CONFLICT (an identical one is adopted and listed; one that says the same in other bytes,
+ *    `sameContent`, is adopted and rewritten in palm's bytes); each shared file is read once and every
  *    fragment is inserted by (at, key) into its text: a held identical fragment is a no-op, a
  *    different one under the same key is E_CONFLICT unless the entry owns it or `force`.
  * 2. Write the shared files, then the whole files, journaling each path (bytes and mode, or
@@ -30,6 +31,7 @@ import {
 import { appendItemText, ensureKeyText, setKeyText } from './json-merge.js';
 import { upsertBlockText } from './managed-block.js';
 
+import { sameContent } from './same-content.js';
 import { mergeTableText } from './toml-merge.js';
 
 type OnConflict = 'overwrite' | 'error';
@@ -42,6 +44,8 @@ interface CheckedFile {
   mode?: number;
   /** `same`: the disk holds these bytes already. */
   state: 'write' | 'same';
+  /** Not owned, but the disk says the same in other bytes: adopted, palm's bytes written (Y13). */
+  adopted?: boolean;
 }
 
 /** A shared file with every fragment merged into its text. */
@@ -176,11 +180,12 @@ export class Applier {
     const existing = await readOrRefuse(() => readFileOrUndefined(abs), f.path);
     const checked = { lockPath: f.path, abs, data: f.data, mode: f.mode };
     if (existing?.equals(f.data)) return { ...checked, state: 'same' };
-    if (existing && !this.input.force && !(await this.ownsFile(f.path, abs)))
-      throw new PalmError('E_CONFLICT', `refusing to overwrite ${f.path}`, 'to overwrite it, run', {
-        retryWith: '--force',
-      });
-    return { ...checked, state: 'write' };
+    if (!existing || this.input.force || (await this.ownsFile(f.path, abs)))
+      return { ...checked, state: 'write' };
+    if (sameContent(existing, f.data, f.path)) return { ...checked, state: 'write', adopted: true };
+    throw new PalmError('E_CONFLICT', `refusing to overwrite ${f.path}`, 'to overwrite it, run', {
+      retryWith: '--force',
+    });
   }
 
   private onConflict(frag: RenderedFragment): OnConflict {
@@ -273,7 +278,8 @@ export class Applier {
   private async result(files: readonly CheckedFile[]): Promise<ApplyResult> {
     const adopted: string[] = [];
     for (const f of files)
-      if (f.state === 'same' && !(await this.ownsFile(f.lockPath, f.abs))) adopted.push(f.lockPath);
+      if (f.adopted || (f.state === 'same' && !(await this.ownsFile(f.lockPath, f.abs))))
+        adopted.push(f.lockPath);
     const merged: LockMerged[] = this.input.rendered.fragments.map(({ file, at, id, key }) => ({
       file,
       at,

@@ -214,7 +214,9 @@ Enforced in targets and engine:
 - A deploy is a transaction: `Target.render` computes every file and fragment without writing;
   `Target.apply` checks collisions first (a whole file that exists, is not owned by the entry
   and differs from the render is `E_CONFLICT` before anything is written; an identical file is
-  adopted silently), then applies fragments and files, journaling each path (bytes and mode,
+  adopted silently, and so is one that says the same in other bytes, `sameContent`: frontmatter
+  data in any order or quoting, line ends, trailing spaces, the same JSON value; palm rewrites it
+  in its own bytes), then applies fragments and files, journaling each path (bytes and mode,
   or absent plus the nearest existing directory) just before writing it; a failure restores the
   journal newest first, so the scope is byte-identical afterwards.
 - Symlinked dotfiles: every write goes through `writeFileAtomic`, which writes through a
