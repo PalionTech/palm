@@ -81,7 +81,7 @@ describe('templateFor', () => {
     const [file] = templateFor('instruction', 'db-conventions');
     expect(file?.rel).toBe('instructions/db-conventions.md');
     expect(file?.content).toMatch(
-      /^---\ndescription: Describe what db-conventions covers\.\n---\n/,
+      /^---\ndescription: "TODO: describe what db-conventions covers\."\n---\n/,
     );
   });
 
@@ -179,7 +179,8 @@ describe('createEntity', () => {
 
 describe('palm create', () => {
   it('prints what it wrote, the declared source and the install', async () => {
-    const r = await palm(sb, ['create', 'skill', 'notes'], { deps: creating() });
+    const args = ['create', 'skill', 'notes', '--description', 'Write the notes'];
+    const r = await palm(sb, args, { deps: creating() });
     expect(r.stderr).toBe('');
     expect(r.code).toBe(0);
     expect(r.stdout).toBe(

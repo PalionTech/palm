@@ -56,6 +56,12 @@ function isDescriptor(layout: LayoutDescriptor | undefined): layout is LayoutDes
   return layout !== undefined && GLOB_KEYS.some((k) => globsOf(layout, k).length > 0);
 }
 
+/** Every glob a layout indexes with (`exclude` aside); none when it is no descriptor. */
+export function layoutGlobs(layout: LayoutDescriptor | undefined): string[] {
+  if (!isDescriptor(layout)) return [];
+  return GLOB_KEYS.flatMap((k) => globsOf(layout, k));
+}
+
 /**
  * `glob` with its first wildcard segment naming the entity, or undefined when that cannot be
  * done plainly (character classes, braces, a second wildcard segment).

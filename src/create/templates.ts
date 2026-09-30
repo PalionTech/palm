@@ -14,6 +14,7 @@ import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { PalmError } from '../core/errors.js';
 import type { InstallResult, LayoutDescriptor, PalmContext, Scope } from '../core/types.js';
+import { PLACEHOLDER_MARK } from '../index/placeholder-description.js';
 import { removeEmptyParents } from '../lib/fs.js';
 import {
   assertDirAllowed,
@@ -140,12 +141,36 @@ echo "${name}: session started"
   ];
 }
 
+/**
+ * The description without `--description` (ruling M21): a marked placeholder (`TODO: describe
+ * …`) that `palm check` warns about, since harnesses list it as written. The hook template's
+ * text is true as written (it runs at session start), so it is no placeholder.
+ */
 const DEFAULT_DESCRIPTION: Readonly<Record<CreatableKind, (name: string) => string>> = {
-  skill: (n) => `Describe what ${n} does and when the agent should use it.`,
-  agent: (n) => `Describe when to hand a task to ${n}.`,
-  instruction: (n) => `Describe what ${n} covers.`,
+  skill: (n) => `${PLACEHOLDER_MARK} what ${n} does and when the agent should use it.`,
+  agent: (n) => `${PLACEHOLDER_MARK} when to hand a task to ${n}.`,
+  instruction: (n) => `${PLACEHOLDER_MARK} what ${n} covers.`,
   hook: (n) => `${n}: runs when a session starts.`,
 };
+
+/** M21: the warning a create without `--description` prints, naming the file to edit. */
+function placeholderWarning(ctx: PalmContext, opts: CreateOptions, file: string): string[] {
+  if (opts.description?.trim() || opts.kind === 'hook') return [];
+  const inHome = relativeInside(ctx.paths.home, file);
+  const home = inHome === undefined ? file : `~/${inHome}`;
+  const shown =
+    opts.scope === 'global' ? home : (relativeInside(ctx.paths.projectRoot, file) ?? home);
+  return [
+    `${opts.kind} ${opts.name}: the description is a placeholder (${PLACEHOLDER_MARK} …) that every harness lists; write one in ${shown}, or pass --description`,
+  ];
+}
+
+/** `abs` relative to `base` with `/` separators, when it lies inside it ('' for `base`). */
+function relativeInside(base: string, abs: string): string | undefined {
+  const rel = relative(base, abs);
+  if (rel.startsWith('..') || isAbsolute(rel)) return undefined;
+  return rel.split('\\').join('/');
+}
 
 /**
  * The files a template writes, paths relative to the source directory: the main file where the
@@ -231,10 +256,11 @@ function installedAny(result: InstallResult): boolean {
   return result.outcomes.some((o) => INSTALLED.has(o.status));
 }
 
-/** How the source directory is typed on a command line: `./agent-kit`, else its full path. */
+/** How the source directory is typed on a command line: `./agent-kit`, `.`, else its full path. */
 function sourceInput(ctx: PalmContext, dir: string): string {
-  const rel = relative(ctx.paths.projectRoot, dir);
-  return rel && !rel.startsWith('..') && !isAbsolute(rel) ? `./${rel.split('\\').join('/')}` : dir;
+  const rel = relativeInside(ctx.paths.projectRoot, dir);
+  if (rel === undefined) return dir;
+  return rel === '' ? '.' : `./${rel}`;
 }
 
 /**
@@ -262,29 +288,84 @@ interface Plan {
   files: TemplateFile[];
   before: ScopeState;
   known: SourceRef | undefined;
+  /** What the install is asked for: the source key after `name@source`, else the directory. */
+  input: string;
+}
+
+/** `hotfix@acme` → the name and the declared source it goes into (ruling N8). */
+function splitSource(name: string): { name: string; source?: string } {
+  const at = name.lastIndexOf('@');
+  if (at <= 0 || at === name.length - 1) return { name };
+  return { name: name.slice(0, at), source: name.slice(at + 1) };
+}
+
+/** E_USAGE for `name@key` where `key` is no declared in-repo source, naming one that is. */
+function notInRepoSource(before: ScopeState, key: string, opts: CreateOptions): PalmError {
+  const g = opts.scope === 'global' ? ' -g' : '';
+  const local = before.sources.all().find((s) => s.isLocal);
+  const declared = before.sources.byName(key);
+  const why = declared ? `${declared.name} is a git source` : `palm.yaml declares no source ${key}`;
+  return new PalmError(
+    'E_USAGE',
+    `${opts.name}@${key}: ${why}; palm create writes into an in-repo source`,
+    local
+      ? `palm create ${opts.kind} ${opts.name}@${local.name}${g}`
+      : `palm create ${opts.kind} ${opts.name} --in ${g ? '~/.palm/kit' : './agent-kit'}${g}`,
+  );
 }
 
 /**
- * Every check, before anything is written (dry run and real run alike): the name, `--in`, the
- * targets, an overlap with an output directory, the template's place in the source's layout, an
- * existing file and a name the source already indexes.
+ * The directory `name@key` writes into: the declared local source `key` (its root inside it
+ * when it has one). `--in` beside it must name the same directory.
  */
-async function planCreate(ctx: PalmContext, opts: CreateOptions, deps: CliDeps): Promise<Plan> {
-  assertName(opts.kind, opts.name);
+function declaredDir(ctx: PalmContext, before: ScopeState, key: string, opts: CreateOptions) {
+  const ref = before.sources.byName(key);
+  if (!ref?.isLocal || !ref.source.path) throw notInRepoSource(before, key, opts);
+  const { path, root } = ref.source;
+  const dir = root ? join(path, root) : path;
+  if (opts.dir && resolve(sourceDirOf(ctx, opts)) !== resolve(dir))
+    throw new PalmError(
+      'E_USAGE',
+      `--in ${opts.dir} and @${key} name two directories; give one`,
+      `palm create ${opts.kind} ${opts.name}@${key}${opts.scope === 'global' ? ' -g' : ''}`,
+    );
+  return { dir, known: ref };
+}
+
+/** The source directory and the declared source it is, from `name@key` or `--in`. */
+function whereTo(ctx: PalmContext, before: ScopeState, opts: CreateOptions, key?: string) {
+  if (key) return declaredDir(ctx, before, key, opts);
   const dir = sourceDirOf(ctx, opts);
-  assertDirAllowed(ctx, dir, opts);
-  const before = await engineOf(deps).openScope(ctx, opts.scope, { readOnly: true });
-  assertTargets(before);
-  await assertNoOverlap(ctx, deps, before, dir);
   const known = before.sources
     .all()
     .find((s) => s.matches(dir) || s.matches(sourceInput(ctx, dir)));
-  const files = templateFor(opts.kind, opts.name, opts.description, known?.source.layout);
+  return { dir, known };
+}
+
+/**
+ * Every check, before anything is written (dry run and real run alike): the name, `--in` or
+ * `@source`, the targets, an overlap with an output directory, the template's place in the
+ * source's layout, an existing file and a name the source already indexes.
+ */
+async function planCreate(
+  ctx: PalmContext,
+  opts: CreateOptions,
+  deps: CliDeps,
+  key?: string,
+): Promise<Plan> {
+  assertName(opts.kind, opts.name);
+  const before = await engineOf(deps).openScope(ctx, opts.scope, { readOnly: true });
+  const { dir, known } = whereTo(ctx, before, opts, key);
+  assertDirAllowed(ctx, dir, opts);
+  assertTargets(before);
+  const layout = known?.source.layout;
+  await assertNoOverlap(ctx, deps, before, { dir, ...(layout ? { layout } : {}) });
+  const files = templateFor(opts.kind, opts.name, opts.description, layout);
   refuseExisting(ctx, dir, files, opts);
   const path = entityPathOf(opts.kind, files);
   const input = known?.name ?? sourceInput(ctx, dir);
   await assertNotIndexed(ctx, deps, { ...opts, input, dir, path });
-  return { dir, files, before, known };
+  return { dir, files, before, known, input: key && known ? known.name : dir };
 }
 
 /** Install the template's entity; a run that installs nothing takes the template back. */
@@ -295,7 +376,7 @@ async function installTemplate(
   plan: Plan,
 ): Promise<{ result: InstallResult; kept: boolean }> {
   const created = await writeTemplate(plan.dir, plan.files);
-  const req = { source: plan.dir, names: [{ kind: opts.kind, name: opts.name }] };
+  const req = { source: plan.input, names: [{ kind: opts.kind, name: opts.name }] };
   const api = engineOf(deps);
   try {
     const result = await api.installFromSource(ctx, req, { scope: opts.scope }, engineDepsOf(deps));
@@ -311,21 +392,31 @@ async function installTemplate(
 /**
  * Check everything, write the template, then install the entity from its source, which declares
  * the source in palm.yaml when it is not there yet. Nothing installed: nothing stays written.
+ * `name@source` writes into that declared in-repo source (N8); without `--description` the
+ * template's placeholder description comes with a warning (M21).
  */
 export async function createEntity(
   ctx: PalmContext,
-  opts: CreateOptions,
+  options: CreateOptions,
   deps: CliDeps = {},
 ): Promise<CreateResult> {
-  const plan = await planCreate(ctx, opts, deps);
+  const { name, source: key } = splitSource(options.name);
+  const opts = { ...options, name };
+  const plan = await planCreate(ctx, opts, deps, key);
   const { dir, before, known } = plan;
   const written = plan.files.map((f) => join(dir, f.rel));
   const base = { dir, file: written[0] ?? dir, files: written, before };
-  if (ctx.flags.dryRun) return { ...base, declared: !known, result: EMPTY, after: before };
-  const { result, kept } = await installTemplate(ctx, opts, deps, plan);
+  const placeholder = placeholderWarning(ctx, opts, base.file);
+  if (ctx.flags.dryRun) {
+    const result = { ...EMPTY, warnings: placeholder };
+    return { ...base, declared: !known, result, after: before };
+  }
+  const installed = await installTemplate(ctx, opts, deps, plan);
+  const warnings = [...installed.result.warnings, ...(installed.kept ? placeholder : [])];
+  const result = { ...installed.result, warnings };
   const after = await engineOf(deps).openScope(ctx, opts.scope, { readOnly: true });
-  const source = after.sources.all().find((s) => s.matches(dir));
+  const source = after.sources.all().find((s) => s.matches(plan.input));
   const declared = !known && source !== undefined;
-  const files = kept ? written : [];
+  const files = installed.kept ? written : [];
   return { ...base, files, declared, result, after, ...(source ? { source } : {}) };
 }
