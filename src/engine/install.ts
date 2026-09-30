@@ -1,454 +1,160 @@
 /**
- * `installEntities` (DESIGN §6): guard the scope, resolve and expand the requests (plan.ts), ask
- * once before writing anything executable, then deploy item by item (deploy.ts), persisting the
- * lock and manifest after every item so an interruption or crash leaves them consistent.
+ * `palm install <source> [names…]` (DESIGN §6 "Install with names"), `palm install <source>`
+ * without names (list, save nothing) and `palm install mcp` (hand-declared servers, DESIGN §9).
  */
-import { resolve } from 'node:path';
-import { isPalmError, PalmError } from '../core/errors.js';
-import { isHomeAsProject } from '../core/paths.js';
+import { PalmError } from '../core/errors.js';
 import type {
+  EngineDeps,
   Entity,
-  InstallFailure,
-  InstallOutcome,
+  InstallOptions,
   InstallRequest,
   InstallResult,
-  LockEntry,
-  Logger,
   PalmContext,
   Scope,
+  SourceCheckout,
+  SourceIndex,
 } from '../core/types.js';
-import { DepRef } from '../domain/dep-ref.js';
-import { entityId, isViaKind, lockId } from '../domain/entity-key.js';
-import { Lock } from '../domain/lock.js';
-import { Manifest } from '../domain/manifest.js';
-import { OriginSet } from '../domain/origin-set.js';
-import { ScopePaths } from '../domain/scope-paths.js';
-import { isWithin } from '../lib/fs.js';
-import { isRecord } from '../lib/object.js';
+import type { SourceRef } from '../domain/source.js';
+import { resolveEngineDeps } from './deps.js';
+import { dedupeJobs, manifestJobs, requestJobs } from './entries.js';
+import { type Job, type Run, runOf } from './jobs.js';
+import { palmCommand } from './report.js';
 import {
-  type DeployContext,
-  decide,
-  deployItem,
-  type EngineInstallOptions,
-  failureOf,
-  preflightSecrets,
-} from './deploy.js';
-import { type EngineDeps, resolveEngineDeps } from './deps.js';
-import {
-  claimedMcpKeys,
-  type EngineRequest,
-  expand,
-  lookupIndexed,
-  notFound,
-  type PlanItem,
-  planned,
-  type ResolveContext,
-  resolveRequest,
-} from './plan.js';
-import { entityDeps, IndexSession } from './query.js';
-import { undeploy } from './uninstall.js';
+  declareSource,
+  lockedSha,
+  lockSourceOf,
+  matchError,
+  matchNames,
+  type NameMatch,
+  peekSource,
+  type Resolved,
+  resolveSource,
+} from './resolve.js';
+import { lockScope, runJobs } from './runner.js';
+import { assertNoOverlap, openScope, type ScopeState, saveScope } from './scope.js';
+import { refuseLocal, requestTargets } from './targets.js';
 
-export type { EngineInstallOptions } from './deploy.js';
-export type { EngineRequest } from './plan.js';
+export { installMcp } from './install-mcp.js';
+export { requestInstallStop } from './runner.js';
 
-/**
- * One outcome per kind+name+origin. When an entity shows up twice (installed directly and
- * reached again as a plugin/agent dependency), the more informative outcome wins: anything
- * over a plain `unchanged`, otherwise the first.
- */
-export function dedupeOutcomes(outcomes: InstallOutcome[]): InstallOutcome[] {
-  const byKey = new Map<string, InstallOutcome>();
-  for (const o of outcomes) {
-    const key = lockId(o.entry);
-    const prev = byKey.get(key);
-    if (!prev || (prev.status === 'unchanged' && o.status !== 'unchanged')) byKey.set(key, o);
-  }
-  return [...byKey.values()];
-}
-
-// ---------------------------------------------------------------------------
-// Scope guards: home as project, project origins
-// ---------------------------------------------------------------------------
-
-/**
- * `cwd == $HOME` without palm.yaml is not a project: palm would write `.claude/` and palm.yaml
- * into the home directory, where project files are the harnesses' global ones. E_USAGE. The rule
- * is core/paths `isHomeAsProject` (a dotfiles `.git` in home is no marker), the one `find` and
- * `audit` apply too.
- */
-function assertProjectRoot(ctx: PalmContext, scope: Scope): void {
-  if (scope !== 'project' || !isHomeAsProject(ctx.paths, ctx.env)) return;
-  throw new PalmError(
-    'E_USAGE',
-    'run inside a project or use -g: the home directory is not a project',
-    'cd into a project, or install for yourself with -g (a palm.yaml in your home directory makes it a project)',
-  );
-}
-
-/** Project origins: same alias as a user origin must mean the same source; local ones live inside. */
-function assertProjectOrigins(ctx: PalmContext): void {
-  const [clash] = ctx.origins.conflicts();
-  if (clash) {
-    throw new PalmError(
-      'E_CONFLICT',
-      `palm.yaml declares origin "${clash.alias}" as ${clash.project.describe()}, but your origin "${clash.alias}" is ${clash.user.describe()}`,
-      `give the project origin another alias in palm.yaml, or rename yours: palm uninstall origin ${clash.alias}, then palm install origin <spec> --alias <name>`,
-    );
-  }
-  const root = ctx.paths.projectRoot;
-  for (const o of ctx.origins.projectSpecs()) {
-    if (o.type !== 'local' || isWithin(resolve(root, o.path ?? ''), root)) continue;
-    throw new PalmError(
-      'E_ORIGIN',
-      `palm.yaml origin "${o.alias}" points outside the project: ${o.path ?? ''}`,
-      `a project's local origins must live inside it; use it just for yourself with: palm install origin ${o.path ?? '<path>'} --alias ${o.alias}`,
+/** One info line per agent that mentions skills or servers palm does not install with it. */
+function noteMentions(ctx: PalmContext, ref: SourceRef, match: NameMatch, scope: Scope): void {
+  for (const e of match.entities) {
+    if (e.def.kind !== 'agent') continue;
+    const names = [
+      ...(e.def.agent.skills ?? []),
+      ...(e.def.agent.mcpServers ?? []).map((n) => `mcp:${n}`),
+    ];
+    if (!names.length) continue;
+    const cmd = palmCommand('install', [ref.name, ...names], scope);
+    ctx.log.info(
+      `agent ${e.name} mentions ${names.join(', ')}; palm installs only what you name: ${cmd}`,
     );
   }
 }
 
-/** `ctx` with only the user's origins (project origins are ignored under -g). */
-function userOriginsOnly(ctx: PalmContext): PalmContext {
-  const { origins: _project, ...rest } = Object.getOwnPropertyDescriptors(ctx);
-  const copy = Object.defineProperties({}, rest) as PalmContext;
-  copy.origins = OriginSet.of(ctx.config.origins);
-  return copy;
-}
-
-/**
- * The context an operation in `scope` runs with, after the scope guards: the home directory
- * is no project; at project scope, project origins may not shadow user aliases and local ones
- * must live in the project; at global scope, project origins are ignored.
- */
-export function scopedContext(ctx: PalmContext, scope: Scope): PalmContext {
-  assertProjectRoot(ctx, scope);
-  if (scope === 'global') return userOriginsOnly(ctx);
-  assertProjectOrigins(ctx);
-  return ctx;
-}
-
-// ---------------------------------------------------------------------------
-// Executable consent
-// ---------------------------------------------------------------------------
-
-const COMMAND_KEYS = ['command', 'bash', 'powershell'];
-
-function commandStrings(v: unknown): string[] {
-  if (Array.isArray(v)) return v.flatMap(commandStrings);
-  if (!isRecord(v)) return [];
-  return Object.entries(v).flatMap(([k, x]) =>
-    COMMAND_KEYS.includes(k) && typeof x === 'string' ? [x] : commandStrings(x),
-  );
-}
-
-/** `event → command` lines of a hooks file (Claude, Cursor, Copilot and Gemini shapes). */
-function hookLines(raw: unknown): string[] {
-  const events = isRecord(raw) && isRecord(raw.hooks) ? raw.hooks : raw;
-  if (!isRecord(events)) return [];
-  return Object.entries(events).flatMap(([event, v]) =>
-    commandStrings(v).map((c) => `${event} → ${c}`),
-  );
-}
-
-/** What an entity would run on the user's machine: hook commands and stdio MCP servers. */
-export function executablesOf(e: Entity): string[] {
-  if (e.def.kind === 'hook') {
-    const lines = hookLines(e.def.hooks.raw);
-    const head = `hook ${e.name} (${e.def.hooks.dialect})`;
-    return lines.length ? lines.map((l) => `${head}: ${l}`) : [`${head}: shell commands`];
-  }
-  if (e.def.kind === 'mcp' && e.def.mcp.transport === 'stdio' && e.def.mcp.command)
-    return [`mcp ${e.name}: ${[e.def.mcp.command, ...(e.def.mcp.args ?? [])].join(' ')}`];
-  return [];
-}
-
-/** Executables among the items this run will actually write (unchanged ones are not asked again). */
-async function pendingExecutables(dc: DeployContext, plan: PlanItem[]): Promise<string[]> {
-  const out: string[] = [];
-  for (const item of plan) {
-    if (item.keep || !executablesOf(item.entity).length) continue;
-    const d = await decide(dc, item);
-    if (d.action === 'deploy' && d.to.length) out.push(...executablesOf(item.entity));
-  }
-  return out;
-}
-
-/** `a command that runs` / `3 commands that run`. */
-function commandCount(n: number): string {
-  return n === 1 ? 'a command that runs' : `${n} commands that run`;
-}
-
-/**
- * Ask once before writing hooks or stdio MCP servers (PLAN §2.12). Interactive: list them and
- * confirm (default yes; no → E_CANCELLED). Non-interactive: needs --yes (E_NON_INTERACTIVE).
- * --dry-run lists them without asking. Text entities are never gated; executables the caller
- * already had allowed (`opts.consented`) are not asked about again.
- */
-async function askConsent(dc: DeployContext, plan: PlanItem[]): Promise<void> {
-  const { ctx } = dc;
-  const allowed = new Set(dc.opts.consented ?? []);
-  const lines = (await pendingExecutables(dc, plan)).filter((l) => !allowed.has(l));
-  if (!lines.length || (ctx.flags.yes && !ctx.flags.dryRun)) return;
-  const what = commandCount(lines.length);
-  ctx.log.info(`This install adds ${what} on your machine:`);
-  for (const l of lines) ctx.log.info(`  ${l}`);
-  if (ctx.flags.dryRun) return;
-  if (!ctx.ui.isInteractive)
-    throw new PalmError(
-      'E_NON_INTERACTIVE',
-      `palm will not install ${what} on your machine without your consent`,
-      'review them above (or with --dry-run), then run',
-      { retryWith: '--yes' },
-    );
-  if (!(await ctx.ui.confirm('Install and allow these to run?', true)))
-    throw new PalmError('E_CANCELLED', 'Install cancelled; nothing was changed');
-}
-
-// ---------------------------------------------------------------------------
-// Interruption and persistence
-// ---------------------------------------------------------------------------
-
-interface StopState {
-  stop: boolean;
-}
-
-const running = new Set<StopState>();
-
-/**
- * Ask every running install to stop after its current item (what the SIGINT handler does).
- * The loop persists the lock and manifest and throws E_CANCELLED.
- */
-export function requestInstallStop(): void {
-  for (const r of running) r.stop = true;
-}
-
-function watchInterrupt(ctx: PalmContext): { state: StopState; dispose: () => void } {
-  const state: StopState = { stop: false };
-  running.add(state);
-  const onSigint = (): void => {
-    if (state.stop) {
-      dispose();
-      process.kill(process.pid, 'SIGINT'); // second Ctrl-C: the default handler ends palm now
-      return;
-    }
-    state.stop = true;
-    ctx.log.warn('Interrupted: palm stops after the current item (Ctrl-C again to quit now)');
+function requestedJobs(
+  state: ScopeState,
+  ref: SourceRef,
+  r: Resolved,
+  req: InstallRequest & { match: NameMatch },
+): Job[] {
+  const b = { state, ref, resolved: r };
+  const opts = {
+    ...(req.targets ? { targets: req.targets } : {}),
+    ...(req.at ? { at: req.at } : {}),
   };
-  const dispose = (): void => {
-    process.off('SIGINT', onSigint);
-    running.delete(state);
-  };
-  process.on('SIGINT', onSigint);
-  return { state, dispose };
+  const direct = req.match.entities.flatMap((e: Entity) => requestJobs(b, e, opts));
+  const plugins = req.match.plugins.flatMap((p) => requestJobs(b, p.plugin, opts));
+  return [...direct, ...plugins];
 }
 
-/** Saves the lock and manifest when they changed since the last save (never in dry run / frozen). */
-class Persister {
-  private lockText: string;
-  private manifestText: string;
-
-  constructor(
-    private readonly dc: DeployContext,
-    private readonly manifest: Manifest,
-  ) {
-    this.lockText = JSON.stringify(dc.lock);
-    this.manifestText = JSON.stringify(manifest);
-  }
-
-  async save(): Promise<void> {
-    const { ctx, opts, paths, lock } = this.dc;
-    if (ctx.flags.dryRun || opts.frozen) return;
-    const lockText = JSON.stringify(lock);
-    if (lockText !== this.lockText) {
-      await lock.save(paths.lockFile);
-      this.lockText = lockText;
-    }
-    const manifestText = JSON.stringify(this.manifest);
-    if (manifestText !== this.manifestText) {
-      await this.manifest.save(paths.manifestFile);
-      this.manifestText = manifestText;
-    }
-  }
+/** When the source moved to another sha, its other entries are rendered from the new one too. */
+function movedJobs(state: ScopeState, ref: SourceRef, r: Resolved, run: Run): Job[] {
+  const before = state.lock.source(ref.name)?.sha;
+  if (!before || before === r.checkout.sha) return [];
+  const { jobs, failures } = manifestJobs(state, ref, r);
+  run.result.failures.push(...failures);
+  return jobs;
 }
 
-// ---------------------------------------------------------------------------
-// Resolution with recorded failures
-// ---------------------------------------------------------------------------
-
-/** Errors that end the whole run rather than one request. */
-const FATAL = new Set(['E_CANCELLED', 'E_NON_INTERACTIVE', 'E_INTERNAL']);
-
-function recordable(e: unknown, req: EngineRequest, opts: EngineInstallOptions): boolean {
-  if (!isPalmError(e) || FATAL.has(e.code)) return false;
-  return !!req.locked || !!opts.recordRequestErrors || e.code === 'E_GIT' || e.code === 'E_NETWORK';
+/** A source left without entries (nothing was installed) leaves palm.yaml and the lock again. */
+function forgetEmptySource(state: ScopeState, name: string): void {
+  if (state.lock.entriesOf(name).length) return;
+  if (!state.manifest.allEntries().some((e) => e.source === name))
+    state.manifest.removeSource(name);
+  state.lock.removeSource(name);
 }
 
-function requestFailure(req: EngineRequest, e: unknown): InstallFailure {
-  if (req.locked) return failureOf(req.locked, e);
-  const dep = DepRef.from(req.adhocMcp ? req.adhocMcp.name : req.spec);
-  const kind = req.kind ?? (req.registry || req.adhocMcp ? 'mcp' : 'origin');
-  return failureOf({ kind, name: dep.name, origin: dep.origin ?? req.from?.alias ?? '' }, e);
-}
-
-async function resolveAll(
-  rc: ResolveContext,
-  requests: EngineRequest[],
-  opts: EngineInstallOptions,
-  failures: InstallFailure[],
-): Promise<PlanItem[]> {
-  const direct: PlanItem[] = [];
-  for (const req of requests) {
-    try {
-      direct.push(await resolveRequest(rc, req));
-    } catch (e) {
-      if (!recordable(e, req, opts)) throw e;
-      failures.push(requestFailure(req, e));
-    }
-  }
-  return expand(rc, direct);
-}
-
-// ---------------------------------------------------------------------------
-// installEntities
-// ---------------------------------------------------------------------------
-
-/**
- * Fail fast on names that match nothing, before the CLI asks for targets: throws the same
- * E_NOT_FOUND (with suggestions) or E_ORIGIN that installEntities would. Ad hoc MCP servers
- * and names only the MCP registry may know are left to the engine (no network here), and so
- * is ambiguity (the engine's picker). Git origins come from the index cache, so the engine's
- * own lookup afterwards fetches nothing again.
- */
-export async function preflightInstall(
-  ctx: PalmContext,
-  requests: InstallRequest[],
-  depsIn?: Partial<EngineDeps>,
+async function install(
+  run: Run,
+  req: InstallRequest & { as?: string },
+  held: { source?: string },
 ): Promise<void> {
-  const deps = await resolveEngineDeps(depsIn);
-  // installEntities reads the same origins and repeats their warnings; show them here only on failure.
-  const warned: string[] = [];
-  const { log } = ctx;
-  // Bound methods, not a spread: the CLI's logger is the output writer, whose methods live on
-  // its prototype (a spread would drop them).
-  const quietLog: Logger = {
-    info: (msg) => log.info(msg),
-    debug: (msg) => log.debug(msg),
-    success: (msg) => log.success(msg),
-    warn: (msg) => void warned.push(msg),
-  };
-  const quiet: PalmContext = { ...ctx, log: quietLog };
-  const session = new IndexSession(quiet, deps.scan);
-  try {
-    for (const req of requests.map(planned)) {
-      if (req.mode !== 'index') continue;
-      const l = await lookupIndexed(session, req);
-      if (l.cands.length === 0 && !l.registryFallback) throw await notFound(session, req.kind, l);
-    }
-  } catch (e) {
-    for (const msg of warned) ctx.log.warn(msg);
-    throw e;
-  }
-}
-
-/** Removes dependencies a plugin/agent no longer declares (not merely ones that failed to resolve). */
-async function dropOrphans(dc: DeployContext, plan: PlanItem[], manifest: Manifest): Promise<void> {
-  const { ctx, deps, opts, paths, lock } = dc;
-  const orphans: LockEntry[] = [];
-  for (const item of plan) {
-    if (item.keep || !isViaKind(item.entity.kind)) continue;
-    const declared = new Set(entityDeps(item.entity).map(entityId));
-    orphans.push(...lock.childrenOf(item.entity).filter((e) => !declared.has(entityId(e))));
-  }
-  if (!orphans.length) return;
-  const removal = lock.planRemoval(orphans, { listed: (e) => manifest.lists(e), checkRoots: true });
-  const protect = lock.protectedFiles(paths, removal.removed);
-  const report = await undeploy(ctx, deps, {
-    scope: opts.scope,
-    entries: removal.removed,
-    protect,
-    lock,
+  const { ctx, deps, state } = run;
+  const scope = state.paths.scope;
+  const ref = await declareSource(ctx, state, req.source, {
+    ...(req.as ? { as: req.as } : {}),
+    yes: ctx.flags.yes,
   });
-  dc.failures.push(...report.failures);
-  dc.warnings.push(...report.warnings);
-  for (const o of removal.removed) {
-    if (report.failed.has(lockId(o))) continue;
-    lock.remove(o);
-    dc.warnings.push(`removed ${o.kind} ${o.name}: no longer part of ${o.via}`);
-  }
-  lock.reparent(removal.kept);
-}
-
-async function deployAll(
-  dc: DeployContext,
-  plan: PlanItem[],
-  manifest: Manifest,
-): Promise<InstallOutcome[]> {
-  const persister = new Persister(dc, manifest);
-  const outcomes: InstallOutcome[] = [];
-  const { state, dispose } = watchInterrupt(dc.ctx);
-  try {
-    for (const item of plan) {
-      if (state.stop) throw interrupted(outcomes.length, plan.length);
-      const outcome = await deployItem(dc, item);
-      outcomes.push(outcome);
-      if (outcome.status !== 'failed') recordLockTargets(dc);
-      if (item.direct && !dc.opts.noSave && item.manifestDep && outcome.status !== 'failed')
-        manifest.addDep(item.entity.kind, item.manifestDep);
-      await persister.save();
-    }
-    if (state.stop) throw interrupted(outcomes.length, plan.length);
-    await dropOrphans(dc, plan, manifest);
-  } finally {
-    dispose();
-    await persister.save();
-  }
-  return outcomes;
-}
-
-/** The first install that places something records the persisted target set in the lock. */
-function recordLockTargets(dc: DeployContext): void {
-  const { lockTargets } = dc.opts;
-  if (lockTargets && !dc.lock.targets) dc.lock.targets = [...lockTargets];
-}
-
-function interrupted(done: number, total: number): PalmError {
-  return new PalmError(
-    'E_CANCELLED',
-    `Interrupted after ${done} of ${total}; palm.lock.yaml records what was installed`,
-    'run the same command again to finish',
-  );
+  held.source = ref.name;
+  await assertNoOverlap(ctx, state, deps);
+  if (!req.names.length && !req.all)
+    throw new PalmError(
+      'E_USAGE',
+      `name what to install from ${ref.name}`,
+      palmCommand('install', [ref.name], scope),
+    );
+  const r = await resolveSource(ctx, deps, state, ref, lockedSha(state, ref));
+  const match = matchNames(r.index, req.names, !!req.all);
+  const err = matchError(ref.name, r.index, match, scope);
+  if (err) throw err;
+  noteMentions(ctx, ref, match, scope);
+  const targets = requestTargets(state, req.targets);
+  run.result.warnings.push(...r.index.warnings);
+  const jobs = requestedJobs(state, ref, r, { ...req, ...(targets ? { targets } : {}), match });
+  state.lock.setSource(ref.name, lockSourceOf(state, ref, r));
+  await runJobs(run, dedupeJobs([...jobs, ...movedJobs(state, ref, r, run)]));
 }
 
 /**
- * Install entities (DESIGN §6): resolve each request against the origin indexes (or the MCP
- * registry, or the lock's commit), expand composites, ask consent for executables, deploy to
- * every target, and record lock and manifest (direct requests) after each item. Failures of
- * one target, entity or origin are collected in `failures`; the run goes on.
+ * DESIGN §6 "Install with names": declare the source when new, resolve it (the locked sha
+ * while the ref intent is unchanged), match the names, render, ask consent once, apply entity
+ * by entity with the lock and palm.yaml saved after each. Names that match nothing throw
+ * before anything is written; per-entity and per-target problems are `failures`.
  */
-export async function installEntities(
-  ctxIn: PalmContext,
-  requests: EngineRequest[],
-  opts: EngineInstallOptions,
+export async function installFromSource(
+  ctx: PalmContext,
+  req: InstallRequest & { as?: string },
+  opts: InstallOptions,
   depsIn?: Partial<EngineDeps>,
 ): Promise<InstallResult> {
-  const ctx = scopedContext(ctxIn, opts.scope);
-  const deps = await resolveEngineDeps(depsIn, { targets: true });
-  const paths = ScopePaths.of(ctx, opts.scope);
-  const lock = await Lock.load(paths.lockFile);
-  const manifest = await Manifest.load(paths.manifestFile);
-  const dc: DeployContext = { ctx, deps, opts, paths, lock, warnings: [], failures: [] };
-  const rc: ResolveContext = {
-    ctx,
-    deps,
-    session: new IndexSession(ctx, deps.scan),
-    lock,
-    warnings: dc.warnings,
-    scope: opts.scope,
-    frozen: !!opts.frozen,
-    claimed: claimedMcpKeys(lock),
-  };
-  const plan = await resolveAll(rc, requests, opts, dc.failures);
-  await askConsent(dc, plan);
-  await preflightSecrets(dc, plan);
-  const outcomes = await deployAll(dc, plan, manifest);
-  return { outcomes, warnings: dc.warnings, failures: dc.failures };
+  refuseLocal(opts);
+  const deps = await resolveEngineDeps(depsIn);
+  const state = await openScope(ctx, opts.scope, { deps });
+  const run = runOf(ctx, deps, state);
+  return lockScope(ctx, state, async () => {
+    const held: { source?: string } = {};
+    try {
+      await install(run, req, held);
+    } finally {
+      if (held.source) forgetEmptySource(state, held.source);
+      await saveScope(state);
+    }
+    return run.result;
+  });
+}
+
+/** `palm install <source>` without names: fetch and index, save nothing. */
+export async function listSource(
+  ctx: PalmContext,
+  input: string,
+  opts: { scope: Scope },
+  depsIn?: Partial<EngineDeps>,
+): Promise<{ source: SourceRef; checkout: SourceCheckout; index: SourceIndex; declared: boolean }> {
+  const deps = await resolveEngineDeps(depsIn);
+  const state = await openScope(ctx, opts.scope, { deps, readOnly: true });
+  const { ref, declared } = peekSource(ctx, state, input);
+  const r = await resolveSource(ctx, deps, state, ref, lockedSha(state, ref));
+  return { source: ref, checkout: r.checkout, index: r.index, declared };
 }

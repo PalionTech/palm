@@ -1,503 +1,366 @@
 /**
- * `palm update`: selection (the named entries, lifted to the root of their `via` chain) →
- * plan (refresh each origin's index and compare the locked content with what the origin holds
- * now; nothing in the scope is written) → apply (reinstall the roots whose content, members or
- * rendering changed, through `installEntities`, which persists the lock).
- *
- * The CLI prints the plan, asks before applying and passes `--yes` / `--dry-run` through;
- * `updateEntities` is plan + apply without asking.
+ * `palm update` (DESIGN §6 "Update"): re-resolve each git source's ref intent (the range, or
+ * `--to` for the named sources), fetch and index the new sha, and plan per entry without
+ * writing anything; then apply the plan like an install. Local sources are skipped: a bare
+ * install re-renders them. `--yes` never covers executables: changed and new units go through
+ * consent with the trusted version for the diff. Files the person edited stay unless `--force`.
  */
-import { getIndex } from '../core/cache.js';
-import { isPalmError, messageOf, PalmError } from '../core/errors.js';
-import { hashPath } from '../core/hash.js';
-import {
-  type Entity,
-  type EntityRef,
-  type InstallFailure,
-  type InstallOutcome,
-  type InstallRequest,
-  type InstallResult,
-  type Kind,
-  type LockEntry,
-  type McpServerConfig,
-  type OriginIndex,
-  type OriginSpec,
-  type PalmContext,
-  type RegistryCandidate,
-  type Scope,
-  TARGET_IDS,
-  type TargetId,
-  TRANSFORM_VERSION,
+import { PalmError } from '../core/errors.js';
+import { short } from '../core/hash.js';
+import type {
+  EngineDeps,
+  ExecUnit,
+  InstallResult,
+  LockEntry,
+  LockSource,
+  PalmContext,
+  Scope,
+  UpdatePlan,
+  UpdatePlanItem,
 } from '../core/types.js';
-import { DepRef } from '../domain/dep-ref.js';
-import { entityId, isViaKind, lockId, Via } from '../domain/entity-key.js';
-import { Lock } from '../domain/lock.js';
-import { isMcpManifestEntry, Manifest } from '../domain/manifest.js';
-import { ScopePaths } from '../domain/scope-paths.js';
-import { type EngineDeps, resolveEngineDeps } from './deps.js';
-import { dedupeOutcomes, executablesOf, installEntities } from './install.js';
-import { contentHashOf } from './plan.js';
-import {
-  type Candidate,
-  candidatesIn,
-  type EntityQuery,
-  entityDeps,
-  notInstalled,
-} from './query.js';
+import { lockId } from '../domain/entity-key.js';
+import { sameName } from '../domain/entity-ref.js';
+import { SourceRef } from '../domain/source.js';
+import { resolveEngineDeps } from './deps.js';
+import { manifestJobs } from './entries.js';
+import { askForConsent, type Job, type Prepared, prepareJob, type Run, runOf } from './jobs.js';
+import { protectedPaths, undeploy } from './remove.js';
+import { failureOf, palmCommand } from './report.js';
+import { lockSourceOf, type Resolved, resolveSource } from './resolve.js';
+import { applyAll, lockScope, prepareAll } from './runner.js';
+import { openScope, type ScopeState, saveScope } from './scope.js';
 
-/** `~ updated`, `+ added` (a new plugin member / agent dependency), `- removed`, `= unchanged`, `x failed`, `! skipped`. */
-export type UpdateMark = 'updated' | 'added' | 'removed' | 'unchanged' | 'failed' | 'skipped';
+type Scripts = { before: Map<string, Uint8Array>; after: Map<string, Uint8Array> };
 
-export interface UpdatePlanItem {
-  mark: UpdateMark;
-  kind: Kind;
-  name: string;
-  origin: string;
-  /** `plugin:<name>` / `agent:<name>` for dependencies. */
-  via?: string;
-  /** Locked version: `v1.0.0 (abc1234)`, a sha, or `content <hash>` when neither changed. */
-  from?: string;
-  /** Version after the update. */
-  to?: string;
-  /** Files palm wrote that the user changed since (an update would overwrite them; only with --force). */
-  atRisk: string[];
-  /** Hook commands and stdio MCP servers applying this item writes (`executablesOf` lines). */
-  executables?: string[];
-  /** Why an item is unchanged, skipped or failed. */
-  note?: string;
+/** What a plan knows beyond its public shape: the new sha per source and the scripts to diff. */
+interface PlanMemo {
+  shas: Map<string, string>;
+  scripts: Map<string, Scripts>;
 }
 
-export interface UpdatePlan {
-  scope: Scope;
-  items: UpdatePlanItem[];
-  /** Reinstall requests for the roots that change, grouped by the targets they are installed to. */
-  apply: Array<{ targets: TargetId[]; requests: InstallRequest[] }>;
-  /** Unchanged entries (reported as `unchanged` outcomes). */
-  unchanged: LockEntry[];
-  failures: InstallFailure[];
-  warnings: string[];
+const memos = new WeakMap<UpdatePlan, PlanMemo>();
+
+function versionLabel(ref: string | undefined, sha: string | undefined): string | undefined {
+  if (!sha) return ref;
+  const s = sha.slice(0, 7);
+  return ref && ref !== sha ? `${ref} (${s})` : s;
 }
 
-export interface UpdateResult extends InstallResult {
-  plan: UpdatePlanItem[];
-}
-
-/** True when applying the plan would change something. */
-export function planChanges(plan: UpdatePlan): number {
-  return plan.items.filter((i) => ['updated', 'added', 'removed'].includes(i.mark)).length;
-}
-
-/**
- * Every command applying the plan allows to run on the user's machine: the plan shows them, and
- * its one confirmation is the install's executable consent for them.
- */
-export function planExecutables(plan: UpdatePlan): string[] {
-  return [...new Set(plan.items.flatMap((i) => i.executables ?? []))];
-}
-
-// ---------------------------------------------------------------------------
-// Selection
-// ---------------------------------------------------------------------------
-
-/**
- * The entries to refresh: the named ones (all direct installs when none are named), each
- * replaced by the root of its `via` chain, since dependencies are refreshed through the
- * entity that pulled them in.
- */
-function selectRoots(lock: Lock, refs: readonly EntityQuery[], scope: Scope): LockEntry[] {
-  const selected = refs.length
-    ? refs.flatMap((ref) => {
-        const matches = lock.select(ref);
-        if (matches.length) return matches;
-        throw notInstalled(ref, scope);
-      })
-    : lock.entries.filter((e) => !e.via);
-  const roots = new Map<string, LockEntry>();
-  for (const e of selected) {
-    const root = lock.rootOf(e);
-    roots.set(lockId(root), root);
+function selectSources(state: ScopeState, names: string[], to?: string): SourceRef[] {
+  if (to && !names.length) {
+    const example = state.sources.all().find((s) => !s.isLocal)?.name ?? 'owner/repo';
+    const hint = palmCommand('update', [example, '--to', to], state.paths.scope);
+    throw new PalmError('E_USAGE', '--to moves the ref of the sources you name', hint);
   }
-  return [...roots.values()];
+  return names.length ? names.map((n) => state.sources.resolveQuery(n)) : state.sources.all();
 }
 
-// ---------------------------------------------------------------------------
-// Plan
-// ---------------------------------------------------------------------------
-
-interface Planner {
-  ctx: PalmContext;
-  deps: EngineDeps;
-  paths: ScopePaths;
-  lock: Lock;
-  manifest: Manifest;
-  /** Refreshed indexes per origin alias + ref (each origin is fetched once per run). */
-  indexes: Map<string, Promise<OriginIndex>>;
-  plan: UpdatePlan;
+/** The source with its intent moved to `to` (in memory; applyUpdate writes palm.yaml). */
+function intentOf(ref: SourceRef, to?: string): SourceRef {
+  return to ? SourceRef.of({ ...ref.source, ref: to }) : ref;
 }
 
-/**
- * What an entry resolves to now: the candidate and its content hash, or why there is nothing
- * to compare (`current`: ad hoc, offline registry), nothing to fetch from (`skipped`), the
- * entity is gone (`missing`) or the origin failed (`failed`).
- */
-type Resolution =
-  | { found: Candidate; hash: string }
-  | { current: string }
-  | { skipped: string }
-  | { missing: string }
-  | { failed: InstallFailure; why: string };
-
-function shortHash(hash: string | undefined): string {
-  return (hash ?? '').replace(/^sha256:/, '').slice(0, 7) || '?';
+function markOf(p: Prepared): UpdatePlanItem['mark'] {
+  if (p.out.refusals.some((f) => !f.target)) return 'failed';
+  if (!p.previous) return 'added';
+  return p.previous.content !== p.out.content ? 'updated' : 'unchanged';
 }
 
-function versionLabel(v: { ref?: string | undefined; sha?: string | undefined }): string {
-  const short = v.sha?.slice(0, 7);
-  if (!v.ref) return short ?? '';
-  return short && v.ref !== v.sha ? `${v.ref} (${short})` : v.ref;
+function itemOf(p: Prepared, range: { from?: string; to?: string }): UpdatePlanItem {
+  const { entity } = p.job;
+  const mark = markOf(p);
+  const item: UpdatePlanItem = {
+    mark,
+    kind: entity.kind,
+    name: entity.name,
+    source: p.job.source.name,
+    atRisk: [],
+  };
+  if (p.job.via) item.via = p.job.via;
+  if (mark !== 'unchanged' && range.from) item.from = range.from;
+  if (mark !== 'unchanged' && range.to) item.to = range.to;
+  if (mark === 'failed') item.note = p.out.refusals[0]?.message;
+  if (p.decision.kept.length) item.atRisk = [...p.decision.kept];
+  return item;
 }
 
-function failureOf(e: LockEntry, err: unknown, prefix: string): InstallFailure {
-  const f: InstallFailure = {
+/** The same entity rendered at the locked sha: the trusted version of its unit and scripts. */
+async function renderedBefore(run: Run, job: Job, lockSha: string): Promise<Prepared | undefined> {
+  try {
+    const r = await resolveSource(run.ctx, run.deps, run.state, job.source, { sha: lockSha });
+    const entity = r.index.entities.find(
+      (e) => e.kind === job.entity.kind && sameName(e.name, job.entity.name),
+    );
+    return entity ? await prepareJob(run, { ...job, entity, checkout: r.checkout }) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function scriptsOf(p?: Prepared): Map<string, Uint8Array> {
+  const out = new Map<string, Uint8Array>();
+  const root = p?.out.closure.root;
+  if (!p || !root) return out;
+  for (const r of Object.values(p.out.renders))
+    for (const f of r?.files ?? [])
+      if (f.path.startsWith(`${root}/`)) out.set(f.path.slice(root.length + 1), f.data);
+  return out;
+}
+
+/** A unit that is new or whose hash moved, with the trusted version and both script sets. */
+async function execChange(
+  run: Run,
+  memo: PlanMemo,
+  p: Prepared,
+  lockSha?: string,
+): Promise<UpdatePlanItem['exec']> {
+  const unit = p.out.unit;
+  if (!unit || p.previous?.exec?.hash === unit.hash) return undefined;
+  const before = lockSha && p.previous ? await renderedBefore(run, p.job, lockSha) : undefined;
+  memo.scripts.set(unit.key, { before: scriptsOf(before), after: scriptsOf(p) });
+  return before?.out.unit ? { unit, previous: before.out.unit } : { unit };
+}
+
+function removedItems(state: ScopeState, source: string, kept: Set<string>): UpdatePlanItem[] {
+  return state.lock
+    .entriesOf(source)
+    .filter((e) => !kept.has(lockId(e)))
+    .map((e) => ({
+      mark: 'removed' as const,
+      kind: e.kind,
+      name: e.name,
+      source,
+      ...(e.via ? { via: e.via } : {}),
+      atRisk: [],
+    }));
+}
+
+async function resolveIntent(
+  run: Run,
+  plan: UpdatePlan,
+  target: SourceRef,
+): Promise<Resolved | undefined> {
+  try {
+    return await resolveSource(run.ctx, run.deps, run.state, target, { refresh: true });
+  } catch (e) {
+    plan.failures.push(failureOf({ kind: 'source', name: target.name, source: target.name }, e));
+    return undefined;
+  }
+}
+
+function withDefined(o: { from?: string | undefined; to?: string | undefined }): {
+  from?: string;
+  to?: string;
+} {
+  return { ...(o.from ? { from: o.from } : {}), ...(o.to ? { to: o.to } : {}) };
+}
+
+async function planGitSource(
+  run: Run,
+  plan: UpdatePlan,
+  memo: PlanMemo,
+  target: SourceRef,
+): Promise<void> {
+  const { state } = run;
+  const ls: LockSource | undefined = state.lock.source(target.name);
+  const r = await resolveIntent(run, plan, target);
+  if (!r) return;
+  const range = withDefined({
+    from: versionLabel(ls?.resolved ?? ls?.ref, ls?.sha),
+    to: versionLabel(r.checkout.ref, r.checkout.sha),
+  });
+  plan.sources.push({ name: target.name, ref: target.source.ref ?? '', ...range });
+  if (r.checkout.sha) memo.shas.set(target.name, r.checkout.sha);
+  const m = manifestJobs(state, target, r);
+  plan.failures.push(...m.failures);
+  const kept = new Set(m.missing);
+  for (const job of m.jobs) {
+    kept.add(lockId({ kind: job.entity.kind, name: job.entity.name, source: target.name }));
+    const p = await prepareJob(run, job);
+    const item = itemOf(p, range);
+    const exec = await execChange(run, memo, p, ls?.sha);
+    if (exec) item.exec = exec;
+    plan.items.push(item);
+  }
+  plan.items.push(...removedItems(state, target.name, kept));
+}
+
+function skippedItems(state: ScopeState, ref: SourceRef): UpdatePlanItem[] {
+  return state.lock.entriesOf(ref.name).map((e: LockEntry) => ({
+    mark: 'skipped' as const,
     kind: e.kind,
     name: e.name,
-    origin: e.origin,
-    code: isPalmError(err) ? err.code : 'E_INTERNAL',
-    message: `${prefix}: ${messageOf(err)}`,
-  };
-  if (isPalmError(err) && err.hint) f.hint = err.hint;
-  return f;
+    source: ref.name,
+    atRisk: [],
+    note: 'a directory source; palm install re-renders it',
+  }));
 }
 
-/** The ref (or registry version) palm.yaml pins for a root (`name@origin#ref`), if any. */
-function pinnedRef(p: Planner, e: LockEntry): string | undefined {
-  const dep = p.manifest.depFor(e);
-  if (!dep) return undefined;
-  return isMcpManifestEntry(dep) ? dep.version : dep.ref;
-}
-
-/** The origin's index at `ref`, fetched again (once per origin and ref in a run). */
-function refreshedIndex(
-  p: Planner,
-  spec: OriginSpec,
-  ref: string | undefined,
-): Promise<OriginIndex> {
-  const key = `${spec.alias}#${ref ?? ''}`;
-  let index = p.indexes.get(key);
-  if (!index) {
-    index = getIndex(p.ctx, ref ? { ...spec, ref } : spec, { refresh: true, scan: p.deps.scan });
-    p.indexes.set(key, index);
-  }
-  return index;
-}
-
-/** The entry's entity in its origin's refreshed index, with its content hash. */
-async function resolveIndexed(
-  p: Planner,
-  e: LockEntry,
-  ref: string | undefined,
-): Promise<Resolution> {
-  const spec = p.ctx.origins.byAlias(e.origin)?.spec;
-  if (!spec)
-    return {
-      skipped: `origin "${e.origin}" is not registered (register it: palm install origin <spec> --alias ${e.origin})`,
-    };
-  let index: OriginIndex;
-  try {
-    index = await refreshedIndex(p, spec, ref);
-  } catch (err) {
-    const why = `unreachable origin "${e.origin}"`;
-    return { failed: failureOf(e, err, why), why };
-  }
-  const found = candidatesIn([{ spec, index }], e.kind, e.name)[0];
-  if (!found) return { missing: `origin "${e.origin}" no longer has ${e.kind} "${e.name}"` };
-  return { found, hash: await contentHashOf(found) };
-}
-
-/** The registry's server as installEntities would synthesize it (its hash is the lock's contentHash). */
-function registryCandidate(e: LockEntry, c: RegistryCandidate): Candidate {
-  const name = c.config.name || c.name.split('/').filter(Boolean).pop() || c.name;
-  const mcp: McpServerConfig = { ...c.config, name };
-  const entity: Entity = {
-    kind: 'mcp',
-    name,
-    path: e.path,
-    origin: 'registry',
-    def: { kind: 'mcp', mcp },
-  };
-  return { entity, source: c.version ? { ref: c.version } : {} };
-}
-
-async function resolveRegistry(p: Planner, e: LockEntry): Promise<Resolution> {
-  if (p.ctx.flags.offline) return { current: 'offline: the MCP registry was not checked' };
-  const version = pinnedRef(p, e);
-  const registryUrl = p.ctx.config.mcpRegistryUrl;
-  try {
-    const opts = { ...(registryUrl ? { registryUrl } : {}), ...(version ? { version } : {}) };
-    const c = (await p.deps.resolveRegistry(e.path, opts))[0];
-    if (!c) return { missing: `the MCP registry no longer has "${e.path}"` };
-    const found = registryCandidate(e, c);
-    return { found, hash: await contentHashOf(found) };
-  } catch (err) {
-    return {
-      failed: failureOf(e, err, 'unreachable MCP registry'),
-      why: 'unreachable MCP registry',
-    };
-  }
-}
-
-async function resolveEntry(
-  p: Planner,
-  e: LockEntry,
-  ref: string | undefined,
-): Promise<Resolution> {
-  if (e.origin === 'adhoc')
-    return { current: 'ad hoc MCP server: edit palm.yaml and run palm install to change it' };
-  if (e.origin === 'registry') return resolveRegistry(p, e);
-  return resolveIndexed(p, e, ref);
-}
-
-/** Why a resolved entry needs a reinstall, or undefined when it is current. */
-function changeOf(p: Planner, e: LockEntry, hash: string): string | undefined {
-  if (hash !== e.contentHash) return 'content';
-  if (e.transform < TRANSFORM_VERSION) return 'rendering';
-  if (!Lock.filesPresent(e, p.paths)) return 'missing files';
-  return undefined;
-}
-
-function baseItem(e: LockEntry, mark: UpdateMark, note?: string): UpdatePlanItem {
-  const item: UpdatePlanItem = { mark, kind: e.kind, name: e.name, origin: e.origin, atRisk: [] };
-  if (e.via) item.via = e.via;
-  if (note) item.note = note;
-  return item;
-}
-
-const CHANGE_NOTES: Record<string, string> = {
-  rendering: 're-render: this palm version writes it differently',
-  'missing files': 'restore files removed by hand',
-};
-
-/** `~ updated` with the version change and the user-edited files the reinstall would overwrite. */
-async function updatedItem(
-  p: Planner,
-  e: LockEntry,
-  r: { found: Candidate; hash: string },
-  why: string,
-): Promise<UpdatePlanItem> {
-  const item = baseItem(e, 'updated', CHANGE_NOTES[why]);
-  const from = versionLabel(e);
-  const to = versionLabel(r.found.source);
-  if (from && to && from !== to) Object.assign(item, { from, to });
-  else if (why === 'content')
-    Object.assign(item, {
-      from: `content ${shortHash(e.contentHash)}`,
-      to: `content ${shortHash(r.hash)}`,
-    });
-  item.atRisk = await Lock.modifiedFiles(e, p.paths, (abs) => hashPath(abs));
-  const runs = executablesOf(r.found.entity);
-  if (runs.length) item.executables = runs;
-  return item;
-}
-
-/** The plan item of an entry that did not resolve; a failure or warning is recorded. */
-function unresolvedItem(p: Planner, e: LockEntry, r: Exclude<Resolution, { found: Candidate }>) {
-  if ('failed' in r) {
-    p.plan.failures.push(r.failed);
-    return baseItem(e, 'failed', r.why);
-  }
-  if ('current' in r) return baseItem(e, 'unchanged', r.current);
-  if ('skipped' in r) {
-    p.plan.warnings.push(`${e.kind} ${e.name}: ${r.skipped}`);
-    return baseItem(e, 'skipped', r.skipped);
-  }
-  if (e.via) {
-    // a dependency the origin dropped: the reinstall of its parent reports it; keep this copy
-    p.plan.warnings.push(`${e.kind} ${e.name}: ${r.missing}; kept the installed copy`);
-    return baseItem(e, 'unchanged', `${r.missing}; kept`);
-  }
-  const hint = `see what it offers: palm get ${e.kind}s --available -o ${e.origin}`;
-  const failed = { ...failureOf(e, new PalmError('E_NOT_FOUND', r.missing, hint), 'not found') };
-  p.plan.failures.push(failed);
-  return baseItem(e, 'failed', r.missing);
-}
-
-/** Plans one entry: its plan item, and the candidate when it resolved. */
-async function planEntry(
-  p: Planner,
-  e: LockEntry,
-  ref: string | undefined,
-): Promise<{ changed: boolean; found?: Candidate }> {
-  const r = await resolveEntry(p, e, ref);
-  if (!('found' in r)) {
-    const item = unresolvedItem(p, e, r);
-    p.plan.items.push(item);
-    if (item.mark === 'unchanged') p.plan.unchanged.push(e);
-    return { changed: false };
-  }
-  const why = changeOf(p, e, r.hash);
-  if (why) {
-    p.plan.items.push(await updatedItem(p, e, r, why));
-    return { changed: true, found: r.found };
-  }
-  const from = versionLabel(e) || `content ${shortHash(e.contentHash)}`;
-  p.plan.items.push({ ...baseItem(e, 'unchanged'), from });
-  p.plan.unchanged.push(e);
-  return { changed: false, found: r.found };
-}
-
-/** What a newly declared member or dependency would run, when the root's own origin has it. */
-function addedExecutables(found: Candidate, dep: EntityRef): string[] {
-  const { spec, index } = found.source;
-  const c = spec && index ? candidatesIn([{ spec, index }], dep.kind, dep.name)[0] : undefined;
-  return c ? executablesOf(c.entity) : [];
-}
-
-/**
- * `+ added` for what the new version declares and the installed one did not (and is not
- * installed otherwise), `- removed` for dependencies it no longer declares that nothing else
- * uses. Returns the lock ids of the removed ones.
- */
-function membershipChanges(p: Planner, root: LockEntry, found: Candidate): Set<string> {
-  const declared = entityDeps(found.entity);
-  const recorded = new Set((root.deps ?? []).map(entityId));
-  const now = new Set(declared.map(entityId));
-  const via = Via.of(root).toString();
-  for (const d of declared) {
-    if (recorded.has(entityId(d)) || p.lock.find(d)) continue;
-    const item: UpdatePlanItem = { mark: 'added', ...d, origin: root.origin, via, atRisk: [] };
-    const runs = addedExecutables(found, d);
-    if (runs.length) item.executables = runs;
-    p.plan.items.push(item);
-  }
-  const removed = new Set<string>();
-  const leaving = new Set([lockId(root)]);
-  for (const c of p.lock.childrenOf(root)) {
-    if (now.has(entityId(c)) || p.lock.usersOf(c, leaving).length) continue;
-    p.plan.items.push(baseItem(c, 'removed'));
-    removed.add(lockId(c));
-  }
-  return removed;
-}
-
-/** Plans what a plugin/agent pulled in (transitively); true when something changes. */
-async function planDependents(
-  p: Planner,
-  root: LockEntry,
-  ref: string | undefined,
-  removed: ReadonlySet<string>,
-): Promise<boolean> {
-  let changed = false;
-  for (const c of p.lock.dependentsOf([root], removed).slice(1)) {
-    const r = await planEntry(p, c, c.origin === root.origin ? ref : undefined);
-    changed ||= r.changed;
-  }
-  return changed;
-}
-
-function addRequest(p: Planner, root: LockEntry, ref: string | undefined): void {
-  const request: InstallRequest =
-    root.origin === 'registry'
-      ? { kind: 'mcp', spec: DepRef.of(root.path, undefined, ref), registry: root.path }
-      : { kind: root.kind, spec: DepRef.of(root.name, root.origin, ref) };
-  const targets = TARGET_IDS.filter((t) => root.targets.includes(t));
-  const group = p.plan.apply.find((g) => g.targets.join() === targets.join());
-  if (group) group.requests.push(request);
-  else p.plan.apply.push({ targets, requests: [request] });
-}
-
-async function planRoot(p: Planner, root: LockEntry): Promise<void> {
-  const ref = pinnedRef(p, root);
-  const r = await planEntry(p, root, ref);
-  if (!r.found) return;
-  let changed = r.changed;
-  if (isViaKind(root.kind)) {
-    const before = p.plan.items.length;
-    const removed = membershipChanges(p, root, r.found);
-    changed ||= p.plan.items.length > before;
-    changed = (await planDependents(p, root, ref, removed)) || changed;
-  }
-  if (changed) addRequest(p, root, ref);
-}
-
-/**
- * What `palm update` would do: every selected root (and what it pulled in) compared with its
- * origin's refreshed index. Writes nothing in the scope; E_NOT_FOUND for names not installed.
- */
+/** DESIGN §6 "Update" step 1: nothing in the scope is written; local sources are skipped. */
 export async function planUpdate(
   ctx: PalmContext,
-  refs: EntityQuery[],
-  opts: { scope: Scope },
+  sources: string[],
+  opts: { scope: Scope; to?: string },
   depsIn?: Partial<EngineDeps>,
 ): Promise<UpdatePlan> {
-  const paths = ScopePaths.of(ctx, opts.scope);
-  const lock = await Lock.load(paths.lockFile);
-  const roots = selectRoots(lock, refs, opts.scope);
+  const deps = await resolveEngineDeps(depsIn);
+  const dry: PalmContext = { ...ctx, flags: { ...ctx.flags, dryRun: true } };
+  const state = await openScope(dry, opts.scope, { deps, readOnly: true });
+  const run = runOf(dry, deps, state);
   const plan: UpdatePlan = {
     scope: opts.scope,
+    sources: [],
     items: [],
-    apply: [],
-    unchanged: [],
     failures: [],
     warnings: [],
   };
-  const p: Planner = {
-    ctx,
-    deps: await resolveEngineDeps(depsIn),
-    paths,
-    lock,
-    manifest: await Manifest.load(paths.manifestFile),
-    indexes: new Map(),
-    plan,
-  };
-  for (const root of roots) await planRoot(p, root);
+  const memo: PlanMemo = { shas: new Map(), scripts: new Map() };
+  for (const ref of selectSources(state, sources, opts.to)) {
+    if (ref.isLocal) plan.items.push(...skippedItems(state, ref));
+    else await planGitSource(run, plan, memo, intentOf(ref, opts.to));
+  }
+  plan.warnings.push(...run.result.warnings);
+  memos.set(plan, memo);
   return plan;
 }
 
+/** How many changes the plan would apply (the `Apply N changes?` count). */
+export function planChanges(plan: UpdatePlan): number {
+  return plan.items.filter(
+    (i) => i.mark === 'updated' || i.mark === 'added' || i.mark === 'removed',
+  ).length;
+}
+
 // ---------------------------------------------------------------------------
-// Apply
+// applyUpdate
 // ---------------------------------------------------------------------------
 
-/**
- * Reinstalls the plan's roots (installEntities writes the lock); unchanged entries become
- * `unchanged` outcomes. The caller confirmed the plan, so the executables it lists count as
- * consented; the install asks only about any the plan could not foresee.
- */
+interface SourceUpdate {
+  jobs: Job[];
+  /** Lock entries the new version no longer declares. */
+  gone: LockEntry[];
+}
+
+/** Moves one source to its planned sha (and `--to` intent): its jobs and the entries it dropped. */
+async function sourceUpdate(
+  run: Run,
+  plan: UpdatePlan,
+  name: string,
+  to?: string,
+): Promise<SourceUpdate> {
+  const { state } = run;
+  const declared = state.sources.byName(name);
+  if (!declared || declared.isLocal) return { jobs: [], gone: [] };
+  const ref = intentOf(declared, to);
+  if (to) {
+    state.manifest.addSource(
+      ref.source,
+      state.paths.scope === 'global' ? state.paths.palmHome : state.paths.root,
+    );
+    state.sources = state.sources.add(ref.source);
+  }
+  const sha = memos.get(plan)?.shas.get(name);
+  const r = await resolveSource(run.ctx, run.deps, state, ref, sha ? { sha } : { refresh: true });
+  state.lock.setSource(name, lockSourceOf(state, ref, r));
+  const m = manifestJobs(state, ref, r);
+  run.result.failures.push(...m.failures);
+  const ids = m.jobs.map((j) => lockId({ kind: j.entity.kind, name: j.entity.name, source: name }));
+  const kept = new Set([...m.missing, ...ids]);
+  return { jobs: m.jobs, gone: state.lock.entriesOf(name).filter((e) => !kept.has(lockId(e))) };
+}
+
+/** Undeploys the entries a new version no longer declares and drops them from the lock. */
+async function dropGone(run: Run, gone: LockEntry[]): Promise<void> {
+  if (!gone.length) return;
+  const { state, ctx, deps } = run;
+  const protect = protectedPaths(state.lock, gone);
+  const report = await undeploy(ctx, deps, {
+    paths: state.paths,
+    entries: gone,
+    protect,
+    dryRun: ctx.flags.dryRun,
+  });
+  run.result.failures.push(...report.failures);
+  for (const e of gone) {
+    state.lock.remove(e);
+    run.result.outcomes.push({ entry: e, status: 'removed', notes: [] });
+  }
+}
+
+function previousUnits(plan: UpdatePlan): Record<string, ExecUnit> {
+  const out: Record<string, ExecUnit> = {};
+  for (const i of plan.items) if (i.exec?.previous) out[i.exec.unit.key] = i.exec.previous;
+  return out;
+}
+
+/** DESIGN §6 "Update" step 4: install the planned sources at their new sha; consent for changed units. */
 export async function applyUpdate(
   ctx: PalmContext,
   plan: UpdatePlan,
+  opts: { scope: Scope; to?: string },
   depsIn?: Partial<EngineDeps>,
-): Promise<UpdateResult> {
-  const deps = await resolveEngineDeps(depsIn, { targets: true });
-  const outcomes: InstallOutcome[] = plan.unchanged.map((entry) => ({
-    entry,
-    status: 'unchanged',
-    notes: [],
-  }));
-  const warnings = [...plan.warnings];
-  const failures = [...plan.failures];
-  const consented = planExecutables(plan);
-  for (const g of plan.apply) {
-    const opts = { scope: plan.scope, targets: g.targets, noSave: true, consented };
-    const r = await installEntities(ctx, g.requests, opts, deps);
-    outcomes.push(...r.outcomes);
-    warnings.push(...r.warnings);
-    failures.push(...(r.failures ?? []));
-  }
-  return {
-    outcomes: dedupeOutcomes(outcomes),
-    warnings: [...new Set(warnings)],
-    failures,
-    plan: plan.items,
-  };
+): Promise<InstallResult> {
+  const deps = await resolveEngineDeps(depsIn);
+  const state = await openScope(ctx, opts.scope, { deps });
+  const run = runOf(ctx, deps, state);
+  return lockScope(ctx, state, async () => {
+    try {
+      const updates: SourceUpdate[] = [];
+      for (const s of plan.sources) updates.push(await sourceUpdate(run, plan, s.name, opts.to));
+      const prepared = await prepareAll(
+        run,
+        updates.flatMap((u) => u.jobs),
+      );
+      await askForConsent(run, prepared, previousUnits(plan));
+      await dropGone(
+        run,
+        updates.flatMap((u) => u.gone),
+      );
+      await applyAll(run, prepared);
+    } finally {
+      await saveScope(state);
+    }
+    run.result.failures.push(...plan.failures.filter((f) => f.kind === 'source'));
+    return run.result;
+  });
 }
 
-/** Plan and apply without asking (the CLI asks in between). */
-export async function updateEntities(
+// ---------------------------------------------------------------------------
+// reviewText
+// ---------------------------------------------------------------------------
+
+function text(data: Uint8Array | undefined): string {
+  return data ? Buffer.from(data).toString('utf8') : '';
+}
+
+async function unitDiff(unit: ExecUnit, scripts: Scripts): Promise<string> {
+  const { unifiedDiff } = await import('../exec/consent.js');
+  const out: string[] = [`${unit.key}  ${short(unit.hash)}`];
+  const paths = [...new Set([...scripts.before.keys(), ...scripts.after.keys()])].sort();
+  for (const p of paths) {
+    const a = text(scripts.before.get(p));
+    const b = text(scripts.after.get(p));
+    if (a !== b) out.push(unifiedDiff(a, b, p));
+  }
+  return out.join('\n');
+}
+
+/** `update --review` (0.2): each changed executable's scripts as a unified diff against the trusted version. */
+export async function reviewText(
   ctx: PalmContext,
-  refs: EntityQuery[],
-  opts: { scope: Scope },
-  deps?: Partial<EngineDeps>,
-): Promise<UpdateResult> {
-  const plan = await planUpdate(ctx, refs, opts, deps);
-  return applyUpdate(ctx, plan, deps);
+  plan: UpdatePlan,
+  _deps: EngineDeps,
+): Promise<string> {
+  const memo = memos.get(plan);
+  const blocks: string[] = [];
+  for (const item of plan.items) {
+    if (!item.exec) continue;
+    const scripts = memo?.scripts.get(item.exec.unit.key);
+    const head = `${item.exec.unit.key}  ${short(item.exec.unit.hash)}`;
+    blocks.push(
+      scripts ? await unitDiff(item.exec.unit, scripts) : `${head} (scripts not available)`,
+    );
+  }
+  if (!blocks.length) ctx.log.debug('update --review: no executable changed');
+  return blocks.join('\n\n');
 }
