@@ -139,12 +139,12 @@ describe('B17, E15, L6, K15: a first word that is no source is looked up in palm
     expect(other.stderr).not.toContain('mattpocock/skills frobnicate');
   });
 
-  it('K15: under -g, a source of this project is named as one, with its repository', async () => {
+  it('K15, N7: under -g, a source of this project is named as one, with its repository and name', async () => {
     const project = scope({ sources: [{ name: 'acme', url: 'https://github.com/acme/kit.git' }] });
     const deps = fakeEngine({ scopes: [scope({ scope: 'global' }), project] });
     const r = await palm(sb, ['install', 'acme', 'review', '-g'], { deps });
     expect(r.stderr).toBe(
-      'x "acme" is a source of this project; -g uses the sources in ~/.palm/palm.yaml only\n  install it for yourself from its repository: palm install acme/kit review -g\n',
+      'x "acme" is a source of this project; -g uses the sources in ~/.palm/palm.yaml only\n  install it for yourself from its repository: palm install acme/kit review --as acme -g\n',
     );
   });
 

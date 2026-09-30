@@ -103,8 +103,12 @@ function didYouMean(e: PalmError, app: App, job: InstallJob): PalmError | undefi
   const missingRepo = /^repository not found/.test(e.message);
   const near = missingDir ? nearDirectory(app, job.source) : missingRepo && nearRepository(job);
   if (!near) return undefined;
-  const hint = `did you mean ${near}? ${typedLine(app, job, near)}${e.hint ? `\n  ${e.hint}` : ''}`;
-  return new PalmError(e.code, e.message, hint);
+  const check = missingRepo && e.hint ? `\n  ${e.hint}` : '';
+  return new PalmError(
+    e.code,
+    e.message,
+    `did you mean ${near}? ${typedLine(app, job, near)}${check}`,
+  );
 }
 
 /** K15, X12, Y21': a directory outside the global scope's root under -g is a project's own. */

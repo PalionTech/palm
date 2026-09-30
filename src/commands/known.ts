@@ -6,7 +6,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { looksLikeSourceInput } from '../core/source-input.js';
-import type { LegacyConfig, PalmContext } from '../core/types.js';
+import type { LayoutDescriptor, LegacyConfig, PalmContext } from '../core/types.js';
 import type { ScopeState, SourceRef } from '../create/engine.js';
 import { githubRepoOf } from '../domain/source-url.js';
 import { readYamlFile } from '../lib/yaml.js';
@@ -31,12 +31,29 @@ function locationOf(ref: SourceRef, root: string): string {
   return source.url ?? ref.name;
 }
 
+/** N7: `--layout kind=glob` for each list of a declared layout, as a person types it again. */
+function layoutFlags(layout: LayoutDescriptor | undefined): string[] {
+  return Object.entries(layout ?? {}).flatMap(([key, value]) => {
+    const globs = [value].flat().filter((g): g is string => typeof g === 'string');
+    return globs.length ? ['--layout', `${key}=${globs.join(',')}`] : [];
+  });
+}
+
+/** N7: what reproduces the declaration elsewhere: `--as <name>` unless the input names it, and the layout. */
+function declarationFlags(ref: SourceRef, input: string): string[] {
+  const named = input === ref.name ? [] : ['--as', ref.name];
+  return [...named, ...layoutFlags(ref.source.layout)];
+}
+
 function knownSource(ref: SourceRef, root: string): KnownSource {
   const { owner, repo } = ref.repoParts();
+  const input = locationOf(ref, root);
+  const flags = declarationFlags(ref, input);
   return {
     name: ref.name,
     ...(ref.alias ? { alias: ref.alias } : {}),
-    input: locationOf(ref, root),
+    input,
+    ...(flags.length ? { flags } : {}),
     ...(ref.isLocal ? { local: true } : {}),
     ...(owner ? { owner } : {}),
     repo,

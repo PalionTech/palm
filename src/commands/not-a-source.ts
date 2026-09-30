@@ -15,6 +15,7 @@ import {
   type KnownSource,
   nearest,
   palmLine,
+  pasteLine,
 } from './hints.js';
 
 function usage(message: string, hint: string): PalmError {
@@ -39,7 +40,7 @@ function projectSource(words: string[], ctx: GrammarContext): PalmError | undefi
   if (!s) return undefined;
   const message = `"${word}" is a source of this project; -g uses the sources in ~/.palm/palm.yaml only`;
   if (s.local) return usage(message, 'list those: palm get sources -g');
-  const line = palmLine('install', [s.input, ...rest], 'global');
+  const line = pasteLine('install', [s.input, ...rest], s.flags ?? [], 'global');
   return usage(message, `install it for yourself from its repository: ${line}`);
 }
 

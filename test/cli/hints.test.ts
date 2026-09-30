@@ -3,7 +3,10 @@
  * parses under palm's own grammar, runs in the scope the command ran in, and names no
  * placeholder, no undeclared source key and no source that does not exist. Each scenario runs a
  * command over the fake engine; every `palm …` command in its output goes back through
- * `parseArgv` and is checked against what the scenario's palm.yaml declares.
+ * `parseArgv` and is checked against what the scenario's palm.yaml declares. The persona cases
+ * of the second rerun (O3 O7 R4' O15 J6' N11 T9 N7 Q3 O16) also say which names mean two kinds
+ * (every command names them with the kind), which typed words every command carries (`--force`,
+ * `#ref`, `--as`, `--layout`, quoted words) and which it never pastes (a typo, `manifest`).
  */
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -11,7 +14,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseArgv } from '../../src/commands/program.js';
 import { PalmError } from '../../src/core/errors.js';
 import { looksLikeSourceInput } from '../../src/core/source-input.js';
-import type { CheckReport, EntityRefSpec, LockEntry, Scope, UI } from '../../src/core/types.js';
+import type {
+  CheckReport,
+  EntityRefSpec,
+  LockEntry,
+  Scope,
+  Source,
+  UI,
+} from '../../src/core/types.js';
 import type { EntityInfo, InstalledRow } from '../../src/create/engine.js';
 import { removeDir, type Sandbox, sandbox, write } from '../support/sandbox.js';
 import {
@@ -78,6 +88,12 @@ interface Scenario {
   flips?: boolean;
   ui?: () => UI;
   setup?: (sb: Sandbox) => Promise<void>;
+  /** O3: names that mean two kinds; a command that names one without its kind cannot paste. */
+  twoKinds?: string[];
+  /** J6', O15, T9, N7: text every command of the scenario carries (`--force`, `#v1`, a quoted word). */
+  carries?: string[];
+  /** N11, Q3, O16, J10: words no command pastes (a typo, a source that lacks the name, `manifest`). */
+  never?: string[];
 }
 
 /** What is wrong with `cmd` as a command to paste after `s`; empty when it runs. */
@@ -98,6 +114,18 @@ function problemsOf(cmd: string, s: Scenario): string[] {
   for (const w of sourceWords(inv, declared)) if (!known(w)) problems.push(`names source ${w}`);
   const named = inv.resource === 'source' ? [] : inv.names;
   if (named.some((n: EntityRefSpec) => /[@#]/.test(n.name))) problems.push('0.1 name form');
+  return [...problems, ...typedProblems(cmd, inv, s)];
+}
+
+/** O3, J6', N11: a two-kind name without its kind, a typed word dropped, a word pasted that must not be. */
+function typedProblems(cmd: string, inv: Parsed, s: Scenario): string[] {
+  const problems: string[] = [];
+  const bare = (name: string) => inv.names.some((n) => n.name === name && !n.kind);
+  for (const name of s.twoKinds ?? [])
+    if (bare(name)) problems.push(`names ${name} without its kind`);
+  for (const text of s.carries ?? []) if (!cmd.includes(text)) problems.push(`drops ${text}`);
+  const words = shellWords(cmd);
+  for (const word of s.never ?? []) if (words.includes(word)) problems.push(`pastes ${word}`);
   return problems;
 }
 
@@ -583,7 +611,335 @@ const OTHERS: Scenario[] = [
   { name: 'describe two things', argv: ['describe', 'a', 'b'], deps: () => engineWith([]) },
 ];
 
+// the second rerun: two kinds, typed options, typos ----------------------------------------------
+
+const AGENTIC: FakeSource = { name: 'JanDeDobbeleer/agentic' };
+const SHA = 'e276d99d85e7f5951e45d524fbcfe7436ee78a37';
+const golang = lockEntry({
+  kind: 'skill',
+  name: 'golang',
+  source: AGENTIC.name,
+  files: ['.agents/skills/golang/SKILL.md'],
+});
+const golangRule = lockEntry({ kind: 'instruction', name: 'golang', source: AGENTIC.name });
+const markdownRule = lockEntry({ kind: 'instruction', name: 'markdown', source: AGENTIC.name });
+
+const agentic = (extra: Parameters<typeof fakeEngine>[0] = {}) =>
+  fakeEngine({
+    scopes: [scopeOf({ sources: [AGENTIC], entries: [golang, golangRule, markdownRule] })],
+    ...extra,
+  });
+
+/** What a failing `check` reports for one entity, with the engine's fix. */
+const checkFailing =
+  (entity: { kind: 'skill' | 'mcp'; name: string; source: string }, fix: string) =>
+  async (): Promise<CheckReport> => ({
+    scope: 'project',
+    ok: false,
+    checks: [
+      {
+        id: 'lock-disk',
+        label: 'generated files match the lock',
+        status: 'fail',
+        problems: [{ entity, message: 'a file differs from what palm renders', fix }],
+      },
+    ],
+  });
+
+const TWO_KINDS: Scenario[] = [
+  {
+    name: "O3: a kept edit's --force line names the kind",
+    argv: ['install'],
+    twoKinds: ['golang'],
+    carries: ['skill:golang', '--force'],
+    deps: () =>
+      agentic({
+        syncScope: async () => ({
+          ...nothing,
+          outcomes: [outcome(golang, 'modified')],
+          failures: [edited('install', AGENTIC.name, 'golang')],
+        }),
+      }),
+  },
+  {
+    name: 'O3: a check fix names the kind',
+    argv: ['check'],
+    twoKinds: ['golang'],
+    carries: ['skill:golang', '--force'],
+    deps: () =>
+      agentic({
+        checkScope: checkFailing(
+          { kind: 'skill', name: 'golang', source: AGENTIC.name },
+          `palm install ${AGENTIC.name} golang --force`,
+        ),
+      }),
+  },
+  {
+    name: "R4': a remove hint names the kind, so it never loops back",
+    argv: ['remove', 'skill:golang'],
+    twoKinds: ['golang'],
+    carries: ['skill:golang', '--force'],
+    deps: () =>
+      agentic({
+        removeEntities: async () => ({
+          ...removedNothing,
+          failures: [edited('remove', AGENTIC.name, 'golang')],
+        }),
+      }),
+  },
+  {
+    name: 'O7, O3: every ambiguous name is corrected in one command that keeps --force',
+    argv: ['install', AGENTIC.name, 'golang', 'markdown', '--force'],
+    twoKinds: ['golang', 'markdown'],
+    carries: [`${AGENTIC.name} skill:golang instruction:markdown --force`],
+    deps: () =>
+      agentic({
+        installFromSource: async () => {
+          throw new PalmError(
+            'E_AMBIGUOUS',
+            `"golang" names 2 kinds in source ${AGENTIC.name}: skill:golang, instruction:golang; "markdown" names 2 kinds in source ${AGENTIC.name}: skill:markdown, instruction:markdown`,
+            `palm install ${AGENTIC.name} skill:golang`,
+          );
+        },
+      }),
+  },
+  {
+    name: "Y19': a name two sources installed gets one line per owner, with the typed options",
+    argv: ['remove', 'elysia', '--force'],
+    declared: ['./kit2', './agent-kit'],
+    carries: ['elysia', '--force'],
+    deps: () =>
+      fakeEngine({
+        scopes: [
+          scopeOf({
+            sources: [
+              { name: './kit2', path: '/p/kit2' },
+              { name: './agent-kit', path: '/p/agent-kit' },
+            ],
+            entries: [
+              lockEntry({ kind: 'skill', name: 'elysia', source: './kit2' }),
+              lockEntry({ kind: 'instruction', name: 'elysia', source: './agent-kit' }),
+            ],
+          }),
+        ],
+        removeEntities: async () => {
+          throw new PalmError(
+            'E_AMBIGUOUS',
+            '"elysia" is installed from 2 sources: ./kit2, ./agent-kit',
+            'palm remove ./kit2 elysia',
+          );
+        },
+      }),
+  },
+  {
+    name: 'M2: a plugin member that keeps an edit points back at the plugin',
+    argv: ['remove', 'obra/superpowers', 'plugin:superpowers'],
+    carries: ['plugin:superpowers', '--force'],
+    never: ['brainstorming', 'skill:brainstorming'],
+    deps: () =>
+      fakeEngine({
+        scopes: [
+          scopeOf({
+            sources: [{ name: 'obra/superpowers' }],
+            entries: [
+              lockEntry({ kind: 'plugin', name: 'superpowers', source: 'obra/superpowers' }),
+              lockEntry({
+                kind: 'skill',
+                name: 'brainstorming',
+                source: 'obra/superpowers',
+                via: 'plugin:superpowers',
+              }),
+            ],
+          }),
+        ],
+        removeEntities: async () => ({
+          ...removedNothing,
+          failures: [
+            {
+              ...edited('remove', 'obra/superpowers', 'brainstorming'),
+              source: 'obra/superpowers',
+            },
+          ],
+        }),
+      }),
+  },
+];
+
+/** A layout on a fake source (the fakes build none). */
+function withLayout(state: ReturnType<typeof scopeOf>, name: string, layout: Source['layout']) {
+  const ref = state.sources.byName(name);
+  if (ref) (ref.source as Source).layout = layout;
+  return state;
+}
+
+const TYPED: Scenario[] = [
+  {
+    name: 'O15: --ref after install origin keeps the typed repository',
+    argv: ['install', 'origin', AGENTIC.name, '--ref', SHA, '--project'],
+    carries: [`${AGENTIC.name}#${SHA}`],
+    never: ['mattpocock/skills', 'origin', '--project'],
+    deps: () => installing([]),
+  },
+  {
+    name: "J6': the lines of install origin with several repositories carry -g",
+    argv: ['install', 'origin', 'mattpocock/skills', 'obra/superpowers', '-g'],
+    scope: 'global',
+    carries: [' -g'],
+    deps: () => fakeEngine({ scopes: [scopeOf({ scope: 'global' })] }),
+  },
+  {
+    name: 'T9, K9: listing lines keep a typed --as and --layout',
+    argv: ['install', URL, '--as', 'acme', '--layout', 'skills=packages/*'],
+    carries: [URL, '--as acme', "--layout 'skills=packages/*'"],
+    deps: () =>
+      fakeEngine({
+        scopes: [scopeOf({})],
+        listSource: async () => fakeListing({ name: 'company-agent-kit' }, [entity('incident')]),
+      }),
+  },
+  {
+    name: 'N7: a project source under -g keeps its --as and --layout',
+    argv: ['install', 'acme', 'reviewer', '-g'],
+    scope: 'global',
+    carries: ['--as acme', "--layout 'agents=people/*.md'"],
+    deps: () =>
+      fakeEngine({
+        scopes: [
+          scopeOf({ scope: 'global' }),
+          withLayout(scopeOf({ sources: [{ name: 'acme', url: URL }] }), 'acme', {
+            agents: ['people/*.md'],
+          }),
+        ],
+      }),
+  },
+  {
+    name: "J6': a typed word with a glob or a space is quoted when a hint repeats it",
+    argv: ['install', MP.name, 'tdd', '--layout', 'skills=packages/*', '--as', 'my kit'],
+    flips: true,
+    carries: ["'skills=packages/*'", "'my kit'"],
+    deps: () =>
+      fakeEngine({
+        openScope: async () => {
+          throw new PalmError(
+            'E_USAGE',
+            '~/.claude is inside the global claude directory, not a project; your own setup takes -g',
+            `palm install ${MP.name} tdd --layout skills=packages/* --as my kit -g`,
+          );
+        },
+      }),
+  },
+  {
+    name: 'N11: a typo is never pasted into a command',
+    argv: ['install', 'reveiw'],
+    declared: ['acme'],
+    never: ['reveiw'],
+    deps: () =>
+      fakeEngine({
+        scopes: [
+          scopeOf({
+            sources: [{ name: 'acme', url: URL }],
+            entries: [lockEntry({ kind: 'skill', name: 'review', source: 'acme' })],
+          }),
+        ],
+      }),
+  },
+  {
+    name: 'O16: a kind-word typo names the kind before any source matches',
+    argv: ['install', 'skil', 'golang'],
+    carries: ['skill:golang'],
+    never: ['skil', 'golang'],
+    deps: () => agentic(),
+  },
+  {
+    name: 'Q3: a declared source is the example only when it offers the name',
+    argv: ['install', 'context7'],
+    declared: ['obra/superpowers'],
+    never: ['obra/superpowers', 'context7'],
+    deps: () => fakeEngine({ scopes: [scopeOf({ sources: [{ name: 'obra/superpowers' }] })] }),
+  },
+  {
+    name: "Y20': a mistyped directory gets the one it nearly names",
+    argv: ['install', './.agents-kti', 'reviewer'],
+    carries: ['./.agents-kit reviewer'],
+    never: ['./.agents-kti'],
+    deps: () =>
+      fakeEngine({
+        scopes: [scopeOf({})],
+        installFromSource: async () => {
+          throw new PalmError(
+            'E_SOURCE',
+            `no directory at ${join(sb.project, '.agents-kti')}`,
+            'check the path, then run palm install ./.agents-kti',
+          );
+        },
+      }),
+  },
+  {
+    name: "Y20', Q15: a repository that is not there gets the one it nearly names",
+    argv: ['install', 'anthropic/skills', 'pdf'],
+    carries: ['anthropics/skills pdf'],
+    deps: () =>
+      fakeEngine({
+        scopes: [scopeOf({})],
+        installFromSource: async () => {
+          throw new PalmError(
+            'E_NOT_FOUND',
+            'repository not found or private: https://github.com/anthropic/skills.git',
+            'check the name, then try: git ls-remote https://github.com/anthropic/skills.git',
+          );
+        },
+      }),
+  },
+  {
+    name: "K15, X12, Y21': a project's directory under -g points back at the project",
+    argv: ['install', './.agents-kit', 'reviewer', '-g'],
+    scope: 'global',
+    flips: true,
+    carries: ['./.agents-kit reviewer'],
+    never: ['-g'],
+    deps: () =>
+      fakeEngine({
+        scopes: [scopeOf({ scope: 'global' })],
+        installFromSource: async () => {
+          throw new PalmError(
+            'E_SOURCE',
+            `${join(sb.project, '.agents-kit')} is outside the project ${sb.home}; a local source is a directory inside it`,
+            'move the directory into the project, or publish it as a git repository and palm install its URL',
+          );
+        },
+      }),
+  },
+  {
+    name: "J10, R16': a palm.yaml server's fix is palm install mcp, never manifest",
+    argv: ['check'],
+    carries: ['palm install mcp docs --force'],
+    never: ['manifest'],
+    deps: () =>
+      fakeEngine({
+        checkScope: checkFailing(
+          { kind: 'mcp', name: 'docs', source: 'manifest' },
+          'palm install manifest docs --force',
+        ),
+      }),
+  },
+  {
+    name: 'O25, Q17: removing a whole source asks, and --yes answers without a terminal',
+    argv: ['remove', MP.name],
+    declared: [MP.name],
+    carries: [`palm remove ${MP.name} --yes`],
+    deps: () => engineWith([MP]),
+  },
+  {
+    name: 'M4: --local on an install points at the global scope',
+    argv: ['install', MP.name, 'tdd', '--local'],
+    flips: true,
+    carries: [`${MP.name} tdd -g`],
+  },
+];
+
 const SCENARIOS: Scenario[] = [
+  ...TWO_KINDS,
+  ...TYPED,
   ...LISTINGS,
   ...FIRST_WORDS,
   ...FRESH,

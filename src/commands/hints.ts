@@ -171,6 +171,8 @@ export interface KnownSource {
   alias?: string;
   /** What installs from it without palm.yaml: `owner/repo[/sub/dir]`, a URL, or `./dir`. */
   input: string;
+  /** N7: the options that declare it the same way from `input` (`--as`, `--layout`). */
+  flags?: readonly string[];
   /** A directory source (it belongs to its own scope). */
   local?: boolean;
   /** Repository owner and name (`mattpocock`, `skills`): 0.1 aliases and bare owners match them. */
