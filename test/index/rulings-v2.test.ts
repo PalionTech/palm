@@ -5,6 +5,7 @@ import { mkdir, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Entity, ScanResult, Source } from '../../src/core/types.js';
+import { parseLayoutFlags } from '../../src/index/layout-flags.js';
 import { putFile, removeDir, tempDir } from '../support/sandbox.js';
 import { scanSource } from './helpers.js';
 
@@ -102,5 +103,104 @@ describe('C4 only the top-most SKILL.md is an entity', () => {
     await symlink('../.claude', join(tmp, 'kit/claude'));
     const r = await run();
     expect(kindNames(r)).toEqual(['skill:own skills/own']);
+  });
+});
+
+describe('B13 rules/*.md and skipped skills under ignored names', () => {
+  it('B13 rules/*.md files are instructions by convention', async () => {
+    await put('rules/style.md', '---\ndescription: house style\npaths: ["src/**"]\n---\nTabs.\n');
+    await put('rules/README.md', '# Rules\n');
+    const r = await run();
+    expect(kindNames(r)).toEqual(['instruction:style rules/style.md']);
+  });
+
+  it('B13 a SKILL.md under an ignored name is listed with the layout that indexes it', async () => {
+    await put('skills/lint/SKILL.md', skillMd('lint'));
+    await put('skills/test/SKILL.md', skillMd('test'));
+    const r = await run();
+    expect(kindNames(r)).toEqual(['skill:lint skills/lint']);
+    expect(r.warnings).toEqual([
+      'skipped skills/test/SKILL.md (ignored name "test"; add layout: { skills: [skills/*] })',
+    ]);
+    const withLayout = await run({ layout: { skills: ['skills/*'] } });
+    expect(kindNames(withLayout)).toEqual(['skill:lint skills/lint', 'skill:test skills/test']);
+  });
+});
+
+describe('K2 near-miss lines and layout globs', () => {
+  const agent = (name: string) =>
+    `---\nname: ${name}\ndescription: ${name} agent\nmodel: sonnet\nskills: [review]\n---\nBody.\n`;
+
+  it('K2 agent- and MCP-shaped files outside scanned folders get a pasteable layout', async () => {
+    await put('packages/review/SKILL.md', skillMd('review'));
+    await put('rules/style.mdc', '---\nalwaysApply: true\n---\nStyle.\n');
+    await put('people/reviewer.md', agent('reviewer'));
+    await put('people/oncall.md', agent('oncall'));
+    await put('mcp/servers.json', { mcpServers: { docs: { url: 'https://example.com/mcp' } } });
+    await put('notes/plain.md', '---\ntitle: notes\n---\nNot an agent.\n');
+    await put('crew/lead.md', agent('lead'));
+    await put('crew/README.md', '# Crew\n');
+    const r = await run();
+    const layout =
+      'add layout: { skills: [packages/*], agents: [crew/lead.md, people/*.md], instructions: [rules/style.mdc], mcp: [mcp/servers.json] }';
+    expect(r.warnings).toEqual([
+      `3 agent-shaped files not indexed: crew/lead.md, people/*.md; ${layout}`,
+      `1 MCP-shaped file not indexed: mcp/servers.json; ${layout}`,
+    ]);
+    const pasted = await run({
+      layout: {
+        skills: ['packages/*'],
+        agents: ['crew/lead.md', 'people/*.md'],
+        instructions: ['rules/style.mdc'],
+        mcp: ['mcp/servers.json'],
+      },
+    });
+    expect(kindNames(pasted)).toEqual([
+      'agent:lead crew/lead.md',
+      'agent:oncall people/oncall.md',
+      'agent:reviewer people/reviewer.md',
+      'instruction:style rules/style.mdc',
+      'mcp:docs mcp/servers.json',
+      'skill:review packages/review',
+    ]);
+    expect(pasted.warnings).toEqual([]);
+  });
+
+  it('K2 a hook-shaped JSON outside hooks/ is a near miss; a twin inside hooks/ is not', async () => {
+    const hooks = { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo stop' }] }] } };
+    await put('hooks/hooks.json', hooks);
+    await put('hooks/hooks-cursor.json', { version: 1, hooks: { stop: [{ command: 'echo' }] } });
+    await put('ci/guard.json', hooks);
+    const r = await run();
+    expect(r.warnings).toEqual([
+      '1 hook-shaped file not indexed: ci/guard.json; add layout: { hooks: [ci/guard.json, hooks/hooks.json] }',
+    ]);
+  });
+
+  it('K2 --layout kind=glob values become a layout descriptor', () => {
+    expect(
+      parseLayoutFlags([
+        'agents=people/*.md',
+        'skills=packages/*',
+        'agent=crew/*.md',
+        'rules=rules/*.mdc,more/*.md',
+      ]),
+    ).toEqual({
+      agents: ['people/*.md', 'crew/*.md'],
+      skills: ['packages/*'],
+      instructions: ['rules/*.mdc', 'more/*.md'],
+    });
+    for (const bad of ['people/*.md', 'people=x/*.md', 'agents=', '=x'])
+      expect(() => parseLayoutFlags([bad])).toThrow(/expected kind=glob/);
+  });
+
+  it('K2 a layout glob that matches nothing is a warning', async () => {
+    await put('skills/a/SKILL.md', skillMd('a'));
+    const r = await run({ layout: { skills: ['skills/*'], agents: ['people/*.md', 'crew/*.md'] } });
+    expect(kindNames(r)).toEqual(['skill:a skills/a']);
+    expect(r.warnings).toEqual([
+      'layout agents: "people/*.md" matches nothing in the source',
+      'layout agents: "crew/*.md" matches nothing in the source',
+    ]);
   });
 });

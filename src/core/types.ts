@@ -727,6 +727,11 @@ export interface InstallRequest {
   at?: string;
   /** `--as <name>`: the name a newly declared source gets in palm.yaml. */
   as?: string;
+  /**
+   * `--layout kind=glob` (repeatable), parsed by `parseLayoutFlags` (src/index/layout-flags.ts):
+   * the `layout:` a newly declared source gets in palm.yaml (ruling K2).
+   */
+  layout?: LayoutDescriptor;
 }
 
 /** A hand-declared MCP server (`install mcp` flags, `--json` snippet) headed for `mcp:` in palm.yaml. */

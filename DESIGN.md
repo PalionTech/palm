@@ -546,7 +546,18 @@ the values (section 8).
    `agents/openai.yaml`, README); commands `commands/*.md`, `commands/*.toml`, `prompts/*.prompt.md`
    (indexed as skills with `fromCommand`, note `from command <file>`); hooks `hooks/hooks.json`,
    `hooks/*/hooks.json`; mcp `.mcp.json`/`mcp.json` (wrapped or flat);
-   instructions `rules/*.mdc`, `*.instructions.md`, `instructions/*.md`.
+   instructions `rules/*.mdc`, `rules/*.md`, `*.instructions.md`, `instructions/*.md`.
+
+Near misses (auto-detected scans only): an agent-shaped `.md` (frontmatter `name`,
+`description` and an agent key such as `tools`, `model` or `skills`), a hook-shaped JSON (a
+`hooks` object of arrays) or an MCP-shaped JSON (`mcpServers`) that no rule indexed, outside
+`agents/` and `hooks/` folders, harness folders and plugin manifests, adds one warning per kind
+(`2 agent-shaped files not indexed: people/*.md; add layout: { skills: [packages/*], agents:
+[people/*.md] }`). A SKILL.md directly under an ignored name next to other skills adds
+`skipped skills/test/SKILL.md (ignored name "test"; add layout: { skills: [skills/*] })`. The
+suggested layout lists what the scan found as well, since a layout replaces detection. A
+descriptor pattern that matches nothing warns `layout agents: "people/*.md" matches nothing in
+the source`.
 
 Names: skill = frontmatter `name` (fallback dirname; if invalid slug, slugify dirname; if it
 differs from dirname keep frontmatter name and warn); a command-as-skill = file stem; agent =

@@ -60,6 +60,7 @@ const CLASSIFIERS: ReadonlyArray<[ConventionKind, (f: FileShape) => boolean]> = 
   ['command', (f) => f.parent === 'commands' && mdOrToml(f) && !isDocFile(f.base)],
   ['agent', (f) => inAgentsDir(f) && mdOrToml(f) && !isDocFile(f.base)],
   ['instruction', (f) => f.parent === 'rules' && f.lower.endsWith('.mdc')],
+  ['instruction', (f) => f.parent === 'rules' && f.lower.endsWith('.md') && !isDocFile(f.base)],
   [
     'instruction',
     (f) => f.parent === 'instructions' && f.lower.endsWith('.md') && !isDocFile(f.base),
