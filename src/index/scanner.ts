@@ -5,7 +5,8 @@
  *
  * Rule order: descriptor > apm > marketplace > plugin manifest > convention. Plugin rules are
  * followed by a convention pass over the rest of the tree, so skills on disk that a manifest does
- * not declare are still indexed (standalone, with a warning).
+ * not declare are still indexed (standalone, with a warning). A descriptor (layout) keeps the
+ * plugins a manifest or marketplace declares and adds what its globs name (R3').
  */
 
 import { stat } from 'node:fs/promises';
@@ -51,10 +52,24 @@ async function runMarketplace(
   });
 }
 
+/**
+ * R3': a layout is merged with the plugins detection finds (a root plugin manifest, a
+ * marketplace): the globs add what they name, and a plugin the source ships stays indexed, so
+ * pasting the layout palm suggested never hides it.
+ */
+async function scanLayoutPlugins(ctx: ScanContext): Promise<void> {
+  const found = await detectLayout(ctx.rootAbs, undefined, ctx.warnings, { skipApm: true });
+  if (found.rule === 'marketplace' && found.marketplaceFile)
+    await scanMarketplace(ctx, found.marketplaceFile, found.rootManifest);
+  else if (found.rule === 'plugin-manifest')
+    await scanPlugin(ctx, { rootRel: '', manifest: found.rootManifest });
+}
+
 /** Apply one detection rule. Returns the rule to report, or undefined when it found nothing to apply. */
 async function runRule(ctx: ScanContext, detection: Detection): Promise<ScanRule | undefined> {
   switch (detection.rule) {
     case 'descriptor':
+      await scanLayoutPlugins(ctx);
       await scanDescriptor(ctx, ctx.layout ?? {});
       return 'descriptor';
     case 'apm':

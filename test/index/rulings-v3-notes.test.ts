@@ -326,3 +326,16 @@ describe('M8 references to excluded plugin members', () => {
     expect(hookReadsExcluded(hook, excluded, { paths: ['hooks/start'] })).toEqual([]);
   });
 });
+
+describe("R3' a layout is merged with what detection found", () => {
+  it("R3' the plugin a manifest declares stays indexed beside the layout's globs", async () => {
+    await put('.claude-plugin/plugin.json', { name: 'sp', version: '1.0.0' });
+    await put('skills/plans/SKILL.md', skillMd('plans'));
+    await put('people/reviewer.md', agentMd('reviewer'));
+    const r = await run(tmp, { layout: { skills: ['skills/*'], agents: ['people/*.md'] } });
+    expect(find(r, 'plugin', 'sp').kind).toBe('plugin');
+    expect(find(r, 'agent', 'reviewer').kind).toBe('agent');
+    expect(find(r, 'skill', 'plans').kind).toBe('skill');
+    expect(r.entities.filter((e) => e.name === 'plans')).toHaveLength(1);
+  });
+});
