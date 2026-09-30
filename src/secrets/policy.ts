@@ -15,6 +15,7 @@ export interface SecretDestination {
   /** `--secrets`; project scope needs `literal` for a typed literal. */
   requested?: SecretPolicy;
   destinationAbs: string;
+  /** Part of the call; `--force` never overrides the worktree guard (J26). */
   force: boolean;
 }
 
@@ -97,16 +98,10 @@ async function globalLiteral(input: SecretDestination, git: GitProbe): Promise<S
       reason: `${shown(real)} is outside every git worktree`,
     };
   const where = `${destinationText(input.destinationAbs, real)} is inside the git worktree ${shown(top)}`;
-  if (input.force)
-    return {
-      policy: 'literal',
-      action: 'warn',
-      reason: `${where}; writing the literal secret there because of --force`,
-    };
   return {
     policy: 'env-ref',
     action: 'refused',
-    reason: `${where}; refusing to write a literal secret there (use --secrets env-ref, or --force)`,
+    reason: `${where}; refusing to write a literal secret there (use --secrets env-ref and export the variable)`,
   };
 }
 
@@ -118,7 +113,7 @@ async function globalLiteral(input: SecretDestination, git: GitProbe): Promise<S
  * - project scope with `literal`: `literal`, or `warn` when the destination is inside a git
  *   worktree and not ignored (git would commit it);
  * - global scope with `literal`: `literal` only when the destination's real path lies outside
- *   every git worktree, else `refused` (`force` downgrades that to `warn`).
+ *   every git worktree, else `refused`; `force` never overrides this worktree guard (J1, J26).
  */
 export async function decideSecret(
   input: SecretDestination,
@@ -153,7 +148,8 @@ export interface RotateInput {
   harnesses: string[];
 }
 
-function orList(items: readonly string[]): string {
+/** `a`, `a or b`, `a, b or c`. */
+export function orList(items: readonly string[]): string {
   if (items.length <= 1) return items.join('');
   return `${items.slice(0, -1).join(', ')} or ${items.at(-1)}`;
 }

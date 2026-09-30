@@ -118,25 +118,50 @@ function scriptRows(files: ClosureFile[]): string[] {
   );
 }
 
-function scriptLines(unit: ExecUnit, scope: Scope): string[] {
+/** Where the scripts live: copied into the assets directory, or run in place from the repository. */
+function scriptsHead(unit: ExecUnit, scope: Scope): string {
   const { files, inPlace, root, bytes } = unit.closure;
-  if (inPlace || files.length === 0) return [];
+  const dir = visible(root.endsWith('/') ? root : `${root}/`);
+  const count = `${plural(files.length, 'file')}, ${formatSize(bytes)}`;
+  if (inPlace) return `${ROW}scripts: ${count}  in  ${dir}  (run in place from your repository)`;
   const where = scope === 'project' ? '  (committed with your repo)' : '';
-  const dir = root.endsWith('/') ? root : `${root}/`;
+  return `${ROW}scripts: ${count}  ->  ${dir}${where}`;
+}
+
+function scriptLines(unit: ExecUnit, scope: Scope): string[] {
+  const { files } = unit.closure;
+  if (files.length === 0) return [];
   const shown = shownScripts(unit);
   const more = files.length - shown.length;
   return [
-    `${ROW}scripts: ${plural(files.length, 'file')}, ${formatSize(bytes)}  ->  ${visible(dir)}${where}`,
+    scriptsHead(unit, scope),
     ...scriptRows(shown),
     ...(more > 0 ? [`${SUB_ROW}... ${more} more  (v shows every script)`] : []),
   ];
+}
+
+/** `reads: skills/using-superpowers/SKILL.md`: files a script reads rather than runs (E1). */
+function readsLines(unit: ExecUnit): string[] {
+  const reads = unit.reads ?? [];
+  if (!reads.length) return [];
+  const shown = reads.slice(0, SHOWN_SCRIPTS).map(visible).join(', ');
+  const more = reads.length > SHOWN_SCRIPTS ? `  ... ${reads.length - SHOWN_SCRIPTS} more` : '';
+  return [`${ROW}reads:   ${shown}${more}`];
 }
 
 function unitLines(unit: ExecUnit, n: number, scope: Scope): string[] {
   const name = visible(unit.entity.name);
   const head = `  ${n}. ${unit.kind} ${name}  from ${visible(unit.entity.source)}${fromText(unit.from)}`;
   const rows = unit.kind === 'mcp' ? mcpRows(unit) : hookRows(unit);
-  return [head, ...rows, ...targetsLine(unit), ...scriptLines(unit, scope)];
+  const warnings = (unit.warnings ?? []).map((w) => `${ROW}! ${visible(w)}`);
+  return [
+    head,
+    ...rows,
+    ...targetsLine(unit),
+    ...scriptLines(unit, scope),
+    ...readsLines(unit),
+    ...warnings,
+  ];
 }
 
 /** `Also 2 prompt hooks (text sent to the model; no program runs): fp-check Stop, SubagentStop.` */

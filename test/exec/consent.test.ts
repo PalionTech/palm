@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { ClosureFile, ConsentRequest, ExecUnit } from '../../src/core/types.js';
 import {
@@ -12,7 +15,12 @@ import {
 import { designBlock, ghCliUnit, teamHelperUnit } from './examples.js';
 import { fakeContext } from './fakes.js';
 
-const git = vi.hoisted(() => ({ fileAtSha: vi.fn(async () => 'echo from git\n') }));
+const git = vi.hoisted(() => ({
+  fileAtSha: vi.fn(
+    async (_dir: string, _sha: string, _rel: string): Promise<string | undefined> =>
+      'echo from git\n',
+  ),
+}));
 
 vi.mock('../../src/core/git.js', async (real) => ({ ...(await real()), ...git }));
 
@@ -364,16 +372,13 @@ describe('viewScripts', () => {
     expect(text).toContain('echo "<U+001B>[31mred"\n');
   });
 
-  it('says where in-place scripts run instead of listing them', async () => {
-    const unit = {
-      ...ghCliUnit(),
-      closure: { root: 'agent-kit/hooks', inPlace: true, files: [], bytes: 0 },
-    };
+  it('E2 V9 shows in-place scripts from the working tree, saying where they run', async () => {
+    const base = ghCliUnit();
+    const unit = { ...base, closure: { ...base.closure, root: 'agent-kit/hooks', inPlace: true } };
     const { ctx, logs } = fakeContext();
     await viewScripts(ctx, [unit], bodies);
-    expect(logs[0]).toContain(
-      'runs in place from agent-kit/hooks; the scripts are part of your repository',
-    );
+    expect(logs[0]).toContain('runs in place from agent-kit/hooks; shown from the working tree');
+    expect(logs[0]).toContain(`# gh-cli:${base.closure.files[0]?.path}\necho hi`);
   });
 });
 
@@ -393,6 +398,64 @@ describe('checkoutReader', () => {
       `plugins/gh-cli/${file.path}`,
     );
     expect(await read(teamHelperUnit(), file)).toBeUndefined();
+  });
+
+  it('D12 V3 reads the trusted commit from its own checkout beside the current one', async () => {
+    const unit = { ...ghCliUnit(), from: { sha: 'a'.repeat(40) } };
+    git.fileAtSha.mockClear();
+    git.fileAtSha.mockImplementation(async (dir: string) =>
+      dir.endsWith(`sha-${'a'.repeat(40)}`) ? 'old body\n' : undefined,
+    );
+    const read = checkoutReader(() => ({
+      checkoutDir: `/cache/tob/sha-${'b'.repeat(40)}`,
+      dirRel: '',
+    }));
+    expect(await read(unit, unit.closure.files[0]!)).toBe('old body\n');
+    expect(git.fileAtSha).toHaveBeenLastCalledWith(
+      `/cache/tob/sha-${'a'.repeat(40)}`,
+      'a'.repeat(40),
+      unit.closure.files[0]!.path,
+    );
+    git.fileAtSha.mockImplementation(async () => 'echo from git\n');
+  });
+
+  it('E2 reads an in-place unit from the working tree, with no commit', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'palm-exec-'));
+    await mkdir(join(dir, 'hooks'), { recursive: true });
+    await writeFile(join(dir, 'hooks', 'fmt.sh'), 'gofmt -l .\n');
+    const base = teamHelperUnit();
+    const file: ClosureFile = { path: 'hooks/fmt.sh', mode: 0o755, size: 11, hash: 'sha256:0' };
+    const unit: ExecUnit = {
+      ...base,
+      closure: { root: 'kit', inPlace: true, files: [file], bytes: 11, abs: dir },
+    };
+    expect(await checkoutReader(() => undefined)(unit, file)).toBe('gofmt -l .\n');
+  });
+});
+
+describe('J11 the consent error redacts typed values', () => {
+  it('J11 review: and then: repeat the command with references, never the typed value', () => {
+    const typed = ['sk', 'raj', 'fake', '1234'].join('-');
+    const req: ConsentRequest = {
+      operation: 'install',
+      units: [teamHelperUnit()],
+      prompts: [],
+      lockFile: 'palm.lock.yaml',
+    };
+    const err = nonInteractiveError(req, {
+      args: [
+        'install',
+        'mcp',
+        'brave',
+        '--command',
+        'npx',
+        '--env',
+        `BRAVE_API_KEY=${typed}`,
+        '-g',
+      ],
+    });
+    expect(err.hint).not.toContain(typed);
+    expect(err.hint).toContain(`--env 'BRAVE_API_KEY=\${BRAVE_API_KEY}'`);
   });
 });
 

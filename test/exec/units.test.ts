@@ -142,20 +142,24 @@ describe('execUnitOf', () => {
     expect(teamHelperUnit().env).toEqual([]);
   });
 
-  it('lists no files for an in-place source, so its scripts do not move the hash', () => {
+  it('E2 hashes the scripts of an in-place source like a copy (ruling 24 reversed)', () => {
     const renders = { claude: ghCliRender('claude') };
+    const files = ghCliScripts();
     const a = execUnitOf(ghCliEntity, renders, {
       root: 'agent-kit/hooks',
       inPlace: true,
-      files: ghCliScripts(),
+      files,
+      abs: '/repo/agent-kit/hooks',
     });
+    const edited = files.map((f, i) => (i === 0 ? { ...f, hash: `sha256:${'e'.repeat(64)}` } : f));
     const b = execUnitOf(ghCliEntity, renders, {
       root: 'agent-kit/hooks',
       inPlace: true,
-      files: [],
+      files: edited,
     });
-    expect(a.closure).toEqual({ root: 'agent-kit/hooks', inPlace: true, files: [], bytes: 0 });
-    expect(a.hash).toBe(b.hash);
+    expect(a.closure.files).toHaveLength(files.length);
+    expect(a.closure.abs).toBe('/repo/agent-kit/hooks');
+    expect(a.hash).not.toBe(b.hash);
   });
 });
 

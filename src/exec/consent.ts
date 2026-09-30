@@ -3,7 +3,8 @@
  * script viewer and the diff, and the error without a terminal. The default answer is no;
  * `--yes` never consents; nothing here runs what it shows.
  */
-import { posix, relative, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { basename, dirname, join, posix, relative, resolve } from 'node:path';
 import { PalmError } from '../core/errors.js';
 import { fileAtSha } from '../core/git.js';
 import type {
@@ -16,6 +17,7 @@ import type {
   ScriptReader,
 } from '../core/types.js';
 import { isWithin } from '../lib/fs.js';
+import { redactTypedArgs } from '../secrets/typed.js';
 import { canDiff, consentSummary, consentText, type PromptOptions, programs } from './prompt.js';
 import { execDiff, scriptsText } from './review.js';
 
@@ -73,7 +75,11 @@ function command(words: readonly string[]): string {
   return ['palm', ...words.map(shellWord)].join(' ');
 }
 
-/** The command line without `--allow-exec`, `--dry-run` and `--review`, plus the allow entries it had. */
+/**
+ * The command line without `--allow-exec`, `--dry-run` and `--review`, plus the allow entries
+ * it had. Typed values are redacted (J11): an `--env` or `--header` value becomes the reference
+ * palm writes for it, so a hint that repeats the command never echoes a secret.
+ */
 function splitArgs(args: readonly string[]): { base: string[]; allow: string[] } {
   const base: string[] = [];
   const allow: string[] = [];
@@ -83,7 +89,10 @@ function splitArgs(args: readonly string[]): { base: string[]; allow: string[] }
     else if (arg.startsWith('--allow-exec=')) allow.push(...arg.slice(13).split(','));
     else if (arg !== '--dry-run' && arg !== '--review') base.push(arg);
   }
-  return { base, allow: allow.filter((a) => a !== '' && a.toLowerCase() !== 'all') };
+  return {
+    base: redactTypedArgs(base),
+    allow: allow.filter((a) => a !== '' && a.toLowerCase() !== 'all'),
+  };
 }
 
 /**
@@ -133,18 +142,38 @@ export async function viewScripts(
 }
 
 /**
+ * The cache keeps one checkout per commit, side by side (`<cache>/<id>/sha-<sha>`): the
+ * checkout of `sha` next to `checkoutDir`, where the trusted version of an updated unit was
+ * fetched to render it (D12).
+ */
+function siblingCheckout(checkoutDir: string, sha: string): string | undefined {
+  return /^sha-[0-9a-f]+$/i.test(basename(checkoutDir))
+    ? join(dirname(checkoutDir), `sha-${sha.toLowerCase()}`)
+    : undefined;
+}
+
+/**
  * A ScriptReader over git checkouts: `locate(unit)` names the checkout holding the unit's
  * commit and the repository directory its closure root was copied from; bodies come from
- * `git show <sha>:<dir>/<path>`.
+ * `git show <sha>:<dir>/<path>`, in that checkout or, for the trusted version `d` diffs
+ * against, in the checkout of that commit beside it (D12). An in-place (in-repo) unit is read
+ * from the working tree (E2).
  */
 export function checkoutReader(
   locate: (unit: ExecUnit) => { checkoutDir: string; dirRel: string } | undefined,
 ): ScriptReader {
   return async (unit, file) => {
+    const { inPlace, abs } = unit.closure;
+    if (inPlace && abs !== undefined)
+      return readFile(join(abs, ...file.path.split('/')), 'utf8').catch(() => undefined);
     const at = locate(unit);
     const sha = unit.from?.sha;
     if (!at || !sha) return undefined;
-    return fileAtSha(at.checkoutDir, sha, posix.join(at.dirRel, file.path));
+    const rel = posix.join(at.dirRel, file.path);
+    const found = await fileAtSha(at.checkoutDir, sha, rel);
+    if (found !== undefined) return found;
+    const sibling = siblingCheckout(at.checkoutDir, sha);
+    return sibling === undefined ? undefined : fileAtSha(sibling, sha, rel);
   };
 }
 

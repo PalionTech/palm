@@ -13,9 +13,15 @@ import { makeWorld, type World } from './world.js';
 
 const IDS = [
   'manifest-lock',
+  'render',
+  'partial',
   'lock-disk',
+  'orphans',
+  'pending',
   'local-sources',
+  'source-paths',
   'exec-trusted',
+  'foreign-hooks',
   'hook-scripts',
   'secrets',
   'git-ignored',
@@ -23,6 +29,8 @@ const IDS = [
   'links',
   'hidden-unicode',
   'double-load',
+  'agent-names',
+  'preloads',
   'block-size',
 ];
 
@@ -81,9 +89,12 @@ describe('checkScope', () => {
     const env = { ...w.ctx.env, DOCS_TOKEN: 'set' };
     const report = await checkScope({ ...w.ctx, env }, { scope: 'project' }, w.deps);
     expect(report.checks.map((c) => c.id)).toEqual(IDS);
-    expect(report.checks.filter((c) => c.status !== 'ok')).toEqual([]);
+    expect(report.checks.filter((c) => c.status !== 'ok' && c.status !== 'skipped')).toEqual([]);
     expect(report.ok).toBe(true);
-    expect(byId(report)['git-ignored']?.label).toContain('skipped (not a git repository)');
+    expect(byId(report)['git-ignored']).toMatchObject({
+      status: 'skipped',
+      label: expect.stringContaining('skipped (not a git repository)'),
+    });
   });
 
   it('fails manifest-lock on an entry palm.yaml has and the lock lacks', async () => {
@@ -114,7 +125,7 @@ describe('checkScope', () => {
     const r = await check(w);
     expect(r['local-sources']?.status).toBe('fail');
     expect(r['local-sources']?.problems[0]?.message).toMatch(
-      /source \.\/agent-kit changed since palm\.lock\.yaml \(tree \w+ → \w+\)/,
+      /skill local in source \.\/agent-kit changed since palm\.lock\.yaml \(content \w+ → \w+\)/,
     );
     expect(r['lock-disk']?.status).toBe('ok');
   });
@@ -157,19 +168,22 @@ describe('checkScope', () => {
     const r = await check(w);
     expect(r.secrets?.status).toBe('fail');
     expect(r.secrets?.problems.map((p) => p.message).join('\n')).toContain('readable by others');
-    expect(r.secrets?.problems.map((p) => p.fix)).toContain('export DOCS_TOKEN');
+    expect(r.secrets?.problems.map((p) => p.fix)).toContain('export DOCS_TOKEN=…');
   });
 
   it('fails git-ignored when an output directory is ignored by git', async () => {
     const w = await installed();
     setGitRunner(async (args) => {
       if (args[0] === 'rev-parse') return `${w.project}\n`;
-      if (args[0] === 'check-ignore' && String(args.at(-1)).endsWith('.claude')) return '';
-      if (args[0] === 'ls-files') return '';
+      if (args[0] === 'check-ignore' && String(args.at(-1)).includes('/.claude/')) return '';
+      if (args[0] === 'ls-files') return `${String(args.at(-1))}\n`;
       throw new Error('not ignored');
     });
     const r = await check(w);
     expect(r['git-ignored']).toMatchObject({ status: 'fail', problems: [{ file: '.claude' }] });
+    expect(r['git-ignored']?.problems[0]?.message).toMatch(
+      /^\d+ files under \.claude\/ \(.+\) are ignored by git/,
+    );
   });
 
   it('fails sources-declared when a declared local source is missing', async () => {
@@ -233,7 +247,9 @@ describe('checkScope', () => {
     await lock.save(w.path('palm.lock.yaml'));
     const r = await check(w);
     expect(r['double-load']?.status).toBe('warn');
-    expect(r['double-load']?.problems).toHaveLength(2);
+    expect(r['double-load']?.problems.map((p) => p.message)).toEqual([
+      'cursor loads instruction style twice (AGENTS.md and .cursor/rules)',
+    ]);
     expect(r['block-size']?.status).toBe('fail');
   });
 });

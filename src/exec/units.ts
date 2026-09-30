@@ -131,20 +131,30 @@ function bytesOf(files: readonly ClosureFile[]): number {
   return files.reduce((sum, f) => sum + f.size, 0);
 }
 
+/** The closure files a script of the entity reads rather than runs (ruling E1). */
+function readsOf(entity: Entity, files: readonly ClosureFile[]): string[] {
+  const { def } = entity;
+  let reads: string[] = [];
+  if (def.kind === 'hook') reads = def.hooks.closure?.reads ?? [];
+  else if (def.kind === 'mcp') reads = def.closure?.reads ?? [];
+  const inside = (r: string) => files.some((f) => f.path === r || f.path.startsWith(`${r}/`));
+  return reads.filter(inside);
+}
+
 /**
  * The exec unit of a hook entry or stdio MCP server, from its renders (every target's `exec`
- * lines) and its closure. In-place sources run their scripts from the repository, so their
- * closure lists no files and adds nothing to the hash.
+ * lines) and its closure. An in-place (in-repo) closure lists the files as the working tree
+ * holds them and hashes them like a copy (ruling E2): any changed script byte asks again.
  */
 export function execUnitOf(
   entity: Entity,
   renders: Renders,
-  closure: { root: string; inPlace: boolean; files: ClosureFile[] },
+  closure: { root: string; inPlace: boolean; files: ClosureFile[]; abs?: string },
   from?: ExecUnit['from'],
 ): ExecUnit {
   const ident = { kind: entity.kind, name: entity.name, source: entity.source };
   const commands = commandsOf(renders);
-  const files = closure.inPlace ? [] : [...closure.files].sort(byPath);
+  const files = [...closure.files].sort(byPath);
   const mcp = entity.def.kind === 'mcp' ? entity.def.mcp : undefined;
   const env = mcp ? Object.keys(mcp.env ?? {}).sort() : undefined;
   const unit: ExecUnit = {
@@ -156,6 +166,9 @@ export function execUnitOf(
     hash: execHash({ commands, env, cwd: mcp?.cwd, closureTree: closureTree(files) }),
     rendered: renderedOf(renders),
   };
+  if (closure.abs !== undefined) unit.closure.abs = closure.abs;
+  const reads = readsOf(entity, files);
+  if (reads.length) unit.reads = reads;
   if (from) unit.from = from;
   if (env) unit.env = env;
   if (mcp?.cwd !== undefined) unit.cwd = mcp.cwd;

@@ -58,23 +58,38 @@ async function locate(run: Run, entry: LockEntry) {
 }
 
 /**
- * The entry rendered again as the lock recorded it: at the locked sha from the cache (fetched
- * when missing), for the entry's targets. Undefined when the source or the entity is gone.
+ * As `renderLocked`, but a source palm cannot reach rejects with its error (`E_NETWORK` when
+ * the commit is not cached and `--offline` is set), so `check` can tell an empty cache from a
+ * difference (E13). Undefined when the entity is gone from the source.
  */
-export async function renderLocked(
+export async function renderLockedOrThrow(
   run: Run,
   entry: LockEntry,
+  targets: TargetId[] = Object.keys(entry.render) as TargetId[],
 ): Promise<(RenderOutput & { entity: Entity }) | undefined> {
-  const found = await locate(run, entry).catch(() => undefined);
+  const found = await locate(run, entry);
   if (!found) return undefined;
   const out = await renderEntity(run.ctx, run.deps, run.state, {
     entity: found.entity,
     source: found.ref,
     checkout: found.checkout,
-    targets: Object.keys(entry.render) as TargetId[],
+    targets,
     policy: run.policy,
   });
   return { ...out, entity: found.entity };
+}
+
+/**
+ * The entry rendered again as the lock recorded it: at the locked sha from the cache (fetched
+ * when missing), for the entry's targets (or `targets`). Undefined when the source or the
+ * entity is gone.
+ */
+export async function renderLocked(
+  run: Run,
+  entry: LockEntry,
+  targets?: TargetId[],
+): Promise<(RenderOutput & { entity: Entity }) | undefined> {
+  return renderLockedOrThrow(run, entry, targets).catch(() => undefined);
 }
 
 /** Project scope: files and fragments that differ from the render the lock recorded. */
