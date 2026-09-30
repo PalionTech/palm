@@ -970,6 +970,15 @@ export interface Target {
    * An `AGENTS.md` alone never marks Codex (ruling Y15).
    */
   evidence?(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): Promise<string | undefined>;
+  /**
+   * Agent files in this harness's agents directory that answer to one name (lock-form paths),
+   * for `check` to warn about: the harness loads one of them (ruling Y14).
+   */
+  agentNameClashes?(
+    scope: Scope,
+    scopeRoot: string,
+    env: NodeJS.ProcessEnv,
+  ): Promise<Array<{ name: string; files: string[] }>>;
   /** Root config dir for the scope, e.g. <projectRoot>/.claude or ~/.claude. */
   configDir(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): string;
   /** Output directories this target writes to at a scope (lock form), for overlap checks. */

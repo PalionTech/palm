@@ -491,3 +491,26 @@ describe('J14 a Cursor hooks.json palm created goes with its last hook', () => {
     expect(JSON.parse(await fs.readFile(hooksJson, 'utf8'))).toEqual({ version: 1 });
   });
 });
+
+describe('Y14 same-name agents in a harness directory', () => {
+  it('Y14 two files answering to one name are listed for check', async () => {
+    const root = await tmpDir();
+    const env = fakeEnv(root);
+    const agent = (name: string) => `---\nname: ${name}\ndescription: d\n---\nBody\n`;
+    await write(path.join(root, '.cursor/agents/worker-agent.md'), agent('worker-agent'));
+    await write(path.join(root, '.cursor/agents/new-subagent.md'), agent('worker-agent'));
+    await write(path.join(root, '.cursor/agents/solo.md'), agent('solo'));
+    const cursor = createTarget('cursor', env);
+    expect(await cursor.agentNameClashes('project', root, env)).toEqual([
+      {
+        name: 'worker-agent',
+        files: ['.cursor/agents/new-subagent.md', '.cursor/agents/worker-agent.md'],
+      },
+    ]);
+    await write(path.join(root, '.codex/agents/a.toml'), 'name = "rev"\n');
+    await write(path.join(root, '.codex/agents/b.toml'), 'name = "rev"\n');
+    const codex = createTarget('codex', env);
+    expect((await codex.agentNameClashes('project', root, env))[0]?.name).toBe('rev');
+    expect(await createTarget('claude', env).agentNameClashes('project', root, env)).toEqual([]);
+  });
+});

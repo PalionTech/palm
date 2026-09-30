@@ -370,6 +370,12 @@ export const PROJECT_DIR: Record<TargetId, string>;                             
 // layout.ts: TargetSpec { id; displayName; layout(paths: ScopePaths): TargetLayout; markers(paths: ScopePaths): string[] /* absolute, most telling first */; outputDirs(paths: ScopePaths): string[] /* lock form */ }
 //   Target.detect is true when a marker exists; Target.evidence(scope, scopeRoot, env) returns the first existing marker (absolute) for
 //   the evidence `init` prints (C25). An AGENTS.md alone never marks Codex (Y15).
+//   Target.agentNameClashes(scope, scopeRoot, env): Array<{ name; files /* lock form */ }> lists agent files of the harness's agents
+//   directory that answer to one name (agent-names.ts), for `check` to warn about (Y14).
+// same-content.ts (NEW): sameContent(existing, rendered, file): the Applier adopts a file that says what the render says in other bytes
+//   (frontmatter data, line ends, trailing spaces, JSON value) and rewrites it in palm's bytes (Y13).
+// ApplyResult.merged sets `created` on fragments whose shared file the apply created; undeploy deletes such a JSON file when only
+//   the keys palm ensured (`version`) are left (J14).
 //   one per harness (claude.ts, codex.ts, copilot.ts, cursor.ts, gemini.ts, opencode.ts). TargetLayout as 0.1 minus commands, plus `skillsDir(active: TargetId[])`
 //   (cursor: .claude/skills when claude is active, else .agents/skills).
 // base.ts: GenericTarget implements Target: render() runs the kind renderer into a Rendered (no writes; reads the source and the

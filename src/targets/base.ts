@@ -27,6 +27,7 @@ import { homeOf, palmHomeOf, ScopePaths } from '../domain/scope-paths.js';
 import { isWithin, pathExists, removeEmptyParents } from '../lib/fs.js';
 import { isSafeName } from '../lib/names.js';
 import { isRecord } from '../lib/object.js';
+import { type AgentNameClash, agentNameClashes } from './agent-names.js';
 import { Applier } from './apply.js';
 import { readTextOrUndefined, removeFileIfExists } from './fs-utils.js';
 import { unmergeJsonFile } from './json-merge.js';
@@ -179,6 +180,17 @@ export class GenericTarget implements Target {
     for (const marker of this.spec.markers(this.paths(scope, scopeRoot, env)))
       if (await pathExists(marker)) return marker;
     return undefined;
+  }
+
+  /** Agent files of this harness's agents directory that answer to one name, lock form (Y14). */
+  async agentNameClashes(
+    scope: Scope,
+    scopeRoot: string,
+    env: NodeJS.ProcessEnv,
+  ): Promise<AgentNameClash[]> {
+    const paths = this.paths(scope, scopeRoot, env);
+    const clashes = await agentNameClashes(this.spec.layout(paths).agentsDir);
+    return clashes.map((c) => ({ name: c.name, files: c.files.map((f) => paths.lockForm(f)) }));
   }
 
   configDir(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): string {
