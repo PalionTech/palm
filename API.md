@@ -538,6 +538,10 @@ export async function renderLockedOrThrow(run: Run, entry: LockEntry, targets?: 
 // migrate.ts
 export async function migrateScope(ctx: PalmContext, opts: { scope: Scope; dryRun: boolean }, deps?: Partial<EngineDeps>): Promise<MigrateReport>; // DESIGN §6 "Migrate"; reads LegacyManifest/LegacyLockfile/LegacyConfig;
 //   MigrateReport.manifest is the new palm.yaml text; MigrateReport.failures: what could not be migrated (the CLI exits 1 on any); the only user of copyClosure
+//   nothing is written before the consent (migrate-plan.ts `planMigration`); MigrateReport.check: `palm check` after the install (failed problems also as
+//   `E_CHECK` failures); MigrateReport.commit: the files to commit (git status, project; changed files in a repository under -g); ctx.flags.review pages scripts
+// migrate-legacy.ts, migrate-lock.ts, migrate-text.ts, migrate-plan.ts, migrate-report.ts: the conversion (pure), the provisional lock, palm.yaml with the 0.1
+//   comments, the plan up to the consent, the report helpers (paths for people, E_CHECK failures, files to commit)
 // query.ts
 export interface InstalledRow { entry: LockEntry; source: LockSource; layer: 'team' | 'local' }
 export interface EntityInfo { entry: LockEntry; entity?: Entity; source: LockSource; files: Partial<Record<TargetId, string[]>>; notes: string[]; exec?: { commands: LockExec['commands']; hash: string; trusted: boolean }; secrets?: Array<{ name: string; set: boolean }>; selectedBy: string /* manifest | plugin:<n> */; blocks?: Partial<Record<TargetId, Array<{ file: string; at: string; value: unknown }>>> /* an MCP server's block per harness */ }

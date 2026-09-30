@@ -1,11 +1,12 @@
 /**
  * The 0.1 formats to the 0.2 model (DESIGN §6 "Migrate", PLAN.md 8), as data: every alias an
- * entry uses becomes a source keyed by `owner/repo` (GitHub) or `./dir` (in the project), else by
- * the alias; `name@alias#ref` becomes an entry under its source; a plugin keeps its uninstalled
- * members as `exclude:`; a command becomes a skill; registry and ad hoc MCP servers move to
- * `mcp:`; `--target` leaks become per-entry `targets:`. No IO here.
+ * entry uses becomes a source keyed by `owner/repo` (GitHub) or `./dir` (in the project; a local
+ * origin's `path` and `root` join into that one directory), else by the alias; `name@alias#ref`
+ * becomes an entry under its source; a plugin keeps its uninstalled members as `exclude:`; a
+ * command becomes a skill; registry and ad hoc MCP servers move to `mcp:`; `--target` leaks
+ * become per-entry `targets:`. No IO here.
  */
-import { relative } from 'node:path';
+import { relative, resolve } from 'node:path';
 import type {
   Kind,
   LegacyConfig,
@@ -20,7 +21,9 @@ import type {
   Source,
   TargetId,
 } from '../core/types.js';
+import { toPosix } from '../lib/fs.js';
 import { isRecord } from '../lib/object.js';
+import { replacePlaceholders } from '../lib/placeholders.js';
 import { MANIFEST_SOURCE } from './sources.js';
 
 export interface LegacyInput {
@@ -30,6 +33,8 @@ export interface LegacyInput {
   scope: Scope;
   /** The directory local paths in palm.yaml are relative to (project root, or $PALM_HOME). */
   root: string;
+  /** palm's home as the person knows it (`~/.palm`), for the advice on `~/.palm/mine` entries. */
+  palmHome?: string;
 }
 
 interface MigratedSource {
@@ -122,15 +127,16 @@ const GITHUB = /github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?\/?$/;
 function keyOf(input: LegacyInput, spec: LegacyOriginSpec, taken: Set<string>): string {
   const gh = spec.url ? GITHUB.exec(spec.url) : null;
   const local = spec.type === 'local' && spec.path && input.scope === 'project';
-  const rel = local ? relative(input.root, absolute(input, spec.path as string)) : undefined;
+  const rel = local ? toPosix(relative(input.root, localDir(input, spec))) : undefined;
   let key = spec.alias;
   if (gh) key = `${gh[1]}/${gh[2]}`;
   else if (rel !== undefined && !rel.startsWith('..')) key = `./${rel || '.'}`;
   return taken.has(key.toLowerCase()) ? spec.alias : key;
 }
 
-function absolute(input: LegacyInput, path: string): string {
-  return path.startsWith('/') ? path : `${input.root}/${path.replace(/^\.\//, '')}`;
+/** The directory a local origin names: its `path` (relative to `root`) joined with its `root`. */
+function localDir(input: LegacyInput, spec: LegacyOriginSpec): string {
+  return resolve(input.root, spec.path ?? '.', spec.root ?? '');
 }
 
 /** The most common value, and the others. */
@@ -167,7 +173,7 @@ function sourceOf(
   const { spec } = origin;
   const src: Source = { name: key, type: spec.type };
   const lock: LockSource = {};
-  if (spec.type === 'local' && spec.path) src.path = absolute(input, spec.path);
+  if (spec.type === 'local' && spec.path) src.path = localDir(input, spec);
   else gitFields(spec, entries, src, lock);
   if (spec.layout) src.layout = lock.layout = spec.layout;
   if (spec.alias !== key && /^[a-z0-9][a-z0-9._-]*$/.test(spec.alias)) src.alias = spec.alias;
@@ -210,11 +216,42 @@ function inlineMcp(m: LegacyManifest): Map<string, Record<string, unknown>> {
   return out;
 }
 
-/** The server block palm rendered for a registry server (the merged value under its name). */
+/**
+ * How close a harness file's server block is to the `mcp:` form, lowest first: Claude's
+ * `.mcp.json` and `~/.claude.json`, Cursor, VS Code, then Gemini (`httpUrl`). Codex TOML and
+ * OpenCode never qualify (`env_vars`, `bearer_token_env_var`; `command` arrays, `environment`).
+ */
+const FORM_ORDER: readonly RegExp[] = [
+  /(^|\/)\.(mcp|claude)\.json$/,
+  /\.cursor\/mcp\.json$/,
+  /\.vscode\/mcp\.json$/,
+  /settings\.json$/,
+];
+
+function formRank(file: string): number {
+  const i = FORM_ORDER.findIndex((re) => re.test(file));
+  return i < 0 ? Number.POSITIVE_INFINITY : i;
+}
+
+/** `${env:VAR}` (Cursor, VS Code) as the `${VAR}` palm.yaml uses, in every string of `value`. */
+function plainReferences(value: unknown): unknown {
+  if (typeof value === 'string')
+    return replacePlaceholders(value, (p) =>
+      p.style === 'env-colon' ? `\${${p.name}}` : undefined,
+    );
+  if (Array.isArray(value)) return value.map(plainReferences);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, plainReferences(v)]));
+}
+
+/** The server block palm rendered for a registry server, from the harness file closest to `mcp:`. */
 function renderedMcp(e: LegacyLockEntry): Record<string, unknown> | undefined {
-  for (const m of e.merged ?? [])
-    if (m.pointer.split('/').pop() === e.name && isRecord(m.value)) return m.value;
-  return undefined;
+  const blocks = (e.merged ?? [])
+    .filter((m) => m.pointer.split('/').pop() === e.name && isRecord(m.value))
+    .filter((m) => formRank(m.file) !== Number.POSITIVE_INFINITY)
+    .sort((a, b) => formRank(a.file) - formRank(b.file));
+  const first = blocks[0];
+  return first ? (plainReferences(first.value) as Record<string, unknown>) : undefined;
 }
 
 function isHandMcp(e: LegacyLockEntry, origins: Map<string, Origin>): boolean {
@@ -305,6 +342,19 @@ function entryOf(
   return typeof base === 'string' ? { name: base, targets: own } : { ...base, targets: own };
 }
 
+/**
+ * `~/.palm/mine` is gone: the entry's file moves into an in-repo source, the project's
+ * `./agent-kit` or, under -g, `~/.palm/kit` (DESIGN §2), and one install declares it.
+ */
+function mineAdvice(input: LegacyInput, e: LegacyLockEntry): string {
+  const home = input.palmHome ?? '~/.palm';
+  const what = `${kindOf(e.kind)} ${e.name} came from ${home}/mine, which palm 0.2 no longer reads`;
+  const from = `${home}/mine/${e.path}`;
+  if (input.scope === 'global')
+    return `${what}; copy ${from} to ${home}/kit/${e.path}, then run: palm install ${home}/kit ${e.name} -g`;
+  return `${what}; copy ${from} to ./agent-kit/${e.path}, then run: palm install ./agent-kit ${e.name}`;
+}
+
 function groups(
   input: LegacyInput,
   origins: Map<string, Origin>,
@@ -314,9 +364,7 @@ function groups(
   for (const e of input.lock?.entries ?? []) {
     if (isHandMcp(e, origins)) continue;
     if (e.origin === 'mine') {
-      m.warnings.push(
-        `${kindOf(e.kind)} ${e.name} came from your personal ~/.palm/mine directory; copy it into ./agent-kit/${kindOf(e.kind)}s/${e.name} and run: palm install ./agent-kit ${e.name}`,
-      );
+      m.warnings.push(mineAdvice(input, e));
       continue;
     }
     const key = e.origin.toLowerCase();

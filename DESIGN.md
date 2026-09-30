@@ -918,12 +918,20 @@ fetches for a local source, never prompts, never writes.
 
 ### Migrate
 
-`palm migrate [-g] [--dry-run]` (0.2 only; removed in 0.3) reads the old palm.yaml, palm.lock.yaml
-(v1 or v2) and `~/.palm/config.yaml`, and writes the new manifest and lock:
+`palm migrate [-g] [--dry-run] [--review] [--allow-exec …]` (0.2 only; removed in 0.3) reads the old
+palm.yaml, palm.lock.yaml (v1 or v2) and `~/.palm/config.yaml`, and writes the new manifest and
+lock. Everything that can refuse comes before the first write: the scope guards and the overlap
+rule on the converted palm.yaml, every source resolved at its locked commit, the bare install's
+render and the one consent. A refusal (no terminal, a declined program, an overlapping source,
+an unreachable source) leaves the 0.1 files as they were, so the printed `--allow-exec` line
+runs the same command again; a declined program is `E_CANCELLED` (exit 130).
 
 - Every alias the lock references becomes a `sources` entry keyed by `owner/repo` when the URL
   is a GitHub repository, else by the alias, with url, root, layout and the locked ref; the
-  alias is kept as `alias:` when it differs from the key. A source that came from config.yaml
+  alias is kept as `alias:` when it differs from the key. A local origin's `path` and `root`
+  join into one in-repo source `./<path>/<root>`. The comments of the 0.1 palm.yaml are kept:
+  on top and on `targets:` where they were, a comment on an origin or an entry above the source
+  that now holds it, the rest under `# from palm 0.1:` at the end. A source that came from config.yaml
   prints `~ palm.yaml: source acme added from ~/.palm/config.yaml, needed by 3 entries; commit it`.
 - `name@alias#ref` becomes an entry under its source; when entries of one source disagree on
   refs, the most common ref wins and a warning lists the others (`i tdd was pinned to v1;
@@ -932,17 +940,32 @@ fetches for a local source, never prompts, never writes.
   command becomes a skill of the same name; a registry MCP server is copied from the rendered
   `.mcp.json` (or the harness file that has it) into `mcp:`; `--target` leaks (an entry on a
   target the scope set lacks) become per-entry `targets:` with a note; an `@mine` entry warns
-  and names the directory to copy the file into.
+  and names the kit to copy the file into (`./agent-kit`, under `-g` `~/.palm/kit`). A 0.1
+  entry the 0.2 index names differently (a root `hooks/hooks.json` is named after its folder,
+  not the alias) is matched by kind and path and renamed, with an info line.
+- The files and fragments 0.1 wrote that still hold what its lock recorded (hash, value; a
+  recorded `${VAR}` matches any value) are the provisional lock entries; a fragment keeps the
+  0.1 pointer as `at` and gets the 0.2 `key`, so the install replaces it in place and never
+  deletes the shared file. palm.yaml, the lock and `.gitignore` are written through symlinks.
 - `.palm/hooks/<n>` is deleted after the assets are re-copied from the cache at the locked sha
-  into `.palm/assets/<source>/<n>` (fetched when missing); `.gitignore`'s `.palm/` line becomes
-  `.palm/local/`; the executables re-vendored are printed once for the one consent (the trust
-  goes into the new lock).
-- Then a bare install adopts identical files, and the report lists the files to commit.
-- Under `-g`: absolute paths become tokens; literal secrets in the harness files are listed with
-  the rotate message; `~/.palm/config.yaml` is left in place and reported as unused
-  (`i ~/.palm/config.yaml is no longer read; delete it`).
+  into `.palm/assets/<source>/<n>` (fetched when missing); a copy the person changed stays and a
+  warning names it; a hook that did not migrate keeps its copy. `.gitignore`'s `.palm/` line
+  becomes `.palm/local/`; the executables re-vendored are printed once for the one consent (the
+  trust goes into the new lock).
+- Then a bare install adopts identical files, `palm check` runs (`MigrateReport.check`; a failed
+  check adds one `E_CHECK` failure per problem, exit 1), and the report lists the files to
+  commit (`MigrateReport.commit`: every changed path `git status` lists, untracked output
+  folders by their top folder).
+- `~/.palm/config.yaml` stays: in a project palm says to keep it until every project is
+  migrated; under `-g` it is reported as unused (`i ~/.palm/config.yaml is no longer read;
+  delete it once every project is migrated`).
+- Under `-g`: absolute paths become tokens, also paths a 0.1 lock recorded under another home
+  directory (matched by the first harness-home segment, `/old/home/.claude/…` → `<claude>/…`);
+  literal secrets in the harness files are listed with the rotate message; the files to commit
+  are the changed ones inside a git repository (a dotfiles checkout reached through links).
 
-`--dry-run` prints the new palm.yaml to stdout and writes nothing.
+`--dry-run` prints the new palm.yaml to stdout, shows the programs (their scripts with
+`--review`) and writes nothing; a refusal is reported under the preview (exit 1).
 
 ### Exit codes
 
