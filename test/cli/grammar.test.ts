@@ -166,7 +166,7 @@ describe('interpretInstall: palm 0.1 forms print the new form and run it', () =>
     expect(interpretInstall(['tdd@mp'], ctx).source).toBe('mattpocock/skills');
   });
 
-  it('C23, D10: a #ref on a name moves to the source location', () => {
+  it('C23, D10, X22: a #ref on a name moves to the source location; an example never pastes it', () => {
     const ctx = { isDeclared: declared('mattpocock/skills'), sources: SOURCES };
     expect(usageOf(() => interpretInstall(['tdd@mattpocock#v1.2.3'], ctx))).toEqual({
       message: 'a version belongs to the source, not to a name',
@@ -179,7 +179,7 @@ describe('interpretInstall: palm 0.1 forms print the new form and run it', () =>
     expect(
       usageOf(() => interpretInstall(['tdd@acme#v2'], { ...fresh, scope: 'global' })).hint,
     ).toBe(
-      '  palm install <owner/repo>#v2 tdd          for example  palm install mattpocock/skills#v2 tdd -g',
+      '  palm install <owner/repo>#v2 tdd          for example  palm install mattpocock/skills#v1.0.0 tdd -g',
     );
   });
 
@@ -190,7 +190,7 @@ describe('interpretInstall: palm 0.1 forms print the new form and run it', () =>
     expect(e.hint).toBe('  palm install a tdd\n  palm install obra/superpowers grill');
   });
 
-  it('E16: an alias nothing resolves gets the 0.2 form, not palm migrate', () => {
+  it('E16, Q3: an alias nothing resolves gets the 0.2 form; a declared source only when it offers the name', () => {
     expect(usageOf(() => interpretInstall(['tdd@mattpocock'], { isDeclared: declared() }))).toEqual(
       {
         message:
@@ -202,7 +202,7 @@ describe('interpretInstall: palm 0.1 forms print the new form and run it', () =>
       interpretInstall(['tdd@acme'], { isDeclared: declared('kit'), sources: [KIT] }),
     );
     expect(e.hint).toBe(
-      '  palm install <owner/repo> tdd             for example  palm install kit tdd',
+      '  palm install <owner/repo> tdd             for example  palm install mattpocock/skills tdd',
     );
   });
 

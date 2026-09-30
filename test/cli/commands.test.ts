@@ -293,12 +293,12 @@ describe('palm remove', () => {
     expect(r.stdout).not.toContain('is not installed');
   });
 
-  it('needs a name; the hint filters by the source only when palm.yaml declares it', async () => {
+  it('O25, Q17: a source alone removes its entries; with none installed it says so', async () => {
     const r = await palm(sb, ['remove', 'obra/superpowers'], { deps: removed({}) });
-    expect(r.code).toBe(2);
-    expect(r.stderr).toBe('x name what to remove from obra/superpowers\n  palm get\n');
+    expect(r.code).toBe(1);
+    expect(r.stderr).toBe('x nothing is installed from obra/superpowers\n  palm get sources\n');
     const kit = await palm(sb, ['remove', 'https://x/acme.git'], { deps: removed({}) });
-    expect(kit.stderr).toBe('x name what to remove from https://x/acme.git\n  palm get\n');
+    expect(kit.stderr).toBe('x nothing is installed from https://x/acme.git\n  palm get sources\n');
   });
 });
 

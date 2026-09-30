@@ -132,7 +132,8 @@ export function exampleLine(form: string, example: string): string {
   return `  ${form}${' '.repeat(pad)}for example  ${example}`;
 }
 
-function distance(a: string, b: string): number {
+/** The edit distance between two words (insertions, deletions, substitutions). */
+export function distance(a: string, b: string): number {
   const row = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
     let diag = row[0] ?? 0;
@@ -206,6 +207,7 @@ export interface GrammarContext {
 export const KNOWN_SOURCES: ReadonlyArray<{ repo: string; names: readonly string[] }> = [
   { repo: 'obra/superpowers', names: ['brainstorming', 'test-driven-development'] },
   { repo: 'mattpocock/skills', names: ['tdd', 'handoff'] },
+  { repo: 'anthropics/skills', names: ['pdf', 'xlsx'] },
 ];
 
 /**

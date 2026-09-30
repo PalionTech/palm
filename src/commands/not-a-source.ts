@@ -5,9 +5,10 @@
  * the word nearly names, a kind word; else the fixed examples and a GitHub search. Pure.
  */
 import { PalmError } from '../core/errors.js';
-import { pluralize } from '../core/kinds.js';
+import { parseKind, pluralize } from '../core/kinds.js';
 import type { Kind } from '../core/types.js';
 import {
+  distance,
   exampleLine,
   type GrammarContext,
   KNOWN_SOURCES,
@@ -57,6 +58,59 @@ function installedEntry(words: string[], ctx: GrammarContext, kind?: Kind): Palm
   );
 }
 
+/** N11: a word one or two letters from an installed entry's name (`reveiw`): that entry, never the typo. */
+function nearEntry(words: string[], ctx: GrammarContext): PalmError | undefined {
+  const [word = '', ...rest] = words;
+  const near = nearest(
+    word,
+    (ctx.entries ?? []).filter((e) => e.source !== 'manifest').map((e) => e.name),
+  );
+  const hit = near ? ctx.entries?.find((e) => e.name === near) : undefined;
+  if (!hit) return undefined;
+  return usage(
+    `"${word}" is not a repository; did you mean ${hit.kind} ${hit.name} from ${hit.source}?`,
+    `  ${palmLine('install', [hit.source, `${hit.kind}:${hit.name}`, ...rest], ctx.scope)}`,
+  );
+}
+
+/** Kind words a typo is checked against (O16): singular and plural, and the 0.1 synonyms. */
+const KIND_WORDS: readonly string[] = [
+  'skill',
+  'skills',
+  'agent',
+  'agents',
+  'subagent',
+  'subagents',
+  'instruction',
+  'instructions',
+  'rule',
+  'rules',
+  'hook',
+  'hooks',
+  'plugin',
+  'plugins',
+];
+
+/**
+ * O16: a first word one letter from a kind (`skil golang`), before any source matching: the
+ * kind goes before the name (`skill:golang`), after the source that offers it.
+ */
+function kindTypo(words: string[], ctx: GrammarContext): PalmError | undefined {
+  const [word = '', ...names] = words;
+  if (!names.length || word.length < 3) return undefined;
+  const near = KIND_WORDS.find((k) => distance(word.toLowerCase(), k) === 1);
+  const kind = parseKind(near);
+  if (!kind) return undefined;
+  const shown = names.map((n) => `${kind}:${n}`);
+  const message = `"${word}" is not a repository; it looks like the kind ${kind}, written as ${shown[0]}`;
+  const lower = names[0]?.toLowerCase();
+  const hit = ctx.entries?.find((e) => e.name.toLowerCase() === lower && e.kind === kind);
+  if (hit) return usage(message, `  ${palmLine('install', [hit.source, ...shown], ctx.scope)}`);
+  const example = palmLine('install', ['mattpocock/skills', `${kind}:tdd`], ctx.scope);
+  const form = exampleLine(`palm install <owner/repo> ${shown.join(' ')}`, example);
+  return usage(message, [form, searchLine([...names, ...KIND_SEARCH[kind]])].join('\n'));
+}
+
 /** E15: a word that names a directory in the project (`.agents-kit` for `./.agents-kit`). */
 function localDirectory(words: string[], ctx: GrammarContext): PalmError | undefined {
   const [word = '', ...rest] = words;
@@ -93,10 +147,17 @@ function wellKnown(word: string): { repo: string; isRepo: boolean } | undefined 
   return owner ? { repo: owner.repo, isRepo: false } : undefined;
 }
 
-/** The example after the form line: a declared source, else a well-known one. */
+/**
+ * The example after the form line (Q3): a declared source only when it offers the name (an
+ * entry installed from it), else a well-known one, else the fixed example; never the typed word
+ * pasted after a source that lacks it (N11).
+ */
 function exampleFor(words: string[], ctx: GrammarContext): string {
   const [word = '', ...rest] = words;
-  const declared = ctx.sources?.[0];
+  const lower = word.toLowerCase();
+  const offers = (s: KnownSource) =>
+    ctx.entries?.some((e) => e.source === s.name && e.name.toLowerCase() === lower);
+  const declared = ctx.sources?.find(offers);
   if (declared) return palmLine('install', [declared.name, ...words], ctx.scope);
   const known = wellKnown(word);
   if (known?.isRepo) return palmLine('install', [known.repo, ...rest], ctx.scope);
@@ -109,7 +170,7 @@ function notARepository(words: string[], ctx: GrammarContext): PalmError {
   const [word = ''] = words;
   const message = `"${word}" is not a repository. ${REPOSITORY}`;
   const known = wellKnown(word);
-  if (known && !known.isRepo && !ctx.sources?.length) {
+  if (known && !known.isRepo) {
     const names = words.join(' ');
     const example = palmLine('install', [known.repo, names], ctx.scope);
     return usage(message, exampleLine(`palm install <owner/repo> ${names}`, example));
@@ -124,7 +185,9 @@ export function notASource(words: string[], ctx: GrammarContext): PalmError {
     projectSource(words, ctx) ??
     installedEntry(words, ctx) ??
     localDirectory(words, ctx) ??
+    kindTypo(words, ctx) ??
     nearSource(words, ctx) ??
+    nearEntry(words, ctx) ??
     notARepository(words, ctx)
   );
 }

@@ -199,11 +199,12 @@ function footer(outcomes: InstallOutcome[], opts: SummaryOptions, failed: boolea
 }
 
 /**
- * Whether an outcome gets a line: a plugin is a selector over its members, whose lines say it;
- * an unchanged entry is only counted unless the run named it.
+ * Whether an outcome gets a line: a plugin is a selector over its members, whose lines say it,
+ * except a removed plugin (R15': its line says the selector left palm.yaml); an unchanged entry
+ * is only counted unless the run named it.
  */
 function shown(o: InstallOutcome, named: boolean): boolean {
-  if (o.entry.kind === 'plugin') return false;
+  if (o.entry.kind === 'plugin') return o.status === 'removed';
   return o.status !== 'unchanged' || named;
 }
 
@@ -236,7 +237,7 @@ export function printInstallSummary(
 ): void {
   if (opts.detected?.length && opts.targets.length) out.out(targetsLine(opts));
   const counted = result.outcomes.filter((o) => o.entry.kind !== 'plugin');
-  const outcomes = sorted(counted.filter((o) => shown(o, Boolean(opts.named))));
+  const outcomes = sorted(result.outcomes.filter((o) => shown(o, Boolean(opts.named))));
   const rows = rowsOf(outcomes, opts);
   const words = new Set(rows.filter((r) => r.word !== LEFT_OUT).map((r) => r.word));
   printRows(out, rows, words.size > 1 || Boolean(opts.dryRun));

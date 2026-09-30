@@ -9,20 +9,10 @@
  * Every command it suggests names the source as the person can paste it: the key once palm.yaml
  * declares it, else what they typed (K9). `palm install mcp …` is src/commands/mcp.ts.
  */
-import { isPalmError, PalmError } from '../core/errors.js';
-import { looksLikeSourceInput } from '../core/source-input.js';
-import type {
-  Entity,
-  EntityRefSpec,
-  InstallRequest,
-  Kind,
-  LayoutDescriptor,
-  PalmContext,
-} from '../core/types.js';
+import type { Entity, InstallRequest, LayoutDescriptor, PalmContext } from '../core/types.js';
 import type { ScopeState, SourceListing } from '../create/engine.js';
 import { parseLayoutFlags } from '../index/layout-flags.js';
 import type { App } from './app.js';
-import { correctedNames } from './corrections.js';
 import { type Invocation, interpretInstall, usage } from './grammar.js';
 import {
   type GrammarContext,
@@ -33,6 +23,7 @@ import {
   sourceOptions,
   typedOptions,
 } from './hints.js';
+import { type InstallJob, pasteable } from './install-errors.js';
 import { grammarContext } from './known.js';
 import { type RemovedFlags, removedFlagError } from './legacy.js';
 import { listingJson, printListing } from './listing.js';
@@ -59,10 +50,7 @@ interface InstallFlags extends GlobalOptions, RemovedFlags {
   layout?: string[];
 }
 
-interface NamedInstall {
-  before: ScopeState;
-  source: string;
-  names: EntityRefSpec[];
+interface NamedInstall extends InstallJob {
   flags: InstallFlags;
 }
 
@@ -132,7 +120,9 @@ async function list(ctx: PalmContext, app: App, job: NamedInstall) {
   const scope = job.before.paths.scope;
   const listed: SourceListing = await withSpinner(ctx, `Fetching ${job.source}`, () =>
     api.listSource(ctx, job.source, { scope, ...layoutOf(job.flags) }, engineDeps(app)),
-  );
+  ).catch((e: unknown) => {
+    throw pasteable(e, app, job);
+  });
   const executable = await executables(app, listed.index.entities);
   noteIndexWarnings(app, listed, job);
   const line = typedLine(job, app.argv);
@@ -158,55 +148,6 @@ function requestOf(job: NamedInstall): InstallRequest {
     ...(flags.as ? { as: flags.as } : {}),
     ...layoutOf(flags),
   };
-}
-
-/** The kinds a name is installed as from the run's source (O3: the kind a correction prefers). */
-function installedKinds(job: NamedInstall) {
-  const source = job.before.sources.byName(job.source)?.name ?? job.source;
-  return (name: string): Kind[] =>
-    job.before.lock.entries
-      .filter((e) => e.source === source && e.name.toLowerCase() === name.toLowerCase())
-      .map((e) => e.kind);
-}
-
-/** `palm install <word>` alone (or with the `--as` the engine keeps): the listing line. */
-function listsOnly(hint: string, word: string): boolean {
-  const rest = hint.replace(/ -g$/, '').replace(/ --as \S+/g, '');
-  return rest === `palm install ${word}`;
-}
-
-/**
- * K9, L20, O3, O7, O15: an error's command is the command as typed with its names corrected
- * (the source with its #ref, every option: --force, --as, --layout, -g), or the typed source's
- * listing. An engine hint that names a declared source otherwise stays.
- */
-function rebuiltHint(e: PalmError, app: App, job: NamedInstall): string | undefined {
-  if (!e.hint?.startsWith('palm install ')) return e.hint;
-  const scope = job.before.paths.scope;
-  const corrected = correctedNames(e, job.names, installedKinds(job));
-  if (corrected)
-    return pasteLine('install', [job.source, ...corrected], typedOptions(app.argv), scope);
-  const word = /^palm install (\S+)/.exec(e.hint)?.[1] ?? '';
-  if (listsOnly(e.hint, word))
-    return pasteLine('install', [job.source], sourceOptions(app.argv), scope);
-  const known = looksLikeSourceInput(word) || job.before.sources.byName(word) !== undefined;
-  return known ? e.hint : e.hint.replace(`palm install ${word}`, `palm install ${job.source}`);
-}
-
-/** N11: the source a message names, without the options the engine keeps beside it. */
-function unglued(message: string): string {
-  return message.replace(/(source \S+)(?: --(?:as|layout) \S+)+/g, '$1');
-}
-
-/** The error of a named install, its message and its command as the person can paste them. */
-function pasteable(e: unknown, app: App, job: NamedInstall): unknown {
-  if (!isPalmError(e)) return e;
-  const hint = rebuiltHint(e, app, job);
-  const message = unglued(e.message);
-  if (hint === e.hint && message === e.message) return e;
-  const many = hint !== e.hint && job.names.length > 1;
-  if (many && !app.out.jsonMode) app.out.out('Nothing installed.');
-  return new PalmError(e.code, message, hint, e.retryWith ? { retryWith: e.retryWith } : {});
 }
 
 /** B11: `at:` is recorded now and honoured in 0.3; say so once per directory. */
@@ -292,11 +233,11 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const flags = inv.opts as InstallFlags;
   const words = inv.words ?? [];
   if (flags.frozen) return frozen(inv, app);
-  const removed = removedFlagError(words, flags, app.argv);
-  if (removed) throw removed;
   const ctx = await makeContext(app, flags);
   const before = await engine(app).openScope(ctx, scopeOf(flags), { readOnly: true });
   const gctx = await grammarContext(ctx, app, before, words);
+  const removed = removedFlagError(words, flags, app.argv, gctx);
+  if (removed) throw removed;
   if (!words.length) {
     checkBare(flags, gctx);
     return sync(ctx, app, before);
