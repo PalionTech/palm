@@ -71,7 +71,7 @@ describe('secrets pass', () => {
     expect(remote.def).toMatchObject({
       mcp: {
         url: redact(`https://example.com/mcp?token=${TOKEN}`),
-        headers: { Authorization: redact(`Bearer ${KEY}`), 'X-Team': '${TEAM}' },
+        headers: { Authorization: `Bearer ${redact(KEY)}`, 'X-Team': '${TEAM}' },
       },
     });
     expect(remote.issues?.map((i) => [i.severity, i.message.split(':')[0]])).toEqual([

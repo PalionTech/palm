@@ -86,11 +86,7 @@ function forgetEmptySource(state: ScopeState, name: string): void {
   state.lock.removeSource(name);
 }
 
-async function install(
-  run: Run,
-  req: InstallRequest,
-  held: { source?: string },
-): Promise<void> {
+async function install(run: Run, req: InstallRequest, held: { source?: string }): Promise<void> {
   const { ctx, deps, state } = run;
   const scope = state.paths.scope;
   const ref = await declareSource(ctx, state, req.source, {

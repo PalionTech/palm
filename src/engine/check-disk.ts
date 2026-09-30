@@ -201,7 +201,7 @@ function variables(c: CheckContext, f: Found): string[] {
       if (c.run.ctx.env[p.name] === undefined)
         f.warn.push({
           entity: entityOf(e),
-          message: `mcp ${e.name} needs ${p.name}, which is not set`,
+          message: `needs ${p.name}, which is not set`,
           fix: `export ${p.name}`,
         });
     }

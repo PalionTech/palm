@@ -25,6 +25,7 @@ import type { SourceRef } from '../domain/source.js';
 import { canonicalJson } from '../lib/json.js';
 import { failure, failureOf, installCommand, label, type Subject } from './report.js';
 import type { ScopeState } from './scope.js';
+import { referencedLine, referenceSecrets } from './source-secrets.js';
 
 export interface RenderJob {
   entity: Entity;
@@ -231,15 +232,20 @@ export async function renderEntity(
     name: job.entity.name,
     source: job.source.name,
   };
-  const run: RenderRun = { ctx, deps, state, job, subject };
+  const referenced = referenceSecrets(job.entity);
+  const run: RenderRun = { ctx, deps, state, job: { ...job, entity: referenced.entity }, subject };
   const root = assetsRootOf(state, job.source, job.entity, job.checkout);
   const issues = scanIssues(run);
+  const harnesses = job.targets.map((t) => deps.getTarget(t).displayName);
   const out: RenderOutput = {
     renders: {},
     closure: { root, inPlace: job.source.isLocal, files: [] },
     content: await contentOf(job.entity, job.checkout),
     refusals: issues.refusals,
-    warnings: issues.warnings,
+    warnings: [
+      ...referenced.replaced.map((s) => referencedLine(job.entity.name, s, harnesses)),
+      ...issues.warnings,
+    ],
   };
   if (out.refusals.length) return out;
   await renderTargets(run, out);

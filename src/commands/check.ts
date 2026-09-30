@@ -14,11 +14,13 @@ const CHECK_MARK: Readonly<Record<CheckStatus, string>> = { ok: '✓', warn: '!'
 const PROBLEM_MARK: Readonly<Record<CheckStatus, Mark>> = { ok: 'i', warn: '!', fail: 'x' };
 const COLOUR = { ok: 'green', warn: 'yellow', fail: 'red' } as const;
 
-/** `x skill tdd .claude/skills/tdd/SKILL.md: changed since palm wrote it; fix: palm install …`. */
+/**
+ * `x skill tdd: .claude/skills/tdd/SKILL.md differs from what palm renders; fix: palm install …`.
+ * The file joins the subject only when the message does not name it already.
+ */
 function problemLine(p: CheckProblem): string {
-  const who = [p.entity ? `${p.entity.kind} ${p.entity.name}` : '', p.file ?? '']
-    .filter(Boolean)
-    .join(' ');
+  const file = p.file && !p.message.includes(p.file) ? p.file : '';
+  const who = [p.entity ? `${p.entity.kind} ${p.entity.name}` : '', file].filter(Boolean).join(' ');
   return `${who ? `${who}: ` : ''}${p.message}${p.fix ? `; fix: ${p.fix}` : ''}`;
 }
 

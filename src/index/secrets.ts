@@ -62,6 +62,9 @@ class Redactor {
     const findings = this.scanner.scanSecrets(key === undefined ? value : { [key]: value }, where);
     if (findings.length === 0) return value;
     this.record(findings);
+    // `Bearer <token>` keeps its scheme, so the render can write `Bearer ${VAR}` in its place.
+    const bearer = /^(Bearer\s+)(\S+)$/i.exec(value);
+    if (bearer) return `${bearer[1]}${this.scanner.redact(bearer[2] ?? '')}`;
     return this.scanner.redact(value);
   }
 
