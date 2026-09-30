@@ -9,6 +9,7 @@
 import { realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { CheckProblem, CheckRun, LockEntry } from '../core/types.js';
+import { lockId } from '../domain/entity-key.js';
 import { isWithin } from '../lib/fs.js';
 import {
   type CheckContext,
@@ -50,6 +51,20 @@ export function renderCheck(c: CheckContext): CheckRun {
   );
 }
 
+/**
+ * T7 Y2': the fix for a target palm refuses to render for is the refusal's own hint (a bare
+ * `palm install` would refuse again); a target that failed for another reason is installed again.
+ */
+function partialFix(c: CheckContext, e: LockEntry, missing: readonly string[]): string {
+  const refusals = c.renders.get(lockId(e))?.refusals ?? [];
+  const hints = [
+    ...new Set(
+      refusals.filter((r) => r.target && missing.includes(r.target) && r.hint).map((r) => r.hint),
+    ),
+  ];
+  return hints.length ? hints.join('; ') : install(c);
+}
+
 /** Y5 Z5: an entry installed for some of its targets and not the others. */
 export function partialCheck(c: CheckContext): CheckRun {
   const f = found();
@@ -57,7 +72,11 @@ export function partialCheck(c: CheckContext): CheckRun {
     const missing = missingTargets(c, e);
     if (Object.keys(e.render).length && missing.length)
       f.fail.push(
-        problem(e, `${e.kind} ${e.name} is not installed for ${missing.join(', ')}`, install(c)),
+        problem(
+          e,
+          `${e.kind} ${e.name} is not installed for ${missing.join(', ')}`,
+          partialFix(c, e, missing),
+        ),
       );
   }
   return checkRun(

@@ -6,6 +6,7 @@ import './fakes.js';
 import { chmod, mkdir, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { PalmError } from '../../src/core/errors.js';
 import type { CheckRun } from '../../src/core/types.js';
 import { checkScope } from '../../src/engine/check.js';
 import { installFromSource } from '../../src/engine/install.js';
@@ -247,6 +248,37 @@ describe('X5 T8 M3 git-ignored asks git about real paths and names exact directo
     expect(fix).toMatch(/^git add /);
     expect(fix.split(' ')).toContain('.claude/skills');
     expect(fix.split(' ')).not.toContain('.claude');
+  });
+});
+
+describe("T7 Y2' partial reuses the refusal's hint", () => {
+  it("T7 Y2' the fix for a target the render refuses is the refusal's hint, not palm install", async () => {
+    const w = await makeWorld({ targets: ['claude', 'cursor'], interactive: true, consent: 'yes' });
+    const getTarget = w.deps.getTarget as NonNullable<World['deps']['getTarget']>;
+    w.deps.getTarget = (id) => {
+      const t = getTarget(id);
+      if (id !== 'cursor') return t;
+      const refuse = () => {
+        throw new PalmError(
+          'E_TARGET',
+          'too large for cursor',
+          'edit palm.yaml: targets: [claude]',
+        );
+      };
+      return { ...t, render: async () => refuse() };
+    };
+    const url = await w.remote('kit', { 'v1.0.0': KIT });
+    await installFromSource(
+      w.ctx,
+      { source: url, names: [{ name: 'tdd' }] },
+      { scope: 'project' },
+      w.deps,
+    );
+    const { r } = await check(w);
+    expect(r.partial?.problems[0]).toMatchObject({
+      message: 'skill tdd is not installed for cursor',
+      fix: 'edit palm.yaml: targets: [claude]',
+    });
   });
 });
 
