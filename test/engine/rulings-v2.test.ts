@@ -10,6 +10,7 @@ import './fakes.js';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { resolveEngineDeps } from '../../src/engine/deps.js';
+import { recordedPolicy } from '../../src/engine/entries.js';
 import { installFromSource, installMcp, listSource } from '../../src/engine/install.js';
 import { runOf } from '../../src/engine/jobs.js';
 import { missingPreloads } from '../../src/engine/preloads.js';
@@ -512,5 +513,9 @@ describe('Y19 secrets: literal is recorded', () => {
     w.secrets.decisions.length = 0;
     await syncScope(w.ctx, project, w.deps);
     expect(w.secrets.decisions.map((d) => d.requested)).toEqual(['literal']);
+    const deps = await resolveEngineDeps(w.deps);
+    const state = await openScope(w.ctx, 'project', { deps, readOnly: true });
+    const entry = state.lock.entries.find((e) => e.name === 'docs');
+    expect(entry && recordedPolicy(state, entry)).toBe('literal');
   });
 });

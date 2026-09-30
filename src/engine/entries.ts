@@ -8,6 +8,7 @@ import type {
   EntityRef,
   InstallFailure,
   Kind,
+  LockEntry,
   ManifestEntry,
   ManifestEntryObject,
   SecretPolicy,
@@ -147,4 +148,15 @@ export function requestJobs(
   if (entity.kind !== 'plugin') return [{ ...jobFor(build, entity, entry), record }];
   const [own, ...members] = pluginJobs(build, entity, entry);
   return [{ ...(own as Job), record }, ...members];
+}
+
+/**
+ * The secrets policy palm.yaml records for an installed entry (`secrets: literal`, Y19): on its
+ * source entry, or on its `mcp:` server; undefined when none. `check` renders the entry with it.
+ */
+export function recordedPolicy(state: ScopeState, entry: LockEntry): SecretPolicy | undefined {
+  const { manifest } = state;
+  const server = entry.source === 'manifest' ? manifest.mcp[entry.name] : undefined;
+  const own = manifest.entries(entry.source, entry.kind).find((e) => sameName(e.name, entry.name));
+  return server?.secrets ?? own?.secrets;
 }
