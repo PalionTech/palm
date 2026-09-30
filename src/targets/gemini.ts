@@ -14,8 +14,16 @@
 import path from 'node:path';
 import type { ScopePaths } from '../domain/scope-paths.js';
 import { pathExists } from '../lib/fs.js';
-import type { CleanupRoot, TargetLayout, TargetSpec } from './layout.js';
-import { sharedSkillsRoot } from './shared-skills.js';
+import {
+  type CleanupRoot,
+  DISPLAY_NAMES,
+  envSet,
+  fixedSkillsDir,
+  outputDirsOf,
+  sharedSkillsRoot,
+  type TargetLayout,
+  type TargetSpec,
+} from './layout.js';
 
 /**
  * Gemini reads the shared `.agents/skills` and `~/.agents/skills` ("the `.agents/skills/` alias
@@ -24,31 +32,32 @@ import { sharedSkillsRoot } from './shared-skills.js';
  * `~/.agents/skills`, so global skills then go to `$GEMINI_CLI_HOME/.gemini/skills`.
  */
 function skillsRoot(paths: ScopePaths, base: string): CleanupRoot {
-  if (paths.scope === 'global' && paths.harnessOverride('gemini'))
+  if (paths.scope === 'global' && envSet(paths.env, 'GEMINI_CLI_HOME'))
     return { dir: path.join(base, 'skills'), stop: base };
   return sharedSkillsRoot(paths);
 }
 
+function geminiLayout(paths: ScopePaths): TargetLayout {
+  const base = paths.harnessHome('gemini');
+  const skills = skillsRoot(paths, base);
+  const settings = path.join(base, 'settings.json');
+  const contextFile = path.join(paths.scope === 'project' ? paths.root : base, 'GEMINI.md');
+  return {
+    configDir: base,
+    skillsDir: fixedSkillsDir(skills),
+    agentsDir: path.join(base, 'agents'),
+    instructions: { blockFile: contextFile },
+    hooks: { mergeFile: settings },
+    mcp: { json: settings, path: ['mcpServers'] },
+    roots: [{ dir: base, stop: base }, skills],
+    mergedFiles: [settings, contextFile],
+  };
+}
+
 export const geminiSpec: TargetSpec = {
   id: 'gemini',
-  displayName: 'Gemini CLI',
-  layout(paths): TargetLayout {
-    const base = paths.harnessHome('gemini');
-    const skills = skillsRoot(paths, base);
-    const settings = path.join(base, 'settings.json');
-    const contextFile = path.join(paths.scope === 'project' ? paths.root : base, 'GEMINI.md');
-    return {
-      configDir: base,
-      skillsDir: skills.dir,
-      agentsDir: path.join(base, 'agents'),
-      instructions: { blockFile: contextFile },
-      commands: { dir: path.join(base, 'commands') },
-      hooks: { mergeFile: settings },
-      mcp: { json: settings, path: ['mcpServers'] },
-      roots: [{ dir: base, stop: base }, skills],
-      mergedFiles: [settings, contextFile],
-    };
-  },
+  displayName: DISPLAY_NAMES.gemini,
+  layout: geminiLayout,
   async detect(paths) {
     if (paths.scope === 'project')
       return (
@@ -57,4 +66,5 @@ export const geminiSpec: TargetSpec = {
       );
     return pathExists(paths.harnessHome('gemini'));
   },
+  outputDirs: (paths) => outputDirsOf(geminiLayout(paths), paths),
 };

@@ -5,10 +5,10 @@
  *   ...content...
  *   <!-- palm:end instruction:<name> -->
  *
- * `upsertBlockText` (the pure transform deploys plan with) replaces an existing block in
+ * `upsertBlockText` (the pure transform the Applier writes) replaces an existing block in
  * place (everything outside it stays byte-identical) or appends one after a blank line; the
- * text always ends with a newline after an upsert. The planner records an `md-block` (stored
- * as `{ file, pointer: "block:<id>", value: content }`); `removeManagedBlock` undoes it.
+ * text always ends with a newline after an upsert. The render records an `md-block` fragment
+ * (`at: block:<id>`, key `<id>`, the content as its value); `removeManagedBlock` undoes it.
  */
 import { promises as fs } from 'node:fs';
 import { PalmError } from '../core/errors.js';

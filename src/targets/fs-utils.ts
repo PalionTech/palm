@@ -77,22 +77,17 @@ export async function removeFileIfExists(p: string): Promise<void> {
 
 /**
  * Recursively list the files to copy from `root`, skipping `COPY_SKIP` (`.git`, `node_modules`,
- * `.DS_Store`, `*.zip`) at any depth and the names in `skipTop` at the top level. Sorted for
- * determinism.
+ * `.DS_Store`, `*.zip`) at any depth. Sorted for determinism.
  *
  * Symlinks are followed only when their real target stays inside `boundary` (default: `root`
- * itself; callers pass the origin root so links between skills of one repository keep working).
+ * itself; callers pass the source root so links between skills of one repository keep working).
  * A link that points anywhere else (`notes.md -> ~/.ssh/id_rsa`, `refs -> /etc`) is never read
- * and is reported in `skipped`. A symlinked `root` is resolved and checked the same way. Content
- * hashes (core/hash) walk with the same rule, so what is copied is what is hashed.
+ * and is reported in `symlinksOutside`. Content hashes (core/hash) walk with the same rule, so
+ * what is copied is what is hashed.
  */
 export async function listCopyFiles(
   root: string,
-  opts: { skipTop?: readonly string[]; boundary?: string } = {},
+  opts: { boundary?: string } = {},
 ): Promise<WalkResult> {
-  const skipTop = opts.skipTop ?? [];
-  return walkFiles(root, {
-    boundary: opts.boundary,
-    skip: (name, rel) => shouldSkipFile(name) || (rel === name && skipTop.includes(name)),
-  });
+  return walkFiles(root, { boundary: opts.boundary, skip: (name: string) => shouldSkipFile(name) });
 }
