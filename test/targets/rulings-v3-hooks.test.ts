@@ -6,6 +6,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Entity, HookSet, TargetId } from '../../src/core/types.js';
 import { convertHooks, type Relocate } from '../../src/targets/convert-hooks.js';
+import { fragmentText } from '../../src/targets/fragment-text.js';
 import { projectRelativeCommand } from '../../src/targets/hook-equivalence.js';
 import { createTarget } from '../../src/targets/index.js';
 import { renderMcp } from '../../src/targets/mcp-config.js';
@@ -180,5 +181,56 @@ describe('Q8 an optional header reference renders in each harness’s optional f
     expect(codex.notes).toContain(
       'Codex has no optional form for CONTEXT7_TOKEN: export it before starting Codex',
     );
+  });
+});
+
+describe('R20′ describe shows each fragment in its file’s own language', () => {
+  const server = {
+    name: 'docs',
+    transport: 'http' as const,
+    url: 'https://docs.test/mcp',
+    headers: { Authorization: 'Bearer ${DOCS_TOKEN}' },
+  };
+
+  async function fragmentOf(id: TargetId) {
+    const root = await tmpDir();
+    const entity = mkEntity(
+      { kind: 'mcp', mcp: server, references: [], closure: { paths: [] } },
+      'docs',
+      '.mcp.json',
+    );
+    const src = path.join(root, 'src');
+    const r = await createTarget(id, fakeEnv(root)).render({
+      entity,
+      absPath: path.join(src, '.mcp.json'),
+      sourceRoot: src,
+      source: { name: 'acme/kit', type: 'git', url: 'https://github.com/acme/kit.git' },
+      scope: 'project',
+      scopeRoot: root,
+      assetsRoot: '.palm/assets/acme__kit/docs',
+      inPlace: false,
+      secretPolicy: 'env-ref',
+    });
+    return r.fragments[0] as NonNullable<(typeof r.fragments)[0]>;
+  }
+
+  it('R20′ the Codex server is its [mcp_servers.<name>] TOML table', async () => {
+    expect(fragmentText(await fragmentOf('codex'))).toBe(
+      [
+        '[mcp_servers.docs]',
+        'url = "https://docs.test/mcp"',
+        'bearer_token_env_var = "DOCS_TOKEN"',
+      ].join('\n'),
+    );
+  });
+
+  it('R20′ a JSON harness shows JSON, a markdown block its text', async () => {
+    expect(JSON.parse(fragmentText(await fragmentOf('claude')))).toEqual({
+      type: 'http',
+      url: 'https://docs.test/mcp',
+      headers: { Authorization: 'Bearer ${DOCS_TOKEN}' },
+    });
+    const block = { file: 'AGENTS.md', at: 'block:palm:instruction:x', value: 'Be strict.\n' };
+    expect(fragmentText(block)).toBe('Be strict.');
   });
 });
