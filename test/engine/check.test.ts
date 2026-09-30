@@ -13,6 +13,7 @@ import { makeWorld, type World } from './world.js';
 
 const IDS = [
   'manifest-lock',
+  'targets',
   'render',
   'partial',
   'lock-disk',

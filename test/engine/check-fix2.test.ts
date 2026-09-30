@@ -192,6 +192,29 @@ describe("S6 J16' S7 secrets by server", () => {
   });
 });
 
+describe('B2 targets dropped from palm.yaml', () => {
+  it('B2 check fails naming the target and how many files the next install removes', async () => {
+    const w = await makeWorld({ targets: ['claude', 'codex'], interactive: true, consent: 'yes' });
+    const url = await w.remote('kit', { 'v1.0.0': KIT });
+    const r0 = await installFromSource(
+      w.ctx,
+      { source: url, names: [{ name: 'tdd' }] },
+      { scope: 'project' },
+      w.deps,
+    );
+    expect(r0.failures).toEqual([]);
+    expect((await check(w)).r.targets?.status).toBe('ok');
+    const text = (await w.manifestText()) ?? '';
+    await w.write('palm.yaml', text.replace('targets: [claude, codex]', 'targets: [claude]'));
+    const { r, report } = await check(w);
+    expect(r.targets?.status).toBe('fail');
+    expect(r.targets?.problems[0]?.message).toBe(
+      'codex removed from targets in palm.yaml: 1 file is removed by the next palm install',
+    );
+    expect(report.ok).toBe(false);
+  });
+});
+
 describe("Y12' R6' check without palm.yaml", () => {
   afterEach(() => setGitRunner(undefined));
 

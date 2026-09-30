@@ -21,6 +21,7 @@ import { applies, type CheckContext, notApplicable, renderAll } from './check-ki
 import { localSources, manifestLock, preloads, sourcesDeclared } from './check-lock.js';
 import { agentNames, blockSize, doubleLoad, gitIgnored, links } from './check-repo.js';
 import { secrets, variables } from './check-secrets.js';
+import { targetsCheck } from './check-targets.js';
 import { foreignServers } from './check-servers.js';
 import { resolveEngineDeps } from './deps.js';
 import { runOf } from './jobs.js';
@@ -37,6 +38,7 @@ type Check = (c: CheckContext) => CheckRun | Promise<CheckRun>;
  */
 const ORDER: Array<[string, Check]> = [
   ['manifest-lock', manifestLock],
+  ['targets', targetsCheck],
   ['render', renderCheck],
   ['partial', partialCheck],
   ['local-sources', localSources],
@@ -62,6 +64,7 @@ const ORDER: Array<[string, Check]> = [
 
 const REPORT_ORDER = [
   'manifest-lock',
+  'targets',
   'render',
   'partial',
   'lock-disk',
