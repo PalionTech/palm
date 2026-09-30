@@ -18,7 +18,7 @@ import { lockedSource, type ScopeState } from './scope.js';
 export const MANIFEST_SOURCE = 'manifest';
 
 /** A Source rebuilt from the lock alone (DESIGN §4: url, root, sha, layout suffice). */
-export function sourceFromLock(state: ScopeState, name: string, ls: LockSource): Source {
+function sourceFromLock(state: ScopeState, name: string, ls: LockSource): Source {
   const src: Source = { name, type: ls.url ? 'git' : 'local' };
   if (ls.url) src.url = ls.url;
   if (ls.root) src.root = ls.root;

@@ -45,7 +45,7 @@ function pick(s: Subject): Subject {
 }
 
 /** ` -g` under global scope. */
-export function scopeFlag(scope: Scope): string {
+function scopeFlag(scope: Scope): string {
   return scope === 'global' ? ' -g' : '';
 }
 

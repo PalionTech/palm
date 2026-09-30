@@ -32,7 +32,7 @@ export interface LegacyInput {
   root: string;
 }
 
-export interface MigratedSource {
+interface MigratedSource {
   source: Source;
   lock: LockSource;
   fromConfig: boolean;
@@ -191,7 +191,7 @@ function originOf(origins: Map<string, Origin>, e: LegacyLockEntry): Origin | un
 const MCP_KEYS = ['transport', 'command', 'args', 'env', 'cwd', 'url', 'headers'] as const;
 
 /** An MCP config (inline palm.yaml entry or a rendered harness block) as a `mcp:` entry. */
-export function mcpEntryOf(raw: Record<string, unknown>): McpManifestEntry {
+function mcpEntryOf(raw: Record<string, unknown>): McpManifestEntry {
   const out: Record<string, unknown> = {};
   for (const k of MCP_KEYS) if (raw[k] !== undefined) out[k] = raw[k];
   const type = raw.type;
@@ -315,7 +315,7 @@ function groups(
     if (isHandMcp(e, origins)) continue;
     if (e.origin === 'mine') {
       m.warnings.push(
-        `${kindOf(e.kind)} ${e.name} came from your personal origin mine; copy it into ./agent-kit/${kindOf(e.kind)}s/${e.name} and run: palm install ./agent-kit ${e.name}`,
+        `${kindOf(e.kind)} ${e.name} came from your personal ~/.palm/mine directory; copy it into ./agent-kit/${kindOf(e.kind)}s/${e.name} and run: palm install ./agent-kit ${e.name}`,
       );
       continue;
     }
@@ -350,7 +350,7 @@ function addGroup(
   const origin = originOf(ctx.origins, first);
   if (!origin) {
     m.warnings.push(
-      `origin ${first.origin} has no url in palm.lock.yaml or ~/.palm/config.yaml; declare it: palm install <owner/repo> ${first.name}`,
+      `the 0.1 alias ${first.origin} has no url in palm.lock.yaml or ~/.palm/config.yaml; declare its repository again: palm install <owner/repo> ${first.name}`,
     );
     return;
   }

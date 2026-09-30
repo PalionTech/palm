@@ -24,13 +24,13 @@ import type { ScopeState } from './scope.js';
 import { activeTargets, narrowedTargets } from './targets.js';
 
 /** The palm.yaml form of an entry: its name alone when it carries no options. */
-export function manifestEntryOf(entry: ManifestEntryObject): ManifestEntry {
+function manifestEntryOf(entry: ManifestEntryObject): ManifestEntry {
   const { name, ...rest } = entry;
   const options = Object.entries(rest).filter(([, v]) => v !== undefined);
   return options.length ? { name, ...Object.fromEntries(options) } : name;
 }
 
-export function findEntity(index: SourceIndex, kind: Kind, name: string): Entity | undefined {
+function findEntity(index: SourceIndex, kind: Kind, name: string): Entity | undefined {
   return index.entities.find((e) => e.kind === kind && sameName(e.name, name));
 }
 
@@ -58,7 +58,7 @@ function jobFor(b: Build, entity: Entity, entry: ManifestEntryObject, via?: stri
 }
 
 /** The plugin's own job (bookkeeping: its `deps`) and the jobs of the members it selects. */
-export function pluginJobs(b: Build, plugin: Entity, entry: ManifestEntryObject): Job[] {
+function pluginJobs(b: Build, plugin: Entity, entry: ManifestEntryObject): Job[] {
   const members = membersOf(b.resolved.index, plugin);
   const declared: EntityRef[] = plugin.def.kind === 'plugin' ? plugin.def.members : [];
   const own = { ...jobFor(b, plugin, entry), members: declared };

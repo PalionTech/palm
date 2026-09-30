@@ -47,22 +47,38 @@ export async function resolveSource(
   const key = `${ref.name}\0${opts.sha ?? ref.source.ref ?? ''}\0${opts.refresh ? 1 : 0}`;
   let pending = memo.get(key);
   if (!pending) {
-    pending = fetchAndIndex(ctx, deps, ref, opts);
+    pending = fetchAndIndex(ctx, deps, ref, { ...opts, exclude: await ownedInside(state, ref) });
     memo.set(key, pending);
     pending.catch(() => memo.delete(key));
   }
   return pending;
 }
 
+/**
+ * A local source at the scope root holds palm's own outputs: its tree hash leaves out every
+ * path the lock owns (DESIGN §4 "Source tree hash"). Other sources hold none (overlap rule).
+ */
+async function ownedInside(state: ScopeState, ref: SourceRef): Promise<Set<string> | undefined> {
+  if (!ref.isLocal || !ref.source.path) return undefined;
+  const { paths } = state;
+  const [src, root] = await Promise.all([
+    paths.realInside(ref.source.path),
+    paths.realInside(paths.root),
+  ]);
+  if (src.real !== root.real) return undefined;
+  return new Set(state.lock.entries.flatMap((e) => e.files));
+}
+
 async function fetchAndIndex(
   ctx: PalmContext,
   deps: EngineDeps,
   ref: SourceRef,
-  opts: { sha?: string; refresh?: boolean },
+  opts: { sha?: string; refresh?: boolean; exclude?: Set<string> | undefined },
 ): Promise<Resolved> {
   const fetchOpts = {
     ...(opts.sha ? { sha: opts.sha } : {}),
     ...(opts.refresh ? { refresh: true } : {}),
+    ...(opts.exclude ? { exclude: opts.exclude } : {}),
   };
   const checkout = await fetchSource(ctx, ref.source, fetchOpts);
   const index = await getIndex(ctx, checkout, {
@@ -202,7 +218,7 @@ function parseInput(ctx: PalmContext, state: ScopeState, input: string, as?: str
  * and added to palm.yaml. The lock records it once it resolved.
  */
 /** A declared source `input` names (name, alias or location), and the parsed input when it is new. */
-export function findDeclared(
+function findDeclared(
   ctx: PalmContext,
   state: ScopeState,
   input: string,

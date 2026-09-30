@@ -96,7 +96,7 @@ function collect(p: Prepared, failed: Set<TargetId>, entry: LockEntry): Collecte
 }
 
 /** The lock entry after this run: render hashes, files and fragments of every target that holds it. */
-export function entryFor(p: Prepared, failed: Set<TargetId>): LockEntry {
+function entryFor(p: Prepared, failed: Set<TargetId>): LockEntry {
   const entry = baseEntry(p);
   const { files, merged, notes } = collect(p, failed, entry);
   entry.files = [...files];
@@ -204,7 +204,7 @@ function statusOf(p: Prepared, failed: Set<TargetId>): OutcomeStatus {
 }
 
 /** Entries equal up to the order of files, fragments, notes and trust. */
-export function sameEntry(a: LockEntry | undefined, b: LockEntry): boolean {
+function sameEntry(a: LockEntry | undefined, b: LockEntry): boolean {
   if (!a) return false;
   const norm = (e: LockEntry) => ({
     ...e,

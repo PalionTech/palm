@@ -28,7 +28,7 @@ export async function detectTargets(
 }
 
 /** `ids` in TARGET_IDS order, without duplicates. */
-export function orderTargets(ids: Iterable<TargetId>): TargetId[] {
+function orderTargets(ids: Iterable<TargetId>): TargetId[] {
   const set = new Set(ids);
   return TARGET_IDS.filter((t) => set.has(t));
 }

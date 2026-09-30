@@ -62,7 +62,7 @@ export interface Job {
   values?: Record<string, string>;
 }
 
-export type ConsentState = 'none' | 'trusted' | 'ask' | 'allowed' | 'declined' | 'quiet';
+type ConsentState = 'none' | 'trusted' | 'ask' | 'allowed' | 'declined' | 'quiet';
 
 export interface Prepared {
   job: Job;

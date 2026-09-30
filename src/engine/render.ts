@@ -35,7 +35,7 @@ export interface RenderJob {
   values?: Record<string, string>;
 }
 
-export interface EntityClosure {
+interface EntityClosure {
   root: string;
   inPlace: boolean;
   files: ClosureFile[];
@@ -60,7 +60,7 @@ interface RenderRun {
 }
 
 /** The content hash: the entity's files, or a server's canonical config (one file holds many servers). */
-export async function contentOf(entity: Entity, checkout: SourceCheckout): Promise<string> {
+async function contentOf(entity: Entity, checkout: SourceCheckout): Promise<string> {
   if (entity.def.kind === 'mcp') {
     const { origin: _origin, secrets: _secrets, ...server } = entity.def.mcp;
     return sha256(canonicalJson(server));
@@ -69,7 +69,7 @@ export async function contentOf(entity: Entity, checkout: SourceCheckout): Promi
 }
 
 /** Lock-form directory of the entity's scripts: `.palm/assets/<source>/<entity>`, or the in-repo source itself. */
-export function assetsRootOf(
+function assetsRootOf(
   state: ScopeState,
   source: SourceRef,
   entity: Entity,
@@ -174,7 +174,7 @@ async function renderTargets(run: RenderRun, out: RenderOutput): Promise<void> {
 }
 
 /** The closure files the renders write under the entity's asset root (none for in-place sources). */
-export function closureOf(
+function closureOf(
   renders: Partial<Record<TargetId, Rendered>>,
   root: string,
   inPlace: boolean,

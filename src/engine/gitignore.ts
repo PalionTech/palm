@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { writeFileAtomic } from '../lib/fs.js';
 
-export const IGNORE_LINES = ['.palm/local/', 'palm.local.yaml'] as const;
+const IGNORE_LINES = ['.palm/local/', 'palm.local.yaml'] as const;
 
 const LEGACY_LINES = new Set(['.palm', '.palm/', '/.palm', '/.palm/']);
 
@@ -20,7 +20,7 @@ async function readText(file: string): Promise<string | undefined> {
 }
 
 /** The new text of `.gitignore`, or undefined when it already has both lines and no `.palm/`. */
-export function ignoreText(text: string | undefined): string | undefined {
+function ignoreText(text: string | undefined): string | undefined {
   const lines = (text ?? '').split('\n');
   const legacy = lines.some((l) => LEGACY_LINES.has(l.trim()));
   const kept = lines.filter((l) => !LEGACY_LINES.has(l.trim()));
