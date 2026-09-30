@@ -28,6 +28,7 @@ import { Lock } from '../domain/lock.js';
 import { Manifest } from '../domain/manifest.js';
 import { ScopePaths } from '../domain/scope-paths.js';
 import type { SourceSet } from '../domain/source.js';
+import { localUrlPath } from '../domain/source-url.js';
 import { isWithin, toPosix } from '../lib/fs.js';
 import { redactTypedArgs } from '../secrets/typed.js';
 import { ensureIgnoreLines } from './gitignore.js';
@@ -311,6 +312,39 @@ async function assertInsideProject(state: ScopeState): Promise<void> {
   }
 }
 
+/** True when this run's command line names `url` (with or without `#ref`). */
+function typedThisRun(ctx: PalmContext, url: string): boolean {
+  return (ctx.argv ?? []).some((w) => w === url || w.startsWith(`${url}#`));
+}
+
+/**
+ * S4: in a project, a `file://` URL (or an absolute path) outside the repository that only
+ * palm.yaml names is refused like a `../` source: a committed palm.yaml must not make palm read
+ * a private repository on this machine. Typed on this run's command line, it is the person's
+ * own choice and goes through.
+ */
+async function assertNoOutsideUrl(ctx: PalmContext, state: ScopeState): Promise<void> {
+  const { paths } = state;
+  if (paths.scope !== 'project') return;
+  const top = worktreeRoot(paths.root) ?? paths.root;
+  const root = (await paths.realInside(top)).real;
+  for (const ref of state.sources.all()) {
+    const url = ref.isLocal ? undefined : ref.source.url;
+    const dir = url ? localUrlPath(url) : undefined;
+    if (!url || !dir || typedThisRun(ctx, url)) continue;
+    if (isWithin((await paths.realInside(dir)).real, root)) continue;
+    const names = state.manifest
+      .allEntries()
+      .filter((e) => e.source === ref.name)
+      .map((e) => e.entry.name);
+    throw new PalmError(
+      'E_SOURCE',
+      `source "${ref.name}" is ${url}, outside the project ${top}; palm.yaml names only sources inside it or remote URLs`,
+      `to install from it on purpose, type its URL: ${['palm install', url, ...names].join(' ')}`,
+    );
+  }
+}
+
 /** E_SOURCE for the first local source outside the project or overlapping an output directory (DESIGN §2). */
 export async function assertNoOverlap(
   ctx: PalmContext,
@@ -318,6 +352,7 @@ export async function assertNoOverlap(
   deps: EngineDeps,
 ): Promise<void> {
   await assertInsideProject(state);
+  await assertNoOutsideUrl(ctx, state);
   const [overlap] = await findOverlaps(ctx, state, deps);
   if (overlap) throw overlapError(overlap);
 }

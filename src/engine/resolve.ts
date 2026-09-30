@@ -20,6 +20,7 @@ import type {
 } from '../core/types.js';
 import { sameName } from '../domain/entity-ref.js';
 import type { SourceRef } from '../domain/source.js';
+import { lockedUrl } from '../domain/source-url.js';
 import { localPathOf, type ScopeState } from './scope.js';
 
 export interface Resolved {
@@ -122,7 +123,10 @@ export function lockSourceOf(state: ScopeState, ref: SourceRef, r: Resolved): Lo
   const { source } = ref;
   const out: LockSource = {};
   if (ref.isLocal && source.path) out.path = localPathOf(state, source.path);
-  else Object.assign(out, gitLockFields(source, r.checkout, state.lock.source(ref.name)));
+  else {
+    if (source.url) out.url = lockedUrl(source.url, state.paths.root);
+    Object.assign(out, gitLockFields(source, r.checkout, state.lock.source(ref.name)));
+  }
   if (source.layout) out.layout = source.layout;
   out.descriptor = r.index.detected;
   return out;
@@ -134,7 +138,6 @@ function gitLockFields(
   previous?: LockSource,
 ): LockSource {
   const out: LockSource = {};
-  if (source.url) out.url = source.url;
   if (source.root) out.root = source.root;
   if (source.ref) out.ref = source.ref;
   const same = previous?.sha !== undefined && previous.sha === checkout.sha;
@@ -153,7 +156,8 @@ function gitLockFields(
 export function pinOf(state: ScopeState, ref: SourceRef): Pin {
   if (ref.isLocal) return {};
   const ls = state.lock.source(ref.name);
-  const sameUrl = !ls?.url || !ref.source.url || ls.url === ref.source.url;
+  const url = ref.source.url;
+  const sameUrl = !ls?.url || !url || ls.url === lockedUrl(url, state.paths.root);
   if (ls?.sha && ls.ref === ref.source.ref && sameUrl) return { sha: ls.sha };
   return { refresh: true };
 }

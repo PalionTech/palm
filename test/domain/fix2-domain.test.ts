@@ -1,6 +1,7 @@
 /** Domain rulings from the second persona rerun (FINDINGS-v3.md), one test per ruling id. */
 import { describe, expect, it } from 'vitest';
 import { Manifest } from '../../src/domain/manifest.js';
+import { localUrlPath, lockedUrl, urlOfLocked } from '../../src/domain/source-url.js';
 
 const MEMBERS = [
   'brainstorming',
@@ -27,5 +28,22 @@ describe('M7 block style for nested lists beyond three', () => {
     m.addEntry('sp', 'plugin', 'superpowers');
     m.excludeMember('sp', 'superpowers', { kind: 'skill', name: 'brainstorming' });
     expect(m.text()).toContain('      - {name: superpowers, exclude: [skill:brainstorming]}\n');
+  });
+});
+
+describe('S4 local URLs in the lock', () => {
+  const root = '/work/app';
+
+  it('S4 a file:// URL or an absolute path is recorded relative to the root', () => {
+    expect(lockedUrl('file:///work/remotes/kit.git', root)).toBe('file:../remotes/kit.git');
+    expect(lockedUrl('/work/app/vendor/kit.git', root)).toBe('file:vendor/kit.git');
+    expect(lockedUrl('https://example.com/kit.git', root)).toBe('https://example.com/kit.git');
+  });
+
+  it('S4 the relative record reads back as the file:// URL', () => {
+    expect(urlOfLocked('file:../remotes/kit.git', root)).toBe('file:///work/remotes/kit.git');
+    expect(urlOfLocked('https://example.com/kit.git', root)).toBe('https://example.com/kit.git');
+    expect(localUrlPath('file:///work/remotes/kit.git')).toBe('/work/remotes/kit.git');
+    expect(localUrlPath('ssh://host.example/o/r.git')).toBeUndefined();
   });
 });

@@ -17,6 +17,7 @@ import { hashPath } from '../core/hash.js';
 import type { Kind, LegacyLockEntry, LockEntry, LockMerged } from '../core/types.js';
 import { fragmentId, fragmentKey, Lock } from '../domain/lock.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
+import { lockedUrl } from '../domain/source-url.js';
 import { parseJson } from '../lib/json.js';
 import { parsePointer } from '../lib/json-pointer.js';
 import { deepEqual, isRecord } from '../lib/object.js';
@@ -270,6 +271,7 @@ export async function provisionalLock(paths: ScopePaths, m: Migration): Promise<
     const ls = { ...s.lock };
     const path = s.source.path ? lockFormOf(paths, s.source.path) : undefined;
     if (path) ls.path = path;
+    if (ls.url) ls.url = lockedUrl(ls.url, paths.root);
     lock.setSource(s.source.name, ls);
   }
   for (const item of m.legacy) lock.upsert(await provisional(paths, item, found));

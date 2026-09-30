@@ -44,7 +44,8 @@ describe('O1 LF-normalised text renders and hashes', () => {
     await git(m.root, 'clone', '-q', p, clone);
     const check = await m.palm(clone, 'check');
     expect(check.code, check.all).toBe(0);
-    const bare = await m.palm(clone, 'install');
+    // S4: a file:// source outside the clone is typed, never taken from palm.yaml alone.
+    const bare = await m.palm(clone, 'install', url, 'crlf');
     expect(bare.code, bare.all).toBe(0);
     expect(bare.all).not.toMatch(/modified|changed since palm wrote/);
     expect(await git(clone, 'status', '--porcelain')).toBe('');
@@ -64,7 +65,7 @@ describe('O1 LF-normalised text renders and hashes', () => {
     await writeFile(file, (await readFile(file, 'utf8')).replaceAll('\n', '\r\n'));
     const check = await m.palm(p, 'check');
     expect(check.code, check.all).toBe(0);
-    const bare = await m.palm(p, 'install');
+    const bare = await m.palm(p, 'install', url, 'lf');
     expect(bare.code, bare.all).toBe(0);
     expect(bare.all).not.toMatch(/modified|changed since palm wrote/);
   });
@@ -101,7 +102,7 @@ describe('T1 no delete through a link into another target', () => {
       join(p, 'palm.yaml'),
       yaml.replace('targets: [claude, codex]', 'targets: [codex]'),
     );
-    const narrowed = await m.palm(p, 'install');
+    const narrowed = await m.palm(p, 'install', url, 'fmt');
     expect(narrowed.code, narrowed.all).toBe(0);
     expect(await readFile(codexOnly, 'utf8')).toBe(codexText);
     expect(await readFile(join(p, '.agents/skills/fmt/SKILL.md'), 'utf8')).toContain('Format it.');
@@ -118,7 +119,7 @@ describe('B1 two installs started together', () => {
     const p = await m.project('app');
     const seed = await m.palm(p, 'install', url, 'alpha');
     expect(seed.code, seed.all).toBe(0);
-    const runs = await Promise.all(names.slice(1).map((n) => m.palm(p, 'install', 'many', n)));
+    const runs = await Promise.all(names.slice(1).map((n) => m.palm(p, 'install', url, n)));
     for (const r of runs) expect(r.code, r.all).toBe(0);
     const manifest = await readFile(join(p, 'palm.yaml'), 'utf8');
     const lock = await readFile(join(p, 'palm.lock.yaml'), 'utf8');
@@ -203,5 +204,40 @@ describe("Y1' one renderer path for typed and bare installs", () => {
     const check = await m.palm(p, 'check');
     expect(check.all).not.toContain('renders differently');
     expect(check.all).not.toMatch(/generated files? differs? from the lock/);
+  });
+});
+
+describe('S4 a file:// URL outside the project', () => {
+  const KIT = {
+    'skills/lint/SKILL.md': '---\nname: lint\ndescription: Lints code\n---\n\nLint it.\n',
+  };
+
+  it('S4 palm.yaml alone cannot install from it; typed on the command line it installs', async () => {
+    const url = await m.source('private', { 'v1.0.0': KIT });
+    const p = await m.project('app');
+    await writeFile(
+      join(p, 'palm.yaml'),
+      `targets: [claude]\nsources:\n  private:\n    url: ${url}\n    skills: [lint]\n`,
+    );
+    const bare = await m.palm(p, 'install');
+    expect(bare.code).not.toBe(0);
+    expect(bare.all).toContain(`source "private" is ${url}, outside the project`);
+    expect(bare.all).toContain(`palm install ${url} lint`);
+    await expect(readFile(join(p, '.claude/skills/lint/SKILL.md'), 'utf8')).rejects.toThrow();
+    const typed = await m.palm(p, 'install', url, 'lint');
+    expect(typed.code, typed.all).toBe(0);
+    expect(await readFile(join(p, '.claude/skills/lint/SKILL.md'), 'utf8')).toContain('Lint it.');
+  });
+
+  it('S4 the lock records the URL relative to the project, never as an absolute path', async () => {
+    const url = await m.source('kit', { 'v1.0.0': KIT });
+    const p = await m.project('app');
+    expect((await m.palm(p, 'install', url, 'lint')).code).toBe(0);
+    const lock = await readFile(join(p, 'palm.lock.yaml'), 'utf8');
+    expect(lock).toContain('url: file:../remotes/kit.git');
+    expect(lock).not.toContain('file:///');
+    const again = await m.palm(p, 'install', url, 'lint');
+    expect(again.code, again.all).toBe(0);
+    expect(again.all).not.toContain('fetch');
   });
 });
