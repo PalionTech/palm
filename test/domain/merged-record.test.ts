@@ -1,80 +1,75 @@
 import { describe, expect, it } from 'vitest';
-import type { MergedRecord as StoredMergedRecord } from '../../src/core/types.js';
-import {
-  type MergedRecord,
-  parseMergedRecord,
-  pointerOf,
-  toStored,
-} from '../../src/domain/merged-record.js';
+import type { RenderedFragment } from '../../src/core/types.js';
+import { parseMergedRecord, pointerOf, toLockMerged } from '../../src/domain/merged-record.js';
 
-const HOOK_ITEM = { matcher: 'Edit', hooks: [{ type: 'command', command: 'fmt' }] };
+const frag = (
+  f: Partial<RenderedFragment> & Pick<RenderedFragment, 'file' | 'at'>,
+): RenderedFragment => ({
+  id: 'palm:x:y:0',
+  key: 'k',
+  value: {},
+  ...f,
+});
 
-/** Stored (lockfile) records palm writes, and their union form. */
-const CASES: Array<[string, StoredMergedRecord, MergedRecord]> = [
-  [
-    'hook entry appended to /hooks/<event>',
-    { file: '.claude/settings.json', pointer: '/hooks/SessionStart', value: HOOK_ITEM },
-    {
+describe('parseMergedRecord', () => {
+  it('maps pointers and files to the four record types, keeping id and key', () => {
+    expect(
+      parseMergedRecord(frag({ file: '.claude/settings.json', at: '/hooks/Stop', value: 1 })),
+    ).toEqual({
       type: 'json-item',
       file: '.claude/settings.json',
-      path: ['hooks', 'SessionStart'],
-      value: HOOK_ITEM,
-    },
-  ],
-  [
-    'MCP server key',
-    { file: '.mcp.json', pointer: '/mcpServers/gh', value: { command: 'npx' } },
-    { type: 'json-key', file: '.mcp.json', path: ['mcpServers', 'gh'], value: { command: 'npx' } },
-  ],
-  [
-    'MCP server key with escaped segments',
-    { file: '.vscode/mcp.json', pointer: '/servers/io.github~1x~0y', value: { url: 'u' } },
-    {
+      path: ['hooks', 'Stop'],
+      id: 'palm:x:y:0',
+      key: 'k',
+      value: 1,
+    });
+    expect(parseMergedRecord(frag({ file: 'opencode.json', at: '/instructions' })).type).toBe(
+      'json-item',
+    );
+    expect(parseMergedRecord(frag({ file: '.mcp.json', at: '/mcpServers/docs' }))).toMatchObject({
       type: 'json-key',
-      file: '.vscode/mcp.json',
-      path: ['servers', 'io.github/x~y'],
-      value: { url: 'u' },
-    },
-  ],
-  [
-    'Codex TOML table',
-    { file: '/h/.codex/config.toml', pointer: '/mcp_servers/gh', value: { command: 'npx' } },
-    {
-      type: 'toml-table',
-      file: '/h/.codex/config.toml',
-      path: ['mcp_servers', 'gh'],
-      value: { command: 'npx' },
-    },
-  ],
-  [
-    'AGENTS.md block',
-    { file: 'AGENTS.md', pointer: 'block:instruction:ts', value: 'Use strict.\n' },
-    { type: 'md-block', file: 'AGENTS.md', id: 'instruction:ts', content: 'Use strict.\n' },
-  ],
-];
-
-describe('MergedRecord', () => {
-  it.each(CASES)('%s: parse and format round-trip the stored form', (_, stored, parsed) => {
-    expect(parseMergedRecord(stored)).toEqual(parsed);
-    expect(toStored(parsed)).toEqual(stored);
-    expect(toStored(parseMergedRecord(stored))).toEqual(stored);
-    expect(pointerOf(parsed)).toBe(stored.pointer);
+      path: ['mcpServers', 'docs'],
+    });
+    expect(
+      parseMergedRecord(frag({ file: '.codex/config.toml', at: '/mcp_servers/docs' })).type,
+    ).toBe('toml-table');
+    expect(
+      parseMergedRecord(
+        frag({
+          file: 'AGENTS.md',
+          at: 'block:instruction:db',
+          key: 'instruction:db',
+          value: 'text',
+        }),
+      ),
+    ).toEqual({
+      type: 'md-block',
+      file: 'AGENTS.md',
+      id: 'palm:x:y:0',
+      key: 'instruction:db',
+      content: 'text',
+    });
   });
 
-  it('a hooks pointer nested deeper than the event array is an object key', () => {
-    expect(parseMergedRecord({ file: 'x.json', pointer: '/hooks/Stop/0', value: 1 }).type).toBe(
-      'json-key',
-    );
+  it('refuses the root pointer, an empty block id and malformed pointers with E_INTERNAL', () => {
+    for (const at of ['', '/', 'block:', 'hooks/Stop'])
+      expect(() => parseMergedRecord(frag({ file: 'f.json', at })), at).toThrowError(
+        expect.objectContaining({ code: 'E_INTERNAL' }),
+      );
   });
 
-  it.each([
-    ['not a pointer', 'mcpServers/gh'],
-    ['the whole file', ''],
-    ['the root pointer', '/'],
-    ['an empty block id', 'block:'],
-  ])('rejects %s as E_INTERNAL', (_, pointer) => {
-    expect(() => parseMergedRecord({ file: 'f.json', pointer, value: 1 })).toThrowError(
-      expect.objectContaining({ code: 'E_INTERNAL' }),
-    );
+  it('toLockMerged drops the value and restores the pointer', () => {
+    for (const at of ['/hooks/Pre~1Tool', '/mcpServers/a~0b', 'block:k']) {
+      const rec = parseMergedRecord(
+        frag({ file: 'f.json', at, key: at === 'block:k' ? 'k' : 'x' }),
+      );
+      expect(pointerOf(rec)).toBe(at);
+      expect(toLockMerged(rec)).toEqual({
+        file: 'f.json',
+        at,
+        id: 'palm:x:y:0',
+        key: at === 'block:k' ? 'k' : 'x',
+      });
+    }
   });
 });

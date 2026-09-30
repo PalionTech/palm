@@ -1,88 +1,49 @@
 import { describe, expect, it } from 'vitest';
-import {
-  EntityKey,
-  entityId,
-  isViaKind,
-  LockKey,
-  lockId,
-  Via,
-} from '../../src/domain/entity-key.js';
+import { EntityKey, entityId, LockKey, lockId, Via } from '../../src/domain/entity-key.js';
 
 describe('EntityKey', () => {
   it('identifies kind + name, names case-insensitively', () => {
     const k = EntityKey.of({ kind: 'skill', name: 'TDD' });
-    expect(k.kind).toBe('skill');
-    expect(k.name).toBe('TDD');
     expect(k.id).toBe('skill:tdd');
-    expect(k.id).toBe(entityId({ kind: 'skill', name: 'tdd' }));
+    expect(k.toString()).toBe('skill:TDD');
     expect(k.is({ kind: 'skill', name: 'tdd' })).toBe(true);
     expect(k.is({ kind: 'agent', name: 'tdd' })).toBe(false);
-    expect(k.is({ kind: 'skill', name: 'tdd2' })).toBe(false);
-    expect(k.toString()).toBe('skill:TDD');
+    expect(entityId({ kind: 'hook', name: 'Fmt' })).toBe('hook:fmt');
   });
 });
 
 describe('LockKey', () => {
-  it('adds the origin, compared exactly', () => {
-    const k = LockKey.of({ kind: 'mcp', name: 'Docs', origin: 'a' });
-    expect(k.id).toBe('mcp:docs@a');
-    expect(k.id).toBe(lockId({ kind: 'mcp', name: 'docs', origin: 'a' }));
-    expect(k.entity.id).toBe('mcp:docs');
-    expect(k.is({ kind: 'mcp', name: 'DOCS', origin: 'a' })).toBe(true);
-    expect(k.is({ kind: 'mcp', name: 'docs', origin: 'A' })).toBe(false);
-    expect(k.is({ kind: 'skill', name: 'docs', origin: 'a' })).toBe(false);
-    expect(k.toString()).toBe('mcp:Docs@a');
+  it('adds the source name, compared exactly', () => {
+    const k = LockKey.of({ kind: 'skill', name: 'TDD', source: 'mattpocock/skills' });
+    expect(k.id).toBe('skill:tdd@mattpocock/skills');
+    expect(k.toString()).toBe('skill:TDD@mattpocock/skills');
+    expect(k.entity.id).toBe('skill:tdd');
+    expect(k.is({ kind: 'skill', name: 'tdd', source: 'mattpocock/skills' })).toBe(true);
+    expect(k.is({ kind: 'skill', name: 'tdd', source: 'other' })).toBe(false);
+    expect(lockId({ kind: 'mcp', name: 'Docs', source: 'manifest' })).toBe('mcp:docs@manifest');
   });
 });
 
 describe('Via', () => {
-  it('round-trips plugin:<name> and agent:<name>', () => {
-    for (const text of ['plugin:superpowers', 'agent:reviewer', 'agent:ns:with:colons']) {
-      expect(Via.parse(text).toString()).toBe(text);
-    }
-    const v = Via.parse('agent:ns:x');
-    expect([v.kind, v.name]).toEqual(['agent', 'ns:x']);
-    expect(v.key.id).toBe('agent:ns:x');
-    expect(v.key.is({ kind: 'agent', name: 'NS:X' })).toBe(true);
-  });
-
-  it('is built from a plugin or agent entry', () => {
-    expect(Via.of({ kind: 'plugin', name: 'P' }).toString()).toBe('plugin:P');
-    expect(
-      Via.parse(Via.of({ kind: 'agent', name: 'a' }).toString()).key.is({
-        kind: 'agent',
-        name: 'A',
-      }),
-    ).toBe(true);
-    expect(() => Via.of({ kind: 'skill', name: 's' })).toThrow(
-      expect.objectContaining({ code: 'E_INTERNAL' }),
-    );
+  it('round-trips plugin:<name>', () => {
+    const v = Via.parse('plugin:superpowers');
+    expect(v.name).toBe('superpowers');
+    expect(v.toString()).toBe('plugin:superpowers');
+    expect(v.key.id).toBe('plugin:superpowers');
+    expect(Via.of({ kind: 'plugin', name: 'kit' }).toString()).toBe('plugin:kit');
   });
 
   it('compares with a stored via case-insensitively', () => {
-    const v = Via.parse('plugin:Superpowers');
-    expect(v.is('plugin:superpowers')).toBe(true);
-    expect(v.is('agent:superpowers')).toBe(false);
+    const v = Via.of({ kind: 'plugin', name: 'Kit' });
+    expect(v.is('plugin:kit')).toBe(true);
     expect(v.is('plugin:other')).toBe(false);
     expect(v.is(undefined)).toBe(false);
-    expect(v.is('garbage')).toBe(false);
   });
 
-  it('rejects malformed values; tryParse returns undefined instead', () => {
-    for (const bad of ['', 'plugin', 'plugin:', 'skill:x', ':x']) {
-      expect(() => Via.parse(bad)).toThrow(expect.objectContaining({ code: 'E_PARSE' }));
-      expect(Via.tryParse(bad)).toBeUndefined();
-    }
+  it('accepts plugins only: agent:<name> and malformed values are E_PARSE; tryParse gives undefined', () => {
+    for (const bad of ['agent:reviewer', 'plugin:', 'kit', ''])
+      expect(() => Via.parse(bad), bad).toThrowError(expect.objectContaining({ code: 'E_PARSE' }));
+    expect(Via.tryParse('agent:x')).toBeUndefined();
     expect(Via.tryParse(undefined)).toBeUndefined();
-    expect(Via.tryParse('plugin:x')?.toString()).toBe('plugin:x');
-  });
-
-  it('isViaKind holds for plugins and agents only', () => {
-    expect(['plugin', 'agent', 'skill', 'mcp'].map((k) => isViaKind(k as never))).toEqual([
-      true,
-      true,
-      false,
-      false,
-    ]);
   });
 });

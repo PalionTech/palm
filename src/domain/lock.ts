@@ -1,246 +1,153 @@
-import { existsSync } from 'node:fs';
+/**
+ * palm.lock.yaml v3 as a collection keyed by LockKey (kind + name + source), with the source
+ * records, plugin membership, trust and the render hash (DESIGN.md sections 4 and 7).
+ */
 import { PalmError } from '../core/errors.js';
-import {
-  KINDS,
-  type Kind,
-  type LockEntry,
-  type LockedFile,
-  type Lockfile,
-  type MergedRecord,
-  TARGET_IDS,
-  type TargetId,
+import type {
+  Kind,
+  LegacyLockfile,
+  LockEntry,
+  Lockfile,
+  LockSource,
+  Rendered,
 } from '../core/types.js';
-import { isRecord, withoutUndefined } from '../lib/object.js';
-import { writeYamlFile } from '../lib/yaml.js';
-import { entityId, isViaKind, lockId, Via } from './entity-key.js';
-import { loadYaml } from './manifest.js';
-import type { RecordState } from './merged-record.js';
+import { sha256 } from '../lib/digest.js';
+import { writeFileAtomic } from '../lib/fs.js';
+import { canonicalJson } from '../lib/json.js';
+import { isRecord } from '../lib/object.js';
+import { entityId, lockId, Via } from './entity-key.js';
+import { sameName } from './entity-ref.js';
+import {
+  assertV3,
+  compareText,
+  legacyLock,
+  lockText,
+  normalizeLock,
+  validEntry,
+  validSources,
+  versionOf,
+} from './lock-format.js';
+import { loadYaml } from './yaml-file.js';
+
+export { LOCK_VERSION } from './lock-format.js';
+export { fragmentId, fragmentKey } from './merged-record.js';
 
 interface Keyed {
   kind: Kind;
   name: string;
 }
 
-type LockKeyed = Keyed & { origin: string };
-
-/** Resolves lock paths (scope-relative at project scope, absolute at global); `ScopePaths` fits. */
+/** Turns lock paths into absolute ones and back; `ScopePaths` fits. */
 export interface LockPaths {
   abs(lockPath: string): string;
+  lockForm(abs: string): string;
 }
 
-/** Reads a merged record (its `file` absolute) from disk: targets `mergedRecordState` fits. */
-export type MergedCheck = (rec: MergedRecord) => Promise<RecordState>;
-
-/** A merged record (lock form) its file no longer holds as palm wrote it. */
-export interface MergedDrift {
-  record: MergedRecord;
-  state: Exclude<RecordState, 'held'>;
-}
-
-/** Reference-counted removal: what goes, and which `via` dependencies stay with a new `via`. */
+/** What removing some entries takes with it: plugin members go unless another plugin still declares them. */
 export interface RemovalPlan {
   /** Entries to undeploy and drop from the lock. */
   removed: LockEntry[];
-  /** `via` dependencies that stay because another entry still needs them, with their new `via` (undefined = now direct). */
+  /** Members that stay, with their new `via` (undefined: now listed directly). */
   kept: Array<{ entry: LockEntry; via?: string }>;
 }
 
-export const LOCK_COMMENT = 'palm lockfile — generated, do not edit by hand.';
-
-/** The lockfile version palm writes. Version 1 files are read and converted in memory. */
-const LOCK_VERSION = 2;
-
-const KEY_ORDER: Array<keyof LockEntry> = [
-  'kind',
-  'name',
-  'origin',
-  'url',
-  'root',
-  'ref',
-  'sha',
-  'path',
-  'contentHash',
-  'transform',
-  'targets',
-  'files',
-  'merged',
-  'via',
-  'deps',
-];
-
-/** The paths an entry's `files` list, in order. */
-export function filePaths(entry: Pick<LockEntry, 'files'>): string[] {
-  return entry.files.map((f) => f.path);
-}
-
-/** `{ path, hash }` in that key order; sorted by path, one per path. */
-function orderFiles(files: readonly LockedFile[]): LockedFile[] {
-  const byPath = new Map<string, LockedFile>();
-  for (const f of files)
-    if (!byPath.has(f.path)) byPath.set(f.path, { path: f.path, hash: f.hash });
-  return [...byPath.values()].sort((a, b) => compareText(a.path, b.path));
-}
-
-/** The keys in KEY_ORDER, then any others; undefined values and an empty `merged`/`deps` dropped. */
-function orderEntry(e: LockEntry): Record<string, unknown> {
-  const normal: LockEntry = {
-    ...e,
-    targets: TARGET_IDS.filter((t) => e.targets.includes(t)),
-    files: orderFiles(e.files),
-  };
-  const ordered = Object.fromEntries(KEY_ORDER.map((k) => [k, normal[k]]));
-  const out: Record<string, unknown> = withoutUndefined({ ...ordered, ...normal });
-  for (const k of ['merged', 'deps'] as const)
-    if (Array.isArray(out[k]) && (out[k] as unknown[]).length === 0) delete out[k];
-  return out;
-}
-
-/** Code-point order (locale-independent, so every machine writes the same lock). */
-function compareText(a: string, b: string): number {
-  return Number(a > b) - Number(a < b);
-}
-
-/** Kind (KINDS order), name (any case), origin, then name: code points, so every machine sorts alike. */
-function byKindNameOrigin(a: LockEntry, b: LockEntry): number {
-  return (
-    KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind) ||
-    compareText(a.name.toLowerCase(), b.name.toLowerCase()) ||
-    compareText(a.origin, b.origin) ||
-    compareText(a.name, b.name)
+/**
+ * The render hash (DESIGN.md section 4): sha256 over the sorted list of (lock path, mode,
+ * sha256 of content) of the files a target writes plus (file, at, key, canonical JSON of the
+ * value) of the fragments it merges. A function of the render alone, so every machine agrees.
+ */
+export function renderHashOf(rendered: Pick<Rendered, 'files' | 'fragments'>): string {
+  const files = rendered.files.map(
+    (f) => `f\0${f.path}\0${f.mode === undefined ? '' : f.mode.toString(8)}\0${sha256(f.data)}`,
   );
-}
-
-function badEntry(file: string, i: number, why: string): PalmError {
-  return new PalmError(
-    'E_PARSE',
-    `${file}: entry ${i + 1} ${why}`,
-    'Restore the lockfile from version control, or delete it and run `palm install`',
+  const fragments = rendered.fragments.map(
+    (g) => `m\0${g.file}\0${g.at}\0${g.key}\0${canonicalJson(g.value)}`,
   );
+  return sha256([...files, ...fragments].sort(compareText).join('\n'));
 }
 
-/** One `files` item: v2 `{ path, hash }`, or a v1 path string (hash unknown). */
-function lockedFile(file: string, i: number, raw: unknown): LockedFile {
-  if (typeof raw === 'string') return { path: raw, hash: '' };
-  if (isRecord(raw) && typeof raw.path === 'string')
-    return { path: raw.path, hash: typeof raw.hash === 'string' ? raw.hash : '' };
-  throw badEntry(file, i, 'has a malformed `files` item');
-}
-
-/** A loaded entry in the v2 shape: files as `{ path, hash }`, `transform` set, `installedAt` gone. */
-function normalizeEntry(file: string, i: number, raw: unknown): LockEntry {
-  if (!isRecord(raw) || [raw.kind, raw.name, raw.origin].some((v) => typeof v !== 'string'))
-    throw badEntry(file, i, 'needs a kind, name and origin');
-  const { installedAt: _dropped, ...rest } = raw;
-  const files = Array.isArray(raw.files) ? raw.files : [];
-  return {
-    ...(rest as unknown as LockEntry),
-    transform: typeof raw.transform === 'number' ? raw.transform : 0,
-    targets: Array.isArray(raw.targets) ? (raw.targets as LockEntry['targets']) : [],
-    files: files.map((f) => lockedFile(file, i, f)),
-  };
-}
-
-function validEntries(file: string, raw: unknown): LockEntry[] {
-  const entries = Array.isArray(raw) ? raw : [];
-  return entries.map((e, i) => normalizeEntry(file, i, e));
-}
-
-/** The top-level `targets` list: known target ids in TARGET_IDS order; undefined when absent. */
-function validTargets(raw: unknown): TargetId[] | undefined {
-  if (!Array.isArray(raw)) return undefined;
-  return TARGET_IDS.filter((t) => raw.includes(t));
-}
-
-/** A user-supplied name selects an entry by name, or a registry MCP server by registry name. */
-export function answersTo(e: LockEntry, name: string): boolean {
-  const lower = name.toLowerCase();
-  return (
-    e.name.toLowerCase() === lower ||
-    (e.kind === 'mcp' && e.origin === 'registry' && e.path.toLowerCase() === lower)
-  );
-}
-
-function push<K, V>(map: Map<K, V[]>, key: K, value: V): void {
-  const list = map.get(key);
-  if (list) list.push(value);
-  else map.set(key, [value]);
+function sameSource(a: string, b: string | undefined): boolean {
+  return b === undefined || sameName(a, b);
 }
 
 /**
- * palm.lock.yaml as a collection: one entry per kind + name (case-insensitive) + origin, in
- * file order. Lookups by entry, entity and `via` parent are O(1); mutating methods change
- * this lock and return it. `toJSON()` is the plain `Lockfile` data.
+ * palm.lock.yaml: `sources` (url, ref, sha or tree, layout per source name) and one entry per
+ * kind + name (case-insensitive) + source. Mutating methods change this lock and return it;
+ * `toJSON()` is the plain `Lockfile` in its written (sorted, normalized) form.
  */
 export class Lock {
   private readonly byKey = new Map<string, LockEntry>();
-  private readonly byEntity = new Map<string, LockEntry[]>();
-  /** Built on demand, dropped on every change: `via` children and `deps` users per entity id. */
-  private links?: { children: Map<string, LockEntry[]>; users: Map<string, LockEntry[]> };
-  /**
-   * The persisted target set (palm.yaml `targets:`, config.yaml `targets`) this scope was last
-   * synced against. A bare `palm install` removes only the targets that left it since (target
-   * contraction happens when the persisted set shrinks, never because one install used
-   * `--target`). Undefined in a lock no install recorded it in: nothing is contracted then.
-   */
-  targets?: TargetId[];
-  /** Harness directories palm created (lock form): an uninstall removes them once empty. */
-  createdDirs?: string[];
+  private readonly sourceMap = new Map<string, LockSource>();
 
-  /** Entries in order; a repeated kind + name + origin keeps the first. */
-  constructor(entries: Iterable<LockEntry> = []) {
-    for (const e of entries) if (!this.byKey.has(lockId(e))) this.add(e);
+  /** A repeated kind + name + source keeps the first entry. */
+  constructor(sources: Record<string, LockSource> = {}, entries: Iterable<LockEntry> = []) {
+    for (const [name, s] of Object.entries(sources)) this.sourceMap.set(name, s);
+    for (const e of entries) if (!this.byKey.has(lockId(e))) this.byKey.set(lockId(e), e);
   }
 
   static from(lock: Lockfile): Lock {
-    return new Lock(lock.entries);
+    return new Lock(lock.sources, lock.entries);
   }
 
-  /** Reads palm.lock.yaml; an empty lock when the file is missing. */
+  /**
+   * Reads palm.lock.yaml: an empty lock when the file is missing; a 0.1 lock (version 1 or 2)
+   * is E_USAGE with the hint `palm migrate`; an entry without kind, name, source, path, content
+   * or render is E_PARSE.
+   */
   static async load(file: string): Promise<Lock> {
     const data = await loadYaml(file);
     if (data === undefined || data === null) return new Lock();
     if (!isRecord(data)) throw new PalmError('E_PARSE', `${file} must be a YAML mapping`);
-    if (data.version !== undefined && data.version !== 1 && data.version !== LOCK_VERSION) {
-      throw new PalmError(
-        'E_PARSE',
-        `${file}: unsupported lockfile version ${String(data.version)}`,
-        'Upgrade palm.',
-      );
-    }
-    const lock = new Lock(validEntries(file, data.entries));
-    const targets = validTargets(data.targets);
-    if (targets) lock.targets = targets;
-    if (Array.isArray(data.createdDirs))
-      lock.createdDirs = data.createdDirs.filter((d): d is string => typeof d === 'string');
-    return lock;
+    assertV3(file, versionOf(data));
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    return new Lock(
+      validSources(file, data.sources),
+      entries.map((e, i) => validEntry(file, i, e)),
+    );
   }
 
-  /**
-   * Writes the lock as lockfile v2, deterministically: entries sorted by kind, name and origin,
-   * keys in canonical order, files sorted by path, targets in TARGET_IDS order, LF line ends,
-   * no timestamps, as a fresh document. Saving the same lock twice gives identical bytes.
-   */
+  /** `palm migrate` only: a version 1 or 2 lock as data; undefined when missing or not a 0.1 lock. */
+  static async loadLegacy(file: string): Promise<LegacyLockfile | undefined> {
+    const data = await loadYaml(file);
+    if (!isRecord(data)) return undefined;
+    const version = versionOf(data);
+    return version === 1 || version === 2 ? legacyLock(data, version) : undefined;
+  }
+
+  /** The bytes `save` writes: deterministic, so the same lock always gives the same text. */
+  private text(): string {
+    return lockText(this.toJSON());
+  }
+
+  /** Writes the lock deterministically (DESIGN.md section 4): same lock, same bytes. */
   async save(file: string): Promise<void> {
-    await writeYamlFile(file, this.toData(), {
-      preserveFrom: false,
-      comment: LOCK_COMMENT,
-      flowKeys: ['targets'],
-    });
+    await writeFileAtomic(file, this.text());
   }
 
-  /** The document `save` writes. */
-  private toData(): Record<string, unknown> {
-    return {
-      version: LOCK_VERSION,
-      ...(this.targets ? { targets: TARGET_IDS.filter((t) => this.targets?.includes(t)) } : {}),
-      ...(this.createdDirs?.length
-        ? { createdDirs: [...new Set(this.createdDirs)].sort(compareText) }
-        : {}),
-      entries: this.entries.sort(byKindNameOrigin).map(orderEntry),
-    };
+  /** sha256 of the bytes `save` would write. */
+  hash(): string {
+    return sha256(this.text());
   }
 
-  /** Every entry, in order (a new array). */
+  get sources(): Record<string, LockSource> {
+    return Object.fromEntries(this.sourceMap);
+  }
+
+  source(name: string): LockSource | undefined {
+    return this.sourceMap.get(name);
+  }
+
+  setSource(name: string, s: LockSource): this {
+    this.sourceMap.set(name, s);
+    return this;
+  }
+
+  removeSource(name: string): this {
+    this.sourceMap.delete(name);
+    return this;
+  }
+
+  /** Every entry, in insertion order (a new array). */
   get entries(): LockEntry[] {
     return [...this.byKey.values()];
   }
@@ -250,164 +157,99 @@ export class Lock {
   }
 
   toJSON(): Lockfile {
-    return {
-      version: 2,
-      ...(this.targets ? { targets: this.targets } : {}),
-      ...(this.createdDirs?.length ? { createdDirs: this.createdDirs } : {}),
-      entries: this.entries,
-    };
+    return normalizeLock(this.sources, this.entries);
   }
 
-  /** Remember harness directories a deploy created (lock form). */
-  noteCreatedDirs(dirs: readonly string[]): this {
-    if (dirs.length) this.createdDirs = [...new Set([...(this.createdDirs ?? []), ...dirs])];
-    return this;
+  /** The entry for the entity from `source`, or (no source) the first from any source. */
+  find(key: Keyed, source?: string): LockEntry | undefined {
+    if (source !== undefined) return this.byKey.get(lockId({ ...key, source }));
+    return this.findAll(key)[0];
   }
 
-  /** The entry for the entity from `origin`, or (no origin) the first from any origin. */
-  find(key: Keyed, origin?: string): LockEntry | undefined {
-    if (origin !== undefined) return this.byKey.get(lockId({ ...key, origin }));
-    return this.byEntity.get(entityId(key))?.[0];
-  }
-
-  /** The entity's entries from every origin. */
+  /** The entity's entries from every source. */
   findAll(key: Keyed): LockEntry[] {
-    return [...(this.byEntity.get(entityId(key)) ?? [])];
+    const id = entityId(key);
+    return this.entries.filter((e) => entityId(e) === id);
   }
 
-  /** Entries a user query names: kind (optional), name or registry name, origin (optional). */
-  select(q: { kind?: Kind | undefined; name: string; origin?: string | undefined }): LockEntry[] {
+  /** Entries a user query names: kind (optional), name and source (optional), any case. */
+  select(q: { kind?: Kind; name: string; source?: string }): LockEntry[] {
     return this.entries.filter(
       (e) =>
         (!q.kind || e.kind === q.kind) &&
-        answersTo(e, q.name) &&
-        (!q.origin || e.origin === q.origin),
+        sameName(e.name, q.name) &&
+        sameSource(e.source, q.source),
     );
   }
 
-  /** Inserts the entry, or replaces the one with the same kind + name + origin in place. */
+  /** Inserts the entry, or replaces the one with the same kind + name + source in place. */
   upsert(entry: LockEntry): this {
-    const id = lockId(entry);
-    const old = this.byKey.get(id);
-    if (!old) return this.add(entry);
-    this.byKey.set(id, entry);
-    const list = this.byEntity.get(entityId(entry));
-    if (list) list[list.indexOf(old)] = entry;
-    this.links = undefined;
+    this.byKey.set(lockId(entry), entry);
     return this;
   }
 
-  /** Removes the entry from `origin`, or (no origin) the entity's entries from every origin. */
-  remove(key: Keyed & { origin?: string | undefined }): this {
-    const gone = key.origin === undefined ? this.findAll(key) : [this.find(key, key.origin)];
-    for (const e of gone) if (e) this.drop(e);
+  /** Removes the entry from `source`, or (no source) the entity's entries from every source. */
+  remove(key: Keyed & { source?: string }): this {
+    const gone = key.source === undefined ? this.findAll(key) : [this.find(key, key.source)];
+    for (const e of gone) if (e) this.byKey.delete(lockId(e));
     return this;
   }
 
-  private add(e: LockEntry): this {
-    this.byKey.set(lockId(e), e);
-    push(this.byEntity, entityId(e), e);
-    this.links = undefined;
-    return this;
+  /** The entries of one source. */
+  entriesOf(source: string): LockEntry[] {
+    return this.entries.filter((e) => e.source === source);
   }
 
-  private drop(e: LockEntry): void {
-    this.byKey.delete(lockId(e));
-    const id = entityId(e);
-    const rest = (this.byEntity.get(id) ?? []).filter((x) => x !== e);
-    if (rest.length) this.byEntity.set(id, rest);
-    else this.byEntity.delete(id);
-    this.links = undefined;
+  /** Members installed through the plugin `parent` (their `via` names it; same source when given). */
+  childrenOf(parent: Keyed & { source?: string }): LockEntry[] {
+    if (parent.kind !== 'plugin') return [];
+    const via = Via.of({ kind: 'plugin', name: parent.name });
+    return this.entries.filter((e) => via.is(e.via) && sameSource(e.source, parent.source));
   }
 
-  private linked(): NonNullable<Lock['links']> {
-    if (this.links) return this.links;
-    const children = new Map<string, LockEntry[]>();
-    const users = new Map<string, LockEntry[]>();
-    for (const e of this.byKey.values()) {
-      const via = Via.tryParse(e.via);
-      if (via) push(children, via.key.id, e);
-      if (isViaKind(e.kind)) for (const d of e.deps ?? []) push(users, entityId(d), e);
-    }
-    this.links = { children, users };
-    return this.links;
+  /** The plugin entry a member was installed through. */
+  parentOf(e: LockEntry): LockEntry | undefined {
+    const via = Via.tryParse(e.via);
+    return via ? this.find(via.key, e.source) : undefined;
   }
 
-  /** Entries installed as dependencies of `parent` (their `via` names it). */
-  childrenOf(parent: Keyed): LockEntry[] {
-    if (!isViaKind(parent.kind)) return [];
-    return [...(this.linked().children.get(entityId(parent)) ?? [])];
-  }
-
-  /** The plugin/agent entry this dependency was installed through. */
-  parentOf(entry: LockEntry): LockEntry | undefined {
-    const via = Via.tryParse(entry.via);
-    return via ? this.find(via.key) : undefined;
-  }
-
-  /** The top of the entry's `via` chain (the entry itself when installed directly). */
-  rootOf(entry: LockEntry): LockEntry {
-    const seen = new Set<string>();
-    let e = entry;
-    for (let p = this.parentOf(e); p && !seen.has(lockId(p)); p = this.parentOf(e)) {
-      seen.add(lockId(e));
-      e = p;
-    }
-    return e;
-  }
-
-  /** Plugin/agent entries, other than those `leaving` (lock ids), that list `dep` in `deps`. */
-  usersOf(dep: Keyed, leaving: ReadonlySet<string> = new Set()): LockEntry[] {
-    const users = this.linked().users.get(entityId(dep)) ?? [];
-    return users.filter((p) => !leaving.has(lockId(p)));
+  /** Plugin entries, other than those in `leaving` (lock ids), that declare `dep` in `deps`. */
+  usersOf(dep: Keyed & { source?: string }, leaving: ReadonlySet<string> = new Set()): LockEntry[] {
+    const id = entityId(dep);
+    return this.entries.filter(
+      (p) =>
+        p.kind === 'plugin' &&
+        !leaving.has(lockId(p)) &&
+        sameSource(p.source, dep.source) &&
+        (p.deps ?? []).some((d) => entityId(d) === id),
+    );
   }
 
   /**
-   * `parents` and everything installed through them, transitively (breadth first), without
-   * descending into entries whose lock id is in `stopAt`.
-   */
-  dependentsOf(
-    parents: readonly LockEntry[],
-    stopAt: ReadonlySet<string> = new Set(),
-  ): LockEntry[] {
-    const seen = new Map<string, LockEntry>();
-    const queue = [...parents];
-    for (let e = queue.shift(); e; e = queue.shift()) {
-      const id = lockId(e);
-      if (seen.has(id) || stopAt.has(id)) continue;
-      seen.set(id, e);
-      queue.push(...this.childrenOf(e));
-    }
-    return [...seen.values()];
-  }
-
-  /**
-   * Reference-counted removal (DESIGN §6 "drop `via` deps that no other entry needs").
-   * Starting from `roots`, follow `via` links; a dependency stays when `listed` says the
-   * manifest names it directly or when an entry that is not being removed lists it in
-   * `deps`. With `checkRoots` the roots themselves are subject to the same check.
+   * Removing `roots` (DESIGN.md section 6 "Remove"): a removed plugin takes its members, except
+   * a member `listed` says palm.yaml names directly (kept without `via`) and one another plugin
+   * that stays still declares (kept, re-parented to that plugin).
    */
   planRemoval(
     roots: readonly LockEntry[],
-    opts: { listed?: (e: LockEntry) => boolean; checkRoots?: boolean } = {},
+    opts: { listed?: (e: LockEntry) => boolean } = {},
   ): RemovalPlan {
-    const rootIds = new Set(roots.map(lockId));
-    const kept = new Map<string, string | undefined>();
-    for (;;) {
-      const removed = this.dependentsOf(roots, new Set(kept.keys()));
-      const leaving = new Set(removed.map(lockId));
-      const before = kept.size;
-      for (const c of removed) {
-        const id = lockId(c);
-        const candidate = rootIds.has(id) ? opts.checkRoots : c.via !== undefined;
-        const stay = candidate ? this.stays(c, leaving, opts.listed) : undefined;
-        if (stay) kept.set(id, stay.via);
+    const leaving = new Set(roots.map(lockId));
+    const removed = [...roots];
+    const kept: RemovalPlan['kept'] = [];
+    for (const child of roots.flatMap((r) => this.childrenOf(r))) {
+      if (leaving.has(lockId(child))) continue;
+      const stay = this.stays(child, leaving, opts.listed);
+      if (stay) kept.push(stay.via ? { entry: child, via: stay.via } : { entry: child });
+      else {
+        leaving.add(lockId(child));
+        removed.push(child);
       }
-      if (kept.size === before) return { removed, kept: this.keptEntries(kept) };
     }
+    return { removed, kept };
   }
 
-  /** Why `c` survives the removal of `leaving`: listed directly (no via) or still used by a parent. */
+  /** Why `c` survives the removal of `leaving`: listed directly (no via) or still declared by a plugin. */
   private stays(
     c: LockEntry,
     leaving: ReadonlySet<string>,
@@ -415,95 +257,37 @@ export class Lock {
   ): { via?: string } | undefined {
     if (listed?.(c)) return {};
     const parent = this.usersOf(c, leaving)[0];
-    return parent ? { via: Via.of(parent).toString() } : undefined;
-  }
-
-  private keptEntries(kept: Map<string, string | undefined>): RemovalPlan['kept'] {
-    return this.entries
-      .filter((e) => kept.has(lockId(e)))
-      .map((entry) => {
-        const via = kept.get(lockId(entry));
-        return via ? { entry, via } : { entry };
-      });
+    return parent ? { via: Via.of({ kind: 'plugin', name: parent.name }).toString() } : undefined;
   }
 
   /** Applies the `via` changes of a removal plan. */
   reparent(kept: RemovalPlan['kept']): this {
     for (const k of kept) {
-      const next: LockEntry = { ...k.entry };
-      if (k.via) next.via = k.via;
-      else delete next.via;
-      this.upsert(next);
+      const { via: _old, ...rest } = k.entry;
+      this.upsert(k.via ? { ...rest, via: k.via } : rest);
     }
     return this;
   }
 
-  /** Absolute paths that must survive removing `leaving`: shared merge targets and files of entries that stay. */
-  protectedFiles(paths: LockPaths, leaving: Iterable<LockKeyed>): Set<string> {
-    const gone = new Set([...leaving].map(lockId));
+  /** Every lock-form file of every entry, and every fragment as `file#at#key`. */
+  ownedPaths(): Set<string> {
     const out = new Set<string>();
     for (const e of this.byKey.values()) {
-      for (const m of e.merged ?? []) out.add(paths.abs(m.file));
-      if (!gone.has(lockId(e))) for (const f of e.files) out.add(paths.abs(f.path));
+      for (const f of e.files) out.add(f);
+      for (const m of e.merged ?? []) out.add(`${m.file}#${m.at}#${m.key}`);
     }
     return out;
   }
 
-  /** True when every file the entry lists still exists (a deleted file makes a reinstall redeploy). */
-  static filesPresent(entry: LockEntry, paths: LockPaths): boolean {
-    return entry.files.every((f) => existsSync(paths.abs(f.path)));
+  /** True when the entry has no executables or a person consented to its exec hash. */
+  trusted(entry: LockEntry): boolean {
+    return !entry.exec || (entry.trust ?? []).includes(entry.exec.hash);
   }
 
-  /**
-   * The entry's files that were changed on disk since palm wrote them (edit-safe overwrite and
-   * delete): present, with a recorded hash, and hashing (`hashOf`, e.g. core/hash `hashPath`)
-   * to something else. Missing files and files without a hash (lockfile v1) never count.
-   */
-  static async modifiedFiles(
-    entry: Pick<LockEntry, 'files'>,
-    paths: LockPaths,
-    hashOf: (abs: string) => Promise<string>,
-  ): Promise<string[]> {
-    const out: string[] = [];
-    for (const f of entry.files) {
-      const abs = paths.abs(f.path);
-      if (!f.hash || !existsSync(abs)) continue;
-      const now = await hashOf(abs).catch(() => undefined);
-      if (now !== undefined && now !== f.hash) out.push(f.path);
-    }
-    return out;
-  }
-
-  /**
-   * The entry's merged records (`.mcp.json` keys, hook entries, `AGENTS.md` blocks, …) that
-   * their file no longer holds as palm wrote them, per `check` (e.g. targets
-   * `mergedRecordState`): missing, or changed by someone else.
-   */
-  static async mergedDrift(
-    entry: Pick<LockEntry, 'merged'>,
-    paths: LockPaths,
-    check: MergedCheck,
-  ): Promise<MergedDrift[]> {
-    const out: MergedDrift[] = [];
-    for (const record of entry.merged ?? []) {
-      const state = await check({ ...record, file: paths.abs(record.file) }).catch(
-        () => 'changed' as const,
-      );
-      if (state !== 'held') out.push({ record, state });
-    }
-    return out;
-  }
-
-  /** True when every file the entry lists is on disk and (with `check`) every merged record is in place. */
-  static async inPlace(entry: LockEntry, paths: LockPaths, check?: MergedCheck): Promise<boolean> {
-    if (!Lock.filesPresent(entry, paths)) return false;
-    return !check || (await Lock.mergedDrift(entry, paths, check)).length === 0;
-  }
-
-  /** Every file and merged record the entry and whatever it pulled in wrote is still in place. */
-  async intact(entry: LockEntry, paths: LockPaths, check?: MergedCheck): Promise<boolean> {
-    for (const e of this.dependentsOf([entry]))
-      if (!(await Lock.inPlace(e, paths, check))) return false;
-    return true;
+  /** Records consent to `hash` on the entry (deduplicated). */
+  trust(entry: LockEntry, hash: string): this {
+    const current = this.find(entry, entry.source) ?? entry;
+    const trust = [...new Set([...(current.trust ?? []), hash])].sort(compareText);
+    return this.upsert({ ...current, trust });
   }
 }
