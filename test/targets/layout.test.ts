@@ -148,7 +148,7 @@ describe('detect / configDir / registry', () => {
       expect(await t.detect('global', root, env)).toBe(false);
     }
     await write(path.join(root, 'CLAUDE.md'), '');
-    await write(path.join(root, 'AGENTS.md'), '');
+    await fs.mkdir(path.join(root, '.codex'));
     await write(path.join(root, '.vscode/mcp.json'), '{}');
     await fs.mkdir(path.join(root, '.cursor'));
     await write(path.join(root, 'GEMINI.md'), '');
@@ -175,6 +175,7 @@ describe('detect / configDir / registry', () => {
         CODEX_HOME: path.join(root, 'cc'),
       }),
     ).toBe(true);
+    await fs.rm(path.join(root, '.codex'), { recursive: true });
     expect(await getTarget('codex').detect('global', root, env)).toBe(false);
   });
 

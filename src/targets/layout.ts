@@ -66,7 +66,12 @@ export interface TargetSpec {
   id: TargetId;
   displayName: string;
   layout(paths: ScopePaths): TargetLayout;
-  detect(paths: ScopePaths): Promise<boolean>;
+  /**
+   * Absolute paths whose existence marks the harness in use at the scope, most telling first
+   * (the first one found is the evidence `init` prints). A shared file another harness also
+   * reads (`AGENTS.md`) is never a marker on its own (ruling Y15).
+   */
+  markers(paths: ScopePaths): string[];
   /** Directories the target writes into at the scope, lock form (overlap checks). */
   outputDirs(paths: ScopePaths): string[];
 }

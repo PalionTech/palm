@@ -24,7 +24,7 @@ import type {
 } from '../core/types.js';
 import { type MergedRecord, parseMergedRecord } from '../domain/merged-record.js';
 import { homeOf, palmHomeOf, ScopePaths } from '../domain/scope-paths.js';
-import { isWithin, removeEmptyParents } from '../lib/fs.js';
+import { isWithin, pathExists, removeEmptyParents } from '../lib/fs.js';
 import { isSafeName } from '../lib/names.js';
 import { Applier } from './apply.js';
 import { removeFileIfExists } from './fs-utils.js';
@@ -141,8 +141,19 @@ export class GenericTarget implements Target {
     return new ScopePaths(scope, scopeRoot, palmHomeOf(e, home), e);
   }
 
-  detect(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): Promise<boolean> {
-    return this.spec.detect(this.paths(scope, scopeRoot, env));
+  async detect(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+    return (await this.evidence(scope, scopeRoot, env)) !== undefined;
+  }
+
+  /** The absolute path that marks the harness in use at the scope (`.codex`, `CLAUDE.md`), if any. */
+  async evidence(
+    scope: Scope,
+    scopeRoot: string,
+    env: NodeJS.ProcessEnv,
+  ): Promise<string | undefined> {
+    for (const marker of this.spec.markers(this.paths(scope, scopeRoot, env)))
+      if (await pathExists(marker)) return marker;
+    return undefined;
   }
 
   configDir(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): string {

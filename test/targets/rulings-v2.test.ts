@@ -1,6 +1,7 @@
 /**
  * Rulings of the 0.2 persona rerun (FINDINGS-v2.md) on the targets side: one test per ruling id.
  */
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { isPalmError } from '../../src/core/errors.js';
@@ -125,5 +126,22 @@ describe('J agents/openai.yaml lands only in .agents/skills copies', () => {
     const src = await source();
     const cursor = await renderSkill('cursor', src, { targets: ['claude', 'cursor'] });
     expect(cursor.files.map((f) => f.path)).toEqual(['.claude/skills/demo/SKILL.md']);
+  });
+});
+
+describe('Y15 an AGENTS.md alone never marks Codex', () => {
+  it('Y15 AGENTS.md is no evidence; .codex is, and evidence names it', async () => {
+    const root = await tmpDir();
+    const env = fakeEnv(root);
+    const codex = createTarget('codex', env);
+    await write(path.join(root, 'AGENTS.md'), '# repo\n');
+    expect(await codex.detect('project', root, env)).toBe(false);
+    expect(await codex.evidence('project', root, env)).toBeUndefined();
+    await fs.mkdir(path.join(root, '.codex'));
+    expect(await codex.detect('project', root, env)).toBe(true);
+    expect(await codex.evidence('project', root, env)).toBe(path.join(root, '.codex'));
+    await write(path.join(root, 'CLAUDE.md'), '');
+    const claude = createTarget('claude', env);
+    expect(await claude.evidence('project', root, env)).toBe(path.join(root, 'CLAUDE.md'));
   });
 });

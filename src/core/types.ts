@@ -946,6 +946,12 @@ export interface Target {
   displayName: string;
   /** True when the harness appears to be in use at this scope. */
   detect(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): Promise<boolean>;
+  /**
+   * The absolute path that made `detect` true (`<root>/.codex`, `<root>/CLAUDE.md`), for the
+   * evidence `init` prints (`codex (.codex)`); undefined when the harness is not detected.
+   * An `AGENTS.md` alone never marks Codex (ruling Y15).
+   */
+  evidence?(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): Promise<string | undefined>;
   /** Root config dir for the scope, e.g. <projectRoot>/.claude or ~/.claude. */
   configDir(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): string;
   /** Output directories this target writes to at a scope (lock form), for overlap checks. */

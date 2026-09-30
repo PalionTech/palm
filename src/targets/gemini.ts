@@ -13,7 +13,6 @@
  */
 import path from 'node:path';
 import type { ScopePaths } from '../domain/scope-paths.js';
-import { pathExists } from '../lib/fs.js';
 import {
   type CleanupRoot,
   DISPLAY_NAMES,
@@ -58,13 +57,9 @@ export const geminiSpec: TargetSpec = {
   id: 'gemini',
   displayName: DISPLAY_NAMES.gemini,
   layout: geminiLayout,
-  async detect(paths) {
-    if (paths.scope === 'project')
-      return (
-        (await pathExists(path.join(paths.root, '.gemini'))) ||
-        pathExists(path.join(paths.root, 'GEMINI.md'))
-      );
-    return pathExists(paths.harnessHome('gemini'));
-  },
+  markers: (paths) =>
+    paths.scope === 'project'
+      ? [path.join(paths.root, '.gemini'), path.join(paths.root, 'GEMINI.md')]
+      : [paths.harnessHome('gemini')],
   outputDirs: (paths) => outputDirsOf(geminiLayout(paths), paths),
 };

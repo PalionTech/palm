@@ -1,6 +1,5 @@
 import path from 'node:path';
 import type { ScopePaths } from '../domain/scope-paths.js';
-import { pathExists } from '../lib/fs.js';
 import {
   DISPLAY_NAMES,
   envSet,
@@ -40,13 +39,9 @@ export const claudeSpec: TargetSpec = {
   id: 'claude',
   displayName: DISPLAY_NAMES.claude,
   layout: claudeLayout,
-  async detect(paths) {
-    if (paths.scope === 'project')
-      return (
-        (await pathExists(path.join(paths.root, '.claude'))) ||
-        pathExists(path.join(paths.root, 'CLAUDE.md'))
-      );
-    return pathExists(paths.harnessHome('claude'));
-  },
+  markers: (paths) =>
+    paths.scope === 'project'
+      ? [paths.harnessHome('claude'), path.join(paths.root, 'CLAUDE.md')]
+      : [paths.harnessHome('claude')],
   outputDirs: (paths) => outputDirsOf(claudeLayout(paths), paths),
 };
