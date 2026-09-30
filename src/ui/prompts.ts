@@ -1,7 +1,11 @@
+/**
+ * The interactive UI (`@clack/prompts`) and the one used without a terminal, where every prompt
+ * is an error that names the flag that answers it (PLAN.md §4.5 invariant 21).
+ */
 import type { Readable, Writable } from 'node:stream';
 import * as p from '@clack/prompts';
 import { PalmError } from '../core/errors.js';
-import type { PickOption, UI } from '../core/types.js';
+import type { ConsentAnswer, PickOption, UI } from '../core/types.js';
 
 /** What a secret prompt echoes for each typed character. */
 const SECRET_MASK = '•';
@@ -9,31 +13,22 @@ const SECRET_MASK = '•';
 /** Above this many options, pickers switch to type-to-filter (autocomplete) prompts. */
 const AUTOCOMPLETE_THRESHOLD = 8;
 
-/**
- * UI with an extra multi-line text prompt. Local extension of the `UI` contract,
- * used by the create wizards for bodies when no $EDITOR is available.
- */
-export interface MultilineUI extends UI {
-  multiline(message: string, opts?: { placeholder?: string; initial?: string }): Promise<string>;
-}
-
-export function supportsMultiline(ui: UI): ui is MultilineUI {
-  return typeof (ui as Partial<MultilineUI>).multiline === 'function';
-}
+const CTRL_C = '\u0003';
+const ESC = '\u001b';
 
 export function isInteractiveTerminal(env: NodeJS.ProcessEnv = process.env): boolean {
   const ci = env.CI !== undefined && env.CI !== '' && env.CI !== '0' && env.CI !== 'false';
   return Boolean(process.stdin.isTTY && process.stdout.isTTY && !ci);
 }
 
-/** The user pressed Esc / Ctrl-C in a prompt: src/cli.ts exits 130 without another message. */
+/** The user pressed Esc or Ctrl-C in a prompt: runCli exits 130 without another message. */
 function cancelled(output: Writable | undefined): never {
   p.cancel('Cancelled.', { output });
   throw new PalmError('E_CANCELLED', 'cancelled');
 }
 
-/** Case-insensitive match of every whitespace-separated term against label + hint. */
-export function matchesQuery(
+/** Case-insensitive match of every whitespace-separated term against label and hint. */
+function matchesQuery(
   option: { label?: string; hint?: string; value: unknown },
   query: string,
 ): boolean {
@@ -53,14 +48,6 @@ function toClack<T>(options: PickOption<T>[]): SelectOpts<T> {
   ) as unknown as SelectOpts<T>;
 }
 
-/** Clack's cancel symbol becomes E_CANCELLED (after clack printed "Cancelled."). */
-function unwrapFor(output: Writable | undefined) {
-  return <V>(value: V | typeof p.CANCEL_SYMBOL): V => {
-    if (p.isCancel(value)) cancelled(output);
-    return value as V;
-  };
-}
-
 const filter = (search: string, option: { label?: string; hint?: string; value: unknown }) =>
   matchesQuery(option, search);
 
@@ -76,33 +63,63 @@ function fixTerminalSize(): void {
 }
 
 /** Streams the prompts read and write (default: the process's stdin and stdout). */
-interface PromptIO {
+export interface PromptIO {
   input?: Readable;
   output?: Writable;
 }
 
-class ClackUI implements MultilineUI {
-  readonly isInteractive = true;
-  private readonly unwrap: ReturnType<typeof unwrapFor>;
+type RawInput = Readable & { isRaw?: boolean; setRawMode?: (on: boolean) => unknown };
 
-  constructor(private readonly io: PromptIO) {
-    this.unwrap = unwrapFor(io.output);
+/** One keypress (raw mode when the input is a terminal). */
+function readKey(input: RawInput): Promise<string> {
+  return new Promise((resolve) => {
+    const wasRaw = Boolean(input.isRaw);
+    input.setRawMode?.(true);
+    const onData = (chunk: Buffer | string) => {
+      input.off('data', onData);
+      input.setRawMode?.(wasRaw);
+      input.pause();
+      resolve(chunk.toString());
+    };
+    input.on('data', onData);
+    input.resume();
+  });
+}
+
+/** The answer a key means, or undefined for a key the prompt ignores. */
+export function consentKey(key: string, canDiff: boolean): ConsentAnswer | 'cancel' | undefined {
+  const k = key.toLowerCase();
+  if (k === CTRL_C || k === ESC) return 'cancel';
+  if (k === 'y') return 'yes';
+  if (k === 'n' || k === '\r' || k === '\n' || k === '\r\n') return 'no';
+  if (k === 'v') return 'view';
+  if (k === 'd' && canDiff) return 'diff';
+  return undefined;
+}
+
+const ANSWER_ECHO: Readonly<Record<ConsentAnswer, string>> = {
+  yes: 'y',
+  no: 'n',
+  view: 'v',
+  diff: 'd',
+};
+
+class ClackUI implements UI {
+  readonly isInteractive = true;
+
+  constructor(private readonly io: PromptIO) {}
+
+  private unwrap<V>(value: V | typeof p.CANCEL_SYMBOL): V {
+    if (p.isCancel(value)) cancelled(this.io.output);
+    return value as V;
   }
 
   async pick<T>(message: string, options: PickOption<T>[]): Promise<T> {
     if (options.length === 0) throw new PalmError('E_USAGE', `nothing to choose from: ${message}`);
     if (options.length <= AUTOCOMPLETE_THRESHOLD)
       return this.unwrap(await p.select<T>({ message, options: toClack(options), ...this.io }));
-    return this.unwrap(
-      await p.autocomplete<T>({
-        message,
-        options: toClack(options),
-        maxItems: 10,
-        placeholder: 'type to filter',
-        filter,
-        ...this.io,
-      }),
-    );
+    const opts = { message, options: toClack(options), maxItems: 10, filter, ...this.io };
+    return this.unwrap(await p.autocomplete<T>({ ...opts, placeholder: 'type to filter' }));
   }
 
   async pickMany<T>(message: string, options: PickOption<T>[], initial?: T[]): Promise<T[]> {
@@ -110,11 +127,12 @@ class ClackUI implements MultilineUI {
     const base = { message, options: toClack(options), initialValues: initial, required: false };
     if (options.length <= AUTOCOMPLETE_THRESHOLD)
       return this.unwrap(await p.multiselect<T>({ ...base, ...this.io }));
+    const placeholder = 'type to filter, space to toggle';
     return this.unwrap(
       await p.autocompleteMultiselect<T>({
         ...base,
         maxItems: 12,
-        placeholder: 'type to filter, space to toggle',
+        placeholder,
         filter,
         ...this.io,
       }),
@@ -146,35 +164,41 @@ class ClackUI implements MultilineUI {
     return value ?? '';
   }
 
-  async multiline(message: string, o: { placeholder?: string; initial?: string } = {}) {
-    const value = this.unwrap(
-      await p.multiline({
-        message,
-        placeholder: o.placeholder,
-        initialValue: o.initial,
-        showSubmit: true,
-        ...this.io,
-      }),
-    );
-    return value ?? '';
-  }
-
   /** Masked input: each typed character echoes as SECRET_MASK, never as itself. */
   async secret(message: string): Promise<string> {
     return this.unwrap(await p.password({ message, mask: SECRET_MASK, ...this.io })) ?? '';
   }
 
+  /** DESIGN.md §7: the text, then one key: y, n (or Enter), v, d. Esc or Ctrl-C cancels. */
+  async consent(text: string, opts: { canDiff: boolean }): Promise<ConsentAnswer> {
+    const output = this.io.output ?? process.stdout;
+    const input = (this.io.input ?? process.stdin) as RawInput;
+    output.write(text.endsWith(' ') ? text : `${text} `);
+    for (;;) {
+      const answer = consentKey(await readKey(input), opts.canDiff);
+      if (answer === 'cancel') {
+        output.write('\n');
+        throw new PalmError('E_CANCELLED', 'cancelled');
+      }
+      if (answer) {
+        output.write(`${ANSWER_ECHO[answer]}\n`);
+        return answer;
+      }
+    }
+  }
+
+  /** `stop()` without a message clears the spinner line, so transcripts stay clean. */
   spinner(message: string) {
     const s = p.spinner({ output: this.io.output });
     s.start(message);
     return {
-      stop: (msg?: string) => s.stop(msg),
+      stop: (msg?: string) => (msg === undefined ? s.clear() : s.stop(msg)),
       message: (msg: string) => s.message(msg),
     };
   }
 }
 
-export function createClackUI(opts: PromptIO = {}): MultilineUI {
+export function createClackUI(opts: PromptIO = {}): UI {
   fixTerminalSize();
   return new ClackUI(opts);
 }
@@ -183,8 +207,8 @@ export function createNonInteractiveUI(): UI {
   const fail = (message: string): never => {
     throw new PalmError(
       'E_NON_INTERACTIVE',
-      `input needed but no interactive terminal: ${message}`,
-      'run in a terminal, or answer up front (name@origin, --target <ids>, --yes)',
+      `input needed but there is no terminal: ${message}`,
+      'run it in a terminal, or answer up front with flags (--yes, --allow-exec)',
     );
   };
   return {
@@ -194,6 +218,7 @@ export function createNonInteractiveUI(): UI {
     confirm: async (message) => fail(message),
     text: async (message) => fail(message),
     secret: async (message) => fail(message),
+    consent: async () => fail('allow programs to run'),
     spinner: () => ({ stop() {}, message() {} }),
   };
 }

@@ -1,266 +1,172 @@
 /**
- * `palm get [kind] [names...]` (aliases `list`, `ls`): installed entities (from the lock),
- * `--available` what the origins offer, `get origins`, `get targets` and `get all`.
+ * `palm get [kind] [names…] [-s source] [--files]` (aliases `list`, `ls`), DESIGN.md §10: what
+ * is installed (kind, name, source, ref, sha, targets, file counts, layer), every generated
+ * file with `--files`, and `get sources`, `get targets`, `get all`.
  */
-import pc from 'picocolors';
 import { PalmError } from '../core/errors.js';
-import { pluralize } from '../core/kinds.js';
-import type {
-  Entity,
-  Kind,
-  LockEntry,
-  OriginIndex,
-  OriginSpec,
-  PalmContext,
-  Scope,
-} from '../core/types.js';
-import { type Output, truncate } from '../ui/output.js';
+import { type Kind, type PalmContext, type Scope, TARGET_IDS } from '../core/types.js';
+import type { InstalledRow, ScopeState } from '../create/engine.js';
+import { displayLockPath, shortHash } from '../ui/format.js';
 import type { App } from './app.js';
-import type { Invocation } from './grammar.js';
-import { getOrigins, originRows, originsJson, printOrigins } from './origin-view.js';
+import { formatName, type Invocation } from './grammar.js';
+import { pluralize } from './ports.js';
 import {
-  entityKind,
-  type GlobalOptions,
-  makeContext,
-  scopeOf,
-  shortSha,
-  withSpinner,
-} from './shared.js';
-import { getTargets, printTargets, targetsView } from './targets.js';
+  refCell,
+  SOURCE_HEADER,
+  sourceRows,
+  sourceView,
+  TARGET_HEADER,
+  targetRows,
+  targetViews,
+} from './scope-view.js';
+import { engine, engineDeps, type GlobalOptions, makeContext, scopeOf } from './shared.js';
 
-interface GetOptions extends GlobalOptions {
-  available?: boolean;
-  origin?: string;
+interface GetFlags extends GlobalOptions {
+  source?: string;
+  files?: boolean;
 }
 
-/** `-o` values of the installed view for entries that came from palm's own pseudo-origins. */
-export const PSEUDO_ORIGINS = ['mine', 'registry', 'adhoc'] as const;
+const INSTALLED_HEADER = ['kind', 'name', 'source', 'ref', 'sha', 'targets', 'files', 'layer'];
 
-export function lockVersion(e: LockEntry): string {
-  if (e.ref && e.sha) return `${e.ref} ${pc.dim(`(${shortSha(e.sha)})`)}`;
-  return e.ref ?? shortSha(e.sha);
+function targetsOf(row: InstalledRow): string {
+  return TARGET_IDS.filter((t) => row.entry.render[t] !== undefined).join(',');
 }
 
-const byKindName = (a: { kind: string; name: string }, b: { kind: string; name: string }): number =>
-  a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name);
-
-/** Installed entries of one kind, one origin alias (the lock's `origin`) and/or some names, sorted. */
-export function filterInstalled(
-  entries: LockEntry[],
-  opts: { kind?: Kind; origin?: string; names?: string[] } = {},
-): LockEntry[] {
-  const origin = opts.origin?.toLowerCase();
-  const names = opts.names?.length ? new Set(opts.names.map((n) => n.toLowerCase())) : undefined;
-  return entries
-    .filter(
-      (e) =>
-        (!opts.kind || e.kind === opts.kind) &&
-        (!origin || e.origin.toLowerCase() === origin) &&
-        (!names || names.has(e.name.toLowerCase())),
-    )
-    .sort(byKindName);
+function installedRow(row: InstalledRow): string[] {
+  const e = row.entry;
+  const merged = e.merged?.length ? ` +${e.merged.length} merged` : '';
+  return [
+    e.kind,
+    e.via ? `${e.name} (${e.via})` : e.name,
+    e.source,
+    refCell(row.source),
+    shortHash(row.source.sha),
+    targetsOf(row),
+    `${e.files.length}${merged}`,
+    row.layer,
+  ];
 }
 
-/**
- * The lock alias `-o <query>` selects in the installed view: `mine`, `registry` and `adhoc` as is,
- * else the registered origin `resolve` finds; an origin removed after installing still matches its
- * entries by alias.
- */
-export function installedOriginAlias(
-  query: string,
-  entries: LockEntry[],
-  resolve: (query: string) => OriginSpec,
-): string {
-  const q = query.trim().toLowerCase();
-  if ((PSEUDO_ORIGINS as readonly string[]).includes(q)) return q;
-  try {
-    return resolve(query).alias;
-  } catch (e) {
-    if (
-      e instanceof PalmError &&
-      e.code === 'E_NOT_FOUND' &&
-      entries.some((x) => x.origin.toLowerCase() === q)
-    )
-      return q;
-    throw e;
-  }
+function installedJson(row: InstalledRow) {
+  const e = row.entry;
+  return {
+    kind: e.kind,
+    name: e.name,
+    source: e.source,
+    ...(e.via ? { via: e.via } : {}),
+    ref: row.source.ref,
+    resolved: row.source.resolved,
+    sha: row.source.sha,
+    tree: row.source.tree,
+    targets: targetsOf(row).split(',').filter(Boolean),
+    files: e.files,
+    merged: (e.merged ?? []).map((m) => m.file),
+    layer: row.layer,
+  };
 }
 
-export interface AvailableGroup {
-  origin: string;
-  entities: Entity[];
-  duplicates: string[];
+function fileRows(rows: InstalledRow[]): Array<{ file: string; entry: string; source: string }> {
+  return rows.flatMap(({ entry: e }) => [
+    ...e.files.map((f) => ({
+      file: displayLockPath(f),
+      entry: `${e.kind} ${e.name}`,
+      source: e.source,
+    })),
+    ...(e.merged ?? []).map((m) => ({
+      file: `${displayLockPath(m.file)} (merged)`,
+      entry: `${e.kind} ${e.name}`,
+      source: e.source,
+    })),
+  ]);
 }
 
-/** One group per origin index (optionally only `origin`), entities of `kind` sorted by kind and name. */
-export function availableGroups(
-  indexes: OriginIndex[],
-  opts: {
-    kind?: Kind;
-    origin?: string;
-    names?: string[];
-    duplicates?: (ix: OriginIndex, kind?: Kind) => string[];
-  } = {},
-): AvailableGroup[] {
-  const origin = opts.origin?.toLowerCase();
-  const names = opts.names?.length ? new Set(opts.names.map((n) => n.toLowerCase())) : undefined;
-  const keep = (e: Entity) =>
-    (!opts.kind || e.kind === opts.kind) && (!names || names.has(e.name.toLowerCase()));
-  return indexes
-    .filter((ix) => !origin || ix.origin.toLowerCase() === origin)
-    .map((ix) => ({
-      origin: ix.origin,
-      entities: ix.entities.filter(keep).sort(byKindName),
-      duplicates: opts.duplicates ? opts.duplicates(ix, opts.kind) : [],
-    }));
-}
-
-interface EntityQuery {
-  kind?: Kind;
-  origin?: string;
-  names: string[];
-  scope: Scope;
-}
-
-async function loadIndexes(
-  ctx: PalmContext,
-  q: EntityQuery,
-): Promise<{ indexes: OriginIndex[]; only?: OriginSpec }> {
-  const cache = await import('../core/cache.js');
-  const { scanOrigin: scan } = await import('../index/scan.js');
-  if (!q.origin) {
-    const indexes = await withSpinner(ctx, { message: 'Reading origin indexes' }, () =>
-      cache.getAllIndexes(ctx, { scan }),
+/** The installed entries, or E_NOT_FOUND when names were given and none of them is installed. */
+async function installed(ctx: PalmContext, app: App, inv: Invocation, flags: GetFlags) {
+  const kind = inv.resource as Kind | undefined;
+  const names = inv.names.map((n) => n.name);
+  const q = {
+    ...(kind ? { kind } : {}),
+    ...(names.length ? { names } : {}),
+    ...(flags.source ? { source: flags.source } : {}),
+  };
+  const rows = await engine(app).listInstalled(ctx, scopeOf(flags), q);
+  if (names.length && !rows.length)
+    throw new PalmError(
+      'E_NOT_FOUND',
+      `nothing named ${inv.names.map(formatName).join(', ')} is installed`,
+      'palm get',
     );
-    return { indexes };
-  }
-  const only = ctx.origins.resolveQuery(q.origin).spec;
-  const index = await withSpinner(ctx, { message: `Reading the ${only.alias} index` }, () =>
-    cache.getIndex(ctx, only, { scan }),
-  );
-  return { indexes: [index], only };
+  return rows;
 }
 
-function printAvailable(out: Output, groups: AvailableGroup[], empty: string): void {
-  const nonEmpty = groups.filter((gr) => gr.entities.length > 0);
-  if (nonEmpty.length === 0) {
-    out.hint(empty);
-    return;
+async function printVariables(ctx: PalmContext, app: App, rows: InstalledRow[], scope: Scope) {
+  const api = engine(app);
+  for (const { entry } of rows.filter((r) => r.entry.kind === 'mcp')) {
+    const q = { kind: entry.kind, name: entry.name, source: entry.source };
+    const info = await api.describeEntity(ctx, q, { scope }, engineDeps(app));
+    const vars = (info.secrets ?? []).map((s) => `${s.name} (${s.set ? 'set' : 'not set'})`);
+    if (vars.length) app.out.out(`${entry.name} needs ${vars.join(', ')}`);
   }
-  nonEmpty.forEach((gr, i) => {
-    if (i > 0) out.out();
-    out.out(`${pc.bold(gr.origin)} ${pc.dim(`(${gr.entities.length})`)}`);
-    out.table(
-      gr.entities.map((e) => [e.kind, e.name, e.version ?? '', truncate(e.description, 70)]),
-      ['kind', 'name', 'version', 'description'],
+}
+
+async function getInstalled(ctx: PalmContext, app: App, inv: Invocation, flags: GetFlags) {
+  const rows = await installed(ctx, app, inv, flags);
+  const out = app.out;
+  if (flags.files) {
+    const files = fileRows(rows);
+    if (out.jsonMode) return out.json(files);
+    return out.table(files.map((f) => [f.file, f.entry, f.source]));
+  }
+  if (out.jsonMode) return out.json(rows.map(installedJson));
+  const kind = inv.resource as Kind | undefined;
+  if (!rows.length) {
+    out.hint(
+      `No ${kind ? pluralize(kind, 2) : 'entities'} installed in the ${scopeOf(flags)} scope.`,
     );
-    for (const w of gr.duplicates) out.warn(`${gr.origin}: ${w}`);
-  });
-}
-
-/** `palm get [kind] --available [-o origin]`: what the origins offer, grouped by origin. */
-async function getAvailable(ctx: PalmContext, out: Output, q: EntityQuery): Promise<void> {
-  const { indexes, only } = await loadIndexes(ctx, q);
-  const { duplicateWarnings } = await import('../engine/query.js');
-  const groups = availableGroups(indexes, {
-    kind: q.kind,
-    origin: only?.alias,
-    names: q.names,
-    duplicates: duplicateWarnings,
-  });
-  if (out.jsonMode) return out.json(groups);
-  const what = q.kind ? pluralize(q.kind, 2) : 'entities';
-  printAvailable(
-    out,
-    groups,
-    only
-      ? `No ${what} available in origin ${only.alias}.`
-      : `No ${what} available. Add an origin with: palm install origin owner/repo`,
-  );
-}
-
-async function installedEntries(ctx: PalmContext, q: EntityQuery): Promise<LockEntry[]> {
-  const { listInstalled } = await import('../engine/query.js');
-  const installed = await listInstalled(ctx, q.scope, q.kind);
-  let origin: string | undefined;
-  if (q.origin) {
-    origin = installedOriginAlias(q.origin, installed, (s) => ctx.origins.resolveQuery(s).spec);
+    return out.hint('see what a source offers: palm install <owner/repo>');
   }
-  return filterInstalled(installed, { kind: q.kind, origin, names: q.names });
+  out.table(rows.map(installedRow), INSTALLED_HEADER);
+  if (kind === 'mcp') await printVariables(ctx, app, rows, scopeOf(flags));
 }
 
-function printInstalled(out: Output, entries: LockEntry[], empty: string): void {
-  if (entries.length === 0) {
-    out.hint(empty);
-    return;
-  }
-  out.table(
-    entries.map((e) => [
-      e.kind,
-      e.name,
-      e.origin,
-      lockVersion(e),
-      e.targets.join(','),
-      e.via ?? '',
-    ]),
-    ['kind', 'name', 'origin', 'version', 'targets', 'via'],
-  );
+async function getSources(app: App, state: ScopeState): Promise<void> {
+  const views = state.sources.all().map((ref) => sourceView(state, ref));
+  if (app.out.jsonMode) return app.out.json(views);
+  if (!views.length) return app.out.hint('palm.yaml declares no sources yet.');
+  app.out.table(sourceRows(views), SOURCE_HEADER);
 }
 
-/** E_NOT_FOUND (exit 1) when a name the user gave matches no installed entry, as describe/why do. */
-async function assertNamedInstalled(entries: LockEntry[], q: EntityQuery): Promise<void> {
-  const found = new Set(entries.map((e) => e.name.toLowerCase()));
-  const missing = q.names.find((n) => !found.has(n.toLowerCase()));
-  if (missing === undefined) return;
-  const { notInstalled } = await import('../engine/query.js');
-  throw notInstalled({ kind: q.kind, name: missing, origin: q.origin }, q.scope);
+async function getTargets(ctx: PalmContext, app: App, state: ScopeState): Promise<void> {
+  const views = await targetViews(app, ctx, state);
+  if (app.out.jsonMode) return app.out.json(views);
+  app.out.table(targetRows(views), TARGET_HEADER);
 }
 
-/** `palm get [kind] [names...]`: what is installed in the scope (from the lockfile). */
-async function getInstalled(ctx: PalmContext, out: Output, q: EntityQuery): Promise<void> {
-  const entries = await installedEntries(ctx, q);
-  await assertNamedInstalled(entries, q);
-  if (out.jsonMode) return out.json(entries);
-  const what = q.kind ? pluralize(q.kind, 2) : 'entities';
-  const from = q.origin ? ` from origin ${q.origin}` : '';
-  printInstalled(
-    out,
-    entries,
-    `No ${what} installed in the ${q.scope} scope${from}. Find some with: palm get ${q.kind ?? 'skill'}s --available`,
-  );
-}
-
-/** `palm get all`: installed entities, origins and targets of the scope. */
-async function getAll(ctx: PalmContext, out: Output, o: GetOptions): Promise<void> {
-  const scope = scopeOf(o);
-  const installed = await installedEntries(ctx, { names: [], scope });
-  const origins = await originRows(ctx, []);
-  const targets = await targetsView(ctx, { scope, target: o.target, names: [] });
-  if (out.jsonMode) {
-    out.json({ installed, origins: originsJson(ctx, origins, out.verbose), targets });
-    return;
-  }
-  out.out(pc.bold('Installed'));
-  printInstalled(out, installed, `Nothing installed in the ${scope} scope.`);
-  out.out(`\n${pc.bold('Origins')}`);
-  printOrigins(ctx, out, origins);
-  out.out(`\n${pc.bold('Targets')}`);
-  printTargets(ctx, out, targets);
+async function getAll(ctx: PalmContext, app: App, state: ScopeState, flags: GetFlags) {
+  const scope = scopeOf(flags);
+  const rows = await engine(app).listInstalled(ctx, scope);
+  const sources = state.sources.all().map((ref) => sourceView(state, ref));
+  const targets = await targetViews(app, ctx, state);
+  if (app.out.jsonMode)
+    return app.out.json({ installed: rows.map(installedJson), sources, targets });
+  const out = app.out;
+  out.out(out.colors.bold('Installed'));
+  if (rows.length) out.table(rows.map(installedRow), INSTALLED_HEADER);
+  else out.hint(`Nothing installed in the ${scope} scope.`);
+  out.out(`\n${out.colors.bold('Sources')}`);
+  out.table(sourceRows(sources), SOURCE_HEADER);
+  out.out(`\n${out.colors.bold('Targets')}`);
+  out.table(targetRows(targets), TARGET_HEADER);
 }
 
 export async function run(inv: Invocation, app: App): Promise<void> {
-  const o = inv.opts as GetOptions;
-  const scope = scopeOf(o);
-  const interactive = inv.resource === 'target' ? false : undefined;
-  const kind =
-    inv.resource === 'origin' || inv.resource === 'target' || inv.resource === 'all'
-      ? undefined
-      : entityKind(inv.resource, 'get');
-  const ctx = await makeContext(app, o, { interactive });
-  if (inv.resource === 'origin') return getOrigins(ctx, app.out, inv.names);
-  if (inv.resource === 'target')
-    return getTargets(ctx, app.out, { scope, target: o.target, names: inv.names });
-  if (inv.resource === 'all') return getAll(ctx, app.out, o);
-  const q: EntityQuery = { kind, origin: o.origin, names: inv.names, scope };
-  return o.available ? getAvailable(ctx, app.out, q) : getInstalled(ctx, app.out, q);
+  const flags = inv.opts as GetFlags;
+  const ctx = await makeContext(app, flags);
+  const resource = inv.resource;
+  if (resource !== 'source' && resource !== 'target' && resource !== 'all')
+    return getInstalled(ctx, app, inv, flags);
+  const state = await engine(app).openScope(ctx, scopeOf(flags), { readOnly: true });
+  if (resource === 'source') return getSources(app, state);
+  if (resource === 'target') return getTargets(ctx, app, state);
+  return getAll(ctx, app, state, flags);
 }

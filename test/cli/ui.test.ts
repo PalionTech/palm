@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { InstallResult } from '../../src/core/types.js';
-import { stripAnsi } from '../../src/lib/unicode.js';
+import { PassThrough } from 'node:stream';
+import { describe, expect, it, vi } from 'vitest';
+import type { InstallOutcome, InstallResult } from '../../src/core/types.js';
+import { displayLockPath, formatBytes, listJoin, truncate } from '../../src/ui/format.js';
 import {
   createOutput,
   failureCount,
@@ -9,11 +10,13 @@ import {
   type Output,
   outputOf,
   printInstallSummary,
-  truncate,
 } from '../../src/ui/output.js';
+import { consentKey, createClackUI, createNonInteractiveUI } from '../../src/ui/prompts.js';
+import { lockEntry, outcome } from './fakes.js';
 
-/** A writer over two string buffers. */
-function captured(opts: { json?: boolean; verbose?: boolean } = {}): {
+vi.mock('../../src/commands/ports.js', () => import('./contract.js'));
+
+function captured(opts: { json?: boolean; isTTY?: boolean } = {}): {
   out: Output;
   stdout: () => string;
   stderr: () => string;
@@ -25,266 +28,283 @@ function captured(opts: { json?: boolean; verbose?: boolean } = {}): {
     stdout: { write: (s: string) => (so += s) },
     stderr: { write: (s: string) => (se += s) },
   });
-  return { out, stdout: () => stripAnsi(so), stderr: () => stripAnsi(se) };
+  return { out, stdout: () => so, stderr: () => se };
 }
 
-import { createNonInteractiveUI, matchesQuery } from '../../src/ui/prompts.js';
-
-describe('createNonInteractiveUI', () => {
-  const ui = createNonInteractiveUI();
-
-  it('is not interactive', () => {
-    expect(ui.isInteractive).toBe(false);
+describe('output writer', () => {
+  it('marks status lines, keeps data on stdout and errors with their hint on stderr', () => {
+    const c = captured();
+    c.out.mark('+', 'skill tdd');
+    c.out.mark('↺', 'skill tdd');
+    c.out.status('modified', 'skill tdd');
+    c.out.status('unchanged', 'skill tdd');
+    c.out.info('note');
+    c.out.error('broken', 'palm check\nor palm install');
+    expect(c.stdout()).toBe(
+      '+ skill tdd\n↺ skill tdd\n! modified (kept)  skill tdd\n= unchanged  skill tdd\ni note\n',
+    );
+    expect(c.stderr()).toBe('x broken\n  palm check\n  or palm install\n');
   });
 
-  it.each([
-    ['pick', () => ui.pick('Which one?', [{ value: 1, label: 'one' }])],
-    ['pickMany', () => ui.pickMany('Which ones?', [{ value: 1, label: 'one' }])],
-    ['confirm', () => ui.confirm('Sure?')],
-    ['text', () => ui.text('Name?')],
-    ['secret', () => ui.secret('Token?')],
-  ])('%s throws E_NON_INTERACTIVE with a hint', async (_name, call) => {
-    await expect(call()).rejects.toMatchObject({
-      code: 'E_NON_INTERACTIVE',
-      hint: expect.any(String),
-    });
+  it('collects warnings, deduplicated, and prints them once under a heading', () => {
+    const c = captured();
+    c.out.warn('a');
+    c.out.warn('b');
+    c.out.warn('a');
+    expect(c.out.warnings()).toEqual(['a', 'b']);
+    c.out.finish();
+    c.out.finish();
+    expect(c.stderr()).toBe('\nWarnings\n  ! a\n  ! b\n');
   });
 
-  it('has a no-op spinner', () => {
-    const s = ui.spinner('working');
-    expect(() => {
-      s.message('still working');
-      s.stop('done');
-    }).not.toThrow();
+  it('under --json writes one document with the warnings; data lines go to stderr', () => {
+    const c = captured({ json: true });
+    c.out.out('a data line');
+    c.out.warn('careful');
+    c.out.json([{ name: 'tdd' }]);
+    c.out.finish();
+    expect(JSON.parse(c.stdout())).toEqual({ items: [{ name: 'tdd' }], warnings: ['careful'] });
+    expect(c.stderr()).toBe('a data line\n');
+  });
+
+  it('colours only on a terminal', () => {
+    const plain = captured();
+    plain.out.mark('+', 'x');
+    expect(plain.stdout()).toBe('+ x\n');
+    const tty = createOutput({ isTTY: true, stdout: { write: () => 0 } });
+    expect(tty.colors.isColorSupported).toBe(true);
+    const noColor = createOutput({ isTTY: true, noColor: true, stdout: { write: () => 0 } });
+    expect(noColor.colors.isColorSupported).toBe(false);
+  });
+
+  it('pages as plain lines without a terminal', async () => {
+    const c = captured();
+    await c.out.page('line 1\nline 2\n');
+    expect(c.stdout()).toBe('line 1\nline 2\n');
+  });
+
+  it('wraps a plain logger', () => {
+    const seen: string[] = [];
+    const log = {
+      info: (m: string) => seen.push(`info ${m}`),
+      warn: (m: string) => seen.push(`warn ${m}`),
+      debug: (m: string) => seen.push(`debug ${m}`),
+      success: (m: string) => seen.push(`success ${m}`),
+    };
+    const out = outputOf(log);
+    out.out('data');
+    out.warn('w');
+    out.error('e');
+    expect(seen).toEqual(['info data', 'warn w', 'debug x e']);
+    expect(outputOf(out)).toBe(out);
   });
 });
 
-describe('matchesQuery', () => {
-  it('matches every term against label and hint, case-insensitively', () => {
-    const o = { value: 'x', label: 'wayfinder @mattpocock', hint: 'Plan large refactors' };
-    expect(matchesQuery(o, 'WAY refactor')).toBe(true);
-    expect(matchesQuery(o, 'way docker')).toBe(false);
-    expect(matchesQuery(o, '')).toBe(true);
-  });
-});
-
-describe('formatTable / printTable', () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it('pads columns to the widest cell and trims trailing space', () => {
-    const out = stripAnsi(
+describe('formatting', () => {
+  it('pads table columns by display width and rules the header', () => {
+    expect(
       formatTable(
         [
-          ['skill', 'wayfinder', 'mattpocock'],
-          ['agent', 'x', 'pstack'],
+          ['skill', 'tdd'],
+          ['agent', 'reviewer'],
         ],
-        ['kind', 'name', 'origin'],
-      ),
-    );
-    expect(out.split('\n')).toEqual([
-      'kind   name       origin',
-      '─────  ─────────  ──────────',
-      'skill  wayfinder  mattpocock',
-      'agent  x          pstack',
-    ]);
-  });
-
-  it('ignores ANSI colour codes when measuring', () => {
-    const coloured = '\u001b[32mok\u001b[39m';
-    const out = formatTable([
-      [coloured, 'a'],
-      ['longer', 'b'],
-    ]);
-    expect(stripAnsi(out).split('\n')).toEqual(['ok      a', 'longer  b']);
-  });
-
-  it('handles ragged rows and no header', () => {
-    expect(stripAnsi(formatTable([['a', 'b', 'c'], ['dd']]))).toBe('a   b  c\ndd');
+        ['kind', 'name'],
+      ).split('\n'),
+    ).toEqual(['kind   name', '─────  ────────', 'skill  tdd', 'agent  reviewer']);
+    expect(
+      formatTable([
+        ['日本語', 'a'],
+        ['abcdef', 'b'],
+      ]),
+    ).toBe('日本語  a\nabcdef  b');
     expect(formatTable([])).toBe('');
   });
 
-  it('aligns columns by display width for CJK and emoji cells (R8 M7)', () => {
-    const out = formatTable([
-      ['日本語', 'a'],
-      ['🚀x', 'b'],
-      ['abcdef', 'c'],
-      ['é\u0301', 'd'],
-    ]);
-    const lines = stripAnsi(out).split('\n');
-    // Every second column starts at the same terminal column (6 wide + 2 gutter).
-    expect(lines).toEqual(['日本語  a', '🚀x     b', 'abcdef  c', 'é\u0301       d']);
-  });
-});
-
-describe('output writer', () => {
-  it('writes data and status lines with symbols to stdout, errors to stderr', () => {
-    const c = captured();
-    c.out.table([['1', '2']], ['a', 'b']);
-    c.out.added('origin x');
-    c.out.removed('skill y');
-    c.out.updated('agent z');
-    c.out.unchanged('mcp w');
-    c.out.info('note');
-    c.out.error('broken', 'palm doctor');
-    expect(c.stdout()).toBe(
-      [
-        'a  b',
-        '─  ─',
-        '1  2',
-        '+ origin x',
-        '- skill y',
-        '~ agent z',
-        '= mcp w',
-        'i note',
-        '',
-      ].join('\n'),
-    );
-    expect(c.stderr()).toBe('x broken\n  palm doctor\n');
-  });
-
-  it('collects warnings (deduplicated) and prints them once, at the end, under a heading', () => {
-    const c = captured();
-    c.out.warn('first');
-    c.out.out('data');
-    c.out.warn('second');
-    c.out.warn('first');
-    expect(c.stderr()).toBe('');
-    c.out.finish();
-    expect(c.stdout()).toBe('data\n');
-    expect(c.stderr()).toBe('\nWarnings\n  ! first\n  ! second\n');
-    c.out.finish(); // reset: nothing twice
-    expect(c.stderr()).toBe('\nWarnings\n  ! first\n  ! second\n');
-  });
-
-  it('--json: stdout holds only the JSON document, with the warnings; every line goes to stderr', () => {
-    const c = captured({ json: true });
-    c.out.out('a table line');
-    c.out.added('origin x');
-    c.out.warn('careful');
-    c.out.json([{ name: 'tdd' }]);
-    expect(c.stdout()).toBe('');
-    c.out.finish();
-    expect(JSON.parse(c.stdout())).toEqual({ items: [{ name: 'tdd' }], warnings: ['careful'] });
-    expect(c.stderr()).toContain('a table line');
-    expect(c.stderr()).toContain('+ origin x');
-  });
-
-  it('jsonEnvelope merges own and collected warnings; arrays become items', () => {
-    expect(jsonEnvelope({ outcomes: [], warnings: ['a'] }, ['a', 'b'])).toEqual({
-      outcomes: [],
+  it('builds the JSON envelope', () => {
+    expect(jsonEnvelope([1], ['w'])).toEqual({ items: [1], warnings: ['w'] });
+    expect(jsonEnvelope({ ok: true, warnings: ['a'] }, ['a', 'b'])).toEqual({
+      ok: true,
       warnings: ['a', 'b'],
     });
-    expect(jsonEnvelope([1], [])).toEqual({ items: [1], warnings: [] });
-    expect(jsonEnvelope(undefined, ['w'])).toEqual({ warnings: ['w'] });
+    expect(jsonEnvelope(undefined, [])).toEqual({ warnings: [] });
   });
 
-  it('debug lines only with --verbose', () => {
-    const quiet = captured();
-    quiet.out.debug('hidden');
-    expect(quiet.stderr()).toBe('');
-    const loud = captured({ verbose: true });
-    loud.out.debug('shown');
-    expect(loud.stderr()).toContain('shown');
-  });
-
-  it('outputOf adapts a plain logger', () => {
-    const seen: string[] = [];
-    const push = (l: string) => (m: string) => void seen.push(`${l}:${m}`);
-    const out = outputOf({
-      info: push('info'),
-      warn: push('warn'),
-      debug: push('debug'),
-      success: push('ok'),
-    });
-    out.added('x');
-    out.warn('w');
-    expect(seen).toEqual(['info:+ x', 'warn:w']);
-  });
-
-  it('failureCount reads a failures array or failed outcomes', () => {
-    expect(failureCount({ outcomes: [] })).toBe(0);
-    expect(failureCount({ outcomes: [{ status: 'installed' }, { status: 'failed' }] })).toBe(1);
-    expect(failureCount({ outcomes: [], failures: [{}, {}] })).toBe(2);
+  it('joins lists, truncates, shows sizes and global lock paths', () => {
+    expect(listJoin(['a'])).toBe('a');
+    expect(listJoin(['a', 'b', 'c'])).toBe('a, b and c');
+    expect(truncate('a  long\ndescription', 8)).toBe('a long…');
+    expect(formatBytes(612)).toBe('612 B');
+    expect(formatBytes(21 * 1024)).toBe('21 KB');
+    expect(displayLockPath('<claude>/skills/tdd/SKILL.md')).toBe('~/.claude/skills/tdd/SKILL.md');
+    expect(displayLockPath('<opencode>/opencode.json')).toBe('~/.config/opencode/opencode.json');
+    expect(displayLockPath('.claude/skills/tdd')).toBe('.claude/skills/tdd');
   });
 });
 
-describe('truncate', () => {
-  it('flattens whitespace and adds an ellipsis', () => {
-    expect(truncate('a\n b', 10)).toBe('a b');
-    expect(truncate('abcdefghij', 5)).toBe('abcd…');
-    expect(truncate(undefined, 5)).toBe('');
-  });
-
-  it('cuts by display width and never splits a wide character or emoji (R8 M7)', () => {
-    expect(truncate('日本語のテキスト', 7)).toBe('日本語…');
-    expect(truncate('日本語', 6)).toBe('日本語');
-    expect(truncate('👨‍👩‍👧 family', 4)).toBe('👨‍👩‍👧…');
-    expect(truncate('a👍b', 3)).toBe('a…');
+describe('failureCount', () => {
+  it('counts failures and failed, partial or modified outcomes', () => {
+    const e = lockEntry({ kind: 'skill', name: 'x', source: 's' });
+    const failure = { kind: 'skill' as const, name: 'x', source: 's', code: 'E_IO', message: 'm' };
+    expect(failureCount({ outcomes: [outcome(e)], failures: [] })).toBe(0);
+    expect(failureCount({ outcomes: [], failures: [failure] })).toBe(1);
+    for (const status of ['failed', 'partial', 'modified'] as const)
+      expect(failureCount({ outcomes: [outcome(e, status)], failures: [] })).toBe(1);
   });
 });
 
 describe('printInstallSummary', () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it('prints a status table, notes and warnings', () => {
-    const c = captured();
-    const result: InstallResult = {
-      outcomes: [
-        {
-          status: 'installed',
-          notes: ['export GITHUB_TOKEN before starting the harness'],
-          entry: {
-            kind: 'mcp',
-            name: 'github',
-            origin: 'registry',
-            path: '.mcp.json',
-            contentHash: 'sha256:1',
-            transform: 1,
-            targets: ['claude', 'cursor'],
-            files: [],
-            merged: [{ file: '.mcp.json', pointer: '/mcpServers', value: {} }],
-          },
-        },
-        {
-          status: 'unchanged',
-          notes: [],
-          entry: {
-            kind: 'skill',
-            name: 'tdd',
-            origin: 'mattpocock',
-            path: 'skills/tdd',
-            contentHash: 'sha256:2',
-            transform: 1,
-            targets: ['claude'],
-            files: [{ path: '.claude/skills/tdd/SKILL.md', hash: '' }],
-            via: 'agent:reviewer',
-          },
-        },
-      ],
-      warnings: ['hooks run shell commands'],
-      failures: [],
-    };
-    printInstallSummary(c.out, result, { scope: 'project', targets: ['claude', 'cursor'] });
-    c.out.finish();
-    const text = c.stdout() + c.stderr();
-    expect(text).toContain('project scope → claude, cursor');
-    expect(text).toMatch(/status\s+kind\s+name\s+origin\s+targets\s+files/);
-    expect(text).toMatch(
-      /\+ installed\s+mcp\s+github\s+registry\s+claude,cursor\s+0 \(\+1 merged\)/,
-    );
-    expect(text).toMatch(/= unchanged\s+skill\s+tdd \(agent:reviewer\)\s+mattpocock\s+claude\s+1/);
-    expect(text).toContain('1 installed, 1 unchanged');
-    expect(text).toContain('github: export GITHUB_TOKEN');
-    expect(text).toContain('Warnings\n  ! hooks run shell commands');
+  const skill = (name: string, files = [`.claude/skills/${name}/SKILL.md`]) =>
+    lockEntry({ kind: 'skill', name, source: 'obra/superpowers', files });
+  const result = (outcomes: InstallOutcome[]): InstallResult => ({
+    outcomes,
+    failures: [],
+    warnings: [],
   });
 
-  it('says so when there is nothing to install', () => {
+  it('adds the status word when statuses mix, and prints = unchanged per entry', () => {
     const c = captured();
     printInstallSummary(
       c.out,
-      { outcomes: [], warnings: [], failures: [] },
-      { scope: 'global', targets: [] },
+      result([
+        outcome(skill('a')),
+        outcome(skill('bb'), 'unchanged'),
+        outcome(skill('c'), 'restored'),
+      ]),
+      { scope: 'project', targets: ['claude'] },
     );
-    expect(c.stdout()).toContain('Nothing to install');
+    expect(c.stdout()).toBe(
+      [
+        '+ installed  skill  a    .claude/skills/a/   1 file',
+        '↺ restored   skill  c    .claude/skills/c/   1 file',
+        '= unchanged  skill  bb   .claude/skills/bb/   1 file',
+        '1 installed, 1 restored, 1 unchanged.',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('says what a dry run would do and writes no commit line', () => {
+    const c = captured();
+    printInstallSummary(c.out, result([outcome(skill('a'))]), {
+      scope: 'project',
+      targets: ['claude'],
+      dryRun: true,
+      first: true,
+    });
+    expect(c.stdout()).toBe(
+      '+ would install  skill  a   .claude/skills/a/   1 file\ndry run: 1 would install; nothing written.\n',
+    );
+  });
+
+  it('collapses more than five installs of one kind, and not other statuses', () => {
+    const c = captured();
+    const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => outcome(skill(n)));
+    printInstallSummary(c.out, result(many), { scope: 'global', targets: ['claude'] });
+    expect(c.stdout()).toBe(
+      '+ skill  a   .claude/skills/a/   1 file\n  ... 5 more\n6 installed.\n',
+    );
+    const d = captured();
+    const same = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => outcome(skill(n), 'unchanged'));
+    printInstallSummary(d.out, result(same), { scope: 'project', targets: ['claude'] });
+    expect(d.stdout().split('\n')).toHaveLength(8);
+  });
+
+  it('shows global lock paths as home paths, merged files and several places', () => {
+    const c = captured();
+    const hook = lockEntry({
+      kind: 'hook',
+      name: 'gh-cli',
+      source: 'trailofbits/skills',
+      files: [
+        '.palm/assets/trailofbits__skills/gh-cli/hooks/a.sh',
+        '.palm/assets/trailofbits__skills/gh-cli/hooks/b.sh',
+      ],
+      merged: [
+        {
+          file: '.claude/settings.json',
+          at: '/hooks/SessionStart',
+          id: 'palm:hook:gh-cli:0',
+          key: 'k',
+        },
+        {
+          file: '.cursor/hooks.json',
+          at: '/hooks/sessionStart',
+          id: 'palm:hook:gh-cli:1',
+          key: 'k',
+        },
+      ],
+    });
+    const global = lockEntry({
+      kind: 'agent',
+      name: 'r',
+      source: 's',
+      files: ['<claude>/agents/r.md'],
+    });
+    printInstallSummary(c.out, result([outcome(hook), outcome(global)]), {
+      scope: 'project',
+      targets: [],
+    });
+    expect(c.stdout()).toBe(
+      [
+        '+ agent  r        ~/.claude/agents/r.md   1 file',
+        '+ hook   gh-cli   .palm/assets/trailofbits__skills/gh-cli/, .claude/settings.json +1   2 files',
+        '2 installed.',
+        '',
+      ].join('\n'),
+    );
+  });
+});
+
+describe('prompts', () => {
+  it('reads the consent keys: y, n or Enter, v, d; Esc and Ctrl-C cancel', () => {
+    expect(consentKey('y', false)).toBe('yes');
+    expect(consentKey('Y', false)).toBe('yes');
+    expect(consentKey('n', false)).toBe('no');
+    expect(consentKey('\r', false)).toBe('no');
+    expect(consentKey('v', false)).toBe('view');
+    expect(consentKey('d', true)).toBe('diff');
+    expect(consentKey('d', false)).toBeUndefined();
+    expect(consentKey('x', true)).toBeUndefined();
+    expect(consentKey('\u0003', false)).toBe('cancel');
+    expect(consentKey('\u001b', false)).toBe('cancel');
+  });
+
+  it('consent prints the text, ignores other keys and reads one answer', async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let shown = '';
+    output.on('data', (d) => (shown += d.toString()));
+    const ui = createClackUI({ input, output });
+    const answer = ui.consent('Allow these 2 programs to run?  [y/N/v=view scripts]', {
+      canDiff: false,
+    });
+    input.write('x');
+    setTimeout(() => input.write('v'), 5);
+    expect(await answer).toBe('view');
+    expect(shown).toBe('Allow these 2 programs to run?  [y/N/v=view scripts] v\n');
+    const enter = ui.consent('Allow?', { canDiff: true });
+    input.write('\r');
+    expect(await enter).toBe('no');
+    const cancel = ui.consent('Allow?', { canDiff: true });
+    input.write('\u0003');
+    await expect(cancel).rejects.toMatchObject({ code: 'E_CANCELLED' });
+  });
+
+  it('without a terminal every prompt, consent included, is E_NON_INTERACTIVE', async () => {
+    const ui = createNonInteractiveUI();
+    expect(ui.isInteractive).toBe(false);
+    for (const ask of [
+      () => ui.pick('Which?', [{ value: 1, label: 'one' }]),
+      () => ui.pickMany('Which?', [{ value: 1, label: 'one' }]),
+      () => ui.confirm('Sure?'),
+      () => ui.text('Name?'),
+      () => ui.secret('Token?'),
+      () => ui.consent('Allow?', { canDiff: false }),
+    ])
+      await expect(ask()).rejects.toMatchObject({
+        code: 'E_NON_INTERACTIVE',
+        hint: expect.any(String),
+      });
+    expect(() => ui.spinner('x').stop()).not.toThrow();
   });
 });

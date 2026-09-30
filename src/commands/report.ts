@@ -1,0 +1,64 @@
+/**
+ * How every command that writes (install, bare install, install mcp, create, update) ends: the
+ * summary (or the JSON document), the targets line on the run that wrote `targets:` to
+ * palm.yaml, and exit 1 when anything failed, 130 after a Ctrl-C.
+ */
+import type { InstallResult, PalmContext } from '../core/types.js';
+import type { ScopeState } from '../create/engine.js';
+import { failureCount, printInstallSummary } from '../ui/output.js';
+import type { App } from './app.js';
+import { ExitSignal } from './grammar.js';
+import { EXIT } from './main.js';
+import { engine, targetDirs } from './shared.js';
+
+export interface InstallReport {
+  /** The scope as it was before the run (palm.yaml targets, lock size). */
+  before: ScopeState;
+  /** The scope after it: the targets written, the lock sources. */
+  after: ScopeState;
+  /** Print `from <source> <version>` on each line (the run named its entities). */
+  from?: boolean;
+  /** The `--json` document when it is more than the result (update: the plan too). */
+  json?: unknown;
+  /** More paths the commit line names (`palm create`: the source directory). */
+  alsoCommit?: string[];
+}
+
+/** Where the targets came from, on the run that detected them and wrote them to palm.yaml. */
+async function detected(app: App, ctx: PalmContext, r: InstallReport): Promise<string[]> {
+  if (r.before.manifest.targets !== undefined) return [];
+  if (r.after.manifest.targets === undefined && !ctx.flags.dryRun) return [];
+  return targetDirs(app, ctx, r.after);
+}
+
+export async function reportInstall(
+  ctx: PalmContext,
+  app: App,
+  result: InstallResult,
+  r: InstallReport,
+): Promise<void> {
+  const out = app.out;
+  if (out.jsonMode) out.json(r.json ?? result);
+  else
+    printInstallSummary(out, result, {
+      scope: r.after.paths.scope,
+      targets: r.after.targets,
+      dryRun: ctx.flags.dryRun,
+      first: r.before.lock.size === 0,
+      detected: await detected(app, ctx, r),
+      ...(r.from ? { from: r.after.lock.sources } : {}),
+      ...(r.alsoCommit ? { alsoCommit: r.alsoCommit } : {}),
+    });
+  if (app.interrupted) throw new ExitSignal(EXIT.cancelled);
+  if (failureCount(result)) throw new ExitSignal(EXIT.failure);
+}
+
+/** Run an install with the first Ctrl-C meaning "stop after the current entity". */
+export async function interruptible<T>(app: App, fn: () => Promise<T>): Promise<T> {
+  app.onInterrupt = () => void engine(app).requestInstallStop();
+  try {
+    return await fn();
+  } finally {
+    app.onInterrupt = undefined;
+  }
+}

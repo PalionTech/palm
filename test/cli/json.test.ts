@@ -1,120 +1,155 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { failureCount } from '../../src/ui/output.js';
-import { fakeTargets } from '../support/fakes.js';
-import { removeDir } from '../support/sandbox.js';
-import { type CliSandbox, cliSandbox, runInProcess, writeOrigins } from './helpers.js';
+/**
+ * `--json` (DESIGN.md §10 "Output contract"): stdout holds exactly one JSON document, lists are
+ * `{ items }`, every document has `warnings`, an error is `{ error: { code, message, hint } }`.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CheckReport } from '../../src/core/types.js';
+import type { EntityInfo } from '../../src/create/engine.js';
+import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
+import { fakeEngine, fakeScope, lockEntry, outcome, palm } from './fakes.js';
 
-/** stdout must be exactly one JSON document (and nothing else). */
-function onlyJson(stdout: string): Record<string, unknown> {
-  expect(stdout.startsWith('{')).toBe(true);
-  expect(stdout.trimEnd().endsWith('}')).toBe(true);
-  const doc = JSON.parse(stdout) as Record<string, unknown>;
-  expect(Array.isArray(doc.warnings)).toBe(true);
-  return doc;
+vi.mock('../../src/commands/ports.js', () => import('./contract.js'));
+
+let sb: Sandbox;
+beforeEach(async () => {
+  sb = await sandbox();
+});
+afterEach(async () => {
+  await removeDir(sb.root);
+});
+
+const tdd = lockEntry({
+  kind: 'skill',
+  name: 'tdd',
+  source: 'mattpocock/skills',
+  render: { claude: 'sha256:1', cursor: 'sha256:1' },
+  files: ['.claude/skills/tdd/SKILL.md'],
+});
+const mpSource = {
+  url: 'https://github.com/mattpocock/skills.git',
+  ref: '^1',
+  resolved: 'v1.2.3',
+  sha: '8be01d4aa',
+};
+
+async function json(argv: string[], deps: ReturnType<typeof fakeEngine>) {
+  const r = await palm(sb, [...argv, '--json'], { deps });
+  return { ...r, doc: JSON.parse(r.stdout) as Record<string, unknown> };
 }
 
-describe('--json: stdout carries one JSON document, everything else goes to stderr', () => {
-  let sb: CliSandbox | undefined;
-  afterEach(async () => {
-    if (sb) await removeDir(sb.root);
-    sb = undefined;
-  });
-
-  it('get, get origins, get targets, get all, describe (dist)', async () => {
-    sb = await cliSandbox();
-    await writeOrigins(sb, [{ alias: 'matt', fixture: 'mattpocock-like' }]);
-    for (const argv of [
-      ['get', 'skills'],
-      ['get', 'skills', '--available'],
-      ['get', 'origins'],
-      ['get', 'targets'],
-      ['get', 'all'],
-      ['describe', 'skill', 'tdd'],
-      ['describe', 'origin', 'matt'],
-      ['describe', 'target', 'claude'],
-      ['cache', 'info'],
-    ]) {
-      const r = await sb.palm(...argv, '--json', '--offline');
-      expect(r.exitCode, argv.join(' ')).toBe(0);
-      onlyJson(r.stdout);
-    }
-  });
-
-  it('search --json: the { items } envelope, each item tagged with its source (R8 M3)', async () => {
-    sb = await cliSandbox();
-    await writeOrigins(sb, [{ alias: 'matt', fixture: 'mattpocock-like' }]);
-    const r = await runInProcess(['search', 'tdd', '--json', '--offline'], {
-      cwd: sb.project,
-      env: sb.env,
+describe('--json', () => {
+  it('get: { items, warnings } with the source, ref, sha, targets, files and layer', async () => {
+    const deps = fakeEngine({
+      listInstalled: async () => [{ entry: tdd, source: mpSource, layer: 'team' as const }],
     });
+    const r = await json(['get'], deps);
     expect(r.code).toBe(0);
-    const doc = onlyJson(r.stdout);
-    expect(Object.keys(doc).sort()).toEqual(['items', 'warnings']);
-    const items = doc.items as Array<Record<string, unknown>>;
-    expect(items.length).toBeGreaterThan(0);
-    expect(items[0]).toMatchObject({
-      source: 'origin',
-      kind: 'skill',
-      name: 'tdd',
-      origin: 'matt',
+    expect(r.doc).toEqual({
+      items: [
+        {
+          kind: 'skill',
+          name: 'tdd',
+          source: 'mattpocock/skills',
+          ref: '^1',
+          resolved: 'v1.2.3',
+          sha: '8be01d4aa',
+          targets: ['claude', 'cursor'],
+          files: ['.claude/skills/tdd/SKILL.md'],
+          merged: [],
+          layer: 'team',
+        },
+      ],
+      warnings: [],
     });
-    expect(typeof items[0]?.score).toBe('number');
-    expect(items.every((i) => i.source === 'origin' || i.source === 'registry')).toBe(true);
   });
 
-  it('describe of something missing: an error document, exit 1', async () => {
-    sb = await cliSandbox();
-    const r = await sb.palm('describe', 'skill', 'nope', '--json', '--offline');
-    expect(r.exitCode).toBe(1);
-    expect(onlyJson(r.stdout)).toMatchObject({ error: { code: 'E_NOT_FOUND' } });
+  it('describe: the entity info and warnings', async () => {
+    const info: EntityInfo = {
+      entry: tdd,
+      source: mpSource,
+      files: { claude: ['.claude/skills/tdd/SKILL.md'] },
+      notes: ['cursor reads .claude/skills; no second copy'],
+      selectedBy: 'manifest',
+    };
+    const deps = fakeEngine({ describeEntity: async () => info });
+    const r = await json(['describe', 'tdd'], deps);
+    expect(r.doc).toEqual({ ...info, warnings: [] });
+    expect(deps.calls.describeEntity?.[0]?.[0]).toEqual({ name: 'tdd' });
   });
 
-  it('install with a failing target: the result document lists the failure, exit 1', async () => {
-    sb = await cliSandbox();
-    await writeOrigins(sb, [{ alias: 'matt', fixture: 'mattpocock-like' }]);
-    const { getTarget } = fakeTargets({ failFor: ['claude'] });
-    const r = await runInProcess(['install', 'skill', 'tdd', '--target', 'claude', '--json'], {
-      cwd: sb.project,
-      env: sb.env,
-      deps: { getTarget },
-    });
+  it('check: { ok, checks: [{ id, label, status, problems }], warnings } and exit 1', async () => {
+    const report: CheckReport = {
+      scope: 'project',
+      ok: false,
+      checks: [
+        { id: 'manifest-lock', label: 'manifest and lock agree', status: 'ok', problems: [] },
+        {
+          id: 'lock-disk',
+          label: '1 file differs from the lock',
+          status: 'fail',
+          problems: [
+            {
+              entity: { kind: 'skill', name: 'tdd', source: 'mattpocock/skills' },
+              file: '.claude/skills/tdd/SKILL.md',
+              message: 'changed since palm wrote it',
+              fix: 'palm install mattpocock/skills tdd --force',
+            },
+          ],
+        },
+      ],
+    };
+    const r = await json(['check'], fakeEngine({ checkScope: async () => report }));
     expect(r.code).toBe(1);
-    expect(onlyJson(r.stdout)).toMatchObject({
-      outcomes: [{ status: 'failed', entry: { name: 'tdd', targets: [] } }],
-      failures: [{ name: 'tdd', target: 'claude', code: 'E_TARGET', message: 'claude is broken' }],
+    expect(r.doc).toEqual({ ok: false, checks: report.checks, warnings: [] });
+    expect(r.stderr).toBe('');
+  });
+
+  it('install: { outcomes, failures, warnings } with the result warnings', async () => {
+    const deps = fakeEngine({
+      scopes: [fakeScope({ root: sb.project, manifestTargets: ['claude'] })],
+      installFromSource: async () => ({
+        outcomes: [outcome(tdd)],
+        failures: [],
+        warnings: ['agent reviewer names skills tdd: palm install mattpocock/skills tdd'],
+      }),
+    });
+    const r = await json(['install', 'mattpocock/skills', 'tdd'], deps);
+    expect(r.code).toBe(0);
+    expect(r.doc).toEqual({
+      outcomes: [outcome(tdd)],
+      failures: [],
+      warnings: ['agent reviewer names skills tdd: palm install mattpocock/skills tdd'],
+    });
+    expect(r.stderr).toBe('');
+  });
+
+  it('an error is { error: { code, message, hint }, warnings } and stdout holds nothing else', async () => {
+    const deps = fakeEngine({ scopes: [fakeScope({ root: sb.project })] });
+    const r = await json(['install', 'tdd'], deps);
+    expect(r.code).toBe(2);
+    expect(r.doc).toEqual({
+      error: {
+        code: 'E_USAGE',
+        message: '"tdd" is not a repository. palm installs from git repositories:',
+        hint: '  palm install <owner/repo> tdd             for example  palm install mattpocock/skills tdd',
+      },
+      warnings: [],
     });
   });
 
-  it('install where one of two targets fails: the result document; exit 1 once the engine reports failures', async () => {
-    sb = await cliSandbox();
-    await writeOrigins(sb, [{ alias: 'matt', fixture: 'mattpocock-like' }]);
-    const { getTarget } = fakeTargets({ failFor: ['codex'] });
-    const r = await runInProcess(['i', 'skill', 'tdd', '-t', 'claude,codex', '--json'], {
-      cwd: sb.project,
-      env: sb.env,
-      deps: { getTarget },
+  it('a commander error is a usage error document too', async () => {
+    const r = await json(['get', '--bogus'], fakeEngine());
+    expect(r.code).toBe(2);
+    expect(r.doc).toMatchObject({
+      error: { code: 'E_USAGE', message: "unknown option '--bogus'" },
     });
-    const doc = onlyJson(r.stdout);
-    expect(doc).toMatchObject({
-      outcomes: [{ entry: { name: 'tdd', targets: ['claude'] } }],
-      failures: [{ name: 'tdd', target: 'codex', message: 'codex is broken' }],
-    });
-    expect(failureCount(doc)).toBe(1);
-    expect(r.code).toBe(1);
-    expect(r.stderr).not.toContain('{');
   });
 
-  it('human output of the same install shows the table and the failure on stderr', async () => {
-    sb = await cliSandbox();
-    await writeOrigins(sb, [{ alias: 'matt', fixture: 'mattpocock-like' }]);
-    const { getTarget } = fakeTargets({ failFor: ['codex'] });
-    const r = await runInProcess(['i', 'skill', 'tdd', '-t', 'claude,codex'], {
-      cwd: sb.project,
-      env: sb.env,
-      deps: { getTarget },
+  it('info lines go to stderr so stdout stays one document', async () => {
+    const legacy = await palm(sb, ['get', 'origins', '--json'], {
+      deps: fakeEngine({ scopes: [fakeScope({ root: sb.project })] }),
     });
-    expect(r.stdout).toContain('+ installed  skill  tdd');
-    expect(r.stderr).toMatch(/x skill tdd@matt → codex: codex is broken/);
-    expect(r.code).toBe(1);
+    expect(JSON.parse(legacy.stdout)).toEqual({ items: [], warnings: [] });
+    expect(legacy.stderr).toBe('i palm get origins is now: palm get sources\n');
   });
 });

@@ -1,41 +1,42 @@
 /**
- * The `palm` command tree: verbs first, then utilities, then the hidden aliases of the old
- * grammar (`palm origin add|list|remove|update|import`, `palm targets`). Registration only:
- * every action turns its arguments into an `Invocation` and hands it to `dispatch`, which
- * imports the command module lazily, so `palm --help` loads commander and picocolors only.
+ * The `palm` command tree: the eight verbs, then the utilities, then the hidden palm 0.1
+ * commands that name their replacement. Registration only: every action turns its words into an
+ * `Invocation` and hands it to `dispatch`, which imports the command module on demand, so
+ * `palm --help` loads commander and picocolors and nothing else.
  */
-import { Command, Help } from 'commander';
+import { Command, Help, Option } from 'commander';
 import {
+  applyPassthrough,
   type Dispatch,
   type Invocation,
+  interpretInstall,
+  interpretRemove,
   interpretWords,
-  splitPassthrough,
+  prepareArgv,
   usage,
   VERBS,
   type Verb,
   type VerbSpec,
 } from './grammar.js';
 import {
-  AUDIT_HELP,
   CACHE_HELP,
   COMPLETION_HELP,
-  CONFIG_HELP,
-  DOCTOR_HELP,
-  FIND_HELP,
-  INIT_HELP,
-  OUTDATED_HELP,
+  MIGRATE_HELP,
+  ROOT_DESCRIPTION,
   ROOT_HELP,
   VERB_HELP,
-  WHY_HELP,
 } from './help.js';
+import { parseResource } from './ports.js';
 
 export interface ProgramOptions {
   version?: string;
   dispatch: Dispatch;
-  /** Where commander writes help and its own errors (default: process streams). */
+  /** Where commander writes help (default: process.stdout). Errors are printed by runCli. */
   writeOut?: (text: string) => void;
   writeErr?: (text: string) => void;
 }
+
+type Opts = Record<string, unknown>;
 
 /** Collect a repeatable option into an array. */
 function collect(value: string, previous: string[] | undefined): string[] {
@@ -49,16 +50,14 @@ function subcommandTerm(cmd: Command): string {
   const aliases = cmd.aliases();
   const name = aliases.length ? `${cmd.name()} (${aliases.join(', ')})` : cmd.name();
   if (VERB_NAMES.has(cmd.name()) && !cmd.parent?.parent) return name;
+  if (cmd.commands.length) return `${name} ${cmd.commands.map((c) => c.name()).join('|')}`;
   const args = cmd.registeredArguments
-    .map((a) => {
-      const n = `${a.name()}${a.variadic ? '...' : ''}`;
-      return a.required ? `<${n}>` : `[${n}]`;
-    })
+    .map((a) => (a.required ? `<${a.name()}>` : `[${a.name()}]`))
     .join(' ');
   return args ? `${name} ${args}` : name;
 }
 
-/** Root help lists the verbs and utilities first and the global options after them. */
+/** Root help lists the verbs and utilities first and the options after them. */
 function formatHelp(this: Help, cmd: Command, helper: Help): string {
   const text = Help.prototype.formatHelp.call(this, cmd, helper);
   if (cmd.parent) return text;
@@ -69,291 +68,259 @@ function formatHelp(this: Help, cmd: Command, helper: Help): string {
   return `${[...blocks, ...options].join('\n\n')}\n`;
 }
 
-/**
- * Root `palm` command with the global options and shared settings, no subcommands.
- * `exitOverride` and the output configuration are set before subcommands are added so they
- * inherit them: commander throws `CommanderError` instead of exiting (main.ts maps it to 2).
- */
-function createRootProgram(opts: Omit<ProgramOptions, 'dispatch'> = {}): Command {
+/** The root command with the global flags (DESIGN.md §10), before any subcommand is added. */
+function createRootProgram(opts: Omit<ProgramOptions, 'dispatch'>): Command {
   const program = new Command('palm')
     .exitOverride()
-    .usage('<verb> [kind] [names...] [options]')
-    .description(
-      'Package manager for agent resources: skills, agents, instructions, commands, hooks, MCP servers and plugins.',
-    )
-    .option('-g, --global', 'use the global scope (~), not this project')
-    .option(
-      '-t, --target <ids>',
-      'comma-separated: claude, codex, copilot, cursor, gemini, opencode',
-    )
+    .usage('<verb> [arguments] [options]')
+    .description(ROOT_DESCRIPTION)
+    .option('-g, --global', 'use ~/.palm/palm.yaml and the harness home directories')
     .option('--dry-run', 'show what would change; write nothing')
-    .option('--force', 'overwrite files palm does not own')
-    .option('-y, --yes', 'accept defaults instead of prompting')
-    .option('--offline', 'use cached origins only; no network')
-    .option('--verbose', 'debug output and stack traces')
-    .option('--json', 'JSON on stdout; everything else on stderr')
-    .option('--no-color', 'no colours (also NO_COLOR=1)')
-    .configureHelp({
-      showGlobalOptions: true,
-      sortSubcommands: false,
-      subcommandTerm,
-      formatHelp,
-    })
-    .showSuggestionAfterError(true);
-  if (opts.writeOut || opts.writeErr) {
-    program.configureOutput({
+    .option('--force', 'replace files you changed or that palm does not own')
+    .option('-y, --yes', 'accept plan confirmations (never consents to programs)')
+    .option('--allow-exec <list>', 'allow programs: hook:x@source=sha256:hash,... or all')
+    .option('--offline', 'use the cache only; no network')
+    .option('--json', 'one JSON document on stdout; everything else on stderr')
+    .option('--secrets <policy>', 'env-ref (default) or literal, for secrets you type')
+    .addOption(new Option('--local', 'record in palm.local.yaml (palm 0.3)').hideHelp())
+    .configureHelp({ showGlobalOptions: true, sortSubcommands: false, subcommandTerm, formatHelp })
+    .showSuggestionAfterError(true)
+    .configureOutput({
       ...(opts.writeOut ? { writeOut: opts.writeOut } : {}),
       ...(opts.writeErr ? { writeErr: opts.writeErr } : {}),
+      outputError: () => undefined,
     });
-  }
   if (opts.version) program.version(opts.version, '-V, --version', 'print the palm version');
   return program;
 }
 
-function invocation(verb: Verb, words: Array<string | undefined>, cmd: Command): Invocation {
-  const { resource, names } = interpretWords(
-    verb,
-    words.filter((w): w is string => w !== undefined),
-  );
-  return { command: verb, resource, names, opts: cmd.optsWithGlobals() };
+/** Commander calls actions with (...arguments, options, command): the arguments as words. */
+function actionWords(args: unknown[]): { words: string[]; opts: Opts } {
+  const cmd = args[args.length - 1] as Command;
+  const words = args
+    .slice(0, -2)
+    .flat()
+    .filter((a): a is string => typeof a === 'string');
+  return { words, opts: cmd.optsWithGlobals() };
 }
 
-const OMITTED: Partial<Record<Verb, string>> = {
-  install: 'omit it to search every entity kind',
-  uninstall: 'omit it to match every entity kind',
-  get: 'omit it for every installed entity',
-  update: 'omit it for everything installed',
-};
-
-function kindArgHelp(spec: VerbSpec): string {
-  const list = spec.resources.join(', ');
-  const omitted = OMITTED[spec.name];
-  return `${list} (plurals and short names work)${omitted ? `; ${omitted}` : ''}`;
+function withLegacy(inv: Invocation, legacy: Invocation['legacy']): Invocation {
+  return legacy ? { ...inv, legacy } : inv;
 }
 
-const VERB_OPTIONS: Partial<Record<Verb, (cmd: Command) => void>> = {
-  install: installOptions,
-  get: (cmd) => {
-    cmd.option('--available', 'list what your origins offer instead of what is installed');
-    originFilter(cmd);
-  },
-  describe: originFilter,
-  search: (cmd) => {
-    cmd.option('--kind <kind>', 'restrict to one kind (same as the kind word)');
-    originFilter(cmd);
-    cmd.option('--refresh', 'refetch origins before searching');
-  },
-  create: (cmd) => {
-    cmd.option('--no-install', 'only write the file; do not install it');
-  },
-};
-
-function originFilter(cmd: Command): void {
-  cmd.option(
-    '-o, --origin <name-or-alias>',
-    'only this origin: alias, owner/repo[/root], URL or local path (installed entities also: mine, registry, adhoc)',
-  );
+function installInvocation(words: string[], opts: Opts): Invocation {
+  const w = interpretInstall(words);
+  const command = w.mcp ? 'install mcp' : 'install';
+  return withLegacy({ command, source: w.source, names: w.names, opts, words }, w.legacy);
 }
 
-function originOptions(cmd: Command): Command {
-  return cmd
-    .option('--alias <alias>', 'short name used in name@alias (default: repo name)')
-    .option('--ref <ref>', 'tag, branch or sha (default: latest semver tag, else default branch)')
-    .option('--root <path>', 'subdirectory that is the origin root')
-    .option(
-      '--layout <kind=glob>',
-      "layout descriptor instead of auto-detection, e.g. skills='skills/.curated/*' (repeatable; kinds: skills, agents, commands, instructions, hooks, mcp, exclude, include; or nameFrom=dirname)",
-      collect,
-    )
-    .option(
-      '--project',
-      'save the origin in this project’s palm.yaml instead of the global config',
+function removeInvocation(words: string[], opts: Opts): Invocation {
+  const w = interpretRemove(words);
+  return withLegacy({ command: 'remove', source: w.source, names: w.names, opts, words }, w.legacy);
+}
+
+function wordsInvocation(verb: 'get' | 'describe') {
+  return (words: string[], opts: Opts): Invocation => {
+    const w = interpretWords(verb, words);
+    return withLegacy(
+      { command: verb, resource: w.resource, names: w.names, opts, words },
+      w.legacy,
     );
+  };
+}
+
+function createInvocation(words: string[], opts: Opts): Invocation {
+  const [kind = '', name] = words;
+  const resource = parseResource(kind);
+  if (!resource)
+    throw usage(
+      `palm create makes a skill, agent, instruction or hook, not "${kind}"`,
+      'palm create skill release-notes',
+    );
+  return { command: 'create', resource, names: name ? [{ name }] : [], opts, words };
+}
+
+const rawNames = (words: string[]) => words.map((name) => ({ name }));
+
+interface VerbSetup {
+  args: Array<[string, string]>;
+  options?: (cmd: Command) => void;
+  invocation: (words: string[], opts: Opts) => Invocation;
 }
 
 function installOptions(cmd: Command): void {
   cmd
-    .option('--from <origin>', 'take the entities from this origin spec without registering it')
-    .option(
-      '--save-origin',
-      'register the --from origin in the global config (with --project: in palm.yaml)',
-    )
-    .option('--secrets <policy>', 'MCP secrets: env-ref (project default) or literal (-g default)')
-    .option('--prune', 'no names only: remove installed entries no longer in palm.yaml')
-    .option(
-      '--frozen',
-      'no names only: install exactly what palm.lock.yaml records, restoring missing files and config entries; fail on any other difference',
-    );
-  cmd.optionsGroup('Ad hoc MCP server options:');
+    .option('--all', 'everything the source offers')
+    .option('--as <name>', 'the name a URL source gets in palm.yaml')
+    .option('--targets <ids>', 'only these targets for these entries (recorded per entry)')
+    .option('--at <dir>', 'placement directory for these entries (recorded; honoured in 0.3)')
+    .option('--review', 'print the scripts of every program first; with --dry-run, only print');
+  cmd.optionsGroup('MCP servers (palm install mcp):');
   cmd
-    .option('--url <url>', 'HTTP/SSE endpoint')
-    .option('--header <K=V>', 'HTTP header (repeatable)', collect)
-    .option('--env <K=V>', 'environment variable (repeatable)', collect)
-    .option('--transport <t>', 'stdio, http or sse');
-  cmd.optionsGroup('Origin options (install origin):');
-  originOptions(cmd);
+    .option('--url <url>', 'a remote server')
+    .option('--header <K=V>', 'an HTTP header (repeatable)', collect)
+    .option('--command <cmd>', 'a local (stdio) server: the program')
+    .option('--arg <arg>', 'an argument for --command (repeatable)', collect)
+    .option('--env <K=V>', 'an environment variable (repeatable)', collect)
+    .option('--transport <t>', 'stdio, http or sse, when palm cannot tell')
+    .option('--cwd <dir>', 'working directory for --command')
+    .option('--snippet <file>', 'the mcpServers block of a README: a file, or - for stdin');
+}
+
+const VERB_SETUP: Readonly<Record<Verb, VerbSetup>> = {
+  init: {
+    args: [],
+    options: (c) =>
+      c
+        .option(
+          '--target <ids>',
+          'comma-separated: claude, codex, copilot, cursor, gemini, opencode',
+        )
+        .option('--here', 'start a separate project in this directory'),
+    invocation: (_w, opts) => ({ command: 'init', names: [], opts }),
+  },
+  install: {
+    args: [
+      ['[source]', 'owner/repo, a git URL, a directory, or a source in palm.yaml'],
+      ['[names...]', '[kind:]name of what to install'],
+    ],
+    options: installOptions,
+    invocation: installInvocation,
+  },
+  remove: {
+    args: [['<names...>', 'an optional source, then [kind:]name of what to remove']],
+    options: (c) => c.option('--exclude', 'a plugin member: exclude it for the team in palm.yaml'),
+    invocation: removeInvocation,
+  },
+  update: {
+    args: [['[sources...]', 'sources to update (default: all)']],
+    options: (c) =>
+      c
+        .option('--to <ref>', 'move the ref in palm.yaml (a tag, branch, sha or range such as ^2)')
+        .option('--review', 'print changed scripts and entities as diffs before asking')
+        .option('--strict', 'with --dry-run: exit 1 when a source is behind its ref'),
+    invocation: (words, opts) => ({ command: 'update', names: rawNames(words), opts, words }),
+  },
+  check: { args: [], invocation: (_w, opts) => ({ command: 'check', names: [], opts }) },
+  get: {
+    args: [
+      ['[kind]', 'skill, agent, instruction, hook, mcp, plugin; source, target or all'],
+      ['[names...]', 'only these names'],
+    ],
+    options: (c) =>
+      c
+        .option('-s, --source <source>', 'only what came from this source')
+        .option('--files', 'every file palm wrote, with its entry'),
+    invocation: wordsInvocation('get'),
+  },
+  describe: {
+    args: [['<what...>', '[kind:]name, a path, source <name> or target <id>']],
+    options: (c) => c.option('-s, --source <source>', 'the entity from this source'),
+    invocation: wordsInvocation('describe'),
+  },
+  create: {
+    args: [
+      ['<kind>', 'skill, agent, instruction or hook'],
+      ['<name>', 'the new entity'],
+    ],
+    options: (c) =>
+      c
+        .option('--in <dir>', 'the source directory (default ./agent-kit; ~/.palm/kit with -g)')
+        .option('--description <text>', 'the description in the template'),
+    invocation: createInvocation,
+  },
+};
+
+function capitalised(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
 }
 
 function registerVerb(program: Command, spec: VerbSpec, dispatch: Dispatch): void {
+  const setup = VERB_SETUP[spec.name];
   const cmd = program
     .command(spec.name)
     .aliases([...spec.aliases])
     .summary(spec.summary)
-    .description(`${spec.summary[0]?.toUpperCase()}${spec.summary.slice(1)}.`)
-    .argument('[kind]', kindArgHelp(spec))
-    .argument('[names...]', spec.name === 'search' ? 'words to look for' : 'name[@origin][#ref]');
-  VERB_OPTIONS[spec.name]?.(cmd);
-  cmd.addHelpText('after', VERB_HELP[spec.name]);
-  cmd.action((kind: string | undefined, names: string[], _o: unknown, c: Command) =>
-    dispatch(invocation(spec.name, [kind, ...names], c)),
-  );
+    .description(capitalised(spec.summary))
+    .usage(`${spec.arguments} [options]`.trim())
+    .addHelpText('after', VERB_HELP[spec.name]);
+  for (const [name, description] of setup.args) cmd.argument(name, description);
+  setup.options?.(cmd);
+  cmd.action((...args: unknown[]) => {
+    const { words, opts } = actionWords(args);
+    return dispatch(setup.invocation(words, opts));
+  });
 }
 
-/** Commander calls actions with (...arguments, options, command): the arguments as names. */
-function actionArgs(args: unknown[]): { names: string[]; opts: Record<string, unknown> } {
-  const cmd = args[args.length - 1] as Command;
-  const names = args
-    .slice(0, -2)
-    .flat()
-    .filter((a): a is string => typeof a === 'string');
-  return { names, opts: cmd.optsWithGlobals() };
-}
-
-function utility(command: string, dispatch: Dispatch): (...args: unknown[]) => Promise<void> {
-  return (...args: unknown[]) => dispatch({ command, ...actionArgs(args) });
-}
-
-function registerConfig(program: Command, dispatch: Dispatch): void {
-  const config = program
-    .command('config')
-    .summary('read or change global settings')
-    .description(
-      'Read or change palm’s global config: targets, mcpRegistryUrl, secrets.project, secrets.global.',
-    )
-    .addHelpText('after', CONFIG_HELP);
-  const get = config
-    .command('get')
-    .description('Print one config value, or all of them.')
-    .argument('[key]');
-  get.action(utility('config get', dispatch));
-  const set = config
-    .command('set')
-    .description('Set a config value (an empty value unsets it).')
-    .argument('<key>')
-    .argument('<value>', 'targets: comma list; secrets.*: env-ref | literal; mcpRegistryUrl: URL');
-  set.action(utility('config set', dispatch));
-}
-
-function registerCache(program: Command, dispatch: Dispatch): void {
-  const cache = program
-    .command('cache')
-    .summary('show or clear the origin cache')
-    .description('Show or clear palm’s cache of origin checkouts and indexes.')
-    .addHelpText('after', CACHE_HELP);
-  const info = cache.command('info').description('Cache path, size, checkouts and index files.');
-  info.action(utility('cache info', dispatch));
-  const clean = cache
-    .command('clean')
-    .description('Remove every checkout and index (origins stay registered; next use refetches).');
-  clean.action(utility('cache clean', dispatch));
-}
-
-const KIND_WORDS =
-  'skill, agent, instruction, command, hook, mcp, plugin (plurals and short names work)';
-
-/** `outdated`, `why`, `find` and `audit`: questions about what is installed. */
-function registerInspection(program: Command, dispatch: Dispatch): void {
-  program
-    .command('outdated')
-    .summary('show current, wanted and latest refs')
-    .description(
-      'Show, for each direct install, the locked ref, the ref palm.yaml wants now and the latest release.',
-    )
-    .argument('[kind]', `${KIND_WORDS}; omit it for every kind`)
-    .addHelpText('after', OUTDATED_HELP)
-    .action(utility('outdated', dispatch));
-  program
-    .command('why')
-    .summary('show why an entity is installed')
-    .description(
-      'Show why an entity is installed: palm.yaml, or the plugin or agent that pulled it in, and what still needs it.',
-    )
-    .argument('<kind>', KIND_WORDS)
-    .argument('<name>', 'name[@origin]')
-    .addHelpText('after', WHY_HELP)
-    .action(utility('why', dispatch));
-  program
-    .command('find')
-    .summary('show which entity wrote a file')
-    .description('Show which installed entity wrote a file (or merged a fragment into it).')
-    .argument('<path>', 'file or directory palm wrote')
-    .addHelpText('after', FIND_HELP)
-    .action(utility('find', dispatch));
-  program
-    .command('audit')
-    .summary('scan installed files for hidden Unicode')
-    .description(
-      'Scan the files palm installed for hidden Unicode (bidi overrides, tag characters, zero-width characters) and for changes since install.',
-    )
-    .argument('[kind]', `${KIND_WORDS}; omit it for every kind`)
-    .argument('[names...]', 'only these entities')
-    .option('--strip', 'remove the hidden characters from the files')
-    .addHelpText('after', AUDIT_HELP)
-    .action(utility('audit', dispatch));
+function utility(command: string, dispatch: Dispatch) {
+  return (...args: unknown[]) => {
+    const { words, opts } = actionWords(args);
+    return dispatch({ command, names: rawNames(words), opts, words });
+  };
 }
 
 function registerUtilities(program: Command, dispatch: Dispatch): void {
-  const init = program
-    .command('init')
-    .summary('create palm.yaml for this project')
-    .description('Choose the targets for this project, write them to palm.yaml and ignore .palm/.')
-    .addHelpText('after', INIT_HELP);
-  init.action(utility('init', dispatch));
-  const doctor = program
-    .command('doctor')
-    .summary('check git, node, harnesses, drift, origins')
-    .description(
-      'Check git and Node, palm home, harness detection, lock/manifest drift and origin reachability (skipped with --offline).',
-    )
-    .addHelpText('after', DOCTOR_HELP);
-  doctor.action(utility('doctor', dispatch));
-  registerInspection(program, dispatch);
-  registerConfig(program, dispatch);
-  const completion = program
+  program
+    .command('migrate')
+    .summary('convert a palm 0.1 project to the palm 0.2 files')
+    .description('Convert palm 0.1 files (palm.yaml, palm.lock.yaml, ~/.palm/config.yaml).')
+    .addHelpText('after', MIGRATE_HELP)
+    .action(utility('migrate', dispatch));
+  program
     .command('completion')
     .summary('print a shell completion script')
-    .description(
-      'Print a completion script for bash, zsh or fish, generated from this command tree.',
-    )
+    .description('Print a completion script for bash, zsh or fish.')
     .argument('<shell>', 'bash, zsh or fish')
-    .addHelpText('after', COMPLETION_HELP);
-  completion.action(utility('completion', dispatch));
-  registerCache(program, dispatch);
+    .addHelpText('after', COMPLETION_HELP)
+    .action(utility('completion', dispatch));
+  const cache = program
+    .command('cache')
+    .summary('delete the cache of checkouts and indexes')
+    .description('Manage the cache under ~/.palm/cache.');
+  cache
+    .command('clean')
+    .description('Delete every checkout and index (sources stay declared).')
+    .addHelpText('after', CACHE_HELP)
+    .action(utility('cache clean', dispatch));
 }
 
-/** The old `palm origin …` group and `palm targets`, forwarding to the new verbs. */
-function registerHiddenAliases(program: Command, dispatch: Dispatch): void {
-  const origin = program
-    .command('origin', { hidden: true })
-    .description('Old form of palm install|get|uninstall|update origin.');
-  const forward =
-    (command: Verb, extra: Partial<Invocation> = {}) =>
-    (...args: unknown[]) =>
-      dispatch({ command, resource: 'origin', ...actionArgs(args), ...extra });
-  originOptions(origin.command('add').argument('<spec>')).action(forward('install'));
-  origin.command('list').alias('ls').action(forward('get'));
-  origin.command('remove').alias('rm').argument('<alias>').action(forward('uninstall'));
-  origin.command('update').argument('[aliases...]').action(forward('update'));
-  origin
-    .command('import')
-    .argument('<source>')
-    .option('--project', 'save in this project’s palm.yaml instead of the global config')
-    .action(forward('install', { marketplace: true }));
-  program
-    .command('targets', { hidden: true })
-    .action((_o: unknown, c: Command) =>
-      dispatch({ command: 'get', resource: 'target', names: [], opts: c.optsWithGlobals() }),
-    );
+/** DESIGN.md §10: the palm 0.1 commands name their replacement and exit 2. */
+const LEGACY_COMMANDS: Readonly<Record<string, (args: string[]) => string>> = {
+  doctor: () => 'palm doctor is now: palm check',
+  audit: () => 'palm audit is now: palm check',
+  outdated: () => 'palm outdated is now: palm update --dry-run',
+  why: (a) => `palm why is now: palm describe ${a.join(' ').replace(/@\S+/g, '') || '<name>'}`,
+  find: (a) => `palm find is now: palm describe ${a[0] ?? '<path>'}`,
+  search: (a) => {
+    const q = encodeURIComponent(a.join(' ') || 'skills');
+    const url = `https://github.com/search?q=${q}+SKILL.md&type=code`;
+    return `palm search is gone; find a repository (${url}), then list it: palm install <owner/repo>`;
+  },
+  config: () => 'palm config is gone; targets live in palm.yaml (~/.palm/palm.yaml with -g)',
+  origin: (a) => originReplacement(a),
+};
+
+function originReplacement([sub, spec]: string[]): string {
+  const form = ['palm origin', sub].filter(Boolean).join(' ');
+  if (sub === 'add' || sub === 'import')
+    return `${form} is now: palm install ${spec ?? '<owner/repo>'}`;
+  if (sub === 'update') return `${form} is now: palm update`;
+  if (sub === 'remove' || sub === 'rm')
+    return `${form} is gone; a source leaves palm.yaml with its last entry: palm get --source ${spec ?? '<name>'}`;
+  return `${form} is now: palm get sources`;
+}
+
+function registerLegacy(program: Command): void {
+  for (const [name, line] of Object.entries(LEGACY_COMMANDS)) {
+    program
+      .command(name, { hidden: true })
+      .argument('[args...]')
+      .allowUnknownOption()
+      .helpOption(false)
+      .action((args: string[]) => {
+        throw usage(line(args));
+      });
+  }
 }
 
 /** The full `palm` command tree. */
@@ -364,26 +331,26 @@ export function buildProgram(opts: ProgramOptions): Command {
   program.commandsGroup('Utilities:');
   registerUtilities(program, opts.dispatch);
   program.helpCommand('help [command]', 'show help for a verb or utility');
-  registerHiddenAliases(program, opts.dispatch);
+  registerLegacy(program);
   program.addHelpText('after', ROOT_HELP);
   return program;
 }
 
 /**
- * Parse a full user argv (e.g. `['i', 'agent', 'x', '-g']`) exactly as the CLI would and
+ * Parse a full argv (`['i', 'mattpocock/skills', 'tdd', '-g']`) exactly as the CLI would and
  * return the Invocation, without running anything. Grammar errors throw as they would.
  */
 export function parseArgv(argv: string[]): { invocation: Invocation; passthrough: string[] } {
-  const { args, passthrough } = splitPassthrough(argv);
+  const { args, passthrough } = prepareArgv(argv);
   let invocation: Invocation | undefined;
   const program = buildProgram({
     dispatch: async (inv) => {
-      invocation = inv;
+      invocation = applyPassthrough(inv, passthrough);
     },
-    writeOut: () => {},
-    writeErr: () => {},
+    writeOut: () => undefined,
+    writeErr: () => undefined,
   });
   program.parse(args, { from: 'user' });
-  if (!invocation) throw usage(`not a palm command: ${argv.join(' ')}`);
+  if (!invocation) throw usage(`not a palm command: ${argv.join(' ')}`, 'palm --help');
   return { invocation, passthrough };
 }
