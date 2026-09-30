@@ -1,14 +1,16 @@
 /**
- * `palm migrate [-g] [--dry-run]` (DESIGN.md §6 "Migrate", PLAN.md §8; palm 0.2 only): turn
- * the palm 0.1 files into the new palm.yaml and lock. `--dry-run` prints the new palm.yaml and
- * writes nothing; otherwise palm lists what it changed and the files to commit.
+ * `palm migrate [-g] [--dry-run] [--review] [--allow-exec …]` (DESIGN.md §6 "Migrate", PLAN.md
+ * §8; palm 0.2 only): turn the palm 0.1 files into the new palm.yaml and lock. `--dry-run`
+ * prints the new palm.yaml and writes nothing; otherwise palm lists what it changed and the files
+ * to commit, then runs `palm check` on the result and fails when the check fails.
  */
-import type { MigrateReport } from '../core/types.js';
+import type { CheckReport, MigrateReport, PalmContext, Scope } from '../core/types.js';
 import { plural } from '../lib/text.js';
 import { listJoin } from '../ui/format.js';
 import type { Output } from '../ui/output.js';
 import { printFailures } from '../ui/summary.js';
 import type { App } from './app.js';
+import { printCheck } from './check.js';
 import { ExitSignal, type Invocation } from './grammar.js';
 import { EXIT } from './main.js';
 import { engine, engineDeps, type GlobalOptions, makeContext, scopeOf } from './shared.js';
@@ -31,6 +33,15 @@ function printReport(out: Output, report: MigrateReport, project: boolean): void
   out.out(`Commit ${listJoin(files)} together.`);
 }
 
+/** A migration ends with `palm check` on what it wrote; a failing check fails the migration. */
+async function checkAfter(ctx: PalmContext, app: App, scope: Scope): Promise<CheckReport> {
+  const report = await engine(app).checkScope(ctx, { scope }, engineDeps(app));
+  if (app.out.jsonMode) return report;
+  app.out.out(`\npalm check${scope === 'global' ? ' -g' : ''}:`);
+  printCheck(app.out, report, false);
+  return report;
+}
+
 export async function run(inv: Invocation, app: App): Promise<void> {
   const flags = inv.opts as GlobalOptions;
   const ctx = await makeContext(app, flags);
@@ -38,9 +49,11 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const dryRun = ctx.flags.dryRun;
   const report = await engine(app).migrateScope(ctx, { scope, dryRun }, engineDeps(app));
   for (const w of report.warnings) app.out.warn(w);
-  if (app.out.jsonMode) app.out.json(report);
-  else if (dryRun) app.out.out(report.manifest.trimEnd());
-  else printReport(app.out, report, scope === 'project');
+  if (dryRun && !app.out.jsonMode) app.out.out(report.manifest.trimEnd());
+  if (!dryRun && !app.out.jsonMode) printReport(app.out, report, scope === 'project');
   if (!app.out.jsonMode) printFailures(app.out, report.failures);
-  if (report.failures.length) throw new ExitSignal(EXIT.failure);
+  const failed = report.failures.length > 0;
+  const check = dryRun || failed ? undefined : await checkAfter(ctx, app, scope);
+  if (app.out.jsonMode) app.out.json(check ? { ...report, check } : report);
+  if (failed || (check && !check.ok)) throw new ExitSignal(EXIT.failure);
 }

@@ -68,10 +68,25 @@ describe('palm CLI smoke', () => {
   });
 
   it('an unknown option is a usage error (2); a removed verb names its replacement', async () => {
-    expect((await m.palm(project, 'install', '--frozen')).code).toBe(2);
+    const bogus = await m.palm(project, 'install', '--bogus');
+    expect(bogus.code).toBe(2);
+    expect(bogus.stderr).toContain("unknown option '--bogus'");
     const doctor = await m.palm(project, 'doctor');
     expect(doctor.code).toBe(2);
     expect(doctor.stderr).toContain('palm doctor is now: palm check');
+  });
+
+  it('E4: palm install --frozen (the 0.1 CI line) says palm check and runs it', async () => {
+    const r = await m.palm(project, 'install', '--frozen', '--yes');
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain('i palm install --frozen is now: palm check');
+    expect(r.stdout).toContain('no problems');
+    expect(r.all).not.toContain('--force');
+  });
+
+  it('E19, D30: --version is the version in package.json', async () => {
+    const pkg = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8')) as { version: string };
+    expect((await m.palm(project, '--version')).stdout.trim()).toBe(pkg.version);
   });
 
   it('--dry-run writes nothing: no palm.yaml, no lock, no harness file', async () => {

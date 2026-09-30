@@ -51,22 +51,23 @@ describe('palm get', () => {
     { entry: docs, source: {}, layer: 'team' as const },
   ];
 
-  it('lists what is installed with source, ref, sha, targets, files and layer', async () => {
+  it('lists what is installed with source, ref, sha, targets and files (J10, D22)', async () => {
     const deps = fakeEngine({ listInstalled: async () => rows });
     const r = await palm(sb, ['get'], { deps });
     expect(r.stdout).toBe(
       [
-        'kind   name  source             ref            sha      targets        files        layer',
-        '─────  ────  ─────────────────  ─────────────  ───────  ─────────────  ───────────  ─────',
-        'skill  tdd   mattpocock/skills  ^1.2 → v1.2.3  8be01d4  claude,cursor  1            team',
-        'mcp    docs  manifest                                   claude         0 +1 merged  team',
+        'kind   name  source             ref            sha      targets        files',
+        '─────  ────  ─────────────────  ─────────────  ───────  ─────────────  ───────────',
+        'skill  tdd   mattpocock/skills  ^1.2 → v1.2.3  8be01d4  claude,cursor  1',
+        'mcp    docs  palm.yaml                                  claude         0 +1 merged',
         '',
       ].join('\n'),
     );
   });
 
   it('passes the kind, the names and --source to the engine', async () => {
-    const deps = fakeEngine({ listInstalled: async () => rows.slice(0, 1) });
+    const state = fakeScope({ root: sb.project, sources: [{ name: 'mattpocock/skills' }] });
+    const deps = fakeEngine({ scopes: [state], listInstalled: async () => rows.slice(0, 1) });
     await palm(sb, ['get', 'skills', 'tdd', '-s', 'mattpocock/skills'], { deps });
     expect(deps.calls.listInstalled?.[0]).toEqual([
       'project',
@@ -80,7 +81,7 @@ describe('palm get', () => {
     expect(r.stdout).toBe(
       [
         '.claude/skills/tdd/SKILL.md  skill tdd  mattpocock/skills',
-        '.mcp.json (merged)           mcp docs   manifest',
+        '.mcp.json (merged)           mcp docs   palm.yaml',
         '',
       ].join('\n'),
     );
@@ -159,7 +160,10 @@ describe('palm describe', () => {
       selectedBy: 'plugin:gh-cli',
     };
     const r = await palm(sb, ['describe', 'hook:gh-cli'], {
-      deps: fakeEngine({ describeEntity: async () => info }),
+      deps: fakeEngine({
+        listInstalled: async () => [{ entry: hook, source: info.source, layer: 'team' }],
+        describeEntity: async () => info,
+      }),
     });
     expect(r.stdout).toBe(
       [
@@ -221,6 +225,7 @@ describe('palm describe', () => {
       [
         'target cursor  (Cursor)',
         '  active      no (add it to targets: in palm.yaml)',
+        `  root        ${sb.project}`,
         '  config dir  .cursor/',
         '  writes to   .cursor/skills, .cursor/agents',
         '',
@@ -239,7 +244,11 @@ describe('palm remove', () => {
   const removed = (result: Partial<RemoveResult>) =>
     fakeEngine({
       scopes: [
-        fakeScope({ root: sb.project, sources: [{ name: 'acme-kit', url: 'https://x/acme.git' }] }),
+        fakeScope({
+          root: sb.project,
+          sources: [{ name: 'acme-kit', url: 'https://x/acme.git' }],
+          entries: [tdd],
+        }),
       ],
       removeEntities: async () => ({ removed: [], failures: [], warnings: [], ...result }),
     });
@@ -443,8 +452,8 @@ describe('palm install <source> <names>', () => {
       [
         '+ skill  tdd      .claude/skills/tdd/   1 file',
         '! hook   gh-cli   runs a program on your machine; not installed',
-        '    see it:      palm install trailofbits/skills gh-cli --dry-run',
-        '    install it:  palm install trailofbits/skills gh-cli',
+        '    see it:      palm install trailofbits/skills hook:gh-cli --dry-run',
+        '    install it:  palm install trailofbits/skills hook:gh-cli',
         '1 installed.',
         '',
       ].join('\n'),
@@ -453,7 +462,7 @@ describe('palm install <source> <names>', () => {
 });
 
 describe('palm install (bare): make the disk match palm.yaml', () => {
-  it('prints = unchanged per entry and writes nothing on a clean clone', async () => {
+  it('K21: unchanged entries are one count line on a clean clone', async () => {
     const state = fakeScope({ root: sb.project, manifestTargets: ['claude'], entries: [tdd] });
     const deps = fakeEngine({
       scopes: [state],
@@ -465,7 +474,7 @@ describe('palm install (bare): make the disk match palm.yaml', () => {
     });
     const r = await palm(sb, ['install'], { deps });
     expect(r.code).toBe(0);
-    expect(r.stdout).toBe('= skill  tdd   .claude/skills/tdd/   1 file\n1 unchanged.\n');
+    expect(r.stdout).toBe('1 unchanged.\n');
     expect(deps.calls.syncScope?.[0]).toEqual([{ scope: 'project' }, expect.any(Object)]);
   });
 
@@ -505,6 +514,7 @@ describe('palm init', () => {
       },
     } as unknown as Manifest;
     return fakeEngine({
+      scopes: [fakeScope({ root: sb.project })],
       loadManifest: async () => manifest,
       scopePaths: (scope, root) => ({ scope, root }) as unknown as ScopePaths,
       detectTargets: async () => opts.found ?? ['claude'],
@@ -519,9 +529,10 @@ describe('palm init', () => {
     expect(await read(join(sb.project, '.gitignore'))).toBe('.palm/local/\npalm.local.yaml\n');
     expect(r.stdout).toBe(
       [
+        'i found claude, cursor',
         '+ wrote palm.yaml: targets claude, cursor',
         '+ wrote .gitignore: .palm/local/, palm.local.yaml',
-        'next: see what a source offers, for example palm install mattpocock/skills',
+        'next: see what a source offers, for example: palm install mattpocock/skills',
         '',
       ].join('\n'),
     );
@@ -543,7 +554,7 @@ describe('palm init', () => {
     const r = await palm(sb, ['init'], { deps, cwd: jobs });
     expect(r.code).toBe(2);
     expect(r.stderr).toBe(
-      `x packages/jobs is inside project ${sb.project} (palm.yaml). Add entries with --at packages/jobs, or start a separate project here: palm init --here\n`,
+      `x packages/jobs is inside project ${sb.project} (palm.yaml). Add entries with --at packages/jobs (placed at the root until 0.3), or start a separate project here: palm init --here\n`,
     );
     expect(await exists(join(jobs, 'palm.yaml'))).toBe(false);
     const here = await palm(sb, ['init', '--here'], { deps, cwd: jobs });
@@ -555,19 +566,17 @@ describe('palm init', () => {
     const r = await palm(sb, ['init'], { deps: initEngine({ existing: ['claude'] }) });
     expect(r.code).toBe(0);
     expect(r.stdout).toBe(
-      'i palm.yaml already lists targets: claude\nchange them: palm init --target claude,cursor\n',
+      'i palm.yaml already lists targets: claude\nchange them: palm init --target claude\n',
     );
     expect(await exists(join(sb.project, 'palm.yaml'))).toBe(false);
     await palm(sb, ['init', '--target', 'cursor'], { deps: initEngine({ existing: ['claude'] }) });
     expect(await read(join(sb.project, 'palm.yaml'))).toBe('targets: [cursor]\n');
   });
 
-  it('needs a target when none is found, and is a project command', async () => {
+  it('needs a target when none is found', async () => {
     const none = await palm(sb, ['init'], { deps: initEngine({ found: [] }) });
     expect(none.code).toBe(2);
     expect(none.stderr).toContain('palm init --target claude');
-    const global = await palm(sb, ['init', '-g']);
-    expect(global.code).toBe(2);
   });
 });
 

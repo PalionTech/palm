@@ -15,6 +15,7 @@ const AUTOCOMPLETE_THRESHOLD = 8;
 
 const CTRL_C = '\u0003';
 const ESC = '\u001b';
+const ENTER: ReadonlySet<string> = new Set(['\r', '\n', '\r\n']);
 
 export function isInteractiveTerminal(env: NodeJS.ProcessEnv = process.env): boolean {
   const ci = env.CI !== undefined && env.CI !== '' && env.CI !== '0' && env.CI !== 'false';
@@ -70,15 +71,22 @@ export interface PromptIO {
 
 type RawInput = Readable & { isRaw?: boolean; setRawMode?: (on: boolean) => unknown };
 
-/** One keypress (raw mode when the input is a terminal). */
+/**
+ * One keypress (raw mode when the input is a terminal). Y7: what else is buffered with it (the
+ * Enter after `n` when the terminal delivers a line) is drained, so it never answers the next
+ * prompt.
+ */
 function readKey(input: RawInput): Promise<string> {
   return new Promise((resolve) => {
     const wasRaw = Boolean(input.isRaw);
     input.setRawMode?.(true);
     const onData = (chunk: Buffer | string) => {
       input.off('data', onData);
-      input.setRawMode?.(wasRaw);
       input.pause();
+      while (input.read() !== null) {
+        // drain the rest of the line
+      }
+      input.setRawMode?.(wasRaw);
       resolve(chunk.toString());
     };
     input.on('data', onData);
@@ -86,12 +94,28 @@ function readKey(input: RawInput): Promise<string> {
   });
 }
 
+/** Y7: a line (`n` then Enter, as a terminal in line mode sends it) means its first key. */
+function firstKey(key: string): string {
+  if (key.length <= 1 || key.startsWith(ESC) || key === '\r\n') return key;
+  const trimmed = key.replace(/[\r\n]+$/, '');
+  return trimmed === '' ? '\n' : (trimmed[0] as string);
+}
+
+/** A `[y/N]` answer: y, n, Enter (the default), a cancel, or undefined for another key. */
+export function yesNo(key: string, initial: boolean): boolean | 'cancel' | undefined {
+  const k = firstKey(key).toLowerCase();
+  if (k === CTRL_C || k === ESC) return 'cancel';
+  if (k === 'y') return true;
+  if (k === 'n') return false;
+  return ENTER.has(k) ? initial : undefined;
+}
+
 /** The answer a key means, or undefined for a key the prompt ignores. */
 export function consentKey(key: string, canDiff: boolean): ConsentAnswer | 'cancel' | undefined {
-  const k = key.toLowerCase();
+  const k = firstKey(key).toLowerCase();
   if (k === CTRL_C || k === ESC) return 'cancel';
   if (k === 'y') return 'yes';
-  if (k === 'n' || k === '\r' || k === '\n' || k === '\r\n') return 'no';
+  if (k === 'n' || ENTER.has(k)) return 'no';
   if (k === 'v') return 'view';
   if (k === 'd' && canDiff) return 'diff';
   return undefined;
@@ -139,8 +163,22 @@ class ClackUI implements UI {
     );
   }
 
+  /** D15: every yes/no question is one text prompt, `[y/N]` (or `[Y/n]`), answered by one key. */
   async confirm(message: string, initial = true): Promise<boolean> {
-    return this.unwrap(await p.confirm({ message, initialValue: initial, ...this.io }));
+    const output = this.io.output ?? process.stdout;
+    const input = (this.io.input ?? process.stdin) as RawInput;
+    output.write(`${message} ${initial ? '[Y/n]' : '[y/N]'} `);
+    for (;;) {
+      const answer = yesNo(await readKey(input), initial);
+      if (answer === 'cancel') {
+        output.write('\n');
+        throw new PalmError('E_CANCELLED', 'cancelled');
+      }
+      if (answer !== undefined) {
+        output.write(`${answer ? 'y' : 'n'}\n`);
+        return answer;
+      }
+    }
   }
 
   async text(

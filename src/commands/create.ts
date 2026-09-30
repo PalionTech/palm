@@ -13,6 +13,7 @@ import {
 } from '../create/templates.js';
 import type { App } from './app.js';
 import { type Invocation, usage } from './grammar.js';
+import { palmLine } from './hints.js';
 import { reportInstall } from './report.js';
 import { displayPath, type GlobalOptions, makeContext, scopeOf } from './shared.js';
 
@@ -23,17 +24,12 @@ interface CreateFlags extends GlobalOptions {
 
 function kindOf(inv: Invocation, name: string): CreatableKind {
   const word = inv.words?.[0] ?? '';
+  const line = palmLine('create', ['skill', name], scopeOf(inv.opts as GlobalOptions));
   if (isCommandWord(word))
-    throw usage(
-      'a command installs as a skill; palm create writes skills',
-      `palm create skill ${name}`,
-    );
+    throw usage('a command installs as a skill; palm create writes skills', line);
   const kind = CREATABLE.find((k) => k === inv.resource);
   if (!kind)
-    throw usage(
-      `palm create writes a skill, agent, instruction or hook, not "${word}"`,
-      `palm create skill ${name}`,
-    );
+    throw usage(`palm create writes a skill, agent, instruction or hook, not "${word}"`, line);
   return kind;
 }
 
@@ -61,6 +57,8 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const alsoCommit = [`${displayPath(ctx, created.dir)}/`];
   const { before, after } = created;
   await reportInstall(ctx, app, result, { before, after, json, alsoCommit });
-  if (!app.out.jsonMode && !ctx.flags.dryRun)
-    app.out.hint(`edit ${displayPath(ctx, created.file)}; palm install renders the change`);
+  if (!app.out.jsonMode && !ctx.flags.dryRun) {
+    const install = palmLine('install', [], opts.scope);
+    app.out.hint(`edit ${displayPath(ctx, created.file, opts.scope)}, then run: ${install}`);
+  }
 }

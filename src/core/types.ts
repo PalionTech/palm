@@ -782,10 +782,23 @@ export interface InstallResult {
   failures: InstallFailure[];
 }
 
+/** Files a removal left in place, listed under the removed entry (E18, K18, C3). */
+export interface KeptFiles {
+  entry: { kind: Kind; name: string; source: string };
+  /** Lock paths palm did not delete. */
+  files: string[];
+  /** `owned`: another entry still lists them; `inside-source`: they lie inside a declared source. */
+  reason: 'owned' | 'inside-source';
+  /** Who keeps them: `agent reviewer from moved-kit`, or the source (`./skill`). */
+  by: string;
+}
+
 export interface RemoveResult {
   removed: LockEntry[];
   failures: InstallFailure[];
   warnings: string[];
+  /** Files of removed entries that stayed on disk, and why. */
+  kept?: KeptFiles[];
 }
 
 export type UpdateMark = 'updated' | 'added' | 'removed' | 'unchanged' | 'failed' | 'skipped';
@@ -808,7 +821,8 @@ export interface UpdatePlanItem {
 
 export interface UpdatePlan {
   scope: Scope;
-  sources: Array<{ name: string; from?: string; to?: string; ref: string }>;
+  /** `latest`: the newest release tag when the ref pins a tag or a sha below it (D4, C19). */
+  sources: Array<{ name: string; from?: string; to?: string; ref: string; latest?: string }>;
   items: UpdatePlanItem[];
   failures: InstallFailure[];
   warnings: string[];

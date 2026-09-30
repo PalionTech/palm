@@ -54,6 +54,11 @@ export function fakeSourceRef(s: FakeSource): SourceRef {
     ...(s.ref ? { ref: s.ref } : {}),
   };
   const where = s.path ?? s.url ?? `https://github.com/${s.name}.git`;
+  if (!s.path && !s.url) source.url = where;
+  const segs = where
+    .replace(/\.git$/, '')
+    .split('/')
+    .filter(Boolean);
   return {
     source,
     name: s.name,
@@ -61,6 +66,7 @@ export function fakeSourceRef(s: FakeSource): SourceRef {
     isLocal: Boolean(s.path),
     isGit: !s.path,
     describe: () => where,
+    repoParts: () => ({ owner: segs[segs.length - 2], repo: segs[segs.length - 1] ?? s.name }),
     matches: (q: string) => q === s.name || q === s.alias || q === s.path,
   } as unknown as SourceRef;
 }

@@ -7,10 +7,11 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { messageOf, PalmError } from '../core/errors.js';
-import type { McpServerConfig } from '../core/types.js';
+import type { McpServerConfig, Scope } from '../core/types.js';
 import { parseAdhocMcp } from './adhoc.js';
 import type { App } from './app.js';
 import { type Invocation, usage } from './grammar.js';
+import { palmLine } from './hints.js';
 import { interruptible, reportInstall } from './report.js';
 import {
   engine,
@@ -34,14 +35,21 @@ interface McpFlags extends GlobalOptions {
   targets?: string;
 }
 
-const EXAMPLE = 'palm install mcp docs --url https://example.com/mcp';
 const SNIPPET_HINT = 'paste the { "mcpServers": { ... } } block from the server README';
 
 function fromFlags(names: string[], flags: McpFlags): McpServerConfig {
   const [name] = names;
+  const scope = scopeOf(flags);
   if (!name || names.length > 1)
-    throw usage(name ? 'palm install mcp takes one server name' : 'name the MCP server', EXAMPLE);
+    throw usage(
+      name ? 'palm install mcp takes one server name' : 'name the MCP server',
+      [
+        palmLine('install', ['mcp', 'docs', '--url', 'https://example.com/mcp'], scope),
+        `or paste the mcpServers block from its README: pbpaste | ${palmLine('install', ['mcp', '--snippet', '-'], scope)}`,
+      ].join('\n'),
+    );
   return parseAdhocMcp(name, {
+    scope,
     command: flags.command,
     args: flags.arg,
     url: flags.url,
@@ -59,6 +67,10 @@ async function readStream(stream: NodeJS.ReadableStream): Promise<string> {
   return chunks.join('');
 }
 
+/** The scope of this run, for hints (`-g`). */
+const scopeOfRun = (app: App) =>
+  app.argv.some((a) => a === '-g' || a === '--global') ? ('global' as const) : ('project' as const);
+
 async function snippetText(app: App, file: string): Promise<string> {
   if (file === '-') {
     const stdin = app.stdin ?? process.stdin;
@@ -70,7 +82,7 @@ async function snippetText(app: App, file: string): Promise<string> {
     throw new PalmError(
       'E_NOT_FOUND',
       `cannot read ${file}`,
-      'pbpaste | palm install mcp --snippet -',
+      `pbpaste | ${palmLine('install', ['mcp', '--snippet', '-'], scopeOfRun(app))}`,
     );
   });
 }
@@ -85,13 +97,21 @@ function parseSnippet(text: string, file: string): unknown {
 }
 
 /** The servers the command line names, or all of them; one server may be renamed. */
-function pickServers(servers: McpServerConfig[], names: string[], file: string): McpServerConfig[] {
+function pickServers(
+  servers: McpServerConfig[],
+  names: string[],
+  at: { file: string; scope: Scope },
+): McpServerConfig[] {
+  const { file, scope } = at;
   if (!servers.length)
     throw new PalmError('E_PARSE', 'the snippet holds no MCP server', SNIPPET_HINT);
   const only = servers[0] as McpServerConfig;
   if (names.length === 1 && servers.length === 1) return [{ ...only, name: names[0] as string }];
   if (!names.length && servers.some((s) => !s.name))
-    throw usage('the snippet does not name its server', `palm install mcp docs --snippet ${file}`);
+    throw usage(
+      'the snippet does not name its server',
+      palmLine('install', ['mcp', 'docs', '--snippet', file], scope),
+    );
   if (!names.length) return servers;
   return names.map((n) => {
     const found = servers.find((s) => s.name === n);
@@ -100,7 +120,7 @@ function pickServers(servers: McpServerConfig[], names: string[], file: string):
     throw new PalmError(
       'E_NOT_FOUND',
       `the snippet has no server "${n}" (it has ${listed})`,
-      `palm install mcp --snippet ${file}`,
+      palmLine('install', ['mcp', '--snippet', file], scope),
     );
   });
 }
@@ -108,7 +128,7 @@ function pickServers(servers: McpServerConfig[], names: string[], file: string):
 async function fromSnippet(app: App, file: string, names: string[]): Promise<McpServerConfig[]> {
   const json = parseSnippet(await snippetText(app, file), file);
   const servers = await engine(app).parseMcpJson(json);
-  return pickServers(servers, names, file).map((s) => ({
+  return pickServers(servers, names, { file, scope: scopeOfRun(app) }).map((s) => ({
     ...s,
     from: s.from ?? { type: 'snippet' },
   }));
@@ -119,7 +139,7 @@ function checkFlags(flags: McpFlags): void {
   if (flags.snippet !== undefined && serverFlags.some((f) => f !== undefined))
     throw usage(
       '--snippet takes the whole server from the snippet; drop --url, --command and their flags',
-      `palm install mcp --snippet ${flags.snippet}`,
+      palmLine('install', ['mcp', '--snippet', flags.snippet], scopeOf(flags)),
     );
 }
 

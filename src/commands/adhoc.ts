@@ -5,10 +5,13 @@
  * `${VAR}` in values stays a reference; the engine decides what is a secret.
  */
 import { PalmError } from '../core/errors.js';
-import type { McpServerConfig } from '../core/types.js';
+import type { McpServerConfig, Scope } from '../core/types.js';
 import { isSafeName } from '../lib/names.js';
+import { palmLine } from './hints.js';
 
 export interface AdhocMcpOptions {
+  /** The scope the hints carry (` -g`). */
+  scope?: Scope;
   command?: string;
   args?: string[];
   url?: string;
@@ -27,8 +30,22 @@ const EXAMPLES = [
   'palm install mcp fs --command npx --arg -y --arg @modelcontextprotocol/server-filesystem',
 ].join('\n');
 
+/** L4, J18, D25: the README path, for a server whose flags palm cannot guess. */
+function snippetLine(name: string | undefined, scope: Scope | undefined): string {
+  const words = ['mcp', ...(name ? [name] : []), '--snippet', '-'];
+  return `or paste the mcpServers block from its README: pbpaste | ${palmLine('install', words, scope)}`;
+}
+
 function usageError(message: string, hint = EXAMPLES): PalmError {
   return new PalmError('E_USAGE', message, hint);
+}
+
+/** A registry name (`io.github.github/github-mcp-server`): palm has no registry; the README has the block. */
+function registryName(name: string, scope: Scope | undefined): PalmError {
+  return usageError(
+    `"${name}" is a registry name; palm has no MCP registry. Paste the mcpServers block from the server's README:`,
+    `  pbpaste | ${palmLine('install', ['mcp', '--snippet', '-'], scope)}`,
+  );
 }
 
 /** `KEY=VALUE` (for headers also curl's `Name: value`) split into key and value. */
@@ -102,15 +119,20 @@ function urlServer(name: string, url: string, opts: AdhocMcpOptions): McpServerC
 
 /** The canonical server from `install mcp <name>` flags; E_USAGE for anything malformed. */
 export function parseAdhocMcp(name: string, opts: AdhocMcpOptions): McpServerConfig {
+  const url = opts.url?.trim() ?? '';
+  const command = opts.command?.trim() ?? '';
+  if (!isSafeName(name) && !url && !command && /[/.]/.test(name))
+    throw registryName(name, opts.scope);
   if (!isSafeName(name))
     throw usageError(
       `"${name}" is not a server name: use letters, digits, ".", "_" or "-"`,
-      'palm install mcp docs --url https://example.com/mcp',
+      palmLine('install', ['mcp', 'docs', '--url', 'https://example.com/mcp'], opts.scope),
     );
-  const url = opts.url?.trim() ?? '';
-  const command = opts.command?.trim() ?? '';
   if (command && url) throw usageError(`give ${name} either --command or --url, not both`);
   if (command) return commandServer(name, opts);
   if (url) return urlServer(name, url, opts);
-  throw usageError(`${name} needs --url (a remote server) or --command (a local one)`);
+  throw usageError(
+    `${name} needs --url (a remote server) or --command (a local one)`,
+    `${EXAMPLES}\n${snippetLine(name, opts.scope)}`,
+  );
 }

@@ -69,10 +69,17 @@ describe('--json', () => {
       notes: ['cursor reads .claude/skills; no second copy'],
       selectedBy: 'manifest',
     };
-    const deps = fakeEngine({ describeEntity: async () => info });
+    const deps = fakeEngine({
+      listInstalled: async () => [{ entry: tdd, source: mpSource, layer: 'team' }],
+      describeEntity: async () => info,
+    });
     const r = await json(['describe', 'tdd'], deps);
     expect(r.doc).toEqual({ ...info, warnings: [] });
-    expect(deps.calls.describeEntity?.[0]?.[0]).toEqual({ name: 'tdd' });
+    expect(deps.calls.describeEntity?.[0]?.[0]).toEqual({
+      kind: 'skill',
+      name: 'tdd',
+      source: tdd.source,
+    });
   });
 
   it('check: { ok, checks: [{ id, label, status, problems }], warnings } and exit 1', async () => {

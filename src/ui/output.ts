@@ -7,7 +7,8 @@
  * - status lines carry a mark: `+ - ~ ↺ = ⊘ x ! i`;
  * - warnings are collected and printed once, under a `Warnings` heading on stderr, by `finish()`
  *   (and land in the JSON document as `warnings: []`);
- * - errors go to stderr as `x message` with the hint on the following lines.
+ * - errors go to stderr as `x message` with the hint on the following lines;
+ * - an `i` line prints once per run, however often it is said.
  *
  * Colour is on only for a terminal without `NO_COLOR`.
  */
@@ -104,6 +105,7 @@ class Writer implements Output {
   private readonly stdout: Sink;
   private readonly stderr: Sink;
   private collected: string[] = [];
+  private readonly said = new Set<string>();
   private doc: { value: unknown } | undefined;
   private finished = false;
 
@@ -148,7 +150,10 @@ class Writer implements Output {
     this.mark('+', msg);
   }
 
+  /** An `i` line; the same line twice in one run prints once (the engine and a command may both say it). */
   info(msg: string): void {
+    if (this.said.has(msg)) return;
+    this.said.add(msg);
     this.mark('i', msg);
   }
 

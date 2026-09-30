@@ -22,6 +22,26 @@ export interface InstallReport {
   json?: unknown;
   /** More paths the commit line names (`palm create`: the source directory). */
   alsoCommit?: string[];
+  /** The run named its entities: their unchanged rows print, and "Nothing installed." when none did. */
+  named?: boolean;
+  /** The source as a printed command names it (K9): the key once declared, else as typed. */
+  sourceWord?: (source: string) => string;
+}
+
+/** Y26, C28: what a dry run reports as data: `would-install`, not `installed`. */
+const WOULD: Readonly<Record<string, string>> = {
+  installed: 'would-install',
+  updated: 'would-update',
+  're-rendered': 'would-re-render',
+  restored: 'would-restore',
+  removed: 'would-remove',
+};
+
+function dryRunDoc(doc: unknown): unknown {
+  const d = doc as { outcomes?: Array<{ status: string }> };
+  if (!Array.isArray(d?.outcomes)) return doc;
+  const outcomes = d.outcomes.map((o) => ({ ...o, status: WOULD[o.status] ?? o.status }));
+  return { ...d, outcomes };
 }
 
 /** Where the targets came from, on the run that detected them and wrote them to palm.yaml. */
@@ -38,7 +58,8 @@ export async function reportInstall(
   r: InstallReport,
 ): Promise<void> {
   const out = app.out;
-  if (out.jsonMode) out.json(r.json ?? result);
+  const doc = r.json ?? result;
+  if (out.jsonMode) out.json(ctx.flags.dryRun ? dryRunDoc(doc) : doc);
   else
     printInstallSummary(out, result, {
       scope: r.after.paths.scope,
@@ -48,6 +69,8 @@ export async function reportInstall(
       detected: await detected(app, ctx, r),
       ...(r.from ? { from: r.after.lock.sources } : {}),
       ...(r.alsoCommit ? { alsoCommit: r.alsoCommit } : {}),
+      ...(r.named ? { named: true } : {}),
+      ...(r.sourceWord ? { sourceWord: r.sourceWord } : {}),
     });
   if (app.interrupted) throw new ExitSignal(EXIT.cancelled);
   if (failureCount(result)) throw new ExitSignal(EXIT.failure);

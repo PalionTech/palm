@@ -188,7 +188,7 @@ describe('palm create', () => {
         '+ source ./agent-kit → palm.yaml',
         '+ skill  notes   .claude/skills/notes/   1 file',
         '1 installed. Commit palm.yaml, palm.lock.yaml, agent-kit/ and .claude/ together.',
-        'edit agent-kit/skills/notes/SKILL.md; palm install renders the change',
+        'edit agent-kit/skills/notes/SKILL.md, then run: palm install',
         '',
       ].join('\n'),
     );

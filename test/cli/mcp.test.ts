@@ -207,12 +207,20 @@ describe('palm install mcp <name> by flags', () => {
 
   it('needs a name and a --url or --command', async () => {
     expect((await palm(sb, ['install', 'mcp', '--url', 'https://x.dev'])).stderr).toBe(
-      'x name the MCP server\n  palm install mcp docs --url https://example.com/mcp\n',
+      [
+        'x name the MCP server',
+        '  palm install mcp docs --url https://example.com/mcp',
+        '  or paste the mcpServers block from its README: pbpaste | palm install mcp --snippet -',
+        '',
+      ].join('\n'),
     );
     const none = await palm(sb, ['install', 'mcp', 'docs']);
     expect(none.code).toBe(2);
     expect(none.stderr).toContain(
       'x docs needs --url (a remote server) or --command (a local one)',
+    );
+    expect(none.stderr).toContain(
+      'or paste the mcpServers block from its README: pbpaste | palm install mcp docs --snippet -',
     );
   });
 });

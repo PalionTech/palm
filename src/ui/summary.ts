@@ -1,8 +1,9 @@
 /**
  * What an install, sync, update or removal prints (DESIGN.md §6 step 11, PLAN.md §4.9): one
- * line per entry (`+ skill  tdd   .agents/skills/tdd/   1 file`), declined programs with the
- * commands that show and install them, the failures on stderr, and a closing count with the
- * commit line on a first install.
+ * line per entry that changed (`+ skill  tdd   .agents/skills/tdd/   1 file`), declined programs
+ * with the commands that show and install them, the failures on stderr, and a closing count
+ * with the commit line on a first install. Unchanged entries are that count only, unless the run
+ * named them (K21, B21, D13); every note prints once.
  */
 import {
   type InstallFailure,
@@ -10,35 +11,30 @@ import {
   type InstallResult,
   KINDS,
   type LockEntry,
-  type LockSource,
   type OutcomeStatus,
-  type Scope,
   type TargetId,
 } from '../core/types.js';
-import { plural } from '../lib/text.js';
-import {
-  displayLockPath,
-  listJoin,
-  type Mark,
-  padVisible,
-  STATUS_MARK,
-  shortHash,
-  statusWord,
-} from './format.js';
+import { listJoin, padVisible, statusWord } from './format.js';
 import type { Output } from './output.js';
+import {
+  LEFT_OUT,
+  outcomeRow,
+  programLeftOut,
+  type Row,
+  type RowOptions,
+  skippedRow,
+} from './summary-rows.js';
 
-export interface SummaryOptions {
-  scope: Scope;
+export interface SummaryOptions extends RowOptions {
   targets: TargetId[];
-  dryRun?: boolean;
   /** The scope had no lock entries before: close with the commit line (project scope). */
   first?: boolean;
   /** Where the targets were detected from (`.claude/`), when this run wrote them to palm.yaml. */
   detected?: string[];
-  /** Lock sources, for a `from <source> <version>` cell (installs that named their entities). */
-  from?: Record<string, LockSource>;
   /** More paths the commit line names (the source `palm create` wrote into). */
   alsoCommit?: string[];
+  /** The run named its entities: their `=` rows print, and a run that installs none says so. */
+  named?: boolean;
 }
 
 /** Statuses in the order their lines print. */
@@ -58,20 +54,6 @@ const ORDER: readonly OutcomeStatus[] = [
 /** A group of one status and kind longer than this prints its first line and `... N more`. */
 const COLLAPSE_AFTER = 5;
 
-const DECLINED = 'runs a program on your machine; not installed';
-/** The status word of a program this run left out, when the table shows status words. */
-const LEFT_OUT = 'not installed';
-
-interface Row {
-  mark: Mark;
-  word: string;
-  kind: string;
-  name: string;
-  cells: string[];
-  /** Lines under the row (declined programs: how to see and install them). */
-  after: string[];
-}
-
 /**
  * How many things an engine result reports as failed: its `failures`, or outcomes that failed,
  * are partial or kept a modified file. The CLI exits 1 when this is not 0.
@@ -89,90 +71,6 @@ export function failureCount(result: object): number {
 function topOf(lockPath: string): string {
   const i = lockPath.indexOf('/');
   return i < 0 ? lockPath : lockPath.slice(0, i + 1);
-}
-
-/** `.claude/skills/tdd/` for a file under a directory named like the entry, else the file. */
-function rootOf(lockPath: string, name: string): string {
-  const parts = lockPath.split('/');
-  const i = parts.lastIndexOf(name);
-  if (i >= 0 && i < parts.length - 1) return `${parts.slice(0, i + 1).join('/')}/`;
-  return lockPath;
-}
-
-function locationOf(e: LockEntry): string {
-  const roots: string[] = [];
-  const add = (p: string) => {
-    const shown = displayLockPath(p);
-    if (!roots.includes(shown)) roots.push(shown);
-  };
-  for (const f of e.files) add(rootOf(f, e.name));
-  for (const m of e.merged ?? []) add(m.file);
-  if (roots.length <= 2) return roots.join(', ');
-  return `${roots.slice(0, 2).join(', ')} +${roots.length - 2}`;
-}
-
-function countCell(e: LockEntry): string {
-  if (e.files.length) return plural(e.files.length, 'file');
-  return e.merged?.length ? 'merged' : '';
-}
-
-function fromCell(e: LockEntry, from: SummaryOptions['from']): string {
-  const s = from?.[e.source];
-  if (!from || !s) return '';
-  const version = s.resolved ?? s.ref ?? (s.tree ? `tree ${shortHash(s.tree)}` : '');
-  return `from ${e.source}${version ? ` ${version}` : ''}`;
-}
-
-/** Notes that fit in the row's last cell: `(cursor reads .agents/skills)`, `(claude: installed; cursor: failed)`. */
-const INLINE_NOTE = 60;
-
-function notesOf(o: InstallOutcome): string[] {
-  const partial = Object.entries(o.perTarget ?? {}).map(([t, s]) => `${t}: ${s}`);
-  return [...new Set([...partial, ...o.notes])];
-}
-
-function notesCell(o: InstallOutcome): string {
-  const joined = notesOf(o).join('; ');
-  return joined && joined.length <= INLINE_NOTE ? `(${joined})` : '';
-}
-
-/** Notes too long for the row: one indented line each, under it. */
-function notesBelow(o: InstallOutcome): string[] {
-  const notes = notesOf(o);
-  return notesCell(o) || !notes.length ? [] : notes.map((n) => `    ${n}`);
-}
-
-/**
- * A program this run did not install: declined at the consent prompt (`declined: true`), or left
- * out by `--all` (skipped with an exec unit nobody trusted yet).
- */
-function programLeftOut(o: InstallOutcome): boolean {
-  const e = o.entry;
-  if (e.declined) return true;
-  return o.status === 'skipped' && e.exec !== undefined && !e.trust?.includes(e.exec.hash);
-}
-
-/** `kind:name` when another entity of the run has the same name in the same source, else the name. */
-function nameFor(e: LockEntry, all: readonly InstallOutcome[]): string {
-  const clash = all.some(
-    (o) => o.entry.source === e.source && o.entry.name === e.name && o.entry.kind !== e.kind,
-  );
-  return clash ? `${e.kind}:${e.name}` : e.name;
-}
-
-function outcomeRow(o: InstallOutcome, opts: SummaryOptions, all: InstallOutcome[]): Row {
-  const e = o.entry;
-  const base = { kind: e.kind, name: e.name, after: [] };
-  if (programLeftOut(o)) {
-    const cmd = `palm install ${e.source} ${nameFor(e, all)}`;
-    const after = [`    see it:      ${cmd} --dry-run`, `    install it:  ${cmd}`];
-    return { ...base, mark: '!', word: LEFT_OUT, cells: [DECLINED], after };
-  }
-  const word = statusWord(o.status, opts.dryRun);
-  if (o.status === 'failed') return { ...base, mark: 'x', word, cells: [] };
-  const cells = [locationOf(e), countCell(e), fromCell(e, opts.from), notesCell(o)];
-  const row = { ...base, after: notesBelow(o) };
-  return { ...row, mark: STATUS_MARK[o.status], word, cells: cells.filter(Boolean) };
 }
 
 /** Status order, then kind order; declined programs after the other skips. */
@@ -225,12 +123,16 @@ function targetsLine(opts: SummaryOptions): string {
   return `targets: ${opts.targets.join(', ')}   (detected from ${listJoin(opts.detected ?? [])}; ${where})`;
 }
 
-function footer(outcomes: InstallOutcome[], opts: SummaryOptions): string | undefined {
+function filesOf(e: LockEntry): string[] {
+  return [...e.files, ...(e.merged ?? []).map((m) => m.file)];
+}
+
+function footer(outcomes: InstallOutcome[], opts: SummaryOptions, failed: boolean) {
   const counted = outcomes.filter((o) => !programLeftOut(o));
   const counts = ORDER.map((s) => [s, counted.filter((o) => o.status === s).length] as const)
     .filter(([, n]) => n > 0)
     .map(([s, n]) => `${n} ${statusWord(s, opts.dryRun)}`);
-  if (!counts.length) return undefined;
+  if (!counts.length) return opts.named && failed ? 'Nothing installed.' : undefined;
   if (opts.dryRun) return `dry run: ${counts.join(', ')}; nothing written.`;
   const written = counted.filter((o) => o.status === 'installed');
   if (!opts.first || opts.scope !== 'project' || !written.length) return `${counts.join(', ')}.`;
@@ -242,15 +144,30 @@ function footer(outcomes: InstallOutcome[], opts: SummaryOptions): string | unde
 
 /**
  * Whether an outcome gets a line: a plugin is a selector over its members, whose lines say it;
- * a program declined earlier stays quiet on later runs (it was reported when it was declined).
+ * a program declined earlier stays quiet on later runs (it was reported when it was declined);
+ * an unchanged entry is only counted unless the run named it.
  */
-function shown(o: InstallOutcome): boolean {
+function shown(o: InstallOutcome, named: boolean): boolean {
   if (o.entry.kind === 'plugin') return false;
-  return !(o.entry.declined && o.status === 'unchanged');
+  if (o.status !== 'unchanged') return true;
+  return named && !o.entry.declined;
 }
 
-function filesOf(e: LockEntry): string[] {
-  return [...e.files, ...(e.merged ?? []).map((m) => m.file)];
+/** Rows in print order: skipped entries of one source (not programs) share one row. */
+function rowsOf(outcomes: InstallOutcome[], opts: SummaryOptions): Row[] {
+  const said = new Set<string>();
+  const skipped = (o: InstallOutcome) => o.status === 'skipped' && !programLeftOut(o);
+  const bySource = new Map<string, InstallOutcome[]>();
+  for (const o of outcomes.filter(skipped))
+    bySource.set(o.entry.source, [...(bySource.get(o.entry.source) ?? []), o]);
+  const rows: Row[] = [];
+  for (const o of outcomes) {
+    const group = skipped(o) ? (bySource.get(o.entry.source) ?? []) : [];
+    if (group.length > 1 && group[0] !== o) continue;
+    if (group.length > 1) rows.push(skippedRow(o.entry.source, group, said));
+    else rows.push(outcomeRow(o, opts, said));
+  }
+  return rows;
 }
 
 /**
@@ -264,12 +181,18 @@ export function printInstallSummary(
   opts: SummaryOptions,
 ): void {
   if (opts.detected?.length && opts.targets.length) out.out(targetsLine(opts));
-  const outcomes = sorted(result.outcomes.filter(shown));
-  const rows = outcomes.map((o) => outcomeRow(o, opts, result.outcomes));
+  const counted = result.outcomes.filter((o) => o.entry.kind !== 'plugin');
+  const outcomes = sorted(counted.filter((o) => shown(o, Boolean(opts.named))));
+  const rows = rowsOf(outcomes, opts);
   const words = new Set(rows.filter((r) => r.word !== LEFT_OUT).map((r) => r.word));
   printRows(out, rows, words.size > 1 || Boolean(opts.dryRun));
   printFailures(out, result.failures);
   for (const w of result.warnings) out.warn(w);
-  const last = footer(outcomes, opts);
+  const quiet = (o: InstallOutcome) => o.entry.declined && o.status === 'unchanged';
+  const last = footer(
+    counted.filter((o) => !quiet(o)),
+    opts,
+    result.failures.length > 0,
+  );
   if (last) out.out(last);
 }

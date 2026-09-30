@@ -1,5 +1,6 @@
 /** What every command module shares: the global flags, the context, the engine door, paths. */
 import { isAbsolute, relative, sep } from 'node:path';
+import type { PalmError } from '../core/errors.js';
 import {
   type EngineDeps,
   type PalmContext,
@@ -76,12 +77,27 @@ function secretPolicy(value: string | undefined): SecretPolicy | undefined {
   throw usage(`--secrets takes env-ref or literal, not "${value}"`, '--secrets env-ref');
 }
 
-async function flagsOf(app: App, g: GlobalOptions): Promise<PalmFlags> {
-  if (g.local)
-    throw usage(
-      'palm.local.yaml arrives in palm 0.3',
-      `run it without --local: palm ${app.argv.filter((a) => a !== '--local').join(' ')}`,
+/**
+ * E7: `--local` arrives in 0.3. Without it the command is the same, except where it would only
+ * narrow targets for a bare install: that change is an edit of targets: in palm.yaml.
+ */
+function localError(app: App, g: GlobalOptions & { targets?: string }): PalmError {
+  const rest = app.argv.filter((a) => a !== '--local');
+  const manifest = g.global ? '~/.palm/palm.yaml' : 'palm.yaml';
+  const positional = rest.filter((a) => !a.startsWith('-'));
+  if (g.targets !== undefined && positional.length <= 1)
+    return usage(
+      `palm.local.yaml arrives in palm 0.3; until then targets are shared in ${manifest}`,
+      `add ${g.targets} to targets: in ${manifest}, then run: palm install${g.global ? ' -g' : ''}`,
     );
+  return usage(
+    'palm.local.yaml arrives in palm 0.3',
+    `run it without --local: palm ${rest.join(' ')}`,
+  );
+}
+
+async function flagsOf(app: App, g: GlobalOptions): Promise<PalmFlags> {
+  if (g.local) throw localError(app, g);
   const secrets = secretPolicy(g.secrets);
   const allowExec = g.allowExec === undefined ? [] : await engine(app).parseAllowExec(g.allowExec);
   return {
@@ -117,17 +133,29 @@ export async function makeContext(app: App, g: GlobalOptions): Promise<CliContex
   return Object.assign(ctx, { argv: [...app.argv, ...tail] });
 }
 
-/** `abs` as a person reads it: relative to the project root, `~/…` under home, else absolute. */
-export function displayPath(ctx: PalmContext, abs: string): string {
-  const inside = (root: string) => {
-    const rel = relative(root, abs);
-    return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel)) ? rel : undefined;
-  };
-  const project = inside(ctx.paths.projectRoot);
-  if (project !== undefined) return project.split(sep).join('/') || '.';
-  const home = inside(ctx.paths.home);
-  if (home !== undefined) return `~/${home.split(sep).join('/')}`.replace(/\/$/, '');
-  return abs;
+/** `abs` relative to `root` with forward slashes, or undefined when it lies outside. */
+function inside(root: string, abs: string): string | undefined {
+  const rel = relative(root, abs);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+    ? rel.split(sep).join('/')
+    : undefined;
+}
+
+/** `abs` under home as `~/…` (J20, J24: people read home paths so), else absolute. */
+export function homePath(ctx: PalmContext, abs: string): string {
+  const home = inside(ctx.paths.home, abs);
+  return home === undefined ? abs : `~/${home}`.replace(/\/$/, '');
+}
+
+/**
+ * `abs` as a person reads it: relative to the project root, `~/…` under home, else absolute.
+ * Under the global scope home comes first: nothing there is relative to a project.
+ */
+export function displayPath(ctx: PalmContext, abs: string, scope?: Scope): string {
+  if (scope === 'global') return homePath(ctx, abs);
+  const project = inside(ctx.paths.projectRoot, abs);
+  if (project !== undefined) return project || '.';
+  return homePath(ctx, abs);
 }
 
 /** The harness directories the scope's targets live in (`.claude/`, `~/.cursor/`). */
@@ -136,7 +164,7 @@ export async function targetDirs(app: App, ctx: PalmContext, state: ScopeState):
   for (const id of state.targets) {
     const target = await targetOf(app.deps ?? {}, id);
     const dir = target.configDir(state.paths.scope, state.paths.root, ctx.env);
-    dirs.push(`${displayPath(ctx, dir)}/`);
+    dirs.push(`${displayPath(ctx, dir, state.paths.scope)}/`);
   }
   return dirs;
 }

@@ -125,7 +125,7 @@ describe('exit codes through runCli', () => {
 
   it('E_NOT_FOUND exits 1 with its hint', async () => {
     const deps = fakeEngine({
-      describeEntity: async () => {
+      listInstalled: async () => {
         throw new PalmError('E_NOT_FOUND', 'nothing named tdd is installed', 'palm get');
       },
     });
