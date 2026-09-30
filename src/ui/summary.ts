@@ -127,10 +127,20 @@ function notesCell(o: InstallOutcome): string {
   return notes.length ? `(${notes.join('; ')})` : '';
 }
 
+/**
+ * A program this run did not install: declined at the consent prompt (`declined: true`), or left
+ * out by `--all` (skipped with an exec unit nobody trusted yet).
+ */
+function programLeftOut(o: InstallOutcome): boolean {
+  const e = o.entry;
+  if (e.declined) return true;
+  return o.status === 'skipped' && e.exec !== undefined && !e.trust?.includes(e.exec.hash);
+}
+
 function outcomeRow(o: InstallOutcome, opts: SummaryOptions): Row {
   const e = o.entry;
   const base = { kind: e.kind, name: e.name, after: [] };
-  if (e.declined) {
+  if (programLeftOut(o)) {
     const cmd = `palm install ${e.source} ${e.name}`;
     const after = [`    see it:      ${cmd} --dry-run`, `    install it:  ${cmd}`];
     return { ...base, mark: '!', word: 'declined', cells: [DECLINED], after };
@@ -143,7 +153,7 @@ function outcomeRow(o: InstallOutcome, opts: SummaryOptions): Row {
 
 /** Status order, then kind order; declined programs after the other skips. */
 function rank(o: InstallOutcome): number {
-  const status = o.entry.declined ? ORDER.indexOf('skipped') + 0.5 : ORDER.indexOf(o.status);
+  const status = programLeftOut(o) ? ORDER.indexOf('skipped') + 0.5 : ORDER.indexOf(o.status);
   return status * 100 + KINDS.indexOf(o.entry.kind);
 }
 
@@ -192,7 +202,7 @@ function targetsLine(opts: SummaryOptions): string {
 }
 
 function footer(outcomes: InstallOutcome[], opts: SummaryOptions): string | undefined {
-  const counted = outcomes.filter((o) => !o.entry.declined);
+  const counted = outcomes.filter((o) => !programLeftOut(o));
   const counts = ORDER.map((s) => [s, counted.filter((o) => o.status === s).length] as const)
     .filter(([, n]) => n > 0)
     .map(([s, n]) => `${n} ${statusWord(s, opts.dryRun)}`);

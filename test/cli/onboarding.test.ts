@@ -87,7 +87,11 @@ const SESSION_START: Entity = {
 
 function superpowersListing(): SourceListing {
   const checkout: SourceCheckout = {
-    source: { name: 'obra/superpowers', type: 'git', url: 'https://github.com/obra/superpowers.git' },
+    source: {
+      name: 'obra/superpowers',
+      type: 'git',
+      url: 'https://github.com/obra/superpowers.git',
+    },
     sourceId: 'github.com__obra__superpowers',
     root: '/cache/obra',
     repoDir: '/cache/obra',
@@ -165,11 +169,19 @@ Nothing written. Install some:
   it('palm install obra/superpowers --all: 15 installed, the hook asks first', async () => {
     const box = await nora();
     const files = (n: string, count: number) =>
-      Array.from({ length: count }, (_, i) => `.claude/skills/${n}/${i ? `ref-${i}.md` : 'SKILL.md'}`);
+      Array.from(
+        { length: count },
+        (_, i) => `.claude/skills/${n}/${i ? `ref-${i}.md` : 'SKILL.md'}`,
+      );
     const skills = SKILLS.map(([n], i) =>
       outcome(skillEntry(n, 'obra/superpowers', files(n, i === 0 ? 3 : 1))),
     );
-    const hook = lockEntry({ kind: 'hook', name: 'session-start', source: 'obra/superpowers', declined: true });
+    const hook = lockEntry({
+      kind: 'hook',
+      name: 'session-start',
+      source: 'obra/superpowers',
+      declined: true,
+    });
     const lockSources = { 'obra/superpowers': { ref: '^4', resolved: 'v4.0.3', sha: 'a1b2c3d' } };
     const deps = fakeEngine({
       scopes: [

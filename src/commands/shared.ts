@@ -31,7 +31,16 @@ export interface GlobalOptions {
   json?: boolean;
   secrets?: string;
   local?: boolean;
+  /** `install --review`: src/exec prints every program's scripts before it asks. */
+  review?: boolean;
 }
+
+/**
+ * What the CLI adds to the contract's flags and context (reported for types.ts): `review`, and
+ * the command line src/exec repeats in the `review:` line of its no-terminal consent error.
+ */
+export type CliFlags = PalmFlags & { review?: boolean };
+export type CliContext = PalmContext & { argv: readonly string[] };
 
 export function scopeOf(g: GlobalOptions): Scope {
   return g.global ? 'global' : 'project';
@@ -71,7 +80,7 @@ function secretPolicy(value: string | undefined): SecretPolicy | undefined {
   throw usage(`--secrets takes env-ref or literal, not "${value}"`, '--secrets env-ref');
 }
 
-async function flagsOf(app: App, g: GlobalOptions): Promise<PalmFlags> {
+async function flagsOf(app: App, g: GlobalOptions): Promise<CliFlags> {
   if (g.local)
     throw usage(
       'palm.local.yaml arrives in palm 0.3',
@@ -88,6 +97,7 @@ async function flagsOf(app: App, g: GlobalOptions): Promise<PalmFlags> {
     allowExec,
     local: false,
     ...(secrets ? { secrets } : {}),
+    ...(g.review ? { review: true } : {}),
   };
 }
 
@@ -97,13 +107,18 @@ async function defaultUI(g: GlobalOptions, env: NodeJS.ProcessEnv): Promise<UI> 
   return prompts.createClackUI(g.json ? { output: process.stderr } : {});
 }
 
-/** The PalmContext of one command: the writer as `ctx.log`, clack (or the app's UI) as `ctx.ui`. */
-export async function makeContext(app: App, g: GlobalOptions): Promise<PalmContext> {
+/**
+ * The context of one command: the writer as `ctx.log`, clack (or the app's UI) as `ctx.ui`, and
+ * `ctx.argv`, the command line as typed.
+ */
+export async function makeContext(app: App, g: GlobalOptions): Promise<CliContext> {
   const env = app.env ?? process.env;
   const flags = await flagsOf(app, g);
   const ui = app.ui ?? (await defaultUI(g, env));
   const { createContext } = await import('../core/context.js');
-  return createContext({ cwd: app.cwd ?? process.cwd(), env, ui, log: app.out, flags });
+  const ctx = await createContext({ cwd: app.cwd ?? process.cwd(), env, ui, log: app.out, flags });
+  const tail = app.passthrough.length ? ['--', ...app.passthrough] : [];
+  return Object.assign(ctx, { argv: [...app.argv, ...tail] });
 }
 
 /** `abs` as a person reads it: relative to the project root, `~/…` under home, else absolute. */

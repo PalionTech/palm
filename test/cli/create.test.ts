@@ -24,7 +24,15 @@ function context(dryRun = false): PalmContext {
     ui: fakeUI(),
     log: createOutput({ stdout: { write: () => 0 }, stderr: { write: () => 0 } }),
     env: sb.env,
-    flags: { yes: false, dryRun, force: false, offline: false, json: false, allowExec: [], local: false },
+    flags: {
+      yes: false,
+      dryRun,
+      force: false,
+      offline: false,
+      json: false,
+      allowExec: [],
+      local: false,
+    },
   };
 }
 
@@ -74,7 +82,9 @@ describe('templateFor', () => {
   it('instruction: instructions/<name>.md with a description', () => {
     const [file] = templateFor('instruction', 'db-conventions');
     expect(file?.rel).toBe('instructions/db-conventions.md');
-    expect(file?.content).toMatch(/^---\ndescription: Describe what db-conventions covers\.\n---\n/);
+    expect(file?.content).toMatch(
+      /^---\ndescription: Describe what db-conventions covers\.\n---\n/,
+    );
   });
 
   it('hook: hooks/<name>/hooks.json with one SessionStart command and its script, mode 755', () => {
@@ -147,7 +157,11 @@ describe('createEntity', () => {
   });
 
   it('writes into --in and, under -g, ~/.palm/kit', async () => {
-    await createEntity(context(), { kind: 'agent', name: 'a', dir: 'tools/kit', scope: 'project' }, creating());
+    await createEntity(
+      context(),
+      { kind: 'agent', name: 'a', dir: 'tools/kit', scope: 'project' },
+      creating(),
+    );
     expect(await exists(join(sb.project, 'tools/kit/agents/a.md'))).toBe(true);
     await createEntity(context(), { kind: 'agent', name: 'b', scope: 'global' }, creating());
     expect(await exists(join(sb.palmHome, 'kit/agents/b.md'))).toBe(true);
@@ -155,7 +169,11 @@ describe('createEntity', () => {
 
   it('a dry run writes and installs nothing', async () => {
     const deps = creating();
-    const created = await createEntity(context(true), { kind: 'skill', name: 'n', scope: 'project' }, deps);
+    const created = await createEntity(
+      context(true),
+      { kind: 'skill', name: 'n', scope: 'project' },
+      deps,
+    );
     expect(await exists(created.file)).toBe(false);
     expect(deps.calls.installFromSource).toBeUndefined();
   });

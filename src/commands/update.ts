@@ -31,7 +31,6 @@ import {
 
 interface UpdateFlags extends GlobalOptions {
   to?: string;
-  review?: boolean;
   strict?: boolean;
 }
 
@@ -125,7 +124,8 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const flags = inv.opts as UpdateFlags;
   const sources = inv.names.map((n) => n.name);
   checkArgs(sources, flags);
-  const ctx = await makeContext(app, flags);
+  // update pages its own review (reviewText); src/exec must not print the scripts again
+  const ctx = await makeContext(app, { ...flags, review: false });
   const api = engine(app);
   const opts = { scope: scopeOf(flags), ...(flags.to ? { to: flags.to } : {}) };
   const plan = await withSpinner(ctx, 'Checking sources for updates', () =>

@@ -189,7 +189,7 @@ export function fakeEngine(over: Overrides = {}): FakeEngine {
   for (const op of OPERATIONS) {
     const fn = base[op] as ((...args: unknown[]) => unknown) | undefined;
     deps[op] = (...args: unknown[]) => {
-      (calls[op] ??= []).push(args.slice(1));
+      calls[op] = [...(calls[op] ?? []), args.slice(1)];
       if (!fn) throw new Error(`fake engine: ${op} was not expected`);
       return fn(...args);
     };
@@ -199,7 +199,9 @@ export function fakeEngine(over: Overrides = {}): FakeEngine {
 
 // outcomes -------------------------------------------------------------------------------------
 
-export function lockEntry(e: Partial<LockEntry> & Pick<LockEntry, 'kind' | 'name' | 'source'>): LockEntry {
+export function lockEntry(
+  e: Partial<LockEntry> & Pick<LockEntry, 'kind' | 'name' | 'source'>,
+): LockEntry {
   return { path: e.name, content: 'sha256:0', render: {}, files: [], ...e };
 }
 
@@ -232,7 +234,11 @@ export function fakeUI(opts: FakeUIOptions = {}): UI & { asked: string[] } {
     asked,
     isInteractive: Boolean(opts.interactive),
     pick: async <T>(m: string, o: PickOption<T>[]) => ask(m, (o[0] as PickOption<T>).value),
-    pickMany: async <T>(m: string, o: PickOption<T>[]) => ask(m, o.map((x) => x.value)),
+    pickMany: async <T>(m: string, o: PickOption<T>[]) =>
+      ask(
+        m,
+        o.map((x) => x.value),
+      ),
     confirm: async (m: string) => ask(m, opts.confirm ?? false),
     text: async (m: string) => ask(m, ''),
     secret: async (m: string) => ask(m, ''),

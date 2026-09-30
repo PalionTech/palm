@@ -37,7 +37,13 @@ function parseMcpJson(json: unknown): McpServerConfig[] {
 
 function mcpEngine() {
   return fakeEngine({
-    scopes: [fakeScope({ root: sb.project, manifestTargets: ['claude'], entries: [lockEntry({ kind: 'skill', name: 'x', source: 's' })] })],
+    scopes: [
+      fakeScope({
+        root: sb.project,
+        manifestTargets: ['claude'],
+        entries: [lockEntry({ kind: 'skill', name: 'x', source: 's' })],
+      }),
+    ],
     parseMcpJson,
     installMcp: async (_ctx, reqs) => ({
       outcomes: reqs.map((r) =>
@@ -46,7 +52,9 @@ function mcpEngine() {
             kind: 'mcp',
             name: r.config.name,
             source: 'manifest',
-            merged: [{ file: '.mcp.json', at: '/mcpServers', id: 'palm:mcp:x:0', key: r.config.name }],
+            merged: [
+              { file: '.mcp.json', at: '/mcpServers', id: 'palm:mcp:x:0', key: r.config.name },
+            ],
           }),
         ),
       ),
@@ -59,11 +67,11 @@ function mcpEngine() {
 const requests = (deps: ReturnType<typeof fakeEngine>) =>
   deps.calls.installMcp?.[0]?.[0] as McpRequest[];
 
-describe('palm install mcp --json', () => {
+describe('palm install mcp --snippet', () => {
   it('reads the snippet from stdin with -', async () => {
     const deps = mcpEngine();
     const stdin = Readable.from([JSON.stringify(SNIPPET)]);
-    const r = await palm(sb, ['install', 'mcp', '--json', '-'], { deps, stdin });
+    const r = await palm(sb, ['install', 'mcp', '--snippet', '-'], { deps, stdin });
     expect(r.stderr).toBe('');
     expect(r.code).toBe(0);
     expect(requests(deps).map((q) => q.config.name)).toEqual(['context7', 'docs']);
@@ -73,7 +81,12 @@ describe('palm install mcp --json', () => {
       origin: { type: 'snippet' },
     });
     expect(r.stdout).toBe(
-      ['+ mcp  context7   .mcp.json   merged', '+ mcp  docs       .mcp.json   merged', '2 installed.', ''].join('\n'),
+      [
+        '+ mcp  context7   .mcp.json   merged',
+        '+ mcp  docs       .mcp.json   merged',
+        '2 installed.',
+        '',
+      ].join('\n'),
     );
   });
 
@@ -81,17 +94,19 @@ describe('palm install mcp --json', () => {
     const file = join(sb.project, 'server.json');
     await writeFile(file, JSON.stringify(SNIPPET));
     const deps = mcpEngine();
-    await palm(sb, ['install', 'mcp', 'docs', '--json', 'server.json'], { deps });
+    await palm(sb, ['install', 'mcp', 'docs', '--snippet', 'server.json'], { deps });
     expect(requests(deps).map((q) => q.config.name)).toEqual(['docs']);
     const one = mcpEngine();
-    const stdin = Readable.from([JSON.stringify({ mcpServers: { x: { command: 'uvx', args: ['srv'] } } })]);
-    await palm(sb, ['install', 'mcp', 'mine', '--json', '-'], { deps: one, stdin });
+    const stdin = Readable.from([
+      JSON.stringify({ mcpServers: { x: { command: 'uvx', args: ['srv'] } } }),
+    ]);
+    await palm(sb, ['install', 'mcp', 'mine', '--snippet', '-'], { deps: one, stdin });
     expect(requests(one)[0]?.config).toMatchObject({ name: 'mine', command: 'uvx' });
   });
 
   it('refuses text that is not JSON, with the fix', async () => {
     const stdin = Readable.from(['{ "mcpServers": ']);
-    const r = await palm(sb, ['install', 'mcp', '--json', '-'], { deps: mcpEngine(), stdin });
+    const r = await palm(sb, ['install', 'mcp', '--snippet', '-'], { deps: mcpEngine(), stdin });
     expect(r.code).toBe(1);
     expect(r.stderr).toMatch(/^x the snippet on stdin is not JSON: /);
     expect(r.stderr).toContain('paste the { "mcpServers": { ... } } block from the server README');
@@ -99,22 +114,42 @@ describe('palm install mcp --json', () => {
 
   it('names a server the snippet lacks', async () => {
     const stdin = Readable.from([JSON.stringify(SNIPPET)]);
-    const r = await palm(sb, ['install', 'mcp', 'nope', 'docs', '--json', '-'], { deps: mcpEngine(), stdin });
+    const r = await palm(sb, ['install', 'mcp', 'nope', 'docs', '--snippet', '-'], {
+      deps: mcpEngine(),
+      stdin,
+    });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain('x the snippet has no server "nope" (it has context7, docs)');
   });
 
-  it('does not mix --json with server flags', async () => {
-    const r = await palm(sb, ['install', 'mcp', '--json', '-', '--url', 'https://x.dev']);
+  it('--json stays JSON output next to --snippet', async () => {
+    const stdin = Readable.from([JSON.stringify(SNIPPET)]);
+    const r = await palm(sb, ['install', 'mcp', '--snippet', '-', '--json'], {
+      deps: mcpEngine(),
+      stdin,
+    });
+    expect(JSON.parse(r.stdout)).toMatchObject({ failures: [], warnings: [] });
+  });
+
+  it('does not mix --snippet with server flags', async () => {
+    const r = await palm(sb, ['install', 'mcp', '--snippet', '-', '--url', 'https://x.dev']);
     expect(r.code).toBe(2);
-    expect(r.stderr).toContain('--json takes the whole server from the snippet');
+    expect(r.stderr).toContain('--snippet takes the whole server from the snippet');
   });
 });
 
 describe('palm install mcp <name> by flags', () => {
   it('a remote server with a header', async () => {
     const deps = mcpEngine();
-    const argv = ['install', 'mcp', 'docs', '--url', 'https://example.com/mcp', '--header', 'Authorization=Bearer ${DOCS_TOKEN}'];
+    const argv = [
+      'install',
+      'mcp',
+      'docs',
+      '--url',
+      'https://example.com/mcp',
+      '--header',
+      'Authorization=Bearer ${DOCS_TOKEN}',
+    ];
     const r = await palm(sb, argv, { deps });
     expect(r.code).toBe(0);
     expect(requests(deps)).toEqual([
@@ -132,7 +167,21 @@ describe('palm install mcp <name> by flags', () => {
 
   it('a stdio server with --command, --arg -y and --env', async () => {
     const deps = mcpEngine();
-    const argv = ['install', 'mcp', 'xcodebuild', '--command', 'npx', '--arg', '-y', '--arg', 'xcodebuildmcp@latest', '--env', 'KEY=${KEY}', '--targets', 'claude'];
+    const argv = [
+      'install',
+      'mcp',
+      'xcodebuild',
+      '--command',
+      'npx',
+      '--arg',
+      '-y',
+      '--arg',
+      'xcodebuildmcp@latest',
+      '--env',
+      'KEY=${KEY}',
+      '--targets',
+      'claude',
+    ];
     await palm(sb, argv, { deps });
     expect(requests(deps)).toEqual([
       {
@@ -164,7 +213,9 @@ describe('palm install mcp <name> by flags', () => {
     );
     const none = await palm(sb, ['install', 'mcp', 'docs']);
     expect(none.code).toBe(2);
-    expect(none.stderr).toContain('x docs needs --url (a remote server) or --command (a local one)');
+    expect(none.stderr).toContain(
+      'x docs needs --url (a remote server) or --command (a local one)',
+    );
   });
 });
 
@@ -176,15 +227,25 @@ describe('parseAdhocMcp', () => {
     [{ url: 'https://x.dev', env: ['A=1'] }, '--env, --arg and --cwd belong to --command servers'],
     [{ command: 'npx', env: ['NOPE'] }, '--env "NOPE" is not KEY=VALUE'],
     [{ command: 'npx', env: ['1A=x'] }, '--env name "1A" is not valid'],
-    [{ command: 'npx', transport: 'http' }, '--transport http needs --url; a --command server uses stdio'],
-    [{ url: 'https://x.dev', transport: 'carrier-pigeon' }, '--transport carrier-pigeon is not stdio, http or sse'],
+    [
+      { command: 'npx', transport: 'http' },
+      '--transport http needs --url; a --command server uses stdio',
+    ],
+    [
+      { url: 'https://x.dev', transport: 'carrier-pigeon' },
+      '--transport carrier-pigeon is not stdio, http or sse',
+    ],
   ])('%j is a usage error', (opts, message) => {
     expect(() => parseAdhocMcp('docs', opts)).toThrow(message);
   });
 
   it('accepts curl-style headers and the sse transport', () => {
     expect(
-      parseAdhocMcp('docs', { url: 'https://x.dev/sse', headers: ['X-Key: abc'], transport: 'sse' }),
+      parseAdhocMcp('docs', {
+        url: 'https://x.dev/sse',
+        headers: ['X-Key: abc'],
+        transport: 'sse',
+      }),
     ).toEqual({
       name: 'docs',
       transport: 'sse',

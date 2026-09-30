@@ -40,7 +40,12 @@ const docs = lockEntry({
   render: { claude: 'sha256:2' },
   merged: [{ file: '.mcp.json', at: '/mcpServers', id: 'palm:mcp:docs:0', key: 'docs' }],
 });
-const mp = { url: 'https://github.com/mattpocock/skills.git', ref: '^1.2', resolved: 'v1.2.3', sha: '8be01d4aa' };
+const mp = {
+  url: 'https://github.com/mattpocock/skills.git',
+  ref: '^1.2',
+  resolved: 'v1.2.3',
+  sha: '8be01d4aa',
+};
 
 describe('palm get', () => {
   const rows = [
@@ -84,8 +89,18 @@ describe('palm get', () => {
   });
 
   it('get mcp shows the variables each server needs', async () => {
-    const info = { entry: docs, source: {}, files: {}, notes: [], selectedBy: 'manifest', secrets: [{ name: 'DOCS_TOKEN', set: false }] } as EntityInfo;
-    const deps = fakeEngine({ listInstalled: async () => rows.slice(1), describeEntity: async () => info });
+    const info = {
+      entry: docs,
+      source: {},
+      files: {},
+      notes: [],
+      selectedBy: 'manifest',
+      secrets: [{ name: 'DOCS_TOKEN', set: false }],
+    } as EntityInfo;
+    const deps = fakeEngine({
+      listInstalled: async () => rows.slice(1),
+      describeEntity: async () => info,
+    });
     const r = await palm(sb, ['get', 'mcp'], { deps });
     expect(r.stdout).toContain('docs needs DOCS_TOKEN (not set)');
   });
@@ -104,8 +119,14 @@ describe('palm get', () => {
     const state = fakeScope({
       root: sb.project,
       targets: ['claude', 'cursor'],
-      sources: [{ name: 'mattpocock/skills', alias: 'mp', ref: '^1.2' }, { name: './agent-kit', path: join(sb.project, 'agent-kit') }],
-      lockSources: { 'mattpocock/skills': mp, './agent-kit': { path: 'agent-kit', tree: 'sha256:10934f8aa' } },
+      sources: [
+        { name: 'mattpocock/skills', alias: 'mp', ref: '^1.2' },
+        { name: './agent-kit', path: join(sb.project, 'agent-kit') },
+      ],
+      lockSources: {
+        'mattpocock/skills': mp,
+        './agent-kit': { path: 'agent-kit', tree: 'sha256:10934f8aa' },
+      },
       entries: [tdd],
     });
     const sources = await palm(sb, ['get', 'sources'], { deps: fakeEngine({ scopes: [state] }) });
@@ -121,16 +142,27 @@ describe('palm get', () => {
 
 describe('palm describe', () => {
   it('prints an entity: source, ref, files per harness, notes, programs and trust', async () => {
-    const hook = lockEntry({ kind: 'hook', name: 'gh-cli', source: 'trailofbits/skills', path: 'plugins/gh-cli/hooks/hooks.json' });
+    const hook = lockEntry({
+      kind: 'hook',
+      name: 'gh-cli',
+      source: 'trailofbits/skills',
+      path: 'plugins/gh-cli/hooks/hooks.json',
+    });
     const info: EntityInfo = {
       entry: hook,
       source: { url: 'https://github.com/trailofbits/skills.git', ref: 'v2.1.0', sha: '82fe822aa' },
       files: { claude: ['.palm/assets/trailofbits__skills/gh-cli/hooks/a.sh'] },
       notes: ['opencode has no declarative hooks; skipped'],
-      exec: { commands: [{ id: 'SessionStart//-', command: 'bash a.sh' }], hash: 'sha256:a7cc7911ff', trusted: false },
+      exec: {
+        commands: [{ id: 'SessionStart//-', command: 'bash a.sh' }],
+        hash: 'sha256:a7cc7911ff',
+        trusted: false,
+      },
       selectedBy: 'plugin:gh-cli',
     };
-    const r = await palm(sb, ['describe', 'hook:gh-cli'], { deps: fakeEngine({ describeEntity: async () => info }) });
+    const r = await palm(sb, ['describe', 'hook:gh-cli'], {
+      deps: fakeEngine({ describeEntity: async () => info }),
+    });
     expect(r.stdout).toBe(
       [
         'hook gh-cli  (installed, project scope)',
@@ -148,12 +180,22 @@ describe('palm describe', () => {
   });
 
   it('for a path, the entity that wrote it', async () => {
-    const deps = fakeEngine({ ownerOfPath: async () => [{ entry: tdd, match: 'file' as const, file: '.claude/skills/tdd/SKILL.md' }] });
+    const deps = fakeEngine({
+      ownerOfPath: async () => [
+        { entry: tdd, match: 'file' as const, file: '.claude/skills/tdd/SKILL.md' },
+      ],
+    });
     const r = await palm(sb, ['describe', '.claude/skills/tdd/SKILL.md'], { deps });
-    expect(r.stdout).toBe('.claude/skills/tdd/SKILL.md  file of skill tdd from mattpocock/skills\n');
-    const none = await palm(sb, ['describe', 'obra/superpowers'], { deps: fakeEngine({ ownerOfPath: async () => [] }) });
+    expect(r.stdout).toBe(
+      '.claude/skills/tdd/SKILL.md  file of skill tdd from mattpocock/skills\n',
+    );
+    const none = await palm(sb, ['describe', 'obra/superpowers'], {
+      deps: fakeEngine({ ownerOfPath: async () => [] }),
+    });
     expect(none.code).toBe(1);
-    expect(none.stderr).toBe('x no installed entity wrote obra/superpowers\n  palm describe source obra/superpowers\n');
+    expect(none.stderr).toBe(
+      'x no installed entity wrote obra/superpowers\n  palm describe source obra/superpowers\n',
+    );
   });
 
   it('describe source and describe target', async () => {
@@ -174,7 +216,9 @@ describe('palm describe', () => {
     expect(source.stdout).toContain('  ref         ^1.2 → v1.2.3');
     expect(source.stdout).toContain('  detected    convention');
     expect(source.stdout).toContain('  offers      unknown (palm could not fetch it)');
-    const target = await palm(sb, ['describe', 'target', 'cursor'], { deps: fakeEngine({ scopes: [state] }) });
+    const target = await palm(sb, ['describe', 'target', 'cursor'], {
+      deps: fakeEngine({ scopes: [state] }),
+    });
     expect(target.stdout).toBe(
       [
         'target cursor  (Cursor)',
@@ -196,7 +240,9 @@ describe('palm describe', () => {
 describe('palm remove', () => {
   const removed = (result: Partial<RemoveResult>) =>
     fakeEngine({
-      scopes: [fakeScope({ root: sb.project, sources: [{ name: 'acme-kit', url: 'https://x/acme.git' }] })],
+      scopes: [
+        fakeScope({ root: sb.project, sources: [{ name: 'acme-kit', url: 'https://x/acme.git' }] }),
+      ],
       removeEntities: async () => ({ removed: [], failures: [], warnings: [], ...result }),
     });
 
@@ -204,7 +250,9 @@ describe('palm remove', () => {
     const deps = removed({ removed: [tdd] });
     const r = await palm(sb, ['remove', 'tdd', 'handoff'], { deps });
     expect(r.code).toBe(0);
-    expect(r.stdout).toBe('- skill  tdd   .claude/skills/tdd/   1 file\n1 removed.\ni handoff is not installed\n');
+    expect(r.stdout).toBe(
+      '- skill  tdd   .claude/skills/tdd/   1 file\n1 removed.\ni handoff is not installed\n',
+    );
   });
 
   it('reads a declared source as the first word and passes --exclude', async () => {
@@ -236,7 +284,9 @@ describe('palm remove', () => {
   it('needs a name', async () => {
     const r = await palm(sb, ['remove', 'obra/superpowers'], { deps: removed({}) });
     expect(r.code).toBe(2);
-    expect(r.stderr).toBe('x name what to remove from obra/superpowers\n  palm get --source obra/superpowers\n');
+    expect(r.stderr).toBe(
+      'x name what to remove from obra/superpowers\n  palm get --source obra/superpowers\n',
+    );
   });
 });
 
@@ -246,23 +296,46 @@ describe('palm update', () => {
     entity: { kind: 'hook', name: 'team-skills', source: 'acme-kit' },
     key: 'hook:team-skills@acme-kit',
     commands: [],
-    closure: { root: '.palm/assets/acme-kit/team-skills', inPlace: false, files: files.map(([path, h]) => ({ path, mode: 0o755, hash: h })), bytes: 10 },
+    closure: {
+      root: '.palm/assets/acme-kit/team-skills',
+      inPlace: false,
+      files: files.map(([path, h]) => ({ path, mode: 0o755, hash: h })),
+      bytes: 10,
+    },
     hash,
     rendered: {},
   });
   const plan: UpdatePlan = {
     scope: 'project',
-    sources: [{ name: 'mattpocock/skills', ref: '^1.2', from: 'v1.2.0 (3f2a1c9)', to: 'v1.2.3 (8be01d4)' }],
+    sources: [
+      { name: 'mattpocock/skills', ref: '^1.2', from: 'v1.2.0 (3f2a1c9)', to: 'v1.2.3 (8be01d4)' },
+    ],
     items: [
-      { mark: 'updated', kind: 'skill', name: 'tdd', source: 'mattpocock/skills', atRisk: ['.claude/skills/tdd/SKILL.md'] },
-      { mark: 'added', kind: 'skill', name: 'review', source: 'acme-kit', via: 'plugin:kit', atRisk: [] },
+      {
+        mark: 'updated',
+        kind: 'skill',
+        name: 'tdd',
+        source: 'mattpocock/skills',
+        atRisk: ['.claude/skills/tdd/SKILL.md'],
+      },
+      {
+        mark: 'added',
+        kind: 'skill',
+        name: 'review',
+        source: 'acme-kit',
+        via: 'plugin:kit',
+        atRisk: [],
+      },
       {
         mark: 'updated',
         kind: 'hook',
         name: 'team-skills',
         source: 'acme-kit',
         atRisk: [],
-        exec: { unit: unit('sha256:3e01a9f2bb', [['setup.sh', 'sha256:2']]), previous: unit('sha256:a7cc7911aa', [['setup.sh', 'sha256:1']]) },
+        exec: {
+          unit: unit('sha256:3e01a9f2bb', [['setup.sh', 'sha256:2']]),
+          previous: unit('sha256:a7cc7911aa', [['setup.sh', 'sha256:1']]),
+        },
       },
     ],
     failures: [],
@@ -301,12 +374,19 @@ describe('palm update', () => {
       scopes: [before],
       planUpdate: async () => plan,
       planChanges: () => 3,
-      applyUpdate: async () => ({ outcomes: [outcome(tdd, 'updated')], failures: [], warnings: [] }),
+      applyUpdate: async () => ({
+        outcomes: [outcome(tdd, 'updated')],
+        failures: [],
+        warnings: [],
+      }),
     });
     const r = await palm(sb, ['update', 'mattpocock/skills', '--to', '^2', '--yes'], { deps });
     expect(r.code).toBe(0);
     expect(r.stdout).toContain('~ skill  tdd   .claude/skills/tdd/   1 file\n1 updated.\n');
-    expect(deps.calls.planUpdate?.[0]?.slice(0, 2)).toEqual([['mattpocock/skills'], { scope: 'project', to: '^2' }]);
+    expect(deps.calls.planUpdate?.[0]?.slice(0, 2)).toEqual([
+      ['mattpocock/skills'],
+      { scope: 'project', to: '^2' },
+    ]);
     expect(deps.calls.applyUpdate?.[0]?.[1]).toEqual({ scope: 'project', to: '^2' });
   });
 
@@ -327,12 +407,63 @@ describe('palm update', () => {
   });
 });
 
+describe('palm install <source> <names>', () => {
+  it('hands src/exec the command line and --review through the context', async () => {
+    const seen: Array<{ argv?: readonly string[]; review?: boolean }> = [];
+    const deps = fakeEngine({
+      scopes: [fakeScope({ root: sb.project, manifestTargets: ['claude'], entries: [tdd] })],
+      installFromSource: async (ctx) => {
+        const c = ctx as typeof ctx & { argv?: readonly string[]; flags: { review?: boolean } };
+        seen.push({ argv: c.argv, review: c.flags.review });
+        return { outcomes: [], failures: [], warnings: [] };
+      },
+    });
+    await palm(sb, ['install', 'trailofbits/skills', 'gh-cli', '--review'], { deps });
+    expect(seen).toEqual([
+      { argv: ['install', 'trailofbits/skills', 'gh-cli', '--review'], review: true },
+    ]);
+  });
+
+  it('prints the two lines for a program --all left out (skipped, not trusted)', async () => {
+    const hook = lockEntry({
+      kind: 'hook',
+      name: 'gh-cli',
+      source: 'trailofbits/skills',
+      exec: { commands: [], hash: 'sha256:a7cc7911' },
+    });
+    const deps = fakeEngine({
+      scopes: [fakeScope({ root: sb.project, manifestTargets: ['claude'], entries: [tdd] })],
+      installFromSource: async () => ({
+        outcomes: [outcome(tdd), outcome(hook, 'skipped')],
+        failures: [],
+        warnings: [],
+      }),
+    });
+    const r = await palm(sb, ['install', 'trailofbits/skills', '--all'], { deps });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe(
+      [
+        '+ skill  tdd      .claude/skills/tdd/   1 file',
+        '! hook   gh-cli   runs a program on your machine; not installed',
+        '    see it:      palm install trailofbits/skills gh-cli --dry-run',
+        '    install it:  palm install trailofbits/skills gh-cli',
+        '1 installed.',
+        '',
+      ].join('\n'),
+    );
+  });
+});
+
 describe('palm install (bare): make the disk match palm.yaml', () => {
   it('prints = unchanged per entry and writes nothing on a clean clone', async () => {
     const state = fakeScope({ root: sb.project, manifestTargets: ['claude'], entries: [tdd] });
     const deps = fakeEngine({
       scopes: [state],
-      syncScope: async () => ({ outcomes: [outcome(tdd, 'unchanged')], failures: [], warnings: [] }),
+      syncScope: async () => ({
+        outcomes: [outcome(tdd, 'unchanged')],
+        failures: [],
+        warnings: [],
+      }),
     });
     const r = await palm(sb, ['install'], { deps });
     expect(r.code).toBe(0);
@@ -399,7 +530,9 @@ describe('palm init', () => {
   it('keeps an existing .gitignore and adds only what is missing', async () => {
     await write(join(sb.project, '.gitignore'), 'node_modules\n/palm.local.yaml');
     await palm(sb, ['init', '--target', 'codex'], { deps: initEngine() });
-    expect(await read(join(sb.project, '.gitignore'))).toBe('node_modules\n/palm.local.yaml\n.palm/local/\n');
+    expect(await read(join(sb.project, '.gitignore'))).toBe(
+      'node_modules\n/palm.local.yaml\n.palm/local/\n',
+    );
     expect(await read(join(sb.project, 'palm.yaml'))).toBe('targets: [codex]\n');
   });
 
@@ -436,7 +569,10 @@ describe('utilities', () => {
     const yes = await palm(sb, ['cache', 'clean', '--yes'], { deps });
     expect(yes.code).toBe(0);
     expect(yes.stdout).toMatch(/^- .*cache \(2\.0 KB\)\n/);
-    const asked = await palm(sb, ['cache', 'clean'], { deps, ui: fakeUI({ interactive: true, confirm: false }) });
+    const asked = await palm(sb, ['cache', 'clean'], {
+      deps,
+      ui: fakeUI({ interactive: true, confirm: false }),
+    });
     expect(asked.code).toBe(130);
   });
 
@@ -461,7 +597,9 @@ describe('utilities', () => {
       movedAssets: ['.palm/hooks/gh-cli → .palm/assets/trailofbits__skills/gh-cli'],
       gitignore: '.palm/ → .palm/local/',
       exec: [],
-      warnings: ['i tdd was pinned to v1; mattpocock/skills now tracks v1.2.3; pin the source or split it'],
+      warnings: [
+        'i tdd was pinned to v1; mattpocock/skills now tracks v1.2.3; pin the source or split it',
+      ],
     };
     const deps = fakeEngine({ migrateScope: async () => report });
     const dry = await palm(sb, ['migrate', '--dry-run'], { deps });

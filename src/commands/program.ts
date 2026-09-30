@@ -153,7 +153,8 @@ function installOptions(cmd: Command): void {
     .option('--all', 'everything the source offers')
     .option('--as <name>', 'the name a URL source gets in palm.yaml')
     .option('--targets <ids>', 'only these targets for these entries (recorded per entry)')
-    .option('--at <dir>', 'placement directory for these entries (recorded; honoured in 0.3)');
+    .option('--at <dir>', 'placement directory for these entries (recorded; honoured in 0.3)')
+    .option('--review', 'print the scripts of every program first; with --dry-run, only print');
   cmd.optionsGroup('MCP servers (palm install mcp):');
   cmd
     .option('--url <url>', 'a remote server')
@@ -163,9 +164,7 @@ function installOptions(cmd: Command): void {
     .option('--env <K=V>', 'an environment variable (repeatable)', collect)
     .option('--transport <t>', 'stdio, http or sse, when palm cannot tell')
     .option('--cwd <dir>', 'working directory for --command')
-    .addOption(
-      new Option('--mcp-json <file>', 'the snippet (spelled --json <file or ->)').hideHelp(),
-    );
+    .option('--snippet <file>', 'the mcpServers block of a README: a file, or - for stdin');
 }
 
 const VERB_SETUP: Readonly<Record<Verb, VerbSetup>> = {

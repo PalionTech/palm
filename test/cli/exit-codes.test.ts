@@ -93,7 +93,10 @@ describe('exit codes through runCli', () => {
   });
 
   it('a partial outcome exits 1', async () => {
-    const partial = { ...outcome(tdd, 'partial'), perTarget: { claude: 'installed', cursor: 'failed' } } as const;
+    const partial = {
+      ...outcome(tdd, 'partial'),
+      perTarget: { claude: 'installed', cursor: 'failed' },
+    } as const;
     const deps = installing({ outcomes: [partial], failures: [], warnings: [] });
     const r = await palm(sb, ['install', 'mattpocock/skills', 'tdd'], { deps });
     expect(r.code).toBe(1);
@@ -129,21 +132,35 @@ describe('exit codes through runCli', () => {
       },
     });
     const r = await palm(sb, ['describe', 'tdd'], { deps });
-    expect(r).toEqual({ code: 1, stdout: '', stderr: 'x nothing named tdd is installed\n  palm get\n' });
+    expect(r).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'x nothing named tdd is installed\n  palm get\n',
+    });
   });
 
   it('an error fixed by a flag repeats the command line with it', async () => {
     const plan = {
       scope: 'project' as const,
       sources: [{ name: 'mattpocock/skills', ref: '^1', from: 'v1.2.0', to: 'v1.2.3' }],
-      items: [{ mark: 'updated' as const, kind: 'skill' as const, name: 'tdd', source: 'mattpocock/skills', atRisk: [] }],
+      items: [
+        {
+          mark: 'updated' as const,
+          kind: 'skill' as const,
+          name: 'tdd',
+          source: 'mattpocock/skills',
+          atRisk: [],
+        },
+      ],
       failures: [],
       warnings: [],
     };
     const deps = fakeEngine({ planUpdate: async () => plan, planChanges: () => 1 });
     const r = await palm(sb, ['update', 'mattpocock/skills'], { deps });
     expect(r.code).toBe(1);
-    expect(r.stderr).toContain('x palm update would apply 1 change and there is no terminal to ask');
+    expect(r.stderr).toContain(
+      'x palm update would apply 1 change and there is no terminal to ask',
+    );
     expect(r.stderr).toContain(
       '  review it with --dry-run, then apply it: palm update mattpocock/skills --yes',
     );
@@ -153,7 +170,15 @@ describe('exit codes through runCli', () => {
     const plan = {
       scope: 'project' as const,
       sources: [],
-      items: [{ mark: 'updated' as const, kind: 'skill' as const, name: 'tdd', source: 'm/s', atRisk: [] }],
+      items: [
+        {
+          mark: 'updated' as const,
+          kind: 'skill' as const,
+          name: 'tdd',
+          source: 'm/s',
+          atRisk: [],
+        },
+      ],
       failures: [],
       warnings: [],
     };

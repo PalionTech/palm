@@ -34,6 +34,9 @@ Options:
   -V, --version           print the palm version
   -h, --help              display help for command
 
+Kinds: skill (sk), agent (ag), instruction (ins), hook (hk), mcp, plugin (pl),
+       source (src), target (tg), all. Plurals work too: palm get skills.
+
 Examples:
   palm install obra/superpowers               list what a source offers
   palm install mattpocock/skills tdd          install one skill and record it in palm.yaml
@@ -279,6 +282,8 @@ Options:
   --targets <ids>      only these targets for these entries (recorded per entry)
   --at <dir>           placement directory for these entries (recorded; honoured
                        in 0.3)
+  --review             print the scripts of every program first; with --dry-run,
+                       only print
   -h, --help           display help for command
 
 MCP servers (palm install mcp):
@@ -289,6 +294,7 @@ MCP servers (palm install mcp):
   --env <K=V>          an environment variable (repeatable)
   --transport <t>      stdio, http or sse, when palm cannot tell
   --cwd <dir>          working directory for --command
+  --snippet <file>     the mcpServers block of a README: a file, or - for stdin
 
 Global Options:
   -g, --global         use ~/.palm/palm.yaml and the harness home directories
@@ -308,7 +314,7 @@ Forms:
   palm install                                make the disk match palm.yaml and the lock
   palm install mcp <name> --url <url> [--header K=V]...
   palm install mcp <name> --command <cmd> [--arg a]... [--env K=V]...
-  palm install mcp --json <file or ->         the mcpServers block from a README
+  palm install mcp --snippet <file or ->      the mcpServers block from a README
 
 A source is owner/repo, owner/repo/sub/dir, a git URL (#ref pins it), a directory in this
 project, or the name or alias of a source in palm.yaml.
@@ -318,7 +324,7 @@ Examples:
   palm install mattpocock/skills tdd handoff
   palm install obra/superpowers --all -g
   palm install mcp docs --url https://example.com/mcp --header 'Authorization=Bearer \${DOCS_TOKEN}'
-  pbpaste | palm install mcp --json -
+  pbpaste | palm install mcp --snippet -
 "
 `;
 

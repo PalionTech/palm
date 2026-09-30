@@ -33,11 +33,29 @@ describe('palm --help', () => {
     const lines = text.trimEnd().split('\n');
     expect(lines.length).toBeLessThanOrEqual(SCREEN_ROWS);
     const verbs = text.slice(text.indexOf('Verbs:'), text.indexOf('Utilities:'));
-    const listed = verbs.split('\n').filter((l) => /^ {2}\S/.test(l)).map((l) => l.trim().split(/\s/)[0]);
+    const listed = verbs
+      .split('\n')
+      .filter((l) => /^ {2}\S/.test(l))
+      .map((l) => l.trim().split(/\s/)[0]);
     expect(listed).toEqual(VERBS.map((v) => v.name));
     const utilities = text.slice(text.indexOf('Utilities:'), text.indexOf('Options:'));
     for (const u of ['migrate', 'completion <shell>', 'cache clean', 'help [command]'])
       expect(utilities).toContain(u);
+    // docs/scripts/cli-reference.mjs reads these three headings and the Kinds line
+    for (const heading of ['Verbs:', 'Utilities:', 'Kinds:'])
+      expect(text).toMatch(new RegExp(`^${heading}`, 'm'));
+    const kinds = /Kinds: ([\s\S]*?)\. Plurals/.exec(text)?.[1]?.split(/,\s*/);
+    expect(kinds).toEqual([
+      'skill (sk)',
+      'agent (ag)',
+      'instruction (ins)',
+      'hook (hk)',
+      'mcp',
+      'plugin (pl)',
+      'source (src)',
+      'target (tg)',
+      'all',
+    ]);
     expect(text).not.toMatch(/exit code/i);
     expect(text).not.toMatch(/origin/i);
     expect(text).not.toContain('--local');

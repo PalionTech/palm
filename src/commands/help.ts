@@ -8,6 +8,9 @@ export const ROOT_DESCRIPTION =
   'palm installs agent configuration from git repositories into Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI and OpenCode.';
 
 export const ROOT_HELP = `
+Kinds: skill (sk), agent (ag), instruction (ins), hook (hk), mcp, plugin (pl),
+       source (src), target (tg), all. Plurals work too: palm get skills.
+
 Examples:
   palm install obra/superpowers               list what a source offers
   palm install mattpocock/skills tdd          install one skill and record it in palm.yaml
@@ -31,7 +34,7 @@ Forms:
   palm install                                make the disk match palm.yaml and the lock
   palm install mcp <name> --url <url> [--header K=V]...
   palm install mcp <name> --command <cmd> [--arg a]... [--env K=V]...
-  palm install mcp --json <file or ->         the mcpServers block from a README
+  palm install mcp --snippet <file or ->      the mcpServers block from a README
 
 A source is owner/repo, owner/repo/sub/dir, a git URL (#ref pins it), a directory in this
 project, or the name or alias of a source in palm.yaml.
@@ -41,7 +44,7 @@ Examples:
   palm install mattpocock/skills tdd handoff
   palm install obra/superpowers --all -g
   palm install mcp docs --url https://example.com/mcp --header 'Authorization=Bearer \${DOCS_TOKEN}'
-  pbpaste | palm install mcp --json -`,
+  pbpaste | palm install mcp --snippet -`,
 
   remove: `
 A file you changed since palm wrote it keeps the entity installed (exit 1); --force removes it.

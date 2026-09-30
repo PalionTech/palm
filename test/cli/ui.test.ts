@@ -102,19 +102,30 @@ describe('output writer', () => {
 
 describe('formatting', () => {
   it('pads table columns by display width and rules the header', () => {
-    expect(formatTable([['skill', 'tdd'], ['agent', 'reviewer']], ['kind', 'name']).split('\n')).toEqual([
-      'kind   name',
-      '─────  ────────',
-      'skill  tdd',
-      'agent  reviewer',
-    ]);
-    expect(formatTable([['日本語', 'a'], ['abcdef', 'b']])).toBe('日本語  a\nabcdef  b');
+    expect(
+      formatTable(
+        [
+          ['skill', 'tdd'],
+          ['agent', 'reviewer'],
+        ],
+        ['kind', 'name'],
+      ).split('\n'),
+    ).toEqual(['kind   name', '─────  ────────', 'skill  tdd', 'agent  reviewer']);
+    expect(
+      formatTable([
+        ['日本語', 'a'],
+        ['abcdef', 'b'],
+      ]),
+    ).toBe('日本語  a\nabcdef  b');
     expect(formatTable([])).toBe('');
   });
 
   it('builds the JSON envelope', () => {
     expect(jsonEnvelope([1], ['w'])).toEqual({ items: [1], warnings: ['w'] });
-    expect(jsonEnvelope({ ok: true, warnings: ['a'] }, ['a', 'b'])).toEqual({ ok: true, warnings: ['a', 'b'] });
+    expect(jsonEnvelope({ ok: true, warnings: ['a'] }, ['a', 'b'])).toEqual({
+      ok: true,
+      warnings: ['a', 'b'],
+    });
     expect(jsonEnvelope(undefined, [])).toEqual({ warnings: [] });
   });
 
@@ -144,13 +155,21 @@ describe('failureCount', () => {
 describe('printInstallSummary', () => {
   const skill = (name: string, files = [`.claude/skills/${name}/SKILL.md`]) =>
     lockEntry({ kind: 'skill', name, source: 'obra/superpowers', files });
-  const result = (outcomes: InstallOutcome[]): InstallResult => ({ outcomes, failures: [], warnings: [] });
+  const result = (outcomes: InstallOutcome[]): InstallResult => ({
+    outcomes,
+    failures: [],
+    warnings: [],
+  });
 
   it('adds the status word when statuses mix, and prints = unchanged per entry', () => {
     const c = captured();
     printInstallSummary(
       c.out,
-      result([outcome(skill('a')), outcome(skill('bb'), 'unchanged'), outcome(skill('c'), 'restored')]),
+      result([
+        outcome(skill('a')),
+        outcome(skill('bb'), 'unchanged'),
+        outcome(skill('c'), 'restored'),
+      ]),
       { scope: 'project', targets: ['claude'] },
     );
     expect(c.stdout()).toBe(
@@ -181,7 +200,9 @@ describe('printInstallSummary', () => {
     const c = captured();
     const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => outcome(skill(n)));
     printInstallSummary(c.out, result(many), { scope: 'global', targets: ['claude'] });
-    expect(c.stdout()).toBe('+ skill  a   .claude/skills/a/   1 file\n  ... 5 more\n6 installed.\n');
+    expect(c.stdout()).toBe(
+      '+ skill  a   .claude/skills/a/   1 file\n  ... 5 more\n6 installed.\n',
+    );
     const d = captured();
     const same = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => outcome(skill(n), 'unchanged'));
     printInstallSummary(d.out, result(same), { scope: 'project', targets: ['claude'] });
@@ -194,14 +215,35 @@ describe('printInstallSummary', () => {
       kind: 'hook',
       name: 'gh-cli',
       source: 'trailofbits/skills',
-      files: ['.palm/assets/trailofbits__skills/gh-cli/hooks/a.sh', '.palm/assets/trailofbits__skills/gh-cli/hooks/b.sh'],
+      files: [
+        '.palm/assets/trailofbits__skills/gh-cli/hooks/a.sh',
+        '.palm/assets/trailofbits__skills/gh-cli/hooks/b.sh',
+      ],
       merged: [
-        { file: '.claude/settings.json', at: '/hooks/SessionStart', id: 'palm:hook:gh-cli:0', key: 'k' },
-        { file: '.cursor/hooks.json', at: '/hooks/sessionStart', id: 'palm:hook:gh-cli:1', key: 'k' },
+        {
+          file: '.claude/settings.json',
+          at: '/hooks/SessionStart',
+          id: 'palm:hook:gh-cli:0',
+          key: 'k',
+        },
+        {
+          file: '.cursor/hooks.json',
+          at: '/hooks/sessionStart',
+          id: 'palm:hook:gh-cli:1',
+          key: 'k',
+        },
       ],
     });
-    const global = lockEntry({ kind: 'agent', name: 'r', source: 's', files: ['<claude>/agents/r.md'] });
-    printInstallSummary(c.out, result([outcome(hook), outcome(global)]), { scope: 'project', targets: [] });
+    const global = lockEntry({
+      kind: 'agent',
+      name: 'r',
+      source: 's',
+      files: ['<claude>/agents/r.md'],
+    });
+    printInstallSummary(c.out, result([outcome(hook), outcome(global)]), {
+      scope: 'project',
+      targets: [],
+    });
     expect(c.stdout()).toBe(
       [
         '+ agent  r        ~/.claude/agents/r.md   1 file',
@@ -233,7 +275,9 @@ describe('prompts', () => {
     let shown = '';
     output.on('data', (d) => (shown += d.toString()));
     const ui = createClackUI({ input, output });
-    const answer = ui.consent('Allow these 2 programs to run?  [y/N/v=view scripts]', { canDiff: false });
+    const answer = ui.consent('Allow these 2 programs to run?  [y/N/v=view scripts]', {
+      canDiff: false,
+    });
     input.write('x');
     setTimeout(() => input.write('v'), 5);
     expect(await answer).toBe('view');
@@ -257,7 +301,10 @@ describe('prompts', () => {
       () => ui.secret('Token?'),
       () => ui.consent('Allow?', { canDiff: false }),
     ])
-      await expect(ask()).rejects.toMatchObject({ code: 'E_NON_INTERACTIVE', hint: expect.any(String) });
+      await expect(ask()).rejects.toMatchObject({
+        code: 'E_NON_INTERACTIVE',
+        hint: expect.any(String),
+      });
     expect(() => ui.spinner('x').stop()).not.toThrow();
   });
 });

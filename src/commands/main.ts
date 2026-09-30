@@ -30,7 +30,7 @@ export interface CliOptions {
   version?: string;
   stdout?: Sink;
   stderr?: Sink;
-  /** Where `install mcp --json -` reads (default: process.stdin). */
+  /** Where `install mcp --snippet -` reads (default: process.stdin). */
   stdin?: NodeJS.ReadableStream;
   /** stdout is a terminal (colour, pager). Default: process.stdout.isTTY when no stdout is given. */
   isTTY?: boolean;

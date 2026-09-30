@@ -48,9 +48,15 @@ describe('interpretInstall: the source first (DESIGN.md §10)', () => {
     [['obra/superpowers/skills#v4'], { source: 'obra/superpowers/skills#v4', names: [] }],
     [
       ['https://gitlab.acme.com/platform/agent-kit.git#v1', 'reviewer'],
-      { source: 'https://gitlab.acme.com/platform/agent-kit.git#v1', names: [{ name: 'reviewer' }] },
+      {
+        source: 'https://gitlab.acme.com/platform/agent-kit.git#v1',
+        names: [{ name: 'reviewer' }],
+      },
     ],
-    [['git@github.com:obra/superpowers.git'], { source: 'git@github.com:obra/superpowers.git', names: [] }],
+    [
+      ['git@github.com:obra/superpowers.git'],
+      { source: 'git@github.com:obra/superpowers.git', names: [] },
+    ],
     [['./agent-kit', 'review'], { source: './agent-kit', names: [{ name: 'review' }] }],
     [['mcp', 'docs'], { mcp: true, names: [{ name: 'docs' }] }],
     [['mcp'], { mcp: true, names: [] }],
@@ -85,7 +91,10 @@ describe('interpretInstall: palm 0.1 forms print the new form and run it', () =>
     [
       ['skill', 'tdd@mattpocock'],
       'mattpocock',
-      { form: 'palm install skill tdd@mattpocock', replacement: 'palm install mattpocock skill:tdd' },
+      {
+        form: 'palm install skill tdd@mattpocock',
+        replacement: 'palm install mattpocock skill:tdd',
+      },
     ],
     [
       ['tdd@mattpocock'],
@@ -103,7 +112,10 @@ describe('interpretInstall: palm 0.1 forms print the new form and run it', () =>
     [
       ['plugin', 'obra/superpowers'],
       'obra',
-      { form: 'palm install plugin obra/superpowers', replacement: 'palm install obra/superpowers' },
+      {
+        form: 'palm install plugin obra/superpowers',
+        replacement: 'palm install obra/superpowers',
+      },
     ],
     [
       ['skill', 'mattpocock/skills', 'tdd'],
@@ -137,10 +149,12 @@ describe('interpretInstall: palm 0.1 forms print the new form and run it', () =>
   });
 
   it('an alias palm.yaml does not declare points at palm migrate', () => {
-    expect(usageOf(() => interpretInstall(['tdd@mattpocock'], { isDeclared: declared() }))).toEqual({
-      message: '"mattpocock" is not a source in palm.yaml',
-      hint: 'declare the sources your palm 0.1 project used: palm migrate',
-    });
+    expect(usageOf(() => interpretInstall(['tdd@mattpocock'], { isDeclared: declared() }))).toEqual(
+      {
+        message: '"mattpocock" is not a source in palm.yaml',
+        hint: 'declare the sources your palm 0.1 project used: palm migrate',
+      },
+    );
   });
 
   it('install origin needs the repository', () => {
@@ -149,7 +163,8 @@ describe('interpretInstall: palm 0.1 forms print the new form and run it', () =>
 });
 
 describe('interpretInstall: a word that is no source is "not a repository"', () => {
-  const strict = (words: string[]) => usageOf(() => interpretInstall(words, { isDeclared: declared() }));
+  const strict = (words: string[]) =>
+    usageOf(() => interpretInstall(words, { isDeclared: declared() }));
 
   it.each([
     [['superpowers'], 'superpowers'],
@@ -164,12 +179,15 @@ describe('interpretInstall: a word that is no source is "not a repository"', () 
     });
   });
 
-  it.each([[['tdd']], [['skill', 'tdd']]])('%j names the repository of that skill (Lena)', (words) => {
-    expect(strict(words)).toEqual({
-      message: '"tdd" is not a repository. palm installs from git repositories:',
-      hint: '  palm install <owner/repo> tdd             for example  palm install mattpocock/skills tdd',
-    });
-  });
+  it.each([[['tdd']], [['skill', 'tdd']]])(
+    '%j names the repository of that skill (Lena)',
+    (words) => {
+      expect(strict(words)).toEqual({
+        message: '"tdd" is not a repository. palm installs from git repositories:',
+        hint: '  palm install <owner/repo> tdd             for example  palm install mattpocock/skills tdd',
+      });
+    },
+  );
 
   it('keeps the names after a known repository name', () => {
     expect(strict(['superpowers', 'brainstorming']).hint).toContain(
@@ -282,19 +300,21 @@ describe('interpretWords: kind nouns for get and describe', () => {
 });
 
 describe('argv', () => {
-  it('reads install mcp --json <file or -> as the snippet, not JSON output', () => {
-    expect(prepareArgv(['install', 'mcp', '--json', '-']).args).toEqual([
+  it('attaches a value that starts with a dash to its option, so -y stays an --arg', () => {
+    expect(prepareArgv(['install', 'mcp', 'x', '--arg', '-y', '--env', '-z', '-g']).args).toEqual([
       'install',
       'mcp',
-      '--mcp-json',
+      'x',
+      '--arg=-y',
+      '--env=-z',
+      '-g',
+    ]);
+    expect(prepareArgv(['install', 'mcp', '--snippet', '-']).args).toEqual([
+      'install',
+      'mcp',
+      '--snippet',
       '-',
     ]);
-    expect(prepareArgv(['i', 'mcp', '--json', 'server.json']).args).toContain('--mcp-json');
-    expect(prepareArgv(['install', 'mcp', 'docs', '--url', 'u', '--json']).args).toContain('--json');
-    expect(prepareArgv(['install', 'obra/superpowers', '--json']).args).toContain('--json');
-    expect(prepareArgv(['--secrets', 'literal', 'add', 'mcp', '--json', '-']).args).toContain(
-      '--mcp-json',
-    );
   });
 
   it('splits at -- and turns the 0.1 ad hoc command into --command and --arg', () => {
@@ -309,9 +329,9 @@ describe('argv', () => {
       form: 'palm install mcp fs -- npx -y srv',
       replacement: 'palm install mcp fs --command npx --arg -y --arg srv',
     });
-    expect(() =>
-      applyPassthrough({ command: 'get', names: [], opts: {} }, ['x']),
-    ).toThrow(/only for palm install mcp/);
+    expect(() => applyPassthrough({ command: 'get', names: [], opts: {} }, ['x'])).toThrow(
+      /only for palm install mcp/,
+    );
   });
 });
 
@@ -328,7 +348,10 @@ describe('parseArgv: verbs, aliases and flags', () => {
     [['ls', 'skills'], { command: 'get', resource: 'skill' }],
     [['list', 'sources'], { command: 'get', resource: 'source' }],
     [['info', 'tdd'], { command: 'describe', names: [{ name: 'tdd' }] }],
-    [['new', 'skill', 'notes'], { command: 'create', resource: 'skill', names: [{ name: 'notes' }] }],
+    [
+      ['new', 'skill', 'notes'],
+      { command: 'create', resource: 'skill', names: [{ name: 'notes' }] },
+    ],
     [['init', '--here'], { command: 'init' }],
     [['migrate', '--dry-run'], { command: 'migrate' }],
     [['completion', 'zsh'], { command: 'completion', names: [{ name: 'zsh' }] }],
@@ -376,8 +399,25 @@ describe('parseArgv: verbs, aliases and flags', () => {
 
   it('collects repeated MCP flags', () => {
     const { invocation } = parseArgv([
-      'install', 'mcp', 'xcodebuild', '--command', 'npx', '--arg', '-y', '--arg', 'xcodebuildmcp@latest',
-      '--env', 'A=1', '--env', 'B=2', '--header', 'X=1', '--transport', 'stdio', '--cwd', 'tools',
+      'install',
+      'mcp',
+      'xcodebuild',
+      '--command',
+      'npx',
+      '--arg',
+      '-y',
+      '--arg',
+      'xcodebuildmcp@latest',
+      '--env',
+      'A=1',
+      '--env',
+      'B=2',
+      '--header',
+      'X=1',
+      '--transport',
+      'stdio',
+      '--cwd',
+      'tools',
     ]);
     expect(invocation.opts).toMatchObject({
       command: 'npx',
@@ -389,14 +429,20 @@ describe('parseArgv: verbs, aliases and flags', () => {
     });
   });
 
-  it('reads install mcp --json - as the snippet flag', () => {
-    const { invocation } = parseArgv(['install', 'mcp', '--json', '-']);
-    expect(invocation.opts).toMatchObject({ mcpJson: '-' });
-    expect(invocation.opts.json).toBeUndefined();
+  it('--snippet names the README block; --json stays JSON output', () => {
+    const { invocation } = parseArgv(['install', 'mcp', '--snippet', '-', '--json']);
+    expect(invocation.opts).toMatchObject({ snippet: '-', json: true });
+  });
+
+  it('install takes --review', () => {
+    const { invocation } = parseArgv(['install', 'obra/superpowers', 'session-start', '--review']);
+    expect(invocation.opts).toMatchObject({ review: true });
   });
 
   it('update, get, describe, remove and create take their own flags', () => {
-    expect(parseArgv(['update', 'kit', '--to', '^2', '--review', '--strict']).invocation.opts).toMatchObject({
+    expect(
+      parseArgv(['update', 'kit', '--to', '^2', '--review', '--strict']).invocation.opts,
+    ).toMatchObject({
       to: '^2',
       review: true,
       strict: true,
@@ -409,7 +455,8 @@ describe('parseArgv: verbs, aliases and flags', () => {
       exclude: true,
     });
     expect(
-      parseArgv(['create', 'agent', 'reviewer', '--in', 'kit', '--description', 'Reviews diffs']).invocation.opts,
+      parseArgv(['create', 'agent', 'reviewer', '--in', 'kit', '--description', 'Reviews diffs'])
+        .invocation.opts,
     ).toMatchObject({ in: 'kit', description: 'Reviews diffs' });
     expect(parseArgv(['init', '--target', 'claude,cursor']).invocation.opts).toMatchObject({
       target: 'claude,cursor',
@@ -421,9 +468,18 @@ describe('parseArgv: verbs, aliases and flags', () => {
     [['audit', '--strip'], 'palm audit is now: palm check'],
     [['outdated', 'skills'], 'palm outdated is now: palm update --dry-run'],
     [['why', 'skill', 'tdd@mattpocock'], 'palm why is now: palm describe skill tdd'],
-    [['find', '.claude/skills/tdd/SKILL.md'], 'palm find is now: palm describe .claude/skills/tdd/SKILL.md'],
-    [['config', 'get'], 'palm config is gone; targets live in palm.yaml (~/.palm/palm.yaml with -g)'],
-    [['origin', 'add', 'mattpocock/skills'], 'palm origin add is now: palm install mattpocock/skills'],
+    [
+      ['find', '.claude/skills/tdd/SKILL.md'],
+      'palm find is now: palm describe .claude/skills/tdd/SKILL.md',
+    ],
+    [
+      ['config', 'get'],
+      'palm config is gone; targets live in palm.yaml (~/.palm/palm.yaml with -g)',
+    ],
+    [
+      ['origin', 'add', 'mattpocock/skills'],
+      'palm origin add is now: palm install mattpocock/skills',
+    ],
     [['origin', 'list'], 'palm origin list is now: palm get sources'],
   ])('hidden palm 0.1 command %j names its replacement', (argv, line) => {
     expect(usageOf(() => parseArgv(argv))).toEqual({ message: line, hint: undefined });

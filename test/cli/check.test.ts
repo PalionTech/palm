@@ -90,7 +90,9 @@ describe('palm check', () => {
 
   it('warnings alone exit 0 but are not "no problems"', async () => {
     const checks = [{ ...ok('block-size', 'AGENTS.md block is 30 KiB'), status: 'warn' as const }];
-    const r = await palm(sb, ['check'], { deps: fakeEngine({ checkScope: async () => report(checks) }) });
+    const r = await palm(sb, ['check'], {
+      deps: fakeEngine({ checkScope: async () => report(checks) }),
+    });
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('! AGENTS.md block is 30 KiB\n');
   });

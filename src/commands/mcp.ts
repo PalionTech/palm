@@ -1,7 +1,7 @@
 /**
  * `palm install mcp` (DESIGN.md §9): a server by flags (`--url`, `--header`, `--command`,
  * `--arg`, `--env`, `--transport`, `--cwd`) or every server of a README snippet
- * (`--json <file>`, `--json -` for stdin). Each becomes an `mcp:` entry in palm.yaml and is
+ * (`--snippet <file>`, `--snippet -` for stdin). Each becomes an `mcp:` entry in palm.yaml and is
  * rendered for every target; a stdio server goes through the consent prompt.
  */
 import { readFile } from 'node:fs/promises';
@@ -29,8 +29,8 @@ interface McpFlags extends GlobalOptions {
   env?: string[];
   transport?: string;
   cwd?: string;
-  /** `--json <file or ->` (read as `--mcp-json` so `--json` keeps meaning JSON output). */
-  mcpJson?: string;
+  /** `--snippet <file or ->`: the README block. */
+  snippet?: string;
   targets?: string;
 }
 
@@ -70,7 +70,7 @@ async function snippetText(app: App, file: string): Promise<string> {
     throw new PalmError(
       'E_NOT_FOUND',
       `cannot read ${file}`,
-      'pbpaste | palm install mcp --json -',
+      'pbpaste | palm install mcp --snippet -',
     );
   });
 }
@@ -91,7 +91,7 @@ function pickServers(servers: McpServerConfig[], names: string[], file: string):
   const only = servers[0] as McpServerConfig;
   if (names.length === 1 && servers.length === 1) return [{ ...only, name: names[0] as string }];
   if (!names.length && servers.some((s) => !s.name))
-    throw usage('the snippet does not name its server', `palm install mcp docs --json ${file}`);
+    throw usage('the snippet does not name its server', `palm install mcp docs --snippet ${file}`);
   if (!names.length) return servers;
   return names.map((n) => {
     const found = servers.find((s) => s.name === n);
@@ -100,7 +100,7 @@ function pickServers(servers: McpServerConfig[], names: string[], file: string):
     throw new PalmError(
       'E_NOT_FOUND',
       `the snippet has no server "${n}" (it has ${listed})`,
-      `palm install mcp --json ${file}`,
+      `palm install mcp --snippet ${file}`,
     );
   });
 }
@@ -116,10 +116,10 @@ async function fromSnippet(app: App, file: string, names: string[]): Promise<Mcp
 
 function checkFlags(flags: McpFlags): void {
   const serverFlags = [flags.url, flags.command, flags.header, flags.arg, flags.env, flags.cwd];
-  if (flags.mcpJson !== undefined && serverFlags.some((f) => f !== undefined))
+  if (flags.snippet !== undefined && serverFlags.some((f) => f !== undefined))
     throw usage(
-      '--json takes the whole server from the snippet; drop --url, --command and their flags',
-      `palm install mcp --json ${flags.mcpJson}`,
+      '--snippet takes the whole server from the snippet; drop --url, --command and their flags',
+      `palm install mcp --snippet ${flags.snippet}`,
     );
 }
 
@@ -129,9 +129,9 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const names = inv.names.map((n) => n.name);
   const targets = parseTargetList(flags.targets, '--targets');
   const configs =
-    flags.mcpJson === undefined
+    flags.snippet === undefined
       ? [fromFlags(names, flags)]
-      : await fromSnippet(app, flags.mcpJson, names);
+      : await fromSnippet(app, flags.snippet, names);
   const ctx = await makeContext(app, flags);
   const api = engine(app);
   const scope = scopeOf(flags);

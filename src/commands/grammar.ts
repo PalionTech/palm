@@ -356,30 +356,6 @@ export function interpretWords(
 
 // argv ------------------------------------------------------------------------------------------
 
-const INSTALL_VERBS = new Set(['install', 'add', 'i']);
-/** Global options that take a value, so the word after them is no command word. */
-const VALUE_OPTIONS = new Set(['--allow-exec', '--secrets']);
-
-function positionals(args: string[]): string[] {
-  const words: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i] as string;
-    if (VALUE_OPTIONS.has(a)) i++;
-    else if (!a.startsWith('-')) words.push(a);
-  }
-  return words;
-}
-
-/** `palm install mcp --json <file|->` names the snippet (DESIGN.md §9), not JSON output. */
-function rewriteMcpJson(args: string[]): string[] {
-  const [verb, first] = positionals(args);
-  if (!INSTALL_VERBS.has(verb ?? '') || first !== 'mcp') return args;
-  const i = args.indexOf('--json');
-  const value = args[i + 1];
-  if (i < 0 || value === undefined || (value !== '-' && value.startsWith('-'))) return args;
-  return [...args.slice(0, i), '--mcp-json', ...args.slice(i + 1)];
-}
-
 /** Options whose value may start with a dash (`--arg -y`). */
 const DASH_VALUES = new Set(['--arg', '--env', '--header', '--command', '--description']);
 
@@ -392,7 +368,7 @@ function attachDashValues(args: string[]): string[] {
   for (let i = 0; i < args.length; i++) {
     const a = args[i] as string;
     const next = args[i + 1];
-    const dashed = next !== undefined && next.startsWith('-') && next !== '-';
+    const dashed = next?.startsWith('-') && next !== '-';
     if (DASH_VALUES.has(a) && dashed) {
       joined.push(`${a}=${next}`);
       i++;
@@ -401,12 +377,12 @@ function attachDashValues(args: string[]): string[] {
   return joined;
 }
 
-/** Split argv at the first `--` and read `install mcp --json <file>` as the snippet flag. */
+/** Split argv at the first `--`; attach dash values to their options. */
 export function prepareArgv(argv: string[]): { args: string[]; passthrough: string[] } {
   const cut = argv.indexOf('--');
   const args = cut < 0 ? argv : argv.slice(0, cut);
   const passthrough = cut < 0 ? [] : argv.slice(cut + 1);
-  return { args: rewriteMcpJson(attachDashValues(args)), passthrough };
+  return { args: attachDashValues(args), passthrough };
 }
 
 /** palm 0.1 `install mcp <name> -- <command> [args...]`: now `--command` and `--arg`. */

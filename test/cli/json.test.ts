@@ -25,7 +25,12 @@ const tdd = lockEntry({
   render: { claude: 'sha256:1', cursor: 'sha256:1' },
   files: ['.claude/skills/tdd/SKILL.md'],
 });
-const mpSource = { url: 'https://github.com/mattpocock/skills.git', ref: '^1', resolved: 'v1.2.3', sha: '8be01d4aa' };
+const mpSource = {
+  url: 'https://github.com/mattpocock/skills.git',
+  ref: '^1',
+  resolved: 'v1.2.3',
+  sha: '8be01d4aa',
+};
 
 async function json(argv: string[], deps: ReturnType<typeof fakeEngine>) {
   const r = await palm(sb, [...argv, '--json'], { deps });
@@ -135,7 +140,9 @@ describe('--json', () => {
   it('a commander error is a usage error document too', async () => {
     const r = await json(['get', '--bogus'], fakeEngine());
     expect(r.code).toBe(2);
-    expect(r.doc).toMatchObject({ error: { code: 'E_USAGE', message: "unknown option '--bogus'" } });
+    expect(r.doc).toMatchObject({
+      error: { code: 'E_USAGE', message: "unknown option '--bogus'" },
+    });
   });
 
   it('info lines go to stderr so stdout stays one document', async () => {

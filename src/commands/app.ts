@@ -10,7 +10,7 @@ import type { Invocation } from './grammar.js';
 
 export interface App {
   out: Output;
-  /** Where `install mcp --json -` reads the snippet (default: process.stdin). */
+  /** Where `install mcp --snippet -` reads the snippet (default: process.stdin). */
   stdin?: NodeJS.ReadableStream;
   /** The root command (shell completion reads the tree from it). */
   program?: Command;
