@@ -489,7 +489,7 @@ describe('parseArgv: verbs, aliases and flags', () => {
 
   it('search is gone and points at GitHub', () => {
     expect(usageOf(() => parseArgv(['search', 'tdd'])).message).toBe(
-      'palm search is gone; find a repository (https://github.com/search?q=tdd+SKILL.md&type=code), then list it: palm install <owner/repo>',
+      'palm search is gone; find a repository (https://github.com/search?q=tdd+SKILL.md&type=code), then list it, for example: palm install mattpocock/skills',
     );
   });
 });

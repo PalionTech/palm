@@ -44,9 +44,7 @@ describe('skills directory by active targets', () => {
         targets: ['claude', 'codex'],
       }),
     );
-    expect(codex.notes).toEqual([
-      'codex does not read .claude/skills; claude gets a second copy there',
-    ]);
+    expect(codex.notes).toEqual(['claude gets its own copy in .claude/skills']);
     expect((await at(['claude', 'cursor'], 'global')).files[0]?.path).toBe(
       '<agents>/skills/demo/SKILL.md',
     );

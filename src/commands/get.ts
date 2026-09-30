@@ -123,7 +123,7 @@ async function getInstalled(ctx: PalmContext, app: App, inv: Invocation, flags: 
     out.hint(
       `No ${kind ? pluralize(kind, 2) : 'entities'} installed in the ${scopeOf(flags)} scope.`,
     );
-    return out.hint('see what a source offers: palm install <owner/repo>');
+    return out.hint('see what a source offers, for example: palm install mattpocock/skills');
   }
   out.table(rows.map(installedRow), INSTALLED_HEADER);
   if (kind === 'mcp') await printVariables(ctx, app, rows, scopeOf(flags));

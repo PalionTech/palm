@@ -199,7 +199,7 @@ function noteCopies(job: RenderJob, dir: string, active: readonly TargetId[]): v
   }
   if (isWithin(dir, job.paths.harnessHome('claude')))
     job.note(`${job.target.id} reads .claude/skills; no second copy`);
-  else job.note(`${job.target.id} does not read .claude/skills; claude gets a second copy there`);
+  else job.note('claude gets its own copy in .claude/skills');
 }
 
 /** Every file of the skill directory, or the SKILL.md of a command, below `<skillsDir>/<name>/`. */
@@ -382,10 +382,8 @@ async function renderMcpKind(job: RenderJob): Promise<void> {
   const slot = mcpSlot(job.layout, key);
   const literal = secretPolicy === 'literal' && Object.keys(values).length > 0;
   job.fragment(slot.file, slot.at, r.entry, literal ? { mode: PRIVATE_MODE } : {});
-  if (r.envRefs.length)
-    job.note(
-      `MCP ${key}: export ${r.envRefs.join(', ')} in the environment ${job.target.displayName} runs in`,
-    );
+  // One note for every target (they dedupe): the variables the person exports.
+  if (r.envRefs.length) job.note(`needs ${r.envRefs.join(', ')} in the environment`);
   if (def.mcp.transport === 'stdio') {
     const { canonical, rendered: command } = relocated;
     job.execLine({ id: 'stdio', canonical, command, file: job.lock(slot.file) });

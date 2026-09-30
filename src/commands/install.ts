@@ -98,7 +98,7 @@ async function sync(ctx: PalmContext, app: App, before: ScopeState): Promise<voi
   const after = await api.openScope(ctx, scope, { readOnly: true });
   if (!result.outcomes.length && !result.failures.length && !app.out.jsonMode) {
     app.out.info('nothing to install: palm.yaml lists no entries');
-    app.out.hint('see what a source offers: palm install <owner/repo>');
+    app.out.hint('see what a source offers, for example: palm install mattpocock/skills');
   }
   await reportInstall(ctx, app, result, { before, after });
 }

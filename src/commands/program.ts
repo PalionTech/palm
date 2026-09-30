@@ -289,12 +289,12 @@ const LEGACY_COMMANDS: Readonly<Record<string, (args: string[]) => string>> = {
   doctor: () => 'palm doctor is now: palm check',
   audit: () => 'palm audit is now: palm check',
   outdated: () => 'palm outdated is now: palm update --dry-run',
-  why: (a) => `palm why is now: palm describe ${a.join(' ').replace(/@\S+/g, '') || '<name>'}`,
-  find: (a) => `palm find is now: palm describe ${a[0] ?? '<path>'}`,
+  why: (a) => `palm why is now: palm describe ${a.join(' ').replace(/@\S+/g, '') || 'tdd'}`,
+  find: (a) => `palm find is now: palm describe ${a[0] ?? '.claude/skills/tdd/SKILL.md'}`,
   search: (a) => {
     const q = encodeURIComponent(a.join(' ') || 'skills');
     const url = `https://github.com/search?q=${q}+SKILL.md&type=code`;
-    return `palm search is gone; find a repository (${url}), then list it: palm install <owner/repo>`;
+    return `palm search is gone; find a repository (${url}), then list it, for example: palm install mattpocock/skills`;
   },
   config: () => 'palm config is gone; targets live in palm.yaml (~/.palm/palm.yaml with -g)',
   origin: (a) => originReplacement(a),
@@ -303,10 +303,10 @@ const LEGACY_COMMANDS: Readonly<Record<string, (args: string[]) => string>> = {
 function originReplacement([sub, spec]: string[]): string {
   const form = ['palm origin', sub].filter(Boolean).join(' ');
   if (sub === 'add' || sub === 'import')
-    return `${form} is now: palm install ${spec ?? '<owner/repo>'}`;
+    return `${form} is now: palm install ${spec ?? 'mattpocock/skills'}`;
   if (sub === 'update') return `${form} is now: palm update`;
   if (sub === 'remove' || sub === 'rm')
-    return `${form} is gone; a source leaves palm.yaml with its last entry: palm get --source ${spec ?? '<name>'}`;
+    return `${form} is gone; a source leaves palm.yaml with its last entry: palm get --source ${spec ?? 'mattpocock/skills'}`;
   return `${form} is now: palm get sources`;
 }
 

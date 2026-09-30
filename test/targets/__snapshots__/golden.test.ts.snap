@@ -154,7 +154,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP docs: export DOCS_TOKEN in the environment Claude Code runs in",
+      "needs DOCS_TOKEN in the environment",
     ],
   },
   "mcp stdio": {
@@ -188,7 +188,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP gh: export GH_TOKEN in the environment Claude Code runs in",
+      "needs GH_TOKEN in the environment",
     ],
   },
   "mcp with a script": {
@@ -227,7 +227,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP local: export PORT in the environment Claude Code runs in",
+      "needs PORT in the environment",
     ],
   },
   "plugin": {
@@ -424,7 +424,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP docs: export DOCS_TOKEN in the environment Claude Code runs in",
+      "needs DOCS_TOKEN in the environment",
     ],
   },
   "mcp stdio": {
@@ -457,7 +457,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP gh: export GH_TOKEN in the environment Claude Code runs in",
+      "needs GH_TOKEN in the environment",
     ],
   },
   "mcp with a script": {
@@ -495,7 +495,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP local: export PORT in the environment Claude Code runs in",
+      "needs PORT in the environment",
     ],
   },
   "plugin": {
@@ -688,7 +688,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP docs: export DOCS_TOKEN in the environment Codex runs in",
+      "needs DOCS_TOKEN in the environment",
     ],
   },
   "mcp stdio": {
@@ -721,7 +721,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP gh: export GH_TOKEN in the environment Codex runs in",
+      "needs GH_TOKEN in the environment",
     ],
   },
   "mcp with a script": {
@@ -760,7 +760,7 @@ Strict.
     ],
     "notes": [
       "Codex does not expand environment variables in args: \${PORT} is passed literally (to substitute it: palm install mcp local --secrets literal)",
-      "MCP local: export PORT in the environment Codex runs in",
+      "needs PORT in the environment",
     ],
   },
   "plugin": {
@@ -950,7 +950,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP docs: export DOCS_TOKEN in the environment Codex runs in",
+      "needs DOCS_TOKEN in the environment",
     ],
   },
   "mcp stdio": {
@@ -982,7 +982,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP gh: export GH_TOKEN in the environment Codex runs in",
+      "needs GH_TOKEN in the environment",
     ],
   },
   "mcp with a script": {
@@ -1020,7 +1020,7 @@ Strict.
     ],
     "notes": [
       "Codex does not expand environment variables in args: \${PORT} is passed literally (to substitute it: palm install mcp local --secrets literal)",
-      "MCP local: export PORT in the environment Codex runs in",
+      "needs PORT in the environment",
     ],
   },
   "plugin": {
@@ -1214,7 +1214,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP docs: export DOCS_TOKEN in the environment GitHub Copilot runs in",
+      "needs DOCS_TOKEN in the environment",
     ],
   },
   "mcp stdio": {
@@ -1251,7 +1251,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP gh: export GH_TOKEN in the environment GitHub Copilot runs in",
+      "needs GH_TOKEN in the environment",
     ],
   },
   "mcp with a script": {
@@ -1293,7 +1293,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP local: export PORT in the environment GitHub Copilot runs in",
+      "needs PORT in the environment",
     ],
   },
   "plugin": {
@@ -1483,7 +1483,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP docs: export DOCS_TOKEN in the environment GitHub Copilot runs in",
+      "needs DOCS_TOKEN in the environment",
     ],
   },
   "mcp stdio": {
@@ -1516,7 +1516,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP gh: export GH_TOKEN in the environment GitHub Copilot runs in",
+      "needs GH_TOKEN in the environment",
     ],
   },
   "mcp with a script": {
@@ -1554,7 +1554,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP local: export PORT in the environment GitHub Copilot runs in",
+      "needs PORT in the environment",
     ],
   },
   "plugin": {
@@ -1740,7 +1740,7 @@ prettier --write "$1"
       },
     ],
     "notes": [
-      "MCP docs: export DOCS_TOKEN in the environment Cursor runs in",
+      "needs DOCS_TOKEN in the environment",
     ],
   },
   "mcp stdio": {
@@ -1773,7 +1773,7 @@ prettier --write "$1"
       },
     ],
     "notes": [
-      "MCP gh: export GH_TOKEN in the environment Cursor runs in",
+      "needs GH_TOKEN in the environment",
     ],
   },
   "mcp with a script": {
@@ -1811,7 +1811,7 @@ prettier --write "$1"
       },
     ],
     "notes": [
-      "MCP local: export PORT in the environment Cursor runs in",
+      "needs PORT in the environment",
     ],
   },
   "plugin": {
@@ -2005,7 +2005,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP docs: export DOCS_TOKEN in the environment Cursor runs in",
+      "needs DOCS_TOKEN in the environment",
     ],
   },
   "mcp stdio": {
@@ -2037,7 +2037,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP gh: export GH_TOKEN in the environment Cursor runs in",
+      "needs GH_TOKEN in the environment",
     ],
   },
   "mcp with a script": {
@@ -2074,7 +2074,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP local: export PORT in the environment Cursor runs in",
+      "needs PORT in the environment",
     ],
   },
   "plugin": {
@@ -2280,7 +2280,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP docs: export DOCS_TOKEN in the environment Gemini CLI runs in",
+      "needs DOCS_TOKEN in the environment",
     ],
   },
   "mcp stdio": {
@@ -2313,7 +2313,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP gh: export GH_TOKEN in the environment Gemini CLI runs in",
+      "needs GH_TOKEN in the environment",
     ],
   },
   "mcp with a script": {
@@ -2351,7 +2351,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP local: export PORT in the environment Gemini CLI runs in",
+      "needs PORT in the environment",
     ],
   },
   "plugin": {
@@ -2552,7 +2552,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP docs: export DOCS_TOKEN in the environment Gemini CLI runs in",
+      "needs DOCS_TOKEN in the environment",
     ],
   },
   "mcp stdio": {
@@ -2584,7 +2584,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP gh: export GH_TOKEN in the environment Gemini CLI runs in",
+      "needs GH_TOKEN in the environment",
     ],
   },
   "mcp with a script": {
@@ -2621,7 +2621,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP local: export PORT in the environment Gemini CLI runs in",
+      "needs PORT in the environment",
     ],
   },
   "plugin": {
@@ -2770,7 +2770,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP docs: export DOCS_TOKEN in the environment OpenCode runs in",
+      "needs DOCS_TOKEN in the environment",
     ],
   },
   "mcp stdio": {
@@ -2805,7 +2805,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP gh: export GH_TOKEN in the environment OpenCode runs in",
+      "needs GH_TOKEN in the environment",
     ],
   },
   "mcp with a script": {
@@ -2846,7 +2846,7 @@ Strict.
     ],
     "notes": [
       "OpenCode has no default syntax: PORT is empty when unset (default "8080" dropped)",
-      "MCP local: export PORT in the environment OpenCode runs in",
+      "needs PORT in the environment",
     ],
   },
   "plugin": {
@@ -2995,7 +2995,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP docs: export DOCS_TOKEN in the environment OpenCode runs in",
+      "needs DOCS_TOKEN in the environment",
     ],
   },
   "mcp stdio": {
@@ -3029,7 +3029,7 @@ Strict.
       },
     ],
     "notes": [
-      "MCP gh: export GH_TOKEN in the environment OpenCode runs in",
+      "needs GH_TOKEN in the environment",
     ],
   },
   "mcp with a script": {
@@ -3069,7 +3069,7 @@ Strict.
     ],
     "notes": [
       "OpenCode has no default syntax: PORT is empty when unset (default "8080" dropped)",
-      "MCP local: export PORT in the environment OpenCode runs in",
+      "needs PORT in the environment",
     ],
   },
   "plugin": {

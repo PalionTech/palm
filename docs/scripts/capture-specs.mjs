@@ -209,7 +209,7 @@ export const specs = [
     setup: [['init', '--target', 'claude,cursor']],
     commands: [
       {
-        sh: `palm install mcp --json - <<'JSON'
+        sh: `palm install mcp --snippet - <<'JSON'
 { "mcpServers": { "inbound": {
     "url": "https://mcp.inbound.example/v1",
     "headers": { "x-inbound-api-key": "sk-live-4f9a2c7e1b8d6f3a0c5e9b2d" } } } }
@@ -380,7 +380,7 @@ JSON`,
     setup: [['init', '--target', ALL_TARGETS]],
     commands: [
       {
-        sh: `palm install mcp --json - <<'JSON'
+        sh: `palm install mcp --snippet - <<'JSON'
 {
   "mcpServers": {
     "github": {

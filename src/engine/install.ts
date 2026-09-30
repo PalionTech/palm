@@ -29,6 +29,7 @@ import {
   peekSource,
   type Resolved,
   resolveSource,
+  takeRefNote,
 } from './resolve.js';
 import { lockScope, runJobs } from './runner.js';
 import { assertNoOverlap, openScope, type ScopeState, saveScope } from './scope.js';
@@ -76,6 +77,14 @@ function movedJobs(state: ScopeState, ref: SourceRef, r: Resolved, run: Run): Jo
   const { jobs, failures } = manifestJobs(state, ref, r);
   run.result.failures.push(...failures);
   return jobs;
+}
+
+/** The ref palm chose for a new source, once it is saved (a dry run says what it would save). */
+function reportRef(ctx: PalmContext, state: ScopeState, name: string): void {
+  const note = takeRefNote(state, name);
+  if (!note) return;
+  if (ctx.flags.dryRun) ctx.log.info(note.replace(' saved to ', ' would be saved to '));
+  else if (state.manifest.hasSource(name)) ctx.log.info(note);
 }
 
 /** A source left without entries (nothing was installed) leaves palm.yaml and the lock again. */
@@ -136,6 +145,7 @@ export async function installFromSource(
     } finally {
       if (held.source) forgetEmptySource(state, held.source);
       await saveScope(state);
+      if (held.source) reportRef(ctx, state, held.source);
     }
     return run.result;
   });

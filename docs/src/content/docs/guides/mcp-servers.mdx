@@ -17,7 +17,7 @@ palm takes the block once and writes all six, with no secret in any of them.
 | Way | Command | Use it when |
 | --- | --- | --- |
 | From a source | `palm install <source> mcp:<name>` | a repository or plugin ships the server in its `.mcp.json` |
-| From a README snippet | `palm install mcp --json -` | the server's README shows a JSON block |
+| From a README snippet | `palm install mcp --snippet -` | the server's README shows a JSON block |
 | By flags | `palm install mcp <name> --url ...` or `--command ...` | you know the URL or command |
 | By hand | an entry under `mcp:` in `palm.yaml`, then `palm install` | you prefer to edit YAML |
 
@@ -33,10 +33,10 @@ palm has no registry client and never searches for a server by name.
 2. Pipe it into palm.
 
    ```sh
-   pbpaste | palm install mcp --json -
+   pbpaste | palm install mcp --snippet -
    ```
 
-   On Linux, use `xclip -o` or `wl-paste`. `--json server.json` reads a file instead.
+   On Linux, use `xclip -o` or `wl-paste`. `--snippet server.json` reads a file instead.
 
 3. Export the variables palm names, and restart the harness.
 

@@ -52,7 +52,7 @@ function makeSandbox() {
   const project = join(home, 'project');
   mkdirSync(project, { recursive: true });
   mkdirSync(join(home, 'src'));
-  // `palm` on PATH for shell steps, such as `palm install mcp --json - <<'JSON'`.
+  // `palm` on PATH for shell steps, such as `palm install mcp --snippet - <<'JSON'`.
   const bin = join(root, 'bin');
   mkdirSync(bin);
   writeFileSync(join(bin, 'palm'), `#!/bin/sh\nexec "${process.execPath}" "${CLI}" "$@"\n`);

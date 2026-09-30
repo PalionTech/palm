@@ -476,7 +476,7 @@ describe('palm install (bare): make the disk match palm.yaml', () => {
     });
     const r = await palm(sb, ['install'], { deps });
     expect(r.stdout).toBe(
-      'i nothing to install: palm.yaml lists no entries\nsee what a source offers: palm install <owner/repo>\n',
+      'i nothing to install: palm.yaml lists no entries\nsee what a source offers, for example: palm install mattpocock/skills\n',
     );
   });
 

@@ -12,7 +12,7 @@ palm install <source> [[kind:]name...] [--all] [--as <name>] [--targets <ids>] [
 palm install
 palm install mcp <name> --url <url> [--header <K=V>]... [--transport http|sse]
 palm install mcp <name> --command <program> [--arg <value>]... [--env <K=V>]...
-palm install mcp --json <file|->
+palm install mcp --snippet <file|->
 ```
 
 Aliases: `palm add`, `palm i`.
@@ -26,7 +26,7 @@ Aliases: `palm add`, `palm i`.
 | `palm install acme-kit db-conventions --targets claude,codex` | Install for some of the project's targets only. |
 | `palm install https://gitlab.acme.com/platform/agent-kit.git reviewer --as acme-kit` | Declare a URL under a name you choose. |
 | `palm install` | Make the disk match `palm.yaml` and the lock. |
-| `pbpaste \| palm install mcp --json -` | Declare every MCP server in a README snippet. |
+| `pbpaste \| palm install mcp --snippet -` | Declare every MCP server in a README snippet. |
 
 <Capture name="c-install" title="~/project" />
 

@@ -58,7 +58,7 @@ This session installs one agent and one skill for all six harnesses.
 | You use two or more harnesses on one repository | One install writes the item for each of them, once per harness. |
 | Your team shares skills, agents and MCP servers | The files are committed. A clone works without palm, and `palm check` proves it matches. |
 | A plugin ships hooks | palm shows every command and script before it writes them, and pins your yes by hash. |
-| An MCP server's README shows a JSON snippet | `palm install mcp --json -` reads it and writes it for every harness, with secrets as references. |
+| An MCP server's README shows a JSON snippet | `palm install mcp --snippet -` reads it and writes it for every harness, with secrets as references. |
 | You keep your own skills in the repository | `palm create skill <name>` writes a template into `./agent-kit` and installs it. Edits are live. |
 
 ## Eight verbs

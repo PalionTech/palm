@@ -150,22 +150,39 @@ function caretOf(tag: string): string | undefined {
   return m ? `^${m[1]}.${m[2]}` : undefined;
 }
 
+/** The line that reports a ref palm chose, printed once the source is really in palm.yaml. */
+const refNotes = new WeakMap<ScopeState, Map<string, string>>();
+
+/** The ref line for a source this run declared, once (DESIGN §5 "Input forms"). */
+export function takeRefNote(state: ScopeState, name: string): string | undefined {
+  const notes = refNotes.get(state);
+  const note = notes?.get(name);
+  notes?.delete(name);
+  return note;
+}
+
+function noteRef(state: ScopeState, name: string, text: string): void {
+  const notes = refNotes.get(state) ?? new Map<string, string>();
+  notes.set(name, text);
+  refNotes.set(state, notes);
+}
+
 /**
  * A git source without `#ref`: the latest release as `^M.m`, else the default branch, written
- * explicitly and reported (DESIGN §5 "Input forms").
+ * explicitly; the line that says so waits for the source to be saved (`takeRefNote`).
  */
-async function defaultRef(ctx: PalmContext, source: Source): Promise<Source> {
+async function defaultRef(state: ScopeState, source: Source): Promise<Source> {
   if (source.type !== 'git' || source.ref || !source.url) return source;
   const r = await resolveRef(source.url, undefined);
   const caret = caretOf(r.resolved);
+  const file = state.paths.scope === 'global' ? '~/.palm/palm.yaml' : 'palm.yaml';
   if (caret) {
     const branch = (await defaultBranch(source.url).catch(() => undefined)) ?? 'main';
-    ctx.log.info(
-      `ref ${caret} saved to palm.yaml (latest tag ${r.resolved}); edit ref: to track ${branch}`,
-    );
+    const tail = `(latest tag ${r.resolved}); edit ref: to track ${branch}`;
+    noteRef(state, source.name, `ref ${caret} saved to ${file} ${tail}`);
     return { ...source, ref: caret };
   }
-  ctx.log.info(`ref ${r.ref} saved to palm.yaml; edit ref: to pin a tag`);
+  noteRef(state, source.name, `ref ${r.ref} saved to ${file}; edit ref: to pin a tag`);
   return { ...source, ref: r.ref };
 }
 
@@ -284,7 +301,7 @@ export async function declareSource(
     });
   const parsed = found.parsed as Source;
   const name = opts.as ?? deriveSourceName(parsed, state.sources.names());
-  const source = await defaultRef(ctx, { ...parsed, name });
+  const source = await defaultRef(state, { ...parsed, name });
   state.manifest.addSource(source, baseDirOf(state));
   state.sources = state.sources.add(source);
   return state.sources.byName(name) ?? SourceRef.of(source);

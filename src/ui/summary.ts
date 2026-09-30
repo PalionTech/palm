@@ -123,10 +123,23 @@ function fromCell(e: LockEntry, from: SummaryOptions['from']): string {
   return `from ${e.source}${version ? ` ${version}` : ''}`;
 }
 
-function notesCell(o: InstallOutcome): string {
+/** Notes that fit in the row's last cell: `(cursor reads .agents/skills)`, `(claude: installed; cursor: failed)`. */
+const INLINE_NOTE = 60;
+
+function notesOf(o: InstallOutcome): string[] {
   const partial = Object.entries(o.perTarget ?? {}).map(([t, s]) => `${t}: ${s}`);
-  const notes = [...new Set([...partial, ...o.notes])];
-  return notes.length ? `(${notes.join('; ')})` : '';
+  return [...new Set([...partial, ...o.notes])];
+}
+
+function notesCell(o: InstallOutcome): string {
+  const joined = notesOf(o).join('; ');
+  return joined && joined.length <= INLINE_NOTE ? `(${joined})` : '';
+}
+
+/** Notes too long for the row: one indented line each, under it. */
+function notesBelow(o: InstallOutcome): string[] {
+  const notes = notesOf(o);
+  return notesCell(o) || !notes.length ? [] : notes.map((n) => `    ${n}`);
 }
 
 /**
@@ -158,7 +171,8 @@ function outcomeRow(o: InstallOutcome, opts: SummaryOptions, all: InstallOutcome
   const word = statusWord(o.status, opts.dryRun);
   if (o.status === 'failed') return { ...base, mark: 'x', word, cells: [] };
   const cells = [locationOf(e), countCell(e), fromCell(e, opts.from), notesCell(o)];
-  return { ...base, mark: STATUS_MARK[o.status], word, cells: cells.filter(Boolean) };
+  const row = { ...base, after: notesBelow(o) };
+  return { ...row, mark: STATUS_MARK[o.status], word, cells: cells.filter(Boolean) };
 }
 
 /** Status order, then kind order; declined programs after the other skips. */
