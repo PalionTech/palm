@@ -542,3 +542,26 @@ describe('migrate ends with palm check (the CLI part of the migrate rulings)', (
     expect(r.stdout).toContain('\npalm check:\nx 1 file differs\n');
   });
 });
+
+describe('Y22, E20: a program the person named and declined exits 130', () => {
+  const hook = lockEntry({
+    kind: 'hook',
+    name: 'guard',
+    source: 'acme',
+    exec: { commands: [], hash: 'sha256:1' },
+  });
+
+  it('declined by name: 130; left out by --all: 0', async () => {
+    const declined = { ...hook, declined: true };
+    const named = fakeEngine({
+      scopes: [scope()],
+      installFromSource: async () => result([outcome(declined, 'skipped')]),
+    });
+    expect((await palm(sb, ['install', 'acme/kit', 'hook:guard'], { deps: named })).code).toBe(130);
+    const all = fakeEngine({
+      scopes: [scope()],
+      installFromSource: async () => result([outcome(hook, 'skipped')]),
+    });
+    expect((await palm(sb, ['install', 'acme/kit', '--all'], { deps: all })).code).toBe(0);
+  });
+});

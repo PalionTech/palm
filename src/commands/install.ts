@@ -167,7 +167,7 @@ async function installNames(ctx: PalmContext, app: App, job: NamedInstall): Prom
   const typed = job.flags.as ? `${job.source} --as ${job.flags.as}` : job.source;
   const sourceWord = (name: string) => (after.sources.byName(name) ? name : typed);
   const report = { before: job.before, after, from: job.names.length > 0, named: true };
-  await reportInstall(ctx, app, result, { ...report, sourceWord });
+  await reportInstall(ctx, app, result, { ...report, sourceWord, explicit: job.names });
 }
 
 /** A source this run declared under a name other than what was typed (a URL, `--as`): its name. */

@@ -54,7 +54,8 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   if (!app.out.jsonMode) printCreated(app, ctx, created);
   const alsoCommit = [`${displayPath(ctx, created.dir)}/`];
   const { before, after } = created;
-  await reportInstall(ctx, app, result, { before, after, json, alsoCommit });
+  const explicit = [{ kind, name }];
+  await reportInstall(ctx, app, result, { before, after, json, alsoCommit, explicit });
   if (!app.out.jsonMode && !ctx.flags.dryRun) {
     const install = palmLine('install', [], opts.scope);
     app.out.hint(`edit ${displayPath(ctx, created.file, opts.scope)}, then run: ${install}`);
