@@ -28,9 +28,13 @@ said no. The maybes trace back to three design mistakes, not to bugs.
    a reviewer what a script does (F067, F077, F078, F079, F082, F084, F131, F137).
 
 The plan fixes the three at the model level and removes everything the smaller model no
-longer needs. The result has seven verbs and three utilities instead of sixteen verbs,
+longer needs. The result has eight verbs and three utilities instead of sixteen verbs,
 one pin instead of two, one file format instead of two, no user-level registry, and no
 feature the study could not tie to a persona who needed it.
+
+Decisions taken on 2026-09-30 by the maintainer: the source comes first on the command
+line, "origin" becomes "source", the MCP registry client goes and the `create` wizard
+shrinks to a template writer, and all six targets stay.
 
 ## 2. Where 0.1.0 is good
 
@@ -74,8 +78,8 @@ Expand. Each thing the minimalist cut was put against the evidence again.
 | Gemini and OpenCode | chosen by the maintainer; the research pass was unverified, not wrong | keep, verified before 1.0 |
 | hook translation | one hook set for four harnesses is a real need; ten personas hit mistranslation (F052) | keep documented one-to-one mappings only, skip the rest with a note |
 | managed `AGENTS.md` block | Codex reads nothing else; the data loss in the census was APM rewriting a whole file, not a block | keep, with one carrier per harness |
-| MCP registry search | nine findings; the census counted 25,125 servers with hundreds unreachable; one persona wanted it | remove |
-| `create` and `mine` | the wizard cost Elena three tries; `mine` leaked into palm.yaml (F065) | remove |
+| MCP registry search | nine findings; the census counted 25,125 servers with hundreds unreachable; one persona wanted it | remove; every MCP README ships a JSON snippet, and palm reads that instead |
+| `create` and `mine` | the wizard cost Elena three tries; `mine` leaked into palm.yaml (F065); the maintainer values a fast way to start a skill | keep `create` as a prompt-free template writer into an in-repo source; remove the wizard and `mine` |
 | `command` kind | Claude and Cursor merged commands into skills; Codex and Copilot deprecate prompt files | remove; a command installs as a skill |
 | agent dependency resolution | partial installs (F102), removals that took dependents (F018) | remove; print the command instead |
 | `--frozen`, `doctor`, `audit`, `outdated` | four gates that disagreed with each other (F115, F116, F157) | fold into `check` and `update --dry-run` |
@@ -207,7 +211,7 @@ Merged entries carry an identity independent of their value, so an edited hook i
 
 ### 4.4 Commands
 
-Seven verbs. `--help` fits on one screen.
+Eight verbs. `--help` fits on one screen.
 
 | verb | aliases | what it does |
 |---|---|---|
@@ -219,6 +223,8 @@ Seven verbs. `--help` fits on one screen.
 | `palm check [--json]` | | Read-only gate for CI. Fails when palm.yaml, the lock, the generated files or an in-repo source disagree, when a hook names a missing script, when a generated file holds a secret literal, when an executable is not trusted, or when an output directory is ignored by git. Warns on double loads and on rules above a harness limit. Prints every check it ran and one line per problem with the command that fixes it (F019, F115). |
 | `palm get [kind] [names] [--source s] [--files]` | `list`, `ls` | What is installed: source, ref, sha, targets, file counts, layer (team or local), and the bytes each harness loads at every session (F156). `--files` prints every generated path with its entry. |
 | `palm describe <name or path>` | `info` | One entity: source, version, files per harness, notes, what selected it (a plugin, the overlay), what depends on it. Given a path, the entity that wrote it. `describe source <s>` and `describe target <t>` stay. |
+| `palm create <kind> <name> [--in dir]` | `new` | Write a template for a skill, agent, instruction or hook into the project's in-repo source (default `./agent-kit`, declared in palm.yaml on first use; `~/.palm/kit` under `-g`), then install it. No prompts, no editor, no `mine` (F065, F066, F069). |
+| `palm install mcp <name> [flags]`, `palm install mcp --json <file or ->` | | Declare an MCP server by hand or from a README snippet; section 4.12. |
 
 Utilities: `completion`, `cache clean`, and `migrate` (0.2 only, section 8).
 
@@ -479,6 +485,34 @@ derives the placement and prints it (F125, F128). Discovery stops at the nearest
 `init` inside a package refuses without `--here` (F127). `check` warns when one entity is
 installed at two versions across nested projects or scopes (F161).
 
+### 4.12 MCP servers
+
+An MCP server is declared once and rendered into every target's file and syntax, with
+environment references instead of secrets. Four ways in, none of them a registry.
+
+1. From a source. `palm install <source> mcp:<name>` takes the server from the source's
+   `.mcp.json` or plugin manifest, like any other entity.
+2. From the README snippet. Every server's README ships a `mcpServers` JSON block.
+   `palm install mcp --json -` reads it from the clipboard or a pipe, `--json server.json`
+   from a file, and converts it: `command`, `args`, `env`, `url`, `headers` become an
+   `mcp:` entry in palm.yaml; a literal secret in the snippet becomes `${NAME}` with a
+   notice (F074).
+3. By flags. `palm install mcp docs --url https://example.com/mcp --header
+   'Authorization=Bearer ${DOCS_TOKEN}'` for a remote server; `palm install mcp xcodebuild
+   --command npx --arg -y --arg xcodebuildmcp@latest --env KEY=${KEY}` for stdio.
+4. By hand, under `mcp:` in palm.yaml, and a bare `palm install`.
+
+Each way ends in the same entry, so `get mcp` shows every server with the variables it
+needs and whether they are set, and `describe mcp <name>` prints the rendered block for
+each harness. A stdio server is executable material and goes through the consent prompt
+of section 4.7; a remote server does not, and the prompt says which is which. Under `-g`
+the same forms write to the harness home files, which is what Raj and Dmitri wanted.
+
+The registry client is gone (F003, F089 to F097, F114): searches timed out at ten seconds,
+ranked unrelated servers first, invented variable names and dropped headers. A lookup by
+exact registry id may return later as an explicit `--registry` flag; nothing in the model
+prevents it.
+
 ## 5. What changes from 0.1.0
 
 | 0.1.0 | 1.0 | why |
@@ -499,6 +533,8 @@ installed at two versions across nested projects or scopes (F161).
 | symlinked output dirs followed, sources deleted through them | real-path checks; overlap refused | F124, F145 |
 | `--target` on install leaks into the lock | `targets:` per entry; the overlay for personal targets | F129 |
 | plugin members removed one by one with "kept" | `exclude:` on the plugin entry, or `--local` | F087 |
+| MCP servers found through registry search | declared from a source, a README snippet, flags or by hand; rendered to every harness | F003, F089, F090, F091 |
+| `create` wizard with prompts into the hidden `mine` origin | prompt-free template into the in-repo source, declared in palm.yaml | F065, F066, F069, F163 |
 | errors name a placeholder | the first line is the pasteable fix | F001, F019 |
 
 ## 6. Removed, and why
@@ -510,10 +546,10 @@ installed at two versions across nested projects or scopes (F161).
   F076, F105, F106). The only remaining setting, the default target list for `-g`, lives
   in `~/.palm/palm.yaml`.
 - `search`, the MCP registry client, `install mcp <registry name>`, `mcpRegistryUrl`
-  (F003, F089 to F097, F114). An MCP server comes from a source's `.mcp.json` or is
-  written by hand under `mcp:`.
-- `create`, the `mine` origin, wizards, `$EDITOR` prompts (F008, F048, F065, F066, F069,
-  F107, F163). Write the file in an in-repo directory and install from it.
+  (F003, F089 to F097, F114). An MCP server comes from a source, a README snippet, flags
+  or a hand-written `mcp:` entry (section 4.12).
+- The `create` wizard, its prompts, `$EDITOR`, and the `mine` origin (F008, F048, F065,
+  F066, F069, F107, F163). The verb stays as a template writer into an in-repo source.
 - The `command` kind (F033, F050). Commands install as skills.
 - Agent dependency resolution and the picker (F035, F102, F150, F152, F153). palm prints
   `agent reviewer names skills tdd, review: palm install acme-kit tdd review` and stops.
@@ -552,7 +588,8 @@ protocol and the twenty scripted sessions are the acceptance suite.
 `check`, one pin with ranges, consent with trust hashes and `--allow-exec`, the asset
 closure committed with one relocation rule, live in-repo sources, real-path and overlap
 refusal, secrets refusal, honest statuses and exit codes, onboarding errors with the fix
-on line one, `migrate`, and the removals from section 6. Acceptance: Nora and Lena reach a
+on line one, the four MCP paths of section 4.12, `create` as a template writer,
+`migrate`, and the removals from section 6. Acceptance: Nora and Lena reach a
 working install in two commands; Priya's clone passes `check` with no palm run; Ivan's
 update onto a hook commit stops and shows the script; Jan's swap stays zero-diff; Mei's
 removal reaches the second clone; Chris's symlinked directory is refused, not deleted;
@@ -568,7 +605,7 @@ once each; a shared baseline plus uncommitted personal extras; Brad's monorepo w
 1.0, verified. Every placement row and hook mapping row carries the harness version it
 was tested against, with an end-to-end job that runs the real CLIs for all six targets;
 Gemini and OpenCode leave the unverified tier or are dropped; the docs are rewritten
-around the seven verbs; the persona study is rerun with a target of at least fifteen yes
+around the eight verbs; the persona study is rerun with a target of at least fifteen yes
 or leaning-yes verdicts and no S1 finding.
 
 ## 8. Migration from 0.1.0
@@ -587,18 +624,16 @@ and prints the executables it re-vendored so the person running it consents once
 `-g` it rewrites absolute paths to tokens and lists literal secrets with the rotate
 message.
 
-## 9. Decisions still open
+## 9. Decisions taken
 
-These change the shape of the product and were decided differently earlier in this
-project. Each has a recommendation; the plan above assumes it.
+These changed the shape of the product and reversed choices made earlier in the project.
+The maintainer decided them on 2026-09-30; the plan above assumes the answers.
 
-1. CLI grammar. Move from `palm install skill tdd@mattpocock` and `palm install origin`
-   to `palm install <source> [names]`, with kinds as optional prefixes and `get` and
-   `describe` keeping the kubectl nouns. Recommended: yes, with the old forms as hidden
-   aliases for one release.
-2. The word. Rename "origin" to "source" in the CLI, the files and the docs.
-   Recommended: yes.
-3. Remove the MCP registry search and the `create` wizard. Recommended: yes; either can
-   return as a separate package if demand appears.
-4. Targets. Keep Gemini and OpenCode, marked unverified until the 1.0 end-to-end job runs
-   them, or drop to four now. Recommended: keep.
+1. CLI grammar. The source comes first: `palm install <source> [names]`, kinds as
+   optional prefixes, `get` and `describe` keep the kubectl nouns. The old forms stay as
+   hidden aliases for one release.
+2. The word. "origin" becomes "source" in the CLI, the files and the docs.
+3. The registry client goes. `create` stays as a prompt-free template writer; the
+   wizard and `mine` go. MCP servers keep a first-class path in (section 4.12).
+4. Targets. All six stay; Gemini and OpenCode are marked unverified until the 1.0
+   end-to-end job runs them.
