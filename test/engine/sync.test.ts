@@ -73,6 +73,25 @@ describe('syncScope (bare install)', () => {
     expect(await w.read('.claude/skills/tdd/SKILL.md')).toBe('my edit\n');
   });
 
+  it('restores a missing file of an entity while keeping its edited one', async () => {
+    const w = await makeWorld({ targets: ['claude'] });
+    const url = await w.remote('skills', {
+      'v1.0.0': { 'skills/tdd/SKILL.md': 'Test first.\n', 'skills/tdd/notes.md': 'notes\n' },
+    });
+    await installFromSource(
+      w.ctx,
+      { source: url, names: [{ name: 'tdd' }] },
+      { scope: 'project' },
+      w.deps,
+    );
+    await w.write('.claude/skills/tdd/SKILL.md', 'my edit\n');
+    await w.remove('.claude/skills/tdd/notes.md');
+    const r = await syncScope(w.ctx, { scope: 'project' }, w.deps);
+    expect(r.outcomes.map((o) => o.status)).toEqual(['modified']);
+    expect(await w.read('.claude/skills/tdd/notes.md')).toBe('notes\n');
+    expect(await w.read('.claude/skills/tdd/SKILL.md')).toBe('my edit\n');
+  });
+
   it('re-renders an in-repo source that changed and updates its tree hash', async () => {
     const w = await makeWorld({ targets: ['claude'] });
     const src = await w.local('agent-kit', { 'skills/review/SKILL.md': 'v1\n' });
@@ -136,7 +155,6 @@ describe('syncScope under -g (applied.yaml)', () => {
       w.ctx,
       {
         source: join(w.palmHome, 'kit'),
-        as: './kit',
         names: [{ name: 'tdd' }, { name: 'review' }],
       },
       { scope: 'global' },

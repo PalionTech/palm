@@ -118,7 +118,10 @@ export function doubleLoad(c: CheckContext): CheckRun {
   }
   return checkRun(
     'double-load',
-    { ok: 'no harness loads an entity twice', bad: (n) => `${count(n, 'entity')} loaded twice` },
+    {
+      ok: 'no harness loads an entity twice',
+      bad: (n) => `${count(n, 'entity', 'entities')} loaded twice`,
+    },
     f,
   );
 }

@@ -24,7 +24,7 @@ import { SourceRef } from '../domain/source.js';
 import { resolveEngineDeps } from './deps.js';
 import { manifestJobs } from './entries.js';
 import { askForConsent, type Job, type Prepared, prepareJob, type Run, runOf } from './jobs.js';
-import { protectedPaths, undeploy } from './remove.js';
+import { protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failureOf, palmCommand } from './report.js';
 import { lockSourceOf, type Resolved, resolveSource } from './resolve.js';
 import { applyAll, lockScope, prepareAll } from './runner.js';
@@ -279,6 +279,7 @@ async function dropGone(run: Run, gone: LockEntry[]): Promise<void> {
     entries: gone,
     protect,
     dryRun: ctx.flags.dryRun,
+    sources: await sourceRoots(state),
   });
   run.result.failures.push(...report.failures);
   for (const e of gone) {

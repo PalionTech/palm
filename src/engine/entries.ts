@@ -130,7 +130,7 @@ export function requestJobs(
 ): Job[] {
   const via = memberOf(b, entity);
   if (via && !opts.targets && !opts.at)
-    return [{ ...jobFor({ ...b, explicit: true }, entity, {}, via) }];
+    return [jobFor({ ...b, explicit: true }, entity, { name: entity.name }, via)];
   const current = b.state.manifest
     .entries(b.ref.name, entity.kind)
     .find((e) => sameName(e.name, entity.name));

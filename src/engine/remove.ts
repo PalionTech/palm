@@ -191,23 +191,21 @@ async function roots(run: Run, picked: LockEntry[], exclude: boolean): Promise<L
   return out;
 }
 
-/** Entries whose files the person changed stay installed (unless --force); a failure says so. */
-async function unedited(run: Run, removed: LockEntry[]): Promise<LockEntry[]> {
-  if (run.ctx.flags.force) return removed;
-  const out: LockEntry[] = [];
-  for (const e of removed) {
+/** A failure for each entry whose files the person changed (or palm cannot check). */
+async function editFailures(run: Run, entries: LockEntry[]): Promise<number> {
+  if (run.ctx.flags.force) return 0;
+  let n = 0;
+  for (const e of entries) {
     const edited = await editedPaths(run, e);
-    if (edited && !edited.length) {
-      out.push(e);
-      continue;
-    }
+    if (edited && !edited.length) continue;
+    n++;
     const message = edited
       ? `${label(e)}: ${edited.join(', ')} was modified since install`
       : `${label(e)}: palm cannot check its files against source ${e.source}`;
     const hint = palmCommand('remove', [e.source, e.name], run.state.paths.scope, '--force');
     run.result.failures.push(failure(subjectOf(e), 'E_CONFLICT', { message, hint }));
   }
-  return out;
+  return n;
 }
 
 function forget(state: ScopeState, removed: LockEntry[]): void {
@@ -221,30 +219,64 @@ function forget(state: ScopeState, removed: LockEntry[]): void {
     if (!lock.entriesOf(name).length && !manifest.hasSource(name)) lock.removeSource(name);
 }
 
-async function removeRoots(run: Run, rootEntries: LockEntry[]): Promise<LockEntry[]> {
+/** Real paths of the scope's local sources: palm never deletes inside them. */
+export async function sourceRoots(state: ScopeState): Promise<string[]> {
+  const out: string[] = [];
+  for (const ref of state.sources.all())
+    if (ref.isLocal && ref.source.path)
+      out.push((await state.paths.realInside(ref.source.path)).real);
+  return out;
+}
+
+function keptWarning(
+  root: LockEntry,
+  kept: { entry: LockEntry; via?: string },
+  scope: ScopeState['paths']['scope'],
+): string {
+  const other = kept.via ? Via.parse(kept.via).name : undefined;
+  const both = other
+    ? `; remove both with: ${palmCommand('remove', [root.source, root.name, other], scope)}`
+    : '';
+  return `${label(kept.entry)} stays: ${kept.via ?? 'palm.yaml'} still declares it${both}`;
+}
+
+/**
+ * One named entry and what goes with it (a plugin's members that no other plugin declares). A
+ * file the person changed in any of them keeps the whole group installed (unless --force).
+ */
+async function removeGroup(run: Run, root: LockEntry): Promise<LockEntry[]> {
   const { state, ctx, deps } = run;
-  const plan = state.lock.planRemoval(rootEntries, {
+  const plan = state.lock.planRemoval([root], {
     listed: (e) => !e.via && state.manifest.hasEntry(e.source, e.kind, e.name),
   });
-  for (const k of plan.kept)
-    run.result.warnings.push(
-      `${label(k.entry)} stays: ${k.via ?? 'another plugin'} still declares it`,
-    );
-  const removed = await unedited(run, plan.removed);
-  const protect = protectedPaths(state.lock, removed);
-  const report = await undeploy(ctx, deps, {
+  if (await editFailures(run, plan.removed)) return [];
+  for (const k of plan.kept) run.result.warnings.push(keptWarning(root, k, state.paths.scope));
+  const protect = protectedPaths(state.lock, plan.removed);
+  const sources = await sourceRoots(state);
+  const job = {
     paths: state.paths,
-    entries: removed,
+    entries: plan.removed,
     protect,
     dryRun: ctx.flags.dryRun,
-  });
+    sources,
+  };
+  const report = await undeploy(ctx, deps, job);
   run.result.failures.push(...report.failures);
   const failed = new Set(
     report.failures.map((f) => `${f.kind}:${f.name}@${f.source}`.toLowerCase()),
   );
-  const gone = removed.filter((e) => !failed.has(lockId(e).toLowerCase()));
+  const gone = plan.removed.filter((e) => !failed.has(lockId(e).toLowerCase()));
   forget(state, gone);
   state.lock.reparent(plan.kept);
+  return gone;
+}
+
+async function removeRoots(run: Run, rootEntries: LockEntry[]): Promise<LockEntry[]> {
+  const gone: LockEntry[] = [];
+  for (const root of rootEntries) {
+    if (!run.state.lock.find(root, root.source)) continue;
+    gone.push(...(await removeGroup(run, root)));
+  }
   return gone;
 }
 

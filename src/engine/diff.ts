@@ -189,6 +189,7 @@ function verdictFor(
 }
 
 function overall(input: OutcomeInput, verdicts: TargetVerdict[], dropped: boolean): OutcomeStatus {
+  if (!verdicts.length && !dropped) return input.previous ? 'unchanged' : 'installed';
   if (verdicts.includes('kept')) return 'modified';
   const rendering = verdicts.includes('render') || dropped;
   if (!input.previous) return verdicts.every((v) => v === 'skipped') ? 'skipped' : 'installed';

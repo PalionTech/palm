@@ -103,6 +103,44 @@ describe('removeEntities', () => {
     expect((await w.lock()).entries).toEqual([]);
   });
 
+  it('keeps a plugin and all its members when one member was edited', async () => {
+    const w = await world(['superpowers']);
+    await w.write('.claude/skills/review/SKILL.md', 'mine\n');
+    const r = await removeEntities(
+      w.ctx,
+      [{ kind: 'plugin', name: 'superpowers' }],
+      { scope: 'project' },
+      w.deps,
+    );
+    expect(r.removed).toEqual([]);
+    expect(r.failures.map((f) => f.name)).toEqual(['review']);
+    expect(w.exists('.claude/skills/brainstorming/SKILL.md')).toBe(true);
+    expect((await w.lock()).entries).toHaveLength(3);
+  });
+
+  it('keeps a member another plugin still declares and names the command that removes both', async () => {
+    const w = await makeWorld({ targets: ['claude'] });
+    const url = await w.remote('kit', {
+      'v1.0.0': { ...KIT, 'plugins/writing.json': JSON.stringify({ members: ['skill:review'] }) },
+    });
+    await installFromSource(
+      w.ctx,
+      { source: url, names: [{ name: 'superpowers' }, { name: 'writing' }] },
+      { scope: 'project' },
+      w.deps,
+    );
+    const r = await removeEntities(
+      w.ctx,
+      [{ kind: 'plugin', name: 'superpowers' }],
+      { scope: 'project' },
+      w.deps,
+    );
+    expect(r.removed.map((e) => e.name).sort()).toEqual(['brainstorming', 'superpowers']);
+    expect(r.warnings.join('\n')).toContain('palm remove kit superpowers writing');
+    expect(await w.entry('skill', 'review')).toMatchObject({ via: 'plugin:writing' });
+    expect(w.exists('.claude/skills/review/SKILL.md')).toBe(true);
+  });
+
   it('asks for the source when a name is installed from two sources', async () => {
     const w = await world(['tdd']);
     const src = await w.local('agent-kit', { 'skills/tdd/SKILL.md': 'other\n' });

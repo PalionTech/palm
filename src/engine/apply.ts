@@ -18,7 +18,7 @@ import { withDeclined, withTrust } from '../exec/trust.js';
 import { deepEqual } from '../lib/object.js';
 import { fragmentKey } from './diff.js';
 import type { Prepared, Run } from './jobs.js';
-import { protectedPaths, undeploy } from './remove.js';
+import { protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failure, failureOf, installCommand, type Subject } from './report.js';
 import { noteWritten, persistTargets } from './scope.js';
 
@@ -178,7 +178,8 @@ async function replacePrevious(
   if (!stale.files.length && !stale.merged?.length) return;
   const { state, ctx } = run;
   const protect = protectedPaths(state.lock, [previous]);
-  const job = { paths: state.paths, entries: [stale], protect, dryRun: ctx.flags.dryRun };
+  const sources = await sourceRoots(state);
+  const job = { paths: state.paths, entries: [stale], protect, dryRun: ctx.flags.dryRun, sources };
   const report = await undeploy(ctx, run.deps, job);
   run.result.failures.push(...report.failures);
   run.result.warnings.push(...report.warnings);

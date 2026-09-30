@@ -99,10 +99,15 @@ function scanIssues(run: RenderRun): { refusals: InstallFailure[]; warnings: str
   return { refusals, warnings };
 }
 
-function renderInput(run: RenderRun, policy: SecretPolicy): RenderInput {
+/**
+ * The render request. Beyond RenderInput it names the entry's active targets (`targets`):
+ * shared directories depend on them (cursor writes `.claude/skills` when claude is active).
+ */
+function renderInput(run: RenderRun, policy: SecretPolicy): RenderInput & { targets: TargetId[] } {
   const { ctx, state, job } = run;
   const inPlace = job.source.isLocal;
-  const input: RenderInput = {
+  const input: RenderInput & { targets: TargetId[] } = {
+    targets: [...job.targets],
     entity: job.entity,
     absPath: join(job.checkout.root, job.entity.path),
     sourceRoot: job.checkout.root,

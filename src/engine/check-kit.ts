@@ -50,8 +50,8 @@ export function entityOf(e: LockEntry): CheckProblem['entity'] {
 }
 
 /** `n thing` / `n things`. */
-export function count(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
+export function count(n: number, word: string, plural = `${word}s`): string {
+  return `${n} ${n === 1 ? word : plural}`;
 }
 
 /** Renders every installed entry once, for the checks that compare the disk with the render. */

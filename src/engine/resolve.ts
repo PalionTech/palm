@@ -190,8 +190,9 @@ function baseDirOf(state: ScopeState): string {
   return state.paths.scope === 'global' ? state.paths.palmHome : state.paths.root;
 }
 
+/** CLI input as a Source; a local path is named relative to the manifest's directory. */
 function parseInput(ctx: PalmContext, state: ScopeState, input: string, as?: string): Source {
-  const opts = { cwd: ctx.paths.cwd, projectRoot: state.paths.root, ...(as ? { as } : {}) };
+  const opts = { cwd: ctx.paths.cwd, projectRoot: baseDirOf(state), ...(as ? { as } : {}) };
   return parseSourceInput(input, opts);
 }
 
@@ -304,7 +305,7 @@ export function matchNames(index: SourceIndex, names: EntityRefSpec[], all: bool
   const out: NameMatch = { entities: [], plugins: [], missing: [], ambiguous: [] };
   if (all) Object.assign(out, everything(index));
   for (const spec of names) {
-    const cands = candidates(index, spec);
+    const cands = pluginFirst(index, candidates(index, spec));
     const kinds = new Set(cands.map((e) => e.kind));
     const [first] = cands;
     if (!first) out.missing.push(spec);
@@ -318,6 +319,17 @@ export function matchNames(index: SourceIndex, names: EntityRefSpec[], all: bool
     (p, i) => out.plugins.findIndex((q) => sameName(q.plugin.name, p.plugin.name)) === i,
   );
   return out;
+}
+
+/**
+ * A name that is a plugin and also one of that plugin's own members (a plugin's hooks are often
+ * named after it) means the plugin: installing it installs the member too.
+ */
+function pluginFirst(index: SourceIndex, cands: Entity[]): Entity[] {
+  const plugin = cands.find((e) => e.kind === 'plugin');
+  if (!plugin) return cands;
+  const members = new Set(membersOf(index, plugin).map(entityId));
+  return cands.every((e) => e === plugin || members.has(entityId(e))) ? [plugin] : cands;
 }
 
 function dedupe(entities: Entity[]): Entity[] {

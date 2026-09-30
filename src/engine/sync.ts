@@ -26,7 +26,7 @@ import { fragmentKey } from './diff.js';
 import { dedupeJobs, manifestJobs } from './entries.js';
 import { manifestMcpJob } from './install-mcp.js';
 import { askForConsent, type Job, type Run, runOf } from './jobs.js';
-import { protectedPaths, undeploy } from './remove.js';
+import { protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failureOf, palmCommand } from './report.js';
 import { lockedSha, lockSourceOf, type Resolved, resolveSource } from './resolve.js';
 import { applyAll, lockScope, prepareAll } from './runner.js';
@@ -105,6 +105,7 @@ async function dropRemoved(run: Run, d: Desired): Promise<void> {
     (e) => !want.has(lockId(e)) && !d.missing.has(lockId(e)) && !d.failedSources.has(e.source),
   );
   const protect = protectedPaths(state.lock, gone);
+  const sources = await sourceRoots(state);
   for (const e of gone) {
     const view = await withoutEdits(run, e);
     const report = await undeploy(ctx, deps, {
@@ -112,6 +113,7 @@ async function dropRemoved(run: Run, d: Desired): Promise<void> {
       entries: [view],
       protect,
       dryRun: ctx.flags.dryRun,
+      sources,
     });
     run.result.failures.push(...report.failures);
     state.lock.remove(e);
