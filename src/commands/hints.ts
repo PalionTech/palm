@@ -4,7 +4,10 @@
  * Pure: `palm --help` loads this module through the grammar.
  */
 import type { EntityRefSpec, Kind, Scope } from '../core/types.js';
+import { shellWord } from '../lib/text.js';
 import { redactTypedArgs } from '../secrets/typed.js';
+
+export { shellWord };
 
 /** `skill:tdd` for a name with a kind, else the name. */
 export function formatName(n: EntityRefSpec): string {
@@ -36,14 +39,6 @@ export function scoped(text: string, scope: Scope | undefined): string {
     .split('\n')
     .map((l) => (ENDS_WITH_COMMAND.test(l) && !/ -g( |$)/.test(l) ? `${l} -g` : l))
     .join('\n');
-}
-
-/** A word a shell passes on as is (`#` starts a comment only at the start of a word). */
-const SHELL_SAFE = /^[\w@%+=:,./-][\w@%+=:,./#-]*$/;
-
-/** A word as it would be typed in a shell. */
-export function shellWord(word: string): string {
-  return SHELL_SAFE.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
 }
 
 /** Options whose value is the next word, for reading a command line back (J6', O15). */

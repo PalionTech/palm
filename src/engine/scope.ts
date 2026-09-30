@@ -30,6 +30,7 @@ import { ScopePaths } from '../domain/scope-paths.js';
 import type { SourceSet } from '../domain/source.js';
 import { localUrlPath } from '../domain/source-url.js';
 import { isWithin, toPosix } from '../lib/fs.js';
+import { shellWord } from '../lib/text.js';
 import { redactTypedArgs } from '../secrets/typed.js';
 import { ensureIgnoreLines } from './gitignore.js';
 import { detectTargets } from './targets.js';
@@ -67,7 +68,7 @@ const text = (v: { toJSON(): unknown }): string => JSON.stringify(v.toJSON());
 function withGlobal(ctx: PalmContext): string {
   const argv = ctx.argv?.filter((w) => w !== '--');
   if (!argv?.length) return 'run the command again with -g';
-  return `palm ${[...redactTypedArgs(argv), '-g'].join(' ')}`;
+  return `palm ${[...redactTypedArgs(argv), '-g'].map(shellWord).join(' ')}`;
 }
 
 /**
@@ -319,15 +320,23 @@ function typedThisRun(ctx: PalmContext, url: string): boolean {
   return (ctx.argv ?? []).some((w) => w === url || w.startsWith(`${url}#`));
 }
 
+/** The command line as typed with `--allow-local-sources` added (S4'). */
+function withLocalSources(ctx: PalmContext): string {
+  const argv = ctx.argv?.filter((w) => w !== '--') ?? [];
+  return `palm ${[...(argv.length ? redactTypedArgs(argv) : ['install']), '--allow-local-sources'].map(shellWord).join(' ')}`;
+}
+
 /**
- * S4: in a project, a `file://` URL (or an absolute path) outside the repository that only
+ * S4 S4': in a project, a `file://` URL (or an absolute path) outside the repository that only
  * palm.yaml names is refused like a `../` source: a committed palm.yaml must not make palm read
  * a private repository on this machine. Typed on this run's command line, it is the person's
- * own choice and goes through.
+ * own choice and goes through; `--allow-local-sources` lets palm.yaml name such sources (a
+ * clone with local mirrors, CI on an air-gapped machine). `install`, `update`, `remove` and
+ * `check` apply it.
  */
-async function assertNoOutsideUrl(ctx: PalmContext, state: ScopeState): Promise<void> {
+export async function assertNoOutsideUrl(ctx: PalmContext, state: ScopeState): Promise<void> {
   const { paths } = state;
-  if (paths.scope !== 'project') return;
+  if (paths.scope !== 'project' || ctx.flags.allowLocalSources) return;
   const top = worktreeRoot(paths.root) ?? paths.root;
   const root = (await paths.realInside(top)).real;
   for (const ref of state.sources.all()) {
@@ -335,14 +344,10 @@ async function assertNoOutsideUrl(ctx: PalmContext, state: ScopeState): Promise<
     const dir = url ? localUrlPath(url) : undefined;
     if (!url || !dir || typedThisRun(ctx, url)) continue;
     if (isWithin((await paths.realInside(dir)).real, root)) continue;
-    const names = state.manifest
-      .allEntries()
-      .filter((e) => e.source === ref.name)
-      .map((e) => e.entry.name);
     throw new PalmError(
       'E_SOURCE',
       `source "${ref.name}" is ${url}, outside the project ${top}; palm.yaml names only sources inside it or remote URLs`,
-      `to install from it on purpose, type its URL: ${['palm install', url, ...names].join(' ')}`,
+      `to read it from this machine on purpose: ${withLocalSources(ctx)}`,
     );
   }
 }

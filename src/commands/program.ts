@@ -39,6 +39,12 @@ export interface ProgramOptions {
 
 type Opts = Record<string, unknown>;
 
+/** S4': the flag that lets palm.yaml name a `file://` source outside the project. */
+const LOCAL_SOURCES: [string, string] = [
+  '--allow-local-sources',
+  'palm.yaml may name file:// sources outside the project (local mirrors, air-gapped CI)',
+];
+
 /** Collect a repeatable option into an array. */
 function collect(value: string, previous: string[] | undefined): string[] {
   return [...(previous ?? []), value];
@@ -178,7 +184,8 @@ function installOptions(cmd: Command): void {
     .option('--targets <ids>', 'only these targets for these entries (recorded per entry)')
     .addOption(hidden('--target <ids>', 'the same as --targets'))
     .addOption(hidden('--at <dir>', 'placement directory for these entries (honoured in 0.3)'))
-    .option('--review', 'print the scripts of every program first; with --dry-run, only print');
+    .option('--review', 'print the scripts of every program first; with --dry-run, only print')
+    .option(...LOCAL_SOURCES);
   for (const [flags, description] of REMOVED_INSTALL_FLAGS)
     cmd.addOption(hidden(flags, description));
   cmd.optionsGroup('MCP servers (palm install mcp):');
@@ -219,7 +226,8 @@ const VERB_SETUP: Readonly<Record<Verb, VerbSetup>> = {
     options: (c) =>
       c
         .option('--exclude', 'a plugin member: exclude it for the team in palm.yaml')
-        .option('--all', 'every entry of the source, after a question'),
+        .option('--all', 'every entry of the source, after a question')
+        .option(...LOCAL_SOURCES),
     invocation: removeInvocation,
   },
   update: {
@@ -228,12 +236,17 @@ const VERB_SETUP: Readonly<Record<Verb, VerbSetup>> = {
       c
         .option('--to <ref>', 'move the ref in palm.yaml (a tag, branch, sha or range such as ^2)')
         .option('--review', 'print changed scripts and entities as diffs before asking')
-        .option('--strict', 'with --dry-run: exit 1 when a source is behind its ref'),
+        .option('--strict', 'with --dry-run: exit 1 when a source is behind its ref')
+        .option(...LOCAL_SOURCES),
     invocation: (words, opts) => ({ command: 'update', names: rawNames(words), opts, words }),
   },
   check: {
     args: [],
-    options: (c) => c.option('--quiet', 'print only the problems (nothing when there are none)'),
+    options: (c) =>
+      c
+        .option('--quiet', 'print only the problems (nothing when there are none)')
+        .option('--strict', 'fail on foreign hooks and servers and on checks that could not run')
+        .option(...LOCAL_SOURCES),
     invocation: (_w, opts) => ({ command: 'check', names: [], opts }),
   },
   get: {

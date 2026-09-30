@@ -4,6 +4,8 @@
  * executable needs consent and there is no terminal. `E_SECRET`: a literal secret may not be
  * written. `E_CHECK`: `palm check` found a problem.
  */
+import { shellWord } from '../lib/text.js';
+
 export type PalmErrorCode =
   | 'E_USAGE'
   | 'E_NOT_FOUND'
@@ -44,11 +46,6 @@ export class PalmError extends Error {
     this.hint = hint;
     if (opts.retryWith) this.retryWith = opts.retryWith;
   }
-}
-
-/** A shell word: as is when it holds only safe characters, else single-quoted. */
-function shellWord(arg: string): string {
-  return /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`;
 }
 
 /** `args` without the option `retry` sets (`--secrets x`, `--secrets=x`; `--yes` also as `-y`). */

@@ -1,9 +1,11 @@
 /**
- * `palm check [-g] [--json] [--quiet]` (DESIGN.md §6 "Check"): read-only. One line per check it
- * ran (a skipped check says so, never ✓), then one line per problem with the command that fixes
- * it, the problems of one entity that differ only by file as one line with a count (C24, D24),
- * then `no problems` only when nothing failed or warned. `--quiet` prints the problems alone.
- * `--json` keeps every problem. Exit 1 when a check failed; warnings alone exit 0.
+ * `palm check [-g] [--json] [--quiet] [--strict] [--allow-local-sources]` (DESIGN.md §6 "Check"):
+ * read-only. One line per check it ran (a skipped check says so, never ✓), then one line per
+ * problem with the command that fixes it, the problems of one entity that differ only by file as
+ * one line with a count (C24, D24), then `no problems` only when nothing failed or warned and
+ * every check ran. `--quiet` prints the problems alone. `--json` keeps every problem. `--strict`
+ * fails on foreign programs and on checks that could not run. Exit 1 when a check failed;
+ * warnings alone exit 0.
  */
 import type {
   CheckProblem,
@@ -22,6 +24,8 @@ import { engine, engineDeps, type GlobalOptions, makeContext, scopeOf } from './
 
 interface CheckFlags extends GlobalOptions {
   quiet?: boolean;
+  /** Foreign programs and checks that could not run fail (Sofia S2, O12). */
+  strict?: boolean;
 }
 
 type Colour = 'green' | 'yellow' | 'red' | 'dim';
@@ -111,7 +115,11 @@ export function printCheck(out: Output, report: CheckReport, quiet: boolean): vo
   if (found.length && !quiet) out.out();
   for (const g of found) out.mark(statusOf(g.check).problem, problemLine(g));
   const clean = report.checks.every((c) => c.status !== 'fail' && c.status !== 'warn');
-  if (clean && !quiet) out.out('no problems');
+  if (!clean || quiet) return;
+  // O12 X2 B5 E4': a check that could not run is never a pass, so the summary says so.
+  const notRun = report.checks.filter((c) => c.status === 'skipped' && c.problems.length).length;
+  if (!notRun) out.out('no problems');
+  else out.out(`no problems in the checks that ran; ${notRun} did not run (--strict fails on it)`);
 }
 
 /** C11: `skills-lock.json` or `apm.yml` in a project whose palm.yaml lists nothing yet: one hint. */
@@ -131,7 +139,8 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const flags = inv.opts as CheckFlags;
   const ctx = await makeContext(app, flags);
   const scope = scopeOf(flags);
-  const report = await engine(app).checkScope(ctx, { scope }, engineDeps(app));
+  const strict = Boolean(flags.strict);
+  const report = await engine(app).checkScope(ctx, { scope, strict }, engineDeps(app));
   if (app.out.jsonMode) app.out.json({ ok: report.ok, checks: report.checks });
   else printCheck(app.out, report, Boolean(flags.quiet));
   await noteForeignLists(ctx, app, scope);

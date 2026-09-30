@@ -1,5 +1,13 @@
 /** Text normalisation shared by the JSON, YAML and frontmatter readers. */
 
+/** A word a shell passes on as is (`#` starts a comment only at the start of a word). */
+const SHELL_SAFE = /^[\w@%+=:,./-][\w@%+=:,./#-]*$/;
+
+/** A word as it is typed in a shell: as is when safe, else single-quoted (a glob, a space). */
+export function shellWord(word: string): string {
+  return SHELL_SAFE.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
+}
+
 /** `text` without a leading byte-order mark. */
 export function stripBom(text: string): string {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;

@@ -78,9 +78,11 @@ describe('palm CLI smoke', () => {
 
   it('E4: palm install --frozen (the 0.1 CI line) says palm check and runs it', async () => {
     const r = await m.palm(project, 'install', '--frozen', '--yes');
-    expect(r.code).toBe(0);
+    // Y12' R6': without palm.yaml check fails (a CI step never passes on an empty checkout)
+    expect(r.code).toBe(1);
     expect(r.stdout).toContain('i palm install --frozen is now: palm check');
-    expect(r.stdout).toContain('no problems');
+    expect(r.stdout).toContain('no palm.yaml here');
+    expect(r.stdout).not.toContain('no problems');
     expect(r.all).not.toContain('--force');
   });
 

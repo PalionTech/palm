@@ -6,6 +6,7 @@
  * stays behind the one count line (ruling L15). A layout suggestion reads as `layout:` for a
  * source palm.yaml declares, and as `--layout` flags on the install line for one it does not.
  */
+import { shellWord } from '../lib/text.js';
 
 /** Where the notes are printed: a declared source, or the install line of an undeclared one. */
 export interface NoteView {
@@ -27,13 +28,6 @@ const SKIPPED_SKILL = /^(skipped \S+) \(ignored name "([^"]+)"; add layout: (\{.
 const ZERO_MATCH = /^layout \w+: ".*" matches nothing in the source$/;
 const DEPENDENCIES = /^apm\.ya?ml: \d+ (?:MCP server )?dependenc(?:y is|ies are) not installed/;
 const LINKS_LEAVING = /^not copied \((?:a link|links) leaving the source\): /;
-
-const SHELL_SAFE = /^[\w@%+=:,./-]+$/;
-
-/** A word as it is typed in a shell: quoted when it holds a glob or a space. */
-export function shellWord(word: string): string {
-  return SHELL_SAFE.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
-}
 
 /** `{ skills: [packages/*], agents: [people/*.md] }` as `--layout skills=packages/*` arguments. */
 export function layoutFlagsOf(layout: string): string[] {

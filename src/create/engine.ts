@@ -113,7 +113,7 @@ export interface EngineApi {
   reviewText(ctx: PalmContext, plan: UpdatePlan, deps: EngineDeps): Promise<string>;
   checkScope(
     ctx: PalmContext,
-    opts: { scope: Scope },
+    opts: { scope: Scope; strict?: boolean },
     deps?: Partial<EngineDeps>,
   ): Promise<CheckReport>;
   migrateScope(

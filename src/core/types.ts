@@ -734,6 +734,11 @@ export interface PalmFlags {
   local: boolean;
   /** `--review` on install and update: script bodies before the consent question. */
   review?: boolean;
+  /**
+   * S4': `--allow-local-sources` on install, update, remove and check: palm.yaml may name a
+   * `file://` source outside the project (a clone with local mirrors, CI on an air-gapped host).
+   */
+  allowLocalSources?: boolean;
 }
 
 export interface PalmContext {

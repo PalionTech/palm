@@ -30,7 +30,7 @@ import { targetsCheck } from './check-targets.js';
 import { resolveEngineDeps } from './deps.js';
 import { runOf } from './jobs.js';
 import { palmCommand } from './report.js';
-import { openScope } from './scope.js';
+import { assertNoOutsideUrl, openScope } from './scope.js';
 
 type Check = (c: CheckContext) => CheckRun | Promise<CheckRun>;
 
@@ -138,6 +138,7 @@ async function withoutManifest(c: CheckContext): Promise<CheckRun[]> {
 
 async function contextOf(ctx: PalmContext, scope: Scope, deps: EngineDeps): Promise<CheckContext> {
   const state = await openScope(ctx, scope, { deps, readOnly: true });
+  await assertNoOutsideUrl(ctx, state);
   await removeStaleLock(state.paths.processLock);
   const bare = !existsSync(state.paths.manifestFile);
   const run = runOf(ctx, deps, bare ? { ...state, targets: [...TARGET_IDS] } : state);

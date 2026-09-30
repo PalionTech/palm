@@ -40,7 +40,7 @@ describe('ruling 23: edits are found against the render hash, offline', () => {
     const manifest = readFileSync(join(p, 'palm.yaml'), 'utf8');
     await writeFiles(p, { 'palm.yaml': manifest.replace('ref: v1.0.0', 'ref: v2.0.0') });
 
-    const sync = await m.palm(p, 'install', '--yes');
+    const sync = await m.palm(p, 'install', '--yes', '--allow-local-sources');
     expect(sync.code, sync.all).toBe(1);
     expect(sync.stdout).toMatch(/^! modified \(kept\) +skill +tdd/m);
     expect(sync.all).toContain(
@@ -49,7 +49,14 @@ describe('ruling 23: edits are found against the render hash, offline', () => {
     expect(readFileSync(join(p, '.claude/skills/tdd/SKILL.md'), 'utf8')).toBe('my edit\n');
     expect(readFileSync(join(p, '.claude/skills/review/SKILL.md'), 'utf8')).toContain('two');
 
-    const forced = await m.palm(p, 'install', 'kit', 'skill:tdd', '--force');
+    const forced = await m.palm(
+      p,
+      'install',
+      'kit',
+      'skill:tdd',
+      '--force',
+      '--allow-local-sources',
+    );
     expect(forced.code, forced.all).toBe(0);
     expect(readFileSync(join(p, '.claude/skills/tdd/SKILL.md'), 'utf8')).toContain('two');
   });

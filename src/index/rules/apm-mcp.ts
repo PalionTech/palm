@@ -6,7 +6,7 @@
  */
 
 import { isRecord } from '../../lib/object.js';
-import { shellWord } from '../notes.js';
+import { shellWord } from '../../lib/text.js';
 import { asString } from '../util.js';
 
 /** How to install one declared server; the registry form has only a name. */

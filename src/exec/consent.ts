@@ -18,6 +18,7 @@ import type {
   ScriptReader,
 } from '../core/types.js';
 import { isWithin } from '../lib/fs.js';
+import { shellWord } from '../lib/text.js';
 import { redactTypedArgs } from '../secrets/typed.js';
 import { canDiff, consentSummary, consentText, type PromptOptions, programs } from './prompt.js';
 import { execDiff, scriptsText } from './review.js';
@@ -66,10 +67,6 @@ export function allowed(unit: ExecUnit, allow: AllowExec[] | 'all'): boolean {
   const key = unit.key.toLowerCase();
   const hash = unit.hash.toLowerCase();
   return allow.some((a) => a.key.toLowerCase() === key && hash.startsWith(a.hash.toLowerCase()));
-}
-
-function shellWord(arg: string): string {
-  return /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`;
 }
 
 function command(words: readonly string[]): string {

@@ -36,6 +36,8 @@ export interface GlobalOptions {
   local?: boolean;
   /** `install --review`: src/exec prints every program's scripts before it asks. */
   review?: boolean;
+  /** S4': palm.yaml may name a `file://` source outside the project. */
+  allowLocalSources?: boolean;
 }
 
 /** The context of a CLI run always carries the command line (src/exec repeats it in its hints). */
@@ -128,6 +130,7 @@ async function flagsOf(app: App, g: GlobalOptions): Promise<PalmFlags> {
     local: false,
     ...(secrets ? { secrets } : {}),
     ...(g.review ? { review: true } : {}),
+    ...(g.allowLocalSources ? { allowLocalSources: true } : {}),
   };
 }
 

@@ -72,13 +72,13 @@ describe('portable, rebuildable state', () => {
     await git(m.root, 'clone', '-q', p, clone);
     const other = await Machine.create();
     try {
-      expect((await other.palm(clone, 'check')).code).toBe(0);
-      const sync = await other.palm(clone, 'install');
+      expect((await other.palm(clone, 'check', '--allow-local-sources')).code).toBe(0);
+      const sync = await other.palm(clone, 'install', '--allow-local-sources');
       expect(sync.code).toBe(0);
       expect(sync.stdout).toContain('1 unchanged.');
       expect(await git(clone, 'status', '--porcelain')).toBe('');
       await writeFiles(clone, { '.claude/skills/tdd/SKILL.md': 'edited\n' });
-      const check = await other.palm(clone, 'check');
+      const check = await other.palm(clone, 'check', '--allow-local-sources');
       expect(check.code).toBe(1);
       expect(check.stdout).toContain('x 1 generated file differs from the lock');
     } finally {
@@ -98,10 +98,12 @@ describe('sources and versions', () => {
     await m.palm(p, 'install', `${url}#^1.0`, 'tdd', '--as', 'kit');
     expect(readFileSync(join(p, '.claude/skills/tdd/SKILL.md'), 'utf8')).toContain('two');
     await m.release('kit', 'v1.2.0', skill('tdd', 'four'));
-    expect((await m.palm(p, 'update', '--yes')).code).toBe(0);
+    expect((await m.palm(p, 'update', '--yes', '--allow-local-sources')).code).toBe(0);
     expect(readFileSync(join(p, '.claude/skills/tdd/SKILL.md'), 'utf8')).toContain('four');
     expect(readFileSync(join(p, 'palm.yaml'), 'utf8')).toContain('ref: ^1.0');
-    expect((await m.palm(p, 'update', 'kit', '--to', '^2.0', '--yes')).code).toBe(0);
+    expect(
+      (await m.palm(p, 'update', 'kit', '--to', '^2.0', '--yes', '--allow-local-sources')).code,
+    ).toBe(0);
     expect(readFileSync(join(p, 'palm.yaml'), 'utf8')).toContain('ref: ^2.0');
     expect(readFileSync(join(p, '.claude/skills/tdd/SKILL.md'), 'utf8')).toContain('three');
   });
@@ -176,9 +178,9 @@ describe('programs and consent', () => {
     const allow = allowExecOf(ask.all);
     const ok = await m.palm(p, 'install', url, 'hook:guard', '--as', 'kit', '--allow-exec', allow);
     expect(ok.code).toBe(0);
-    expect((await m.palm(p, 'install')).code).toBe(0);
+    expect((await m.palm(p, 'install', '--allow-local-sources')).code).toBe(0);
     await m.release('kit', 'v1.1.0', hookKit('echo two\n'));
-    const update = await m.palm(p, 'update', '--yes');
+    const update = await m.palm(p, 'update', '--yes', '--allow-local-sources');
     expect(update.code).toBe(1);
     expect(update.stderr).toContain('needs your consent and there is no terminal');
     expect(
@@ -206,7 +208,9 @@ describe('programs and consent', () => {
     const script = /\.palm\/assets\/[^"\s]+\.sh/.exec(settings)?.[0];
     expect(script).toBeDefined();
     expect(await git(p, 'ls-files', '--', script as string)).toBe(script);
-    expect((await m.palm(p, 'check')).stdout).toContain('✓ every hook script exists');
+    expect((await m.palm(p, 'check', '--allow-local-sources')).stdout).toContain(
+      '✓ every hook script exists',
+    );
   });
 
   it('invariant 14: palm never merges a command it could not resolve', async () => {
@@ -266,10 +270,10 @@ describe('honest statuses and dry runs', () => {
             .join(' '),
         );
     expect(rows(dry.stdout)).toEqual(rows(real.stdout));
-    const sync = await m.palm(p, 'install');
+    const sync = await m.palm(p, 'install', '--allow-local-sources');
     expect(sync.stdout).toContain('2 unchanged.');
     await writeFiles(p, { '.agents/skills/tdd/SKILL.md': 'edited\n' });
-    const kept = await m.palm(p, 'install');
+    const kept = await m.palm(p, 'install', '--allow-local-sources');
     expect(kept.code).toBe(1);
     expect(kept.stdout).toContain('modified (kept)');
   });
