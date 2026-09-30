@@ -25,8 +25,8 @@ import type {
 import { type MergedRecord, parseMergedRecord } from '../domain/merged-record.js';
 import { homeOf, palmHomeOf, ScopePaths } from '../domain/scope-paths.js';
 import { isWithin, pathExists, removeEmptyParents } from '../lib/fs.js';
-import { isRecord } from '../lib/object.js';
 import { isSafeName } from '../lib/names.js';
+import { isRecord } from '../lib/object.js';
 import { Applier } from './apply.js';
 import { readTextOrUndefined, removeFileIfExists } from './fs-utils.js';
 import { unmergeJsonFile } from './json-merge.js';
