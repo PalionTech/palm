@@ -167,13 +167,23 @@ function skipNote(note: string, job: RenderJob): string {
   return note.replaceAll('<name>', job.entity.name);
 }
 
+/**
+ * Where the copies of a skill are, when claude is active with another target: cursor reads
+ * `.claude/skills` (one copy); the others read only `.agents/skills` (two copies).
+ */
+function noteCopies(job: RenderJob, dir: string, active: readonly TargetId[]): void {
+  if (job.target.id === 'claude' || !active.includes('claude')) return;
+  if (isWithin(dir, job.paths.harnessHome('claude')))
+    job.note(`${job.target.id} reads .claude/skills; no second copy`);
+  else job.note(`${job.target.id} does not read .claude/skills; claude gets a second copy there`);
+}
+
 /** Every file of the skill directory, or the SKILL.md of a command, below `<skillsDir>/<name>/`. */
 async function renderSkill(job: RenderJob): Promise<void> {
   const { skill } = defOf(job.entity, 'skill');
   const active = job.input.targets ?? [job.target.id];
   const dir = path.join(job.layout.skillsDir(active), job.entity.name);
-  if (job.target.id !== 'claude' && isWithin(dir, job.paths.harnessHome('claude')))
-    job.note(`${job.target.id} reads .claude/skills; no second copy`);
+  noteCopies(job, dir, active);
   if (skill.fromCommand) {
     const r = renderCommandAsSkill({ ...skill, fromCommand: skill.fromCommand }, job.target.id);
     job.file(path.join(dir, 'SKILL.md'), r.content);
@@ -258,9 +268,9 @@ async function renderClosure(job: RenderJob, closure: { paths: string[] }): Prom
 }
 
 /** `fn()` with an E_SOURCE refusal prefixed by the entity it refuses. */
-function refusing<T>(job: RenderJob, fn: () => T): T {
+async function refusing<T>(job: RenderJob, fn: () => T | Promise<T>): Promise<T> {
   try {
-    return fn();
+    return await fn();
   } catch (e) {
     if (!isPalmError(e) || e.code !== 'E_SOURCE') throw e;
     const { kind, name, source } = job.entity;
@@ -287,7 +297,9 @@ async function renderHook(job: RenderJob): Promise<void> {
     job.skip(skipNote(where.skip, job));
     return;
   }
-  const converted = refusing(job, () => convertHooks(hooks, job.target.id, hookRelocate(job)));
+  const converted = await refusing(job, () =>
+    convertHooks(hooks, job.target.id, hookRelocate(job)),
+  );
   const { name } = job.entity;
   if (converted.dropped.length)
     job.note(
@@ -302,7 +314,7 @@ async function renderHook(job: RenderJob): Promise<void> {
   if ('dir' in where) job.file(file, stringifyJson(converted.hooks));
   else mergeHookEntries(job, file, events, where.versioned);
   for (const line of converted.exec) job.execLine({ ...line, file: job.lock(file) });
-  await renderClosure(job, hooks.closure ?? { paths: [] });
+  await refusing(job, () => renderClosure(job, hooks.closure ?? { paths: [] }));
 }
 
 /** One fragment per converted hook entry, in the shared hooks file. */
@@ -328,7 +340,7 @@ async function renderMcpKind(job: RenderJob): Promise<void> {
   const def = defOf(job.entity, 'mcp');
   const { secretPolicy, secretValues, scope, assetsRoot } = job.input;
   const key = def.mcp.name || job.entity.name;
-  const relocated = refusing(job, () =>
+  const relocated = await refusing(job, () =>
     relocateMcp({ ...def.mcp, name: key }, def.references ?? [], job.target.id, {
       assetsRoot,
       scope,
@@ -354,7 +366,7 @@ async function renderMcpKind(job: RenderJob): Promise<void> {
     const { canonical, rendered: command } = relocated;
     job.execLine({ id: 'stdio', canonical, command, file: job.lock(slot.file) });
   }
-  await renderClosure(job, def.closure ?? { paths: [] });
+  await refusing(job, () => renderClosure(job, def.closure ?? { paths: [] }));
 }
 
 async function renderPlugin(job: RenderJob): Promise<void> {

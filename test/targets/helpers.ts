@@ -25,8 +25,8 @@ export {
   write,
 } from '../support/sandbox.js';
 
-export const SOURCE_NAME = 'acme/kit';
-export const ASSET_SEGMENT = 'acme__kit';
+const SOURCE_NAME = 'acme/kit';
+const ASSET_SEGMENT = 'acme__kit';
 
 export function mkEntity(def: Entity['def'], name = 'demo', entityPath?: string): Entity {
   return {
@@ -39,7 +39,7 @@ export function mkEntity(def: Entity['def'], name = 'demo', entityPath?: string)
 }
 
 export const SKILL_MD = '---\nname: demo\ndescription: Demo skill\n---\n\nDo the demo.\n';
-export const RUN_SH = '#!/bin/sh\necho demo\n';
+const RUN_SH = '#!/bin/sh\necho demo\n';
 
 export const CLAUDE_HOOKS = {
   description: 'format on edit',
@@ -57,7 +57,7 @@ export const CLAUDE_HOOKS = {
 };
 
 /** The reference the index resolves for CLAUDE_HOOKS. */
-export const FORMAT_REF: SourceReference = {
+const FORMAT_REF: SourceReference = {
   raw: '${CLAUDE_PLUGIN_ROOT}/hooks/format.sh',
   form: 'plugin-root',
   site: 'command',
@@ -256,7 +256,7 @@ export async function applyText(
 }
 
 /** The lock form of an entity's asset root in a scope. */
-export function assetsRootOf(scope: Scope, name: string): string {
+function assetsRootOf(scope: Scope, name: string): string {
   return `${scope === 'project' ? '.palm' : '<palm>'}/assets/${ASSET_SEGMENT}/${name}`;
 }
 

@@ -32,7 +32,7 @@ export interface CleanupRoot {
 /**
  * A JSON array the instruction file is also listed in (OpenCode `opencode.json#/instructions`).
  */
-export interface InstructionList {
+interface InstructionList {
   json: string;
   path: string[];
 }

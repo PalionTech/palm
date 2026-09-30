@@ -152,6 +152,7 @@ describe('symlinks never copy files from outside the source (security)', () => {
     const input = renderInput({ ...k, scope: 'project', scopeRoot: root, sourceRoot: src.root });
     await expect(createTarget('claude', fakeEnv(root)).render(input)).rejects.toMatchObject({
       code: 'E_SOURCE',
+      message: expect.stringMatching(/^hook fmt from acme\/kit: refusing to copy .*home/),
     });
   });
 });

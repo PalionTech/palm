@@ -385,7 +385,7 @@ function relocateField(
 }
 
 /** An argument vector as one display line (arguments with spaces or quotes JSON-quoted). */
-export function commandLine(argv: readonly string[]): string {
+function commandLine(argv: readonly string[]): string {
   return argv.map((a) => (a === '' || /[\s"'\\]/.test(a) ? JSON.stringify(a) : a)).join(' ');
 }
 

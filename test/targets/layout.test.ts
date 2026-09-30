@@ -51,6 +51,19 @@ describe('skills directory by active targets', () => {
     );
     expect(withClaude.hash).toBe(claude.hash);
     expect((await at(['cursor', 'codex'])).files[0]?.path).toBe('.agents/skills/demo/SKILL.md');
+    // claude plus codex: two copies, noted
+    const codex = await createTarget('codex', fakeEnv(root)).render(
+      renderInput({
+        ...k,
+        scope: 'project',
+        scopeRoot: root,
+        sourceRoot: src.root,
+        targets: ['claude', 'codex'],
+      }),
+    );
+    expect(codex.notes).toEqual([
+      'codex does not read .claude/skills; claude gets a second copy there',
+    ]);
     expect((await at(['claude', 'cursor'], 'global')).files[0]?.path).toBe(
       '<agents>/skills/demo/SKILL.md',
     );
