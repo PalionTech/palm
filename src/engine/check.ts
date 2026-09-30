@@ -4,7 +4,9 @@
  * that could not run (outside a repository, an empty cache offline) are `skipped`, never shown
  * as passed. `ok` is false when any check fails; warnings alone keep it true.
  */
+import { existsSync } from 'node:fs';
 import type { CheckReport, CheckRun, EngineDeps, PalmContext, Scope } from '../core/types.js';
+import { TARGET_IDS } from '../core/types.js';
 import { gitToplevel } from '../lib/fs.js';
 import { hiddenUnicode, lockDisk } from './check-disk.js';
 import {
@@ -15,13 +17,14 @@ import {
   sourcePaths,
 } from './check-entries.js';
 import { execTrusted, foreignHooks, hookScripts } from './check-exec.js';
-import { applies, type CheckContext, renderAll } from './check-kit.js';
+import { applies, type CheckContext, notApplicable, renderAll } from './check-kit.js';
 import { localSources, manifestLock, preloads, sourcesDeclared } from './check-lock.js';
 import { agentNames, blockSize, doubleLoad, gitIgnored, links } from './check-repo.js';
 import { secrets, variables } from './check-secrets.js';
 import { foreignServers } from './check-servers.js';
 import { resolveEngineDeps } from './deps.js';
 import { runOf } from './jobs.js';
+import { palmCommand } from './report.js';
 import { openScope } from './scope.js';
 
 type Check = (c: CheckContext) => CheckRun | Promise<CheckRun>;
@@ -106,6 +109,41 @@ async function inRepository(root: string, scope: Scope): Promise<boolean> {
 }
 
 /**
+ * Y12' R6': without palm.yaml there is nothing to check against: `manifest-lock` fails with
+ * "no palm.yaml here", and `secrets` still reads every harness config of every harness, so a
+ * live key in a tracked `.cursor/mcp.json` is found. The other checks do not apply.
+ */
+async function withoutManifest(c: CheckContext): Promise<CheckRun[]> {
+  const { scope } = c.run.state.paths;
+  const said = scope === 'global' ? 'no palm.yaml in the palm home yet' : 'no palm.yaml here';
+  const manifest: CheckRun = {
+    id: 'manifest-lock',
+    label: said,
+    status: 'fail',
+    problems: [{ message: said, fix: palmCommand('init', [], scope) }],
+  };
+  const found = await secrets(c);
+  return REPORT_ORDER.map((id) => {
+    if (id === 'manifest-lock') return manifest;
+    return id === 'secrets' ? found : notApplicable(id, id, said);
+  });
+}
+
+async function contextOf(ctx: PalmContext, scope: Scope, deps: EngineDeps): Promise<CheckContext> {
+  const state = await openScope(ctx, scope, { deps, readOnly: true });
+  const bare = !existsSync(state.paths.manifestFile);
+  const run = runOf(ctx, deps, bare ? { ...state, targets: [...TARGET_IDS] } : state);
+  const offline = new Set<string>();
+  return {
+    run,
+    git: await inRepository(state.paths.root, scope),
+    renders: await renderAll({ run, offline }),
+    offline,
+    drifted: new Set(),
+  };
+}
+
+/**
  * DESIGN §6 "Check": every check, read-only; never prompts, never writes. `strict` fails on
  * foreign programs and on checks that could not run.
  */
@@ -116,19 +154,14 @@ export async function checkScope(
 ): Promise<CheckReport> {
   const deps = await resolveEngineDeps(depsIn);
   const quiet: PalmContext = { ...ctx, flags: { ...ctx.flags, dryRun: true, yes: false } };
-  const state = await openScope(quiet, opts.scope, { deps, readOnly: true });
-  const run = runOf(quiet, deps, state);
-  const offline = new Set<string>();
-  const c: CheckContext = {
-    run,
-    git: await inRepository(state.paths.root, opts.scope),
-    renders: await renderAll({ run, offline }),
-    offline,
-    drifted: new Set(),
-  };
-  const byId = new Map<string, CheckRun>();
-  for (const [id, check] of ORDER) byId.set(id, await check(c));
-  const all = REPORT_ORDER.map((id) => byId.get(id) as CheckRun);
+  const c = await contextOf(quiet, opts.scope, deps);
+  let all: CheckRun[];
+  if (!existsSync(c.run.state.paths.manifestFile)) all = await withoutManifest(c);
+  else {
+    const byId = new Map<string, CheckRun>();
+    for (const [id, check] of ORDER) byId.set(id, await check(c));
+    all = REPORT_ORDER.map((id) => byId.get(id) as CheckRun);
+  }
   const checks = opts.strict ? all.map(strictly) : all;
   return { scope: opts.scope, checks, ok: checks.every((r) => r.status !== 'fail') };
 }

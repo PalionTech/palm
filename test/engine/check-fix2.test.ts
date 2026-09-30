@@ -4,10 +4,11 @@
 import './fakes.js';
 
 import { chmod } from 'node:fs/promises';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { CheckRun } from '../../src/core/types.js';
 import { checkScope } from '../../src/engine/check.js';
 import { installFromSource } from '../../src/engine/install.js';
+import { setGitRunner } from '../../src/lib/git-query.js';
 import { remotes } from './fakes.js';
 import { makeWorld, type World } from './world.js';
 
@@ -188,6 +189,34 @@ describe("S6 J16' S7 secrets by server", () => {
     expect(r.variables?.status).toBe('warn');
     expect(messages(r.variables)).toBe('needs REMOTE_API_KEY, which is not set');
     expect(r.secrets?.problems.some((p) => p.message.startsWith('needs'))).toBe(false);
+  });
+});
+
+describe("Y12' R6' check without palm.yaml", () => {
+  afterEach(() => setGitRunner(undefined));
+
+  it("Y12' R6' fails with no palm.yaml here and still finds a key in a tracked harness config", async () => {
+    const w = await makeWorld({ interactive: false });
+    const key = `ghp_${'Zx8kQ2mN7pL4vR9tW3yB6cF1'.repeat(2).slice(0, 36)}`;
+    const servers = { mcpServers: { gh: { command: 'npx', env: { GITHUB_TOKEN: key } } } };
+    await w.write('.cursor/mcp.json', JSON.stringify(servers));
+    setGitRunner(async (args) => {
+      if (args[0] === 'rev-parse') return `${w.project}\n`;
+      if (args[0] === 'ls-files') return `${String(args.at(-1))}\n`;
+      throw new Error('not ignored');
+    });
+    const { r, report } = await check(w);
+    expect(report.ok).toBe(false);
+    expect(r['manifest-lock']).toMatchObject({
+      status: 'fail',
+      label: 'no palm.yaml here',
+      problems: [{ message: 'no palm.yaml here', fix: 'palm init' }],
+    });
+    expect(r.secrets?.status).toBe('fail');
+    expect(messages(r.secrets)).toContain('.cursor/mcp.json:mcpServers.gh.env.GITHUB_TOKEN');
+    expect(messages(r.secrets)).not.toContain(key);
+    expect(r['lock-disk']?.status).toBe('skipped');
+    expect(report.checks.map((c) => c.id)).toContain('foreign-servers');
   });
 });
 
