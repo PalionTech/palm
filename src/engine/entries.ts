@@ -25,6 +25,7 @@ import { failure, palmCommand } from './report.js';
 import type { Resolved } from './resolve.js';
 import { membersOf } from './resolve.js';
 import type { ScopeState } from './scope.js';
+import { MANIFEST_SOURCE } from './sources.js';
 import { activeTargets, narrowedTargets } from './targets.js';
 
 /** The palm.yaml form of an entry: its name alone when it carries no options. */
@@ -251,7 +252,7 @@ export function requestJobs(
  */
 export function recordedPolicy(state: ScopeState, entry: LockEntry): SecretPolicy | undefined {
   const { manifest } = state;
-  const server = entry.source === 'manifest' ? manifest.mcp[entry.name] : undefined;
+  const server = entry.source === MANIFEST_SOURCE ? manifest.mcp[entry.name] : undefined;
   const own = manifest.entries(entry.source, entry.kind).find((e) => sameName(e.name, entry.name));
   return server?.secrets ?? own?.secrets;
 }

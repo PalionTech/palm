@@ -35,7 +35,7 @@ describe('installMcp (hand-declared servers)', () => {
       },
     });
     expect(await w.read('.claude/mcp.json')).toContain('Bearer ${DOCS_TOKEN}');
-    expect(await w.entry('mcp', 'docs')).toMatchObject({ source: 'manifest', path: 'mcp/docs' });
+    expect(await w.entry('mcp', 'docs')).toMatchObject({ source: 'palm.yaml', path: 'mcp/docs' });
   });
 
   it('renders the literal under --secrets literal when the destination allows it', async () => {
@@ -97,7 +97,7 @@ describe('installMcp (hand-declared servers)', () => {
       args: ['-y', 'xcodebuildmcp@latest'],
     };
     await installMcp(w.ctx, [{ config: stdio }], { scope: 'project' }, w.deps);
-    expect(w.exec.requests[0]?.units.map((u) => u.key)).toEqual(['mcp:xcode@manifest']);
+    expect(w.exec.requests[0]?.units.map((u) => u.key)).toEqual(['mcp:xcode@palm.yaml']);
     await expect(
       installMcp(w.ctx, [{ config: stdio }], { scope: 'project' }, w.deps),
     ).rejects.toMatchObject({ code: 'E_CONFLICT' });

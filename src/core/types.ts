@@ -138,7 +138,7 @@ export interface McpServerConfig {
   /** Secrets referenced by env/headers that the user must supply. */
   secrets?: SecretRef[];
   /** Where this config came from, for display: a source (its name and version), palm.yaml, a README snippet or flags. */
-  from?: { type: 'source' | 'manifest' | 'snippet' | 'flags'; ref?: string; version?: string };
+  from?: { type: 'source' | 'palm.yaml' | 'snippet' | 'flags'; ref?: string; version?: string };
 }
 
 export interface SecretRef {

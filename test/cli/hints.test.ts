@@ -396,7 +396,7 @@ const SUMMARIES: Scenario[] = [
         scopes: [scopeOf({ scope: 'global' })],
         syncScope: async () => ({
           ...nothing,
-          outcomes: [outcome(program('manifest', 'docs'), 'skipped')],
+          outcomes: [outcome(program('palm.yaml', 'docs'), 'skipped')],
         }),
       }),
   },
@@ -497,7 +497,7 @@ const describeInfo = (entry: LockEntry): EntityInfo => ({
   source: {},
   files: {},
   notes: [],
-  selectedBy: 'manifest',
+  selectedBy: 'palm.yaml',
   exec: { commands: [], hash: 'sha256:abc', trusted: false },
 });
 
@@ -917,8 +917,8 @@ const TYPED: Scenario[] = [
     deps: () =>
       fakeEngine({
         checkScope: checkFailing(
-          { kind: 'mcp', name: 'docs', source: 'manifest' },
-          'palm install manifest docs --force',
+          { kind: 'mcp', name: 'docs', source: 'palm.yaml' },
+          'palm install palm.yaml docs --force',
         ),
       }),
   },

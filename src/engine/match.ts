@@ -5,18 +5,15 @@
  * one corrected command (O3, M10). Every question is settled before anything is written (V7').
  */
 import { PalmError } from '../core/errors.js';
-import { pluralize } from '../core/kinds.js';
 import type {
   Entity,
   EntityRef,
   EntityRefSpec,
-  Kind,
   PalmContext,
   PickOption,
   Scope,
   SourceIndex,
 } from '../core/types.js';
-import { KINDS } from '../core/types.js';
 import { entityId } from '../domain/entity-key.js';
 import { formatEntityRef, sameName } from '../domain/entity-ref.js';
 import { type NearMissHit, nearMissFor } from '../index/near-miss-lookup.js';
@@ -215,33 +212,4 @@ export function requestedRefs(match: NameMatch): EntityRef[] {
   const direct = match.entities.map((e) => ({ kind: e.kind, name: e.name }));
   const plugins = match.plugins.map((p) => ({ kind: p.plugin.kind, name: p.plugin.name }));
   return [...plugins, ...direct];
-}
-
-/** Counts by kind in KINDS order: `15 skills, 1 hook`. */
-function countsOf(entities: readonly Entity[]): string {
-  const counts = KINDS.map((k: Kind) => [k, entities.filter((e) => e.kind === k).length] as const);
-  return counts
-    .filter(([, n]) => n > 0)
-    .map(([k, n]) => `${n} ${pluralize(k, n)}`)
-    .join(', ');
-}
-
-/** T15, M5: the plugins a source offers, for the listing's first rows (`superpowers (15 skills, 1 hook)`). */
-export function pluginSummaries(index: SourceIndex): Array<{ plugin: Entity; text: string }> {
-  return index.entities
-    .filter((e) => e.kind === 'plugin')
-    .map((plugin) => {
-      const counts = countsOf(membersOf(index, plugin));
-      return { plugin, text: counts ? `${plugin.name} (${counts})` : plugin.name };
-    });
-}
-
-/** O4, T15: the names the source offers in two kinds or more (the listing marks them), lower case. */
-export function twoKindNames(index: SourceIndex): Set<string> {
-  const kinds = new Map<string, Set<Kind>>();
-  for (const e of index.entities) {
-    const key = e.name.toLowerCase();
-    kinds.set(key, (kinds.get(key) ?? new Set()).add(e.kind));
-  }
-  return new Set([...kinds].filter(([, k]) => k.size > 1).map(([name]) => name));
 }

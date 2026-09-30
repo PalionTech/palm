@@ -117,8 +117,7 @@ const OWN_SWITCHES =
 async function flagsOf(app: App, g: GlobalOptions): Promise<PalmFlags> {
   if (g.local) throw localError(app, g);
   const secrets = secretPolicy(g.secrets);
-  // K-manifest: a server palm.yaml declares is keyed `@palm.yaml`; the lock still says manifest
-  const typed = g.allowExec?.replaceAll('@palm.yaml=', '@manifest=');
+  const typed = g.allowExec;
   const allowExec = typed === undefined ? [] : await engine(app).parseAllowExec(typed);
   return {
     yes: Boolean(g.yes),

@@ -194,7 +194,10 @@ export function validEntry(file: string, i: number, raw: unknown): LockEntry {
     !(Array.isArray(raw.files) && raw.files.every((f) => typeof f === 'string'))
   )
     throw badEntry(file, i, 'has a files list that is not a list of paths');
-  return { ...raw, files: (raw.files as string[] | undefined) ?? [] } as unknown as LockEntry;
+  const files = (raw.files as string[] | undefined) ?? [];
+  // a lock written by an early 0.2 build named palm.yaml's own servers `manifest`
+  const source = raw.source === 'manifest' ? 'palm.yaml' : raw.source;
+  return { ...raw, source, files } as unknown as LockEntry;
 }
 
 /** The `sources` map of a v3 lock, checked. */

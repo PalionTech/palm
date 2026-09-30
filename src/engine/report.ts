@@ -63,9 +63,13 @@ export function palmCommand(verb: string, words: string[], scope: Scope, extra?:
   return `palm ${[verb, ...words].join(' ')}${scopeFlag(scope)}${tail}`;
 }
 
-/** `palm install <source> <name>[ -g][ --force]` for one entity. */
+/**
+ * `palm install <source> <name>[ -g][ --force]` for one entity; `palm install mcp <name>` for a
+ * server palm.yaml declares by hand (J10: it has no source to name).
+ */
 export function installCommand(subject: Subject, scope: Scope, extra?: string): string {
   const words = subject.kind === 'source' ? [subject.source] : [subject.source, subject.name];
+  if (subject.source === 'palm.yaml' && subject.kind === 'mcp') words[0] = 'mcp';
   return palmCommand('install', words, scope, extra);
 }
 

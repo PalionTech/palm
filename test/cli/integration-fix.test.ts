@@ -384,7 +384,9 @@ describe('migrate and the files 0.1 copied', () => {
     });
     const run = await m.palm(p, 'migrate');
     expect(run.code, run.all).toBe(0);
-    expect(run.all).toContain('removed 1 file palm 0.1 copied that palm 0.2 does not write there');
+    expect(run.all).toContain(
+      '- removed .claude/skills/tdd/agents/openai.yaml: palm 0.1 copied it; palm 0.2 writes agents/openai.yaml only into .agents/skills',
+    );
     expect(existsSync(join(p, '.claude/skills/tdd/agents/openai.yaml'))).toBe(false);
     expect(existsSync(join(p, '.claude/skills/tdd/SKILL.md'))).toBe(true);
   });

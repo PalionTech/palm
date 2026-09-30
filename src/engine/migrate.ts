@@ -361,7 +361,7 @@ function baseReport(mig: Migrating, manifest: Manifest, lock: Lock): MigrateRepo
  * and `palm check` names it.
  */
 async function dropStaleCopies(plan: Plan): Promise<string[]> {
-  const { state, ctx } = plan.run;
+  const { state } = plan.run;
   const removed: string[] = [];
   for (const p of plan.prepared) {
     const entry = state.lock.find(p.job.entity, p.job.source.name);
@@ -373,10 +373,6 @@ async function dropStaleCopies(plan: Plan): Promise<string[]> {
       removed.push(file);
     }
   }
-  if (removed.length)
-    ctx.log.info(
-      `removed ${removed.length === 1 ? '1 file' : `${removed.length} files`} palm 0.1 copied that palm 0.2 does not write there: ${removed[0]}${removed.length > 1 ? ', …' : ''}`,
-    );
   return removed;
 }
 

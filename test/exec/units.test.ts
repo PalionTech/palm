@@ -32,7 +32,7 @@ describe('unitKey', () => {
     expect(unitKey({ kind: 'hook', name: 'gh-cli', source: 'trailofbits/skills' })).toBe(
       'hook:gh-cli@trailofbits/skills',
     );
-    expect(unitKey({ kind: 'mcp', name: 'docs', source: 'manifest' })).toBe('mcp:docs@manifest');
+    expect(unitKey({ kind: 'mcp', name: 'docs', source: 'palm.yaml' })).toBe('mcp:docs@palm.yaml');
   });
 });
 

@@ -17,8 +17,11 @@ import { SourceRef } from '../domain/source.js';
 import { urlOfLocked } from '../domain/source-url.js';
 import { lockedSource, type ScopeState } from './scope.js';
 
-/** The source name of hand-declared MCP servers in the lock. */
-export const MANIFEST_SOURCE = 'manifest';
+/**
+ * The source of hand-declared MCP servers in the lock, in `--allow-exec` keys and in every label
+ * (`mcp:docs@palm.yaml`): palm.yaml itself (J10 Y6 N13, never `manifest`).
+ */
+export const MANIFEST_SOURCE = 'palm.yaml';
 
 /** A Source rebuilt from the lock alone (DESIGN §4: url, root, sha, layout suffice). */
 function sourceFromLock(state: ScopeState, name: string, ls: LockSource): Source {
@@ -54,7 +57,7 @@ export function mcpConfigOf(name: string, e: McpManifestEntry): McpServerConfig 
   const cfg: McpServerConfig = {
     name,
     transport: e.transport ?? (e.url ? 'http' : 'stdio'),
-    from: { type: 'manifest' },
+    from: { type: MANIFEST_SOURCE },
   };
   if (e.command) cfg.command = e.command;
   if (e.args) cfg.args = [...e.args];

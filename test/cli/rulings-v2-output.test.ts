@@ -168,7 +168,7 @@ describe('L10, J10, Y6, R7: the lines under a row are commands that run', () => 
     const server = lockEntry({
       kind: 'mcp',
       name: 'brave-search',
-      source: 'manifest',
+      source: 'palm.yaml',
       exec: { commands: [], hash: 'sha256:1' },
     });
     const deps = fakeEngine({
@@ -432,13 +432,13 @@ describe('Y26, C28, D27: JSON says what a dry run would do, versions as fields, 
   });
 
   it('Y26: get mcp --json carries each server variables', async () => {
-    const docs = lockEntry({ kind: 'mcp', name: 'docs', source: 'manifest' });
+    const docs = lockEntry({ kind: 'mcp', name: 'docs', source: 'palm.yaml' });
     const info = {
       entry: docs,
       source: {},
       files: {},
       notes: [],
-      selectedBy: 'manifest',
+      selectedBy: 'palm.yaml',
       secrets: [{ name: 'DOCS_TOKEN', set: false }],
     } as EntityInfo;
     const deps = fakeEngine({
@@ -603,5 +603,17 @@ describe('Y22, E20: a program the person named and declined exits 130', () => {
       installFromSource: async () => result([outcome(hook, 'skipped')]),
     });
     expect((await palm(sb, ['install', 'acme/kit', '--all'], { deps: all })).code).toBe(0);
+  });
+
+  it('Q4 a bare name that resolved to the plugin: its declined hook of that name exits 0', async () => {
+    const member = { ...hook, name: 'guard', via: 'plugin:guard' };
+    const deps = fakeEngine({
+      scopes: [scope()],
+      installFromSource: async () => ({
+        ...result([{ ...outcome(member, 'skipped'), declined: true }]),
+        requested: [{ kind: 'plugin' as const, name: 'guard' }],
+      }),
+    });
+    expect((await palm(sb, ['install', 'acme/kit', 'guard'], { deps })).code).toBe(0);
   });
 });

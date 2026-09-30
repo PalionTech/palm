@@ -35,9 +35,27 @@ function toCommit(report: MigrateReport): string[] {
   return files;
 }
 
+/**
+ * X8 N15 V5': every file the migration deleted (or would), the files a dry run would write, the
+ * 0.1 fragments someone changed and what palm did with them, and the notes the lock keeps.
+ */
+function printChanges(out: Output, report: MigrateReport, dryRun: boolean): void {
+  for (const f of report.written ?? []) out.mark('~', `would write ${f}`);
+  for (const r of report.removed ?? [])
+    out.mark('-', `${dryRun ? 'would remove' : 'removed'} ${r.file}: ${r.reason}`);
+  for (const c of report.changed ?? []) {
+    const what = `${c.kind} ${c.name}: ${c.file} (${c.at}) changed since palm 0.1 wrote it`;
+    if (c.action === 'replaced') out.mark('~', `${what}; replaced with palm 0.2's render`);
+    else if (c.action === 'kept') out.warn(`${what}; kept as you changed it`);
+    else out.warn(`${what}; palm migrate asks before replacing it (--force replaces it)`);
+  }
+  for (const n of report.notes ?? []) out.info(n);
+}
+
 /** The engine already said which sources it added to palm.yaml (one line each, L19). */
 function printReport(out: Output, report: MigrateReport, project: boolean): void {
   out.mark('~', 'palm.yaml and palm.lock.yaml now use the palm 0.2 format');
+  printChanges(out, report, false);
   for (const a of report.movedAssets) out.mark('~', `moved ${a}`);
   if (report.gitignore) out.mark('~', `.gitignore: ${report.gitignore}`);
   // X19: a program that runs in place from the repository was trusted, not copied
@@ -104,7 +122,10 @@ export async function run(inv: Invocation, app: App): Promise<void> {
     .catch((e: unknown) => {
       throw nothingHere(e, ctx, scope);
     });
-  if (dryRun && !app.out.jsonMode) app.out.out(report.manifest.trimEnd());
+  if (dryRun && !app.out.jsonMode) {
+    app.out.out(report.manifest.trimEnd());
+    printChanges(app.out, report, true);
+  }
   if (!dryRun && !app.out.jsonMode) printReport(app.out, report, scope === 'project');
   if (!app.out.jsonMode) printFailures(app.out, report.failures);
   const failed = report.failures.length > 0;

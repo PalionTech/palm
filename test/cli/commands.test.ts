@@ -34,7 +34,7 @@ const tdd = lockEntry({
 const docs = lockEntry({
   kind: 'mcp',
   name: 'docs',
-  source: 'manifest',
+  source: 'palm.yaml',
   render: { claude: 'sha256:2' },
   merged: [{ file: '.mcp.json', at: '/mcpServers', id: 'palm:mcp:docs:0', key: 'docs' }],
 });
@@ -93,7 +93,7 @@ describe('palm get', () => {
       source: {},
       files: {},
       notes: [],
-      selectedBy: 'manifest',
+      selectedBy: 'palm.yaml',
       secrets: [{ name: 'DOCS_TOKEN', set: false }],
     } as EntityInfo;
     const deps = fakeEngine({

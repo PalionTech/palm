@@ -32,8 +32,13 @@ export interface InstallReport {
   downgraded?: (source: string) => boolean;
 }
 
-/** A program the person named and then declined at the consent prompt. */
-function declinedByName(result: InstallResult, names: readonly EntityRefSpec[]): boolean {
+/**
+ * A program the person named and then declined at the consent prompt. The names as the engine
+ * resolved them (`result.requested`) decide: `superpowers` that named the plugin did not name
+ * its hook `superpowers`, so declining the hook is no named decline (Q4, Y22).
+ */
+function declinedByName(result: InstallResult, typed: readonly EntityRefSpec[]): boolean {
+  const names: readonly EntityRefSpec[] = result.requested ?? typed;
   const named = (e: { kind: string; name: string }) =>
     names.some(
       (n) => n.name.toLowerCase() === e.name.toLowerCase() && (!n.kind || n.kind === e.kind),

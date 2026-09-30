@@ -489,7 +489,7 @@ describe('palm.yaml and --allow-exec (J10, K-manifest)', () => {
       syncScope: async () => nothing,
     });
     await palm(sb, ['install', '--allow-exec', 'mcp:docs@palm.yaml=sha256:ab'], { deps });
-    expect(seen).toEqual(['mcp:docs@manifest=sha256:ab']);
+    expect(seen).toEqual(['mcp:docs@palm.yaml=sha256:ab']);
   });
 
   it('J10: a palm.yaml server reads palm.yaml in a failure line', () => {
@@ -500,10 +500,10 @@ describe('palm.yaml and --allow-exec (J10, K-manifest)', () => {
           {
             kind: 'mcp',
             name: 'docs',
-            source: 'manifest',
+            source: 'palm.yaml',
             code: 'E_CONFLICT',
             message: 'changed',
-            hint: 'palm install manifest docs --force',
+            hint: 'palm install palm.yaml docs --force',
           },
         ],
       },

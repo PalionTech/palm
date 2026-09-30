@@ -105,7 +105,7 @@ function fileRows(rows: InstalledRow[]): Array<{ file: string; entry: string; so
 async function sourceFilter(ctx: PalmContext, app: App, flags: GetFlags) {
   const query = flags.source;
   if (query === undefined) return undefined;
-  if (query === 'palm.yaml') return 'manifest';
+  if (query === 'palm.yaml') return query;
   const scope = scopeOf(flags);
   const state = await engine(app).openScope(ctx, scope, { readOnly: true });
   const declared = state.sources.byName(query)?.name;

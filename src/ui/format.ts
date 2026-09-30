@@ -123,9 +123,9 @@ export function shortRef(ref: string | undefined): string | undefined {
   return ref && /^[0-9a-f]{40}$/.test(ref) ? ref.slice(0, 7) : ref;
 }
 
-/** J10, N13: the source of an entry palm.yaml itself declares (an MCP server) reads `palm.yaml`. */
+/** J10, N13: a source as people read it (a server palm.yaml itself declares is `palm.yaml`). */
 export function sourceLabel(source: string): string {
-  return source === 'manifest' ? 'palm.yaml' : source;
+  return source;
 }
 
 /** `sha256:a7cc7911…` or a git sha → the first `n` hex characters. */
@@ -188,10 +188,10 @@ export function withKind(hint: string, subject: { kind: string; name: string }):
 
 /**
  * J10, R16': a server palm.yaml declares by hand has no source to name: its hints are
- * `palm install mcp <name>` and `palm remove mcp:<name>`, never the word `manifest`.
+ * `palm install mcp <name>` and `palm remove mcp:<name>`, never `palm install palm.yaml …`.
  */
 export function publicHint(hint: string): string {
   return hint
-    .replace(/palm install manifest ((?:mcp:)?)(\S+)/g, 'palm install mcp $2')
-    .replace(/palm remove manifest (?:mcp:)?(\S+)/g, 'palm remove mcp:$1');
+    .replace(/palm install palm\.yaml ((?:mcp:)?)(\S+)/g, 'palm install mcp $2')
+    .replace(/palm remove palm\.yaml (?:mcp:)?(\S+)/g, 'palm remove mcp:$1');
 }

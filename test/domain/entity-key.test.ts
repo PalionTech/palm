@@ -20,7 +20,7 @@ describe('LockKey', () => {
     expect(k.entity.id).toBe('skill:tdd');
     expect(k.is({ kind: 'skill', name: 'tdd', source: 'mattpocock/skills' })).toBe(true);
     expect(k.is({ kind: 'skill', name: 'tdd', source: 'other' })).toBe(false);
-    expect(lockId({ kind: 'mcp', name: 'Docs', source: 'manifest' })).toBe('mcp:docs@manifest');
+    expect(lockId({ kind: 'mcp', name: 'Docs', source: 'palm.yaml' })).toBe('mcp:docs@palm.yaml');
   });
 });
 

@@ -49,7 +49,7 @@ function mcpEngine() {
           lockEntry({
             kind: 'mcp',
             name: r.config.name,
-            source: 'manifest',
+            source: 'palm.yaml',
             merged: [
               { file: '.mcp.json', at: '/mcpServers', id: 'palm:mcp:x:0', key: r.config.name },
             ],

@@ -9,8 +9,7 @@ import './fakes.js';
 import { describe, expect, it } from 'vitest';
 import { PalmError } from '../../src/core/errors.js';
 import type { PickOption, UI } from '../../src/core/types.js';
-import { installFromSource, listSource } from '../../src/engine/install.js';
-import { pluginSummaries, twoKindNames } from '../../src/engine/match.js';
+import { installFromSource } from '../../src/engine/install.js';
 import { removeEntities } from '../../src/engine/remove.js';
 import { syncScope } from '../../src/engine/sync.js';
 import { fakeUI } from './fakes.js';
@@ -144,17 +143,6 @@ describe("O4 T15 M5 M10 O3 V7' two-kind names", () => {
     ).rejects.toMatchObject({ code: 'E_CANCELLED' });
     expect(await w.manifestText()).toBe('targets: [claude]\n');
     expect(w.exists('.claude/skills/tdd/SKILL.md')).toBe(false);
-  });
-
-  it('T15 M5 the listing data: plugins first with their counts, two-kind names marked', async () => {
-    const w = await makeWorld({ targets: ['claude'] });
-    const url = await w.remote('superpowers', { 'v1.0.0': { ...SUPERPOWERS, ...CLASH } });
-    const { index } = await listSource(w.ctx, url, project, w.deps);
-    expect(pluginSummaries(index).map((p) => p.text)).toEqual([
-      'ast-grep (1 skill)',
-      'superpowers (2 skills, 1 hook)',
-    ]);
-    expect([...twoKindNames(index)].sort()).toEqual(['ast-grep', 'review']);
   });
 });
 

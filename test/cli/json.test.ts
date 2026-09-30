@@ -66,7 +66,7 @@ describe('--json', () => {
       source: mpSource,
       files: { claude: ['.claude/skills/tdd/SKILL.md'] },
       notes: ['cursor reads .claude/skills; no second copy'],
-      selectedBy: 'manifest',
+      selectedBy: 'palm.yaml',
     };
     const deps = fakeEngine({
       listInstalled: async () => [{ entry: tdd, source: mpSource, layer: 'team' }],

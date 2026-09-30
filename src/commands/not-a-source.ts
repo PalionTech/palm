@@ -49,7 +49,7 @@ function installedEntry(words: string[], ctx: GrammarContext, kind?: Kind): Palm
   const [word = ''] = words;
   const lower = word.toLowerCase();
   const hit = ctx.entries?.find(
-    (e) => e.name.toLowerCase() === lower && (!kind || e.kind === kind) && e.source !== 'manifest',
+    (e) => e.name.toLowerCase() === lower && (!kind || e.kind === kind) && e.source !== 'palm.yaml',
   );
   if (!hit) return undefined;
   const names = kind ? words.map((w) => `${kind}:${w}`) : words;
@@ -64,7 +64,7 @@ function nearEntry(words: string[], ctx: GrammarContext): PalmError | undefined 
   const [word = '', ...rest] = words;
   const near = nearest(
     word,
-    (ctx.entries ?? []).filter((e) => e.source !== 'manifest').map((e) => e.name),
+    (ctx.entries ?? []).filter((e) => e.source !== 'palm.yaml').map((e) => e.name),
   );
   const hit = near ? ctx.entries?.find((e) => e.name === near) : undefined;
   if (!hit) return undefined;
