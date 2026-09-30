@@ -825,6 +825,12 @@ export interface InstallResult {
    * the lock records those, and the CLI exits 130 after printing the result (K16, L11).
    */
   interrupted?: { done: number; total: number };
+  /**
+   * The files (and `file#at#key` fragments) this run removed, or would remove in a dry run, as
+   * people read them (`~/…` under -g): what `--json` shows (J10'), including the files of a
+   * target palm.yaml no longer lists (B2).
+   */
+  removals?: string[];
 }
 
 /** A file `remove` left on disk, and why (C3, K18, R5). */

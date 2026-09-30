@@ -29,12 +29,13 @@ import {
   failure,
   failureOf,
   label,
+  logMark,
   palmCommand,
   type Subject,
   throwIfCancelled,
 } from './report.js';
 import { settle, withLockedScope } from './runner.js';
-import type { ScopeState } from './scope.js';
+import { type ScopeState, shownPath } from './scope.js';
 import { MANIFEST_SOURCE } from './sources.js';
 import { editedPaths } from './verify.js';
 
@@ -52,11 +53,13 @@ export interface UndeployJob {
   sources?: string[];
 }
 
-/** What an undeploy did not do: failures, warnings and the files it left on disk. */
+/** What an undeploy did (`removed`) and did not do: failures, warnings, the files it left. */
 export interface UndeployReport {
   failures: InstallFailure[];
   warnings: string[];
   kept: KeptFile[];
+  /** Lock paths and `file#at#key` fragments it removed, or would remove in a dry run. */
+  removed: string[];
 }
 
 /**
@@ -140,7 +143,7 @@ export async function undeploy(
   deps: EngineDeps,
   job: UndeployJob,
 ): Promise<UndeployReport> {
-  const report: UndeployReport = { failures: [], warnings: [], kept: [] };
+  const report: UndeployReport = { failures: [], warnings: [], kept: [], removed: [] };
   const g = await deleteGuard(ctx, deps, job.paths, {
     staying: job.protect,
     sources: job.sources ?? [],
@@ -150,6 +153,7 @@ export async function undeploy(
     const merged = (entry.merged ?? []).filter((m) => !job.protect.has(fragmentKey(m)));
     if (!files.length && !merged.length) continue;
     const view: LockEntry = { ...entry, files, merged };
+    report.removed.push(...files, ...merged.map(fragmentKey));
     for (const id of targetsOf(entry)) {
       try {
         await deps
@@ -162,6 +166,24 @@ export async function undeploy(
     }
   }
   return report;
+}
+
+/** A lock path or `file#at#key` fragment as people read it (`~/…` under -g). */
+function shownRemoval(state: ScopeState, removed: string): string {
+  const [file = removed, ...rest] = removed.split('#');
+  return [shownPath(state, file), ...rest].join('#');
+}
+
+/**
+ * Adds what an undeploy removed (or would remove) to the run's `removals` (J10', B2); with
+ * `list` a dry run also names each one (`- would remove .agents/skills/x/SKILL.md`).
+ */
+export function noteRemovals(run: Run, removed: readonly string[], list = false): void {
+  if (!removed.length) return;
+  const shown = removed.map((r) => shownRemoval(run.state, r));
+  run.result.removals = [...(run.result.removals ?? []), ...shown];
+  if (list && run.ctx.flags.dryRun)
+    for (const s of shown) logMark(run.ctx, '-', `would remove ${s}`);
 }
 
 // ---------------------------------------------------------------------------

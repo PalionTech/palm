@@ -24,7 +24,7 @@ import { mergeEnvNotes } from './env-notes.js';
 import type { Prepared, Run } from './jobs.js';
 import { keptProgram } from './moves.js';
 import { removeOrphans } from './orphans.js';
-import { protectedPaths, sourceRoots, undeploy } from './remove.js';
+import { noteRemovals, protectedPaths, sourceRoots, undeploy } from './remove.js';
 import {
   failure,
   failureOf,
@@ -271,6 +271,8 @@ async function replacePrevious(
   if (!ctx.flags.dryRun) run.touched = true;
   run.result.failures.push(...report.failures);
   run.result.warnings.push(...report.warnings);
+  // B2: files a target palm.yaml no longer lists (or a render no longer writes) are named.
+  noteRemovals(run, report.removed, true);
 }
 
 /** ` (codex moved on)` when other targets were written while these paths were kept (R8). */

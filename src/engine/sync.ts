@@ -32,7 +32,7 @@ import { dedupeJobs, manifestJobs } from './entries.js';
 import { manifestMcpJob } from './install-mcp.js';
 import { type Job, type Run, runOf } from './jobs.js';
 import { type Move, moveOf } from './moves.js';
-import { protectedPaths, sourceRoots, undeploy } from './remove.js';
+import { noteRemovals, protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failureOf, logMark, palmCommand } from './report.js';
 import { lockSourceOf, pinOf, type Resolved, resolveSource, rethrowCancel } from './resolve.js';
 import { applyAll, prepareRun, settle, withLockedScope } from './runner.js';
@@ -144,6 +144,7 @@ async function dropRemoved(run: Run, gone: LockEntry[]): Promise<void> {
     });
     if (!ctx.flags.dryRun) run.touched = true;
     run.result.failures.push(...report.failures);
+    noteRemovals(run, report.removed);
     state.lock.remove(e);
     run.result.outcomes.push({ entry: e, status: 'removed', notes: [] });
   }
@@ -178,7 +179,9 @@ async function dropUnappliedFile(
     );
     return;
   }
-  if ((await judgeDelete(g, run.state.paths.lockForm(file.path))).action !== 'delete') return;
+  const lockPath = run.state.paths.lockForm(file.path);
+  if ((await judgeDelete(g, lockPath)).action !== 'delete') return;
+  noteRemovals(run, [lockPath]);
   if (run.ctx.flags.dryRun) {
     logMark(run.ctx, '-', `would remove ${shown}: palm.lock.yaml no longer lists it`);
     return;
@@ -267,6 +270,7 @@ async function dropUnapplied(run: Run): Promise<void> {
   });
   if (!ctx.flags.dryRun) run.touched = true;
   run.result.failures.push(...report.failures);
+  noteRemovals(run, report.removed);
 }
 
 /** DESIGN §6 "Bare install". */

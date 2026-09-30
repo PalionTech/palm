@@ -29,7 +29,7 @@ import { resolveEngineDeps } from './deps.js';
 import { manifestJobs } from './entries.js';
 import { type Job, type Prepared, prepareJob, type Run, runOf } from './jobs.js';
 import { type Move, moveOf, versionLabel } from './moves.js';
-import { protectedPaths, sourceRoots, undeploy } from './remove.js';
+import { noteRemovals, protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failureOf, palmCommand } from './report.js';
 import { lockSourceOf, type Resolved, resolveSource, rethrowCancel } from './resolve.js';
 import { applyAll, prepareRun, settle, withLockedScope } from './runner.js';
@@ -353,6 +353,7 @@ async function dropGone(run: Run, gone: LockEntry[]): Promise<void> {
   });
   if (!ctx.flags.dryRun) run.touched = true;
   run.result.failures.push(...report.failures);
+  noteRemovals(run, report.removed);
   for (const e of gone) {
     state.lock.remove(e);
     run.result.outcomes.push({ entry: e, status: 'removed', notes: [] });
