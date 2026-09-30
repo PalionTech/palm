@@ -186,7 +186,6 @@ const CASES: Case[] = [
       'instruction:python instructions/python.instructions.md',
       'mcp:awesome-copilot plugins/awesome-copilot/mcp.json <awesome-copilot>',
       'plugin:awesome-copilot plugins/awesome-copilot',
-      'skill:qdrant-horizontal-scaling skills/qdrant-scaling/scaling-data-volume/horizontal-scaling',
       'skill:qdrant-scaling skills/qdrant-scaling',
       'skill:suggest-awesome-github-copilot-agents skills/suggest-awesome-github-copilot-agents <awesome-copilot>',
     ],
@@ -200,7 +199,6 @@ const CASES: Case[] = [
     warnings: [
       /remote plugin "agent-council" \(github:Avyayalaya\/agent-council#v0\.1\.3\)/,
       /remote plugin "anarlog" \(github:fastrepl\/anarlog\/agent-plugins\/anarlog@259b68866a7d\)/,
-      /horizontal-scaling\/SKILL\.md: frontmatter name "qdrant-horizontal-scaling" differs from directory "horizontal-scaling"/,
     ],
   },
   {
@@ -512,7 +510,9 @@ describe('scanSource definitions', () => {
     const r = await scan('claude-plugins-official-like');
     expect(find(r, 'skill', 'new-sdk-app')).toMatchObject({
       path: 'plugins/agent-sdk-dev/commands/new-sdk-app.md',
-      notes: ['from command new-sdk-app.md'],
+      notes: [
+        'from command new-sdk-app.md: installed as a skill, which a harness may also load on its own when it looks relevant',
+      ],
     });
     expect(find(r, 'skill', 'new-sdk-app').def).toEqual({
       kind: 'skill',
@@ -580,7 +580,7 @@ describe('scanSource definitions', () => {
     });
   });
 
-  it('awesome-copilot-like: materialized agent paths, instructions, Copilot hooks, sub-skills', async () => {
+  it('awesome-copilot-like: materialized agent paths, instructions, Copilot hooks, nested skills as content', async () => {
     const r = await scan('awesome-copilot-like');
     expect(find(r, 'agent', 'meta-agentic-project-scaffold').def).toMatchObject({
       agent: {
@@ -602,13 +602,8 @@ describe('scanSource definitions', () => {
     expect(find(r, 'hook', 'license-checker').def).toMatchObject({
       hooks: { dialect: 'copilot', pluginRootRel: 'hooks/license-checker' },
     });
-    expect(find(r, 'skill', 'qdrant-horizontal-scaling').def).toMatchObject({
-      skill: {
-        parent: 'qdrant-scaling',
-        dirName: 'horizontal-scaling',
-        description: "Diagnoses horizontal scaling: 'vertical or horizontal?', 'how many nodes?'",
-      },
-    });
+    // A SKILL.md below another skill's directory is its content (ruling C4).
+    expect(r.entities.some((e) => e.name === 'qdrant-horizontal-scaling')).toBe(false);
     expect(find(r, 'skill', 'qdrant-scaling').def).not.toHaveProperty('skill.parent');
     // .github/{skills,agents}, .vscode/mcp.json are install output / dev config.
     expect(
@@ -634,7 +629,9 @@ describe('scanSource definitions', () => {
       instruction: { globs: ['**/*.ts'], activation: 'paths' },
     });
     expect(find(r, 'skill', 'release')).toMatchObject({
-      notes: ['from command release.prompt.md'],
+      notes: [
+        'from command release.prompt.md: installed as a skill, which a harness may also load on its own when it looks relevant',
+      ],
       def: { skill: { fromCommand: { sourceFormat: 'prompt-md' } } },
     });
   });

@@ -189,7 +189,13 @@ export interface InstructionDefinition {
   alwaysApply: boolean;
   activation: Activation;
   body: string;
-  sourceFormat?: 'md' | 'mdc' | 'instructions-md' | 'agents-md';
+  /**
+   * `claude-md`: a `.md` rule Claude Code reads as it is (no `globs`, `applyTo` or `alwaysApply`
+   * frontmatter); installed for claude byte-identical, under its own file name (ruling B12).
+   */
+  sourceFormat?: 'md' | 'claude-md' | 'mdc' | 'instructions-md' | 'agents-md';
+  /** The source file name when a verbatim copy keeps it and it differs from `<name>.md`. */
+  fileName?: string;
 }
 
 /** A command file the index turned into a skill: the target renders SKILL.md from these. */
@@ -423,6 +429,12 @@ export interface LockMerged {
   at: string;
   id: string;
   key: string;
+  /**
+   * palm created the shared file when it merged this fragment (`ApplyResult.merged` sets it; the
+   * lock keeps it while the fragment stays). Undeploy deletes such a file when only the keys palm
+   * ensured are left (Cursor's `{"version": 1}`, ruling J14); a file the person had stays.
+   */
+  created?: boolean;
 }
 
 /** The executables of one hook entry or stdio MCP server, as the lock records them. */
@@ -747,6 +759,11 @@ export interface InstallRequest {
   at?: string;
   /** `--as <name>`: the name a newly declared source gets in palm.yaml. */
   as?: string;
+  /**
+   * `--layout kind=glob` (repeatable), parsed by `parseLayoutFlags` (src/index/layout-flags.ts):
+   * the `layout:` a newly declared source gets in palm.yaml (ruling K2).
+   */
+  layout?: LayoutDescriptor;
 }
 
 /** A hand-declared MCP server (`install mcp` flags, `--json` snippet) headed for `mcp:` in palm.yaml. */
@@ -934,6 +951,8 @@ export interface RenderInput {
   env?: NodeJS.ProcessEnv;
   /** The targets active for the entry (cursor writes `.claude/skills` when claude is active). */
   targets?: readonly TargetId[];
+  /** `--force`: a skill above the copy limits (200 files or 5 MB) is copied anyway (ruling Y2). */
+  force?: boolean;
 }
 
 export interface RenderedFile {
@@ -990,6 +1009,7 @@ export interface ApplyInput {
 export interface ApplyResult {
   /** Every lock-form path the render lists (written, adopted, or that would be in a dry run). */
   files: string[];
+  /** The render's fragments; `created` on those whose shared file this apply created (J14). */
   merged: LockMerged[];
   /** The subset of `files` present with identical content, adopted without writing. */
   adopted: string[];
@@ -1001,6 +1021,21 @@ export interface Target {
   displayName: string;
   /** True when the harness appears to be in use at this scope. */
   detect(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): Promise<boolean>;
+  /**
+   * The absolute path that made `detect` true (`<root>/.codex`, `<root>/CLAUDE.md`), for the
+   * evidence `init` prints (`codex (.codex)`); undefined when the harness is not detected.
+   * An `AGENTS.md` alone never marks Codex (ruling Y15).
+   */
+  evidence?(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): Promise<string | undefined>;
+  /**
+   * Agent files in this harness's agents directory that answer to one name (lock-form paths),
+   * for `check` to warn about: the harness loads one of them (ruling Y14).
+   */
+  agentNameClashes?(
+    scope: Scope,
+    scopeRoot: string,
+    env: NodeJS.ProcessEnv,
+  ): Promise<Array<{ name: string; files: string[] }>>;
   /** Root config dir for the scope, e.g. <projectRoot>/.claude or ~/.claude. */
   configDir(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): string;
   /** Output directories this target writes to at a scope (lock form), for overlap checks. */

@@ -6,7 +6,6 @@
 import path from 'node:path';
 import type { TargetId } from '../core/types.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
-import { pathExists } from '../lib/fs.js';
 import {
   type CleanupRoot,
   DISPLAY_NAMES,
@@ -49,8 +48,6 @@ export const cursorSpec: TargetSpec = {
   id: 'cursor',
   displayName: DISPLAY_NAMES.cursor,
   layout: cursorLayout,
-  async detect(paths) {
-    return pathExists(paths.harnessHome('cursor'));
-  },
+  markers: (paths) => [paths.harnessHome('cursor')],
   outputDirs: (paths) => outputDirsOf(cursorLayout(paths), paths),
 };

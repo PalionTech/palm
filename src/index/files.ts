@@ -10,10 +10,10 @@
 
 import { realpathSync, statSync } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import fg from 'fast-glob';
-import { isScanIgnoredRel } from '../domain/ignore.js';
-import { isWithin } from '../lib/fs.js';
+import { INSTALL_OUTPUT_DIRS, isScanIgnoredRel } from '../domain/ignore.js';
+import { isWithin, toPosix } from '../lib/fs.js';
 import { rebaseIgnore } from './ignore.js';
 import { baseOf, dirDepth, dirOf } from './util.js';
 
@@ -253,6 +253,8 @@ interface WalkFrame {
   /** Source-relative path of `absDir` ('' at the root). */
   prefix: string;
   realDir: string;
+  /** Path of `realDir` relative to the source's real root ('' at the root). */
+  realRel: string;
   deep: number;
   /** Real directories on the current link chain (loop protection). */
   chain: Set<string>;
@@ -269,7 +271,7 @@ const joinPrefix = (prefix: string, rel: string): string =>
 export async function buildFileIndex(rootAbs: string, opts: FileIndexOptions): Promise<FileIndex> {
   const realRoot = await realpath(rootAbs);
   const index = new FileIndex(rootAbs, realRoot);
-  const frame = { absDir: rootAbs, prefix: '', realDir: realRoot, deep: opts.deep };
+  const frame = { absDir: rootAbs, prefix: '', realDir: realRoot, realRel: '', deep: opts.deep };
   await walkTree({ index, opts }, { ...frame, chain: new Set([realRoot]) });
   index.finish();
   return index;
@@ -289,11 +291,23 @@ async function walkTree(w: Walk, frame: WalkFrame): Promise<void> {
   });
   const links: string[] = [];
   for (const e of entries) {
+    if (reachesOutput(w, joinPrefix(frame.realRel, e.path))) continue;
     if (e.dirent.isFile())
       w.index.addFile(joinPrefix(frame.prefix, e.path), join(frame.realDir, e.path));
     else if (e.dirent.isSymbolicLink()) links.push(e.path);
   }
   for (const linkPath of links) await followLink(w, frame, linkPath);
+}
+
+/**
+ * True when `realRel` (a path relative to the source's real root) lies in an install output
+ * directory (`.claude/skills`, …): palm's own copies, which a symlink may reach under another
+ * name (`mirror -> .claude/skills`). Auto-detected scans skip them (ruling C4).
+ */
+function reachesOutput(w: Walk, realRel: string): boolean {
+  if (!w.opts.ignoreDirNames) return false;
+  const padded = `/${realRel}/`;
+  return INSTALL_OUTPUT_DIRS.some((d) => padded.includes(`/${d}/`));
 }
 
 async function realpathOrUndefined(p: string): Promise<string | undefined> {
@@ -323,6 +337,8 @@ async function followLink(w: Walk, frame: WalkFrame, linkPath: string): Promise<
     w.index.warnings.push(`skipped symlink ${rel}: points outside the source`);
     return;
   }
+  const realRel = toPosix(relative(w.index.realRoot, target));
+  if (reachesOutput(w, realRel)) return;
   const kind = await statKind(target);
   if (kind === 'file') w.index.addFile(rel, target);
   if (kind !== 'dir' || (w.opts.ignoreDirNames && isScanIgnoredRel(rel))) return;
@@ -335,6 +351,7 @@ async function followLink(w: Walk, frame: WalkFrame, linkPath: string): Promise<
     absDir: join(frame.absDir, linkPath),
     prefix: rel,
     realDir: target,
+    realRel,
     deep: remaining,
     chain: new Set([...frame.chain, target]),
   });

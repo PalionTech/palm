@@ -1,13 +1,15 @@
 /**
  * The files the post-scan passes (hidden Unicode, secrets) read: a skill's directory walked like
- * the deploy copy walks it, an entity's own files, and the files of a hook's or server's closure.
- * Binary files (a NUL byte in the first 8 KB) and files over 1 MB are not read.
+ * the deploy copy walks it (`SKILL_COPY_SKIP` left out), an entity's own files, and the files of a
+ * hook's or server's closure. Binary files (a NUL byte in the first 8 KB) and files over 1 MB are
+ * not read.
  */
 
 import { type FileHandle, open, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Closure, Entity } from '../core/types.js';
 import { isClosureExcluded, shouldSkipFile } from '../domain/ignore.js';
+import { isSkillCopySkipped } from '../domain/skill-copy.js';
 import { walkFiles } from '../lib/fs.js';
 import { isCommandSkill } from './entity-registry.js';
 import type { ScanContext } from './scan-context.js';
@@ -75,10 +77,22 @@ export function closureOfEntity(e: Entity): Closure | undefined {
   return e.def.kind === 'mcp' ? e.def.closure : undefined;
 }
 
-/** The entity's own files: a skill's directory (a command-skill's file), else its definition files. */
-export async function ownFiles(ctx: ScanContext, e: Entity): Promise<SourceFile[]> {
+/**
+ * The entity's own files: the files a skill copy takes from its directory (a command-skill's
+ * file), else its definition files. Walked once per scan; both passes read the list.
+ */
+export function ownFiles(ctx: ScanContext, e: Entity): Promise<SourceFile[]> {
+  let files = ctx.ownFiles.get(e);
+  if (!files) {
+    files = listOwnFiles(ctx, e);
+    ctx.ownFiles.set(e, files);
+  }
+  return files;
+}
+
+async function listOwnFiles(ctx: ScanContext, e: Entity): Promise<SourceFile[]> {
   if (e.kind === 'skill' && !isCommandSkill(e))
-    return walkedFiles(ctx, e.path, (name) => shouldSkipFile(name));
+    return walkedFiles(ctx, e.path, (name) => isSkillCopySkipped(name));
   const rels = [...new Set([e.path, ...(ctx.extraSources.get(e) ?? [])])];
   return rels.map((rel) => ({ rel, abs: join(ctx.rootAbs, rel) }));
 }

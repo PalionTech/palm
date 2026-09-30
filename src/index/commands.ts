@@ -24,6 +24,23 @@ export interface ParsedCommand {
   command: CommandAsSkill;
 }
 
+/** Longest description derived from a command's text. */
+const DERIVED_MAX = 200;
+
+/**
+ * A description for a command that has none (ruling Y11): its first non-empty line, heading
+ * marks and surrounding spaces removed, cut at 200 characters. A skill needs a description; the
+ * command's first line is what a person reads first.
+ */
+function firstLineDescription(body: string): string | undefined {
+  const line = body
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^#+\s*/, '').trim())
+    .find((l) => l !== '');
+  if (line === undefined) return undefined;
+  return line.length > DERIVED_MAX ? `${line.slice(0, DERIVED_MAX - 1).trimEnd()}…` : line;
+}
+
 export function parseCommandFile(absPath: string, text: string): ParsedCommand {
   const lower = absPath.toLowerCase();
   const name = toSlug(stemOf(absPath, COMMAND_EXTS));
@@ -41,7 +58,7 @@ export function parseCommandFile(absPath: string, text: string): ParsedCommand {
     const body = typeof data.prompt === 'string' ? data.prompt : '';
     return withoutUndefined({
       name,
-      description: asString(data.description),
+      description: asString(data.description) ?? firstLineDescription(body),
       command: { body, sourceFormat: 'gemini-toml' as const },
     });
   }
@@ -59,7 +76,7 @@ export function parseCommandFile(absPath: string, text: string): ParsedCommand {
   else sourceFormat = 'claude-md';
   return withoutUndefined({
     name,
-    description: asString(data.description),
+    description: asString(data.description) ?? firstLineDescription(body),
     command: withoutUndefined({ body, argumentHint, sourceFormat }),
   });
 }

@@ -3,14 +3,27 @@
  * instruction or hook into the project's in-repo source (`./agent-kit`, or `~/.palm/kit` under
  * `-g`), declare that source in palm.yaml when it is new, and install the entity. No prompts,
  * no editor; an existing file is `E_CONFLICT`.
+ *
+ * Everything that can refuse is checked before a byte is written (checks.ts), the template lands
+ * where the source's layout indexes it (place.ts), and a run that installs nothing takes its
+ * template back, so a failed or declined create leaves the source as it was (rulings K13, B6,
+ * J6, C27).
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { PalmError } from '../core/errors.js';
-import type { InstallResult, PalmContext, Scope } from '../core/types.js';
-import { isSafeName } from '../lib/names.js';
+import type { InstallResult, LayoutDescriptor, PalmContext, Scope } from '../core/types.js';
+import { removeEmptyParents } from '../lib/fs.js';
+import {
+  assertDirAllowed,
+  assertName,
+  assertNoOverlap,
+  assertNotIndexed,
+  assertTargets,
+} from './checks.js';
 import { type CliDeps, engineDepsOf, engineOf, type ScopeState, type SourceRef } from './engine.js';
+import { placeMainFile } from './place.js';
 
 export type CreatableKind = 'skill' | 'agent' | 'instruction' | 'hook';
 
@@ -84,19 +97,34 @@ You are ${titleOf(name)}. Describe the role, the steps to take and what to repor
 `;
 }
 
-function instructionMd(name: string, description: string): string {
-  return `${frontmatter([['description', description]])}
+/** An always-on instruction; a Cursor `.mdc` says so with `alwaysApply: true`. */
+function instructionMd(name: string, description: string, mdc: boolean): string {
+  const fields: Array<[string, string]> = [['description', description]];
+  if (mdc) fields.push(['alwaysApply', 'true']);
+  return `${frontmatter(fields)}
 # ${titleOf(name)}
 
 Write the rules the agent follows in this project.
 `;
 }
 
+/**
+ * The directory the index takes as a hooks file's plugin root: the owner of a `hooks/` folder
+ * holding `hooks.json`, else the file's own directory (index exec-adders `hookIdentity`).
+ */
+function hookRootOf(file: string): string {
+  const dir = posix.dirname(file);
+  return posix.basename(file) === 'hooks.json' && posix.basename(dir) === 'hooks'
+    ? posix.dirname(dir)
+    : dir;
+}
+
 /** `hooks/<name>/hooks.json` with one SessionStart command, and the script it runs (mode 755). */
-function hookFiles(name: string, description: string): TemplateFile[] {
-  const script = `hooks/${name}/scripts/${name}.sh`;
-  // The plugin root of a loose `hooks/<name>/hooks.json` is its own directory.
-  const command = `bash "\${CLAUDE_PLUGIN_ROOT}/scripts/${name}.sh"`;
+function hookFiles(name: string, description: string, file: string): TemplateFile[] {
+  const script = posix.join(posix.dirname(file), 'scripts', `${name}.sh`);
+  // The command names the script from the plugin root the index gives the hooks file.
+  const fromRoot = posix.relative(hookRootOf(file), script);
+  const command = `bash "\${CLAUDE_PLUGIN_ROOT}/${fromRoot}"`;
   const hooks = {
     description,
     hooks: { SessionStart: [{ hooks: [{ type: 'command', command }] }] },
@@ -107,7 +135,7 @@ set -euo pipefail
 echo "${name}: session started"
 `;
   return [
-    { rel: `hooks/${name}/hooks.json`, content: `${JSON.stringify(hooks, null, 2)}\n` },
+    { rel: file, content: `${JSON.stringify(hooks, null, 2)}\n` },
     { rel: script, content: body, mode: 0o755 },
   ];
 }
@@ -119,18 +147,29 @@ const DEFAULT_DESCRIPTION: Readonly<Record<CreatableKind, (name: string) => stri
   hook: (n) => `${n}: runs when a session starts.`,
 };
 
-/** The files a template writes, paths relative to the source directory. */
+/**
+ * The files a template writes, paths relative to the source directory: the main file where the
+ * source's layout indexes the kind (the convention path without a layout), then the others.
+ */
 export function templateFor(
   kind: CreatableKind,
   name: string,
   description?: string,
+  layout?: LayoutDescriptor,
 ): TemplateFile[] {
   const text = description?.trim() || DEFAULT_DESCRIPTION[kind](name);
-  if (kind === 'skill') return [{ rel: `skills/${name}/SKILL.md`, content: skillMd(name, text) }];
-  if (kind === 'agent') return [{ rel: `agents/${name}.md`, content: agentMd(name, text) }];
+  const main = placeMainFile(kind, name, layout);
+  if (kind === 'skill') return [{ rel: main, content: skillMd(name, text) }];
+  if (kind === 'agent') return [{ rel: main, content: agentMd(name, text) }];
   if (kind === 'instruction')
-    return [{ rel: `instructions/${name}.md`, content: instructionMd(name, text) }];
-  return hookFiles(name, text);
+    return [{ rel: main, content: instructionMd(name, text, main.endsWith('.mdc')) }];
+  return hookFiles(name, text, main);
+}
+
+/** The index path of the template's entity: a skill's directory, else its main file. */
+function entityPathOf(kind: CreatableKind, files: readonly TemplateFile[]): string {
+  const main = files[0]?.rel ?? '';
+  return kind === 'skill' ? posix.dirname(main) : main;
 }
 
 /** The source directory: `--in` (from the cwd; `~/` is home), else the scope's default. */
@@ -143,15 +182,53 @@ function sourceDirOf(ctx: PalmContext, opts: Pick<CreateOptions, 'dir' | 'scope'
   return join(ctx.paths.projectRoot, 'agent-kit');
 }
 
-/** Writes each file of the template; one already there (with the same content, see refuseExisting) stays. */
-async function writeTemplate(dir: string, files: TemplateFile[]): Promise<void> {
+/** The nearest directory above `abs` that exists: where a rollback stops pruning. */
+function existingAncestor(abs: string): string {
+  let dir = dirname(abs);
+  while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
+  return dir;
+}
+
+/**
+ * Writes each file of the template; one already there (with the same content, see
+ * refuseExisting) stays. Returns what it created, with the directory each rollback stops at.
+ */
+async function writeTemplate(
+  dir: string,
+  files: TemplateFile[],
+): Promise<Array<{ abs: string; stop: string }>> {
+  const created: Array<{ abs: string; stop: string }> = [];
   for (const f of files) {
     const abs = join(dir, f.rel);
     if (existsSync(abs)) continue;
+    created.push({ abs, stop: existingAncestor(abs) });
     await mkdir(dirname(abs), { recursive: true });
     await writeFile(abs, f.content, { flag: 'wx' });
     if (f.mode !== undefined) await chmod(abs, f.mode);
   }
+  return created;
+}
+
+/** Takes a template back: the files it created and the directories it made for them. */
+async function removeTemplate(created: ReadonlyArray<{ abs: string; stop: string }>) {
+  for (const c of [...created].reverse()) {
+    await rm(c.abs, { force: true });
+    await removeEmptyParents(c.abs, c.stop);
+  }
+}
+
+/** Statuses that leave the entity installed. */
+const INSTALLED = new Set([
+  'installed',
+  'updated',
+  're-rendered',
+  'restored',
+  'unchanged',
+  'partial',
+]);
+
+function installedAny(result: InstallResult): boolean {
+  return result.outcomes.some((o) => INSTALLED.has(o.status));
 }
 
 /** How the source directory is typed on a command line: `./agent-kit`, else its full path. */
@@ -180,35 +257,75 @@ function refuseExisting(ctx: PalmContext, dir: string, files: TemplateFile[], op
 
 const EMPTY: InstallResult = { outcomes: [], failures: [], warnings: [] };
 
+interface Plan {
+  dir: string;
+  files: TemplateFile[];
+  before: ScopeState;
+  known: SourceRef | undefined;
+}
+
 /**
- * Write the template (E_CONFLICT when a file exists), then install the entity from its source,
- * which declares the source in palm.yaml when it is not there yet.
+ * Every check, before anything is written (dry run and real run alike): the name, `--in`, the
+ * targets, an overlap with an output directory, the template's place in the source's layout, an
+ * existing file and a name the source already indexes.
+ */
+async function planCreate(ctx: PalmContext, opts: CreateOptions, deps: CliDeps): Promise<Plan> {
+  assertName(opts.kind, opts.name);
+  const dir = sourceDirOf(ctx, opts);
+  assertDirAllowed(ctx, dir, opts);
+  const before = await engineOf(deps).openScope(ctx, opts.scope, { readOnly: true });
+  assertTargets(before);
+  await assertNoOverlap(ctx, deps, before, dir);
+  const known = before.sources
+    .all()
+    .find((s) => s.matches(dir) || s.matches(sourceInput(ctx, dir)));
+  const files = templateFor(opts.kind, opts.name, opts.description, known?.source.layout);
+  refuseExisting(ctx, dir, files, opts);
+  const path = entityPathOf(opts.kind, files);
+  const input = known?.name ?? sourceInput(ctx, dir);
+  await assertNotIndexed(ctx, deps, { ...opts, input, dir, path });
+  return { dir, files, before, known };
+}
+
+/** Install the template's entity; a run that installs nothing takes the template back. */
+async function installTemplate(
+  ctx: PalmContext,
+  opts: CreateOptions,
+  deps: CliDeps,
+  plan: Plan,
+): Promise<{ result: InstallResult; kept: boolean }> {
+  const created = await writeTemplate(plan.dir, plan.files);
+  const req = { source: plan.dir, names: [{ kind: opts.kind, name: opts.name }] };
+  const api = engineOf(deps);
+  try {
+    const result = await api.installFromSource(ctx, req, { scope: opts.scope }, engineDepsOf(deps));
+    if (installedAny(result)) return { result, kept: true };
+    await removeTemplate(created);
+    return { result, kept: false };
+  } catch (e) {
+    await removeTemplate(created);
+    throw e;
+  }
+}
+
+/**
+ * Check everything, write the template, then install the entity from its source, which declares
+ * the source in palm.yaml when it is not there yet. Nothing installed: nothing stays written.
  */
 export async function createEntity(
   ctx: PalmContext,
   opts: CreateOptions,
   deps: CliDeps = {},
 ): Promise<CreateResult> {
-  if (!isSafeName(opts.name))
-    throw new PalmError(
-      'E_USAGE',
-      `"${opts.name}" is not a name: use letters, digits, ".", "_" or "-"`,
-      `palm create ${opts.kind} release-notes`,
-    );
-  const api = engineOf(deps);
-  const dir = sourceDirOf(ctx, opts);
-  const files = templateFor(opts.kind, opts.name, opts.description);
-  refuseExisting(ctx, dir, files, opts);
-  const before = await api.openScope(ctx, opts.scope, { readOnly: true });
-  const known = before.sources.all().some((s) => s.matches(dir));
-  const written = files.map((f) => join(dir, f.rel));
+  const plan = await planCreate(ctx, opts, deps);
+  const { dir, before, known } = plan;
+  const written = plan.files.map((f) => join(dir, f.rel));
   const base = { dir, file: written[0] ?? dir, files: written, before };
   if (ctx.flags.dryRun) return { ...base, declared: !known, result: EMPTY, after: before };
-  await writeTemplate(dir, files);
-  const req = { source: dir, names: [{ kind: opts.kind, name: opts.name }] };
-  const result = await api.installFromSource(ctx, req, { scope: opts.scope }, engineDepsOf(deps));
-  const after = await api.openScope(ctx, opts.scope, { readOnly: true });
+  const { result, kept } = await installTemplate(ctx, opts, deps, plan);
+  const after = await engineOf(deps).openScope(ctx, opts.scope, { readOnly: true });
   const source = after.sources.all().find((s) => s.matches(dir));
   const declared = !known && source !== undefined;
-  return { ...base, declared, result, after, ...(source ? { source } : {}) };
+  const files = kept ? written : [];
+  return { ...base, files, declared, result, after, ...(source ? { source } : {}) };
 }

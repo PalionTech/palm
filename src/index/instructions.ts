@@ -3,14 +3,15 @@
  *  - Cursor `.mdc` rules: `alwaysApply: true` → always; `globs` → paths; a description without
  *    globs → on-request; neither → manual
  *  - Copilot `.instructions.md`: `applyTo` → paths (an everything-glob → always), else always
- *  - Claude `.claude/rules`-style `.md` and plain markdown: `paths:` → paths, else always
+ *  - Claude `.claude/rules`-style `.md` and plain markdown: `paths:` → paths, else always; without
+ *    Cursor or Copilot keys it is `claude-md`, which claude installs byte-identical (ruling B12)
  *  - `AGENTS.md` sections: always
  */
 
 import { basename } from 'node:path';
 import type { Activation, InstructionDefinition } from '../core/types.js';
 import { parseFrontmatter } from '../lib/frontmatter.js';
-import { stemOf } from '../lib/names.js';
+import { isSafeName, stemOf } from '../lib/names.js';
 import { withoutUndefined } from '../lib/object.js';
 import { asBool, asList, asString, toSlug } from './util.js';
 
@@ -28,7 +29,11 @@ interface Parts {
   activation: Activation;
   body: string;
   sourceFormat: NonNullable<InstructionDefinition['sourceFormat']>;
+  fileName?: string;
 }
+
+/** Frontmatter keys Claude Code does not read on a rule; a file with one is converted, not copied. */
+const NON_CLAUDE_KEYS = ['globs', 'applyTo', 'alwaysApply'];
 
 function definition(parts: Parts): InstructionDefinition {
   const globs = parts.globs && parts.globs.length > 0 ? parts.globs : undefined;
@@ -79,5 +84,9 @@ export function parseInstructionFile(absPath: string, text: string): Instruction
   }
   const globs = scopingGlobs(data.paths ?? data.globs ?? data.applyTo);
   const activation = markdownActivation(data, globs !== undefined, description);
-  return definition({ ...head, globs, activation, sourceFormat: 'md' });
+  if (NON_CLAUDE_KEYS.some((k) => k in data))
+    return definition({ ...head, globs, activation, sourceFormat: 'md' });
+  const base = basename(absPath);
+  const fileName = base === `${name}.md` || !isSafeName(base) ? undefined : base;
+  return definition({ ...head, globs, activation, sourceFormat: 'claude-md', fileName });
 }

@@ -5,6 +5,10 @@
  * in a definition is replaced by `<redacted sha256:8>`, so the index never holds it. MCP servers
  * then get `secrets`, the variables they need, from the redacted definition.
  *
+ * Every file a skill, agent or instruction copies is scanned too (ruling Y2): a credential there
+ * is critical, since the file is written as it is and palm never writes a literal from a source;
+ * a random value in code or prose is a warning (`copiedSeverity`).
+ *
  * The shapes and the redaction are `src/secrets/scan.ts`; scan.ts passes them in.
  */
 
@@ -20,7 +24,13 @@ import { isRecord } from '../lib/object.js';
 import { hookHandlers } from './hooks.js';
 import { addIssues } from './issues.js';
 import type { ScanContext } from './scan-context.js';
-import { closureFiles, closureOfEntity, readScannable, type SourceFile } from './source-files.js';
+import {
+  closureFiles,
+  closureOfEntity,
+  ownFiles,
+  readScannable,
+  type SourceFile,
+} from './source-files.js';
 
 /** The part of `src/secrets/scan.ts` the scanner uses (API.md). */
 export interface SecretScanner {
@@ -122,11 +132,42 @@ function definitionIssues(e: Entity, scanner: SecretScanner): EntityIssue[] {
   return r.issues;
 }
 
-async function fileIssues(file: SourceFile, scanner: SecretScanner): Promise<EntityIssue[]> {
+/** How bad one finding in a file is; `text` is the file's text. */
+type Severity = (f: SecretFinding, file: string, text: string) => EntityIssue['severity'];
+
+async function fileIssues(
+  file: SourceFile,
+  scanner: SecretScanner,
+  severity: Severity,
+): Promise<EntityIssue[]> {
   const text = await readScannable(file.abs);
   if (text === undefined) return [];
-  return scanner.scanText(text, file.rel).map((f) => issueOf(f, file.rel, 'warning'));
+  return scanner
+    .scanText(text, file.rel)
+    .map((f) => issueOf(f, file.rel, severity(f, file.rel, text)));
 }
+
+/** Files whose `name = value` lines are configuration, where a random value is a credential. */
+const DATA_FILE = /(^|\/)\.env(\.[^/]*)?$|\.(json|jsonc|toml|ya?ml|ini|cfg|conf|properties)$/i;
+
+/** The line a `<file>:<line>` finding points at. */
+function lineOf(f: SecretFinding, text: string): string {
+  const n = Number(/:(\d+)$/.exec(f.where)?.[1] ?? 0);
+  return text.split(/\r?\n/)[n - 1] ?? '';
+}
+
+/**
+ * A copied file's finding refuses the entity when it is a credential beyond doubt: a known token
+ * prefix, a Bearer token, a secret in a URL, a private key block, or a random value in a
+ * configuration file. A random value in code or prose (`apiKey = hash(input)`) and a certificate
+ * or public key block are warnings: palm cannot tell them from a secret, so it says so and copies.
+ */
+const copiedSeverity: Severity = (f, file, text) => {
+  if (f.shape === 'high-entropy') return DATA_FILE.test(file) ? 'critical' : 'warning';
+  if (f.shape === 'private-key')
+    return lineOf(f, text).includes('PRIVATE KEY') ? 'critical' : 'warning';
+  return 'critical';
+};
 
 async function closureIssues(
   ctx: ScanContext,
@@ -138,18 +179,39 @@ async function closureIssues(
   // The definition files were scanned value by value above.
   const own = new Set([e.path, ...(ctx.extraSources.get(e) ?? [])]);
   const files = (await closureFiles(ctx, closure)).filter((f) => !own.has(f.rel));
-  return (await Promise.all(files.map((f) => fileIssues(f, scanner)))).flat();
+  return (await Promise.all(files.map((f) => fileIssues(f, scanner, () => 'warning')))).flat();
 }
 
-/** Scan every hook set and MCP server of the scan; redact and attach the findings. */
+/** Kinds whose files are copied or converted as they are (their text is the render). */
+const COPIED_KINDS: ReadonlySet<Entity['kind']> = new Set(['skill', 'agent', 'instruction']);
+
+/** Every file a skill, agent or instruction deploys: a literal refuses the entity. */
+async function copiedIssues(
+  ctx: ScanContext,
+  e: Entity,
+  scanner: SecretScanner,
+): Promise<EntityIssue[]> {
+  const files = await ownFiles(ctx, e);
+  return (await Promise.all(files.map((f) => fileIssues(f, scanner, copiedSeverity)))).flat();
+}
+
+async function entityIssues(
+  ctx: ScanContext,
+  e: Entity,
+  scanner: SecretScanner,
+): Promise<EntityIssue[]> {
+  if (COPIED_KINDS.has(e.kind)) return copiedIssues(ctx, e, scanner);
+  if (e.kind !== 'hook' && e.kind !== 'mcp') return [];
+  return [...definitionIssues(e, scanner), ...(await closureIssues(ctx, e, scanner))];
+}
+
+/**
+ * Scan every entity of the scan: hook sets and MCP servers value by value (redacted in place)
+ * plus their closures, and the files skills, agents and instructions copy.
+ */
 export async function checkSecrets(ctx: ScanContext, scanner: SecretScanner): Promise<void> {
-  const entities = ctx.registry.entities.filter((e) => e.kind === 'hook' || e.kind === 'mcp');
-  const found = await Promise.all(
-    entities.map(async (e) => [
-      ...definitionIssues(e, scanner),
-      ...(await closureIssues(ctx, e, scanner)),
-    ]),
-  );
+  const entities = ctx.registry.entities;
+  const found = await Promise.all(entities.map((e) => entityIssues(ctx, e, scanner)));
   entities.forEach((e, i) => {
     addIssues(e, found[i] ?? []);
   });

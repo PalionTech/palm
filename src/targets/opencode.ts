@@ -13,7 +13,6 @@
  */
 import path from 'node:path';
 import type { ScopePaths } from '../domain/scope-paths.js';
-import { pathExists } from '../lib/fs.js';
 import {
   type CleanupRoot,
   DISPLAY_NAMES,
@@ -59,13 +58,9 @@ export const opencodeSpec: TargetSpec = {
   id: 'opencode',
   displayName: DISPLAY_NAMES.opencode,
   layout: opencodeLayout,
-  async detect(paths) {
-    if (paths.scope === 'project') {
-      for (const marker of ['.opencode', 'opencode.json', 'opencode.jsonc'])
-        if (await pathExists(path.join(paths.root, marker))) return true;
-      return false;
-    }
-    return pathExists(paths.harnessHome('opencode'));
-  },
+  markers: (paths) =>
+    paths.scope === 'project'
+      ? ['.opencode', 'opencode.json', 'opencode.jsonc'].map((m) => path.join(paths.root, m))
+      : [paths.harnessHome('opencode')],
   outputDirs: (paths) => outputDirsOf(opencodeLayout(paths), paths),
 };

@@ -27,7 +27,9 @@ Five words, used the same way in the CLI, the files and the docs.
 Activation of an instruction is one of `always` (always-on), `on-request` (a description,
 loaded when relevant), `paths` (globs) and `manual` (`@name`). The index records it from the
 source format; 0.2 targets keep today's placement, and 0.3 maps it where a harness lacks the
-concept.
+concept. Until then an on-request or manual instruction rendered always-on gets one note per
+harness (`instruction x: on-request in the source, always-on for claude until 0.3`); Cursor keeps
+the activation.
 
 "Origin", "registry" and "capability" are not palm words. Messages, flags, files and docs
 say "source".
@@ -96,6 +98,10 @@ honours `$CODEX_HOME`; `~/.copilot` honours `$COPILOT_HOME`; `~/.gemini` honours
 | instruction | managed block in `GEMINI.md` · `<gemini>/GEMINI.md` | `.opencode/instructions/<n>.md` + item in `opencode.json#/instructions` · `<opencode>/instructions/<n>.md` + item in `<opencode>/opencode.json#/instructions` |
 | hook | merged into `.gemini/settings.json` · `<gemini>/settings.json` (Gemini event names, timeout in ms) | (no declarative hooks: skip + note) |
 | mcp | `.gemini/settings.json` · `<gemini>/settings.json` (`mcpServers`) | `opencode.json` · `<opencode>/opencode.json` (`mcp`) |
+
+A Claude rule (a `.md` instruction without `globs`, `applyTo` or `alwaysApply`, indexed as
+`claude-md`) installs for claude byte-identical under its own file name, case kept
+(`.claude/rules/React-Rules.md`); the other harnesses get the conversion.
 
 A command-as-skill renders at the skill locations: `SKILL.md` with `name`, `description` and
 the command body; `$ARGUMENTS` survives (a note says where a harness does not expand it).
@@ -209,12 +215,25 @@ Enforced in targets and engine:
   install summary says which variable to export (section 8).
 - Only `skills/*/SKILL.md`, or what the layout declares, are entities; a nested
   `references/*/SKILL.md` is content.
+- A skill copy leaves out, at any depth, `SKILL_COPY_SKIP` (`src/domain/skill-copy.ts`): the
+  copy skip list, harness directories and configs (`.claude`, `.agents`, `.cursor`, `.codex`,
+  `.gemini`, `.opencode`, `.github`, `.vscode`, `.apm`, `.mcp.json`, `opencode.json`),
+  `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`, palm's files (`palm.yaml`, `palm.lock.yaml`,
+  `palm.local.yaml`, `.palm`) and `.env` files, with one note naming what was left out. Every
+  file a skill, agent or instruction copies is secret-scanned at index time: a credential beyond
+  doubt (a known token prefix, a Bearer token, a secret in a URL, a private key block, a random
+  value in a configuration file) refuses the entity; a random value in code or prose and a
+  certificate block are warnings. A skill above 200 files or 5 MB is refused without
+  `--force`, with the count in the message (`RenderInput.force`). `agents/openai.yaml` is
+  copied only into `.agents/skills`.
 - Symlinks inside a source are followed only when their real target stays inside the source,
   so a skill cannot smuggle `~/.ssh/id_rsa` into `.claude/skills`.
 - A deploy is a transaction: `Target.render` computes every file and fragment without writing;
   `Target.apply` checks collisions first (a whole file that exists, is not owned by the entry
   and differs from the render is `E_CONFLICT` before anything is written; an identical file is
-  adopted silently), then applies fragments and files, journaling each path (bytes and mode,
+  adopted silently, and so is one that says the same in other bytes, `sameContent`: frontmatter
+  data in any order or quoting, line ends, trailing spaces, the same JSON value; palm rewrites it
+  in its own bytes), then applies fragments and files, journaling each path (bytes and mode,
   or absent plus the nearest existing directory) just before writing it; a failure restores the
   journal newest first, so the scope is byte-identical afterwards.
 - Symlinked dotfiles: every write goes through `writeFileAtomic`, which writes through a
@@ -569,13 +588,25 @@ the values (section 8).
    `gemini-extension.json`): pick one, never union. Claude semantics: `skills` adds to
    default `skills/` scan; `agents`/`commands` replace defaults; `hooks`/`mcpServers` merge
    with `hooks/hooks.json`/`.mcp.json`; hooks may be inline in the manifest.
-5. Convention scan: root `SKILL.md` → one skill; else `**/SKILL.md` to depth 5
-   (a SKILL.md under another SKILL.md is a sub-skill: record `parent`);
+5. Convention scan: root `SKILL.md` → one skill; else `**/SKILL.md` to depth 5, top-most
+   only (a SKILL.md below another skill's directory is that skill's content, never an entity;
+   install output directories reached through a symlink are not scanned);
    agents `agents/**/*.md` + `**/*.agent.md` with `name`+`description` frontmatter (exclude
    `agents/openai.yaml`, README); commands `commands/*.md`, `commands/*.toml`, `prompts/*.prompt.md`
    (indexed as skills with `fromCommand`, note `from command <file>`); hooks `hooks/hooks.json`,
    `hooks/*/hooks.json`; mcp `.mcp.json`/`mcp.json` (wrapped or flat);
-   instructions `rules/*.mdc`, `*.instructions.md`, `instructions/*.md`.
+   instructions `rules/*.mdc`, `rules/*.md`, `*.instructions.md`, `instructions/*.md`.
+
+Near misses (auto-detected scans only): an agent-shaped `.md` (frontmatter `name`,
+`description` and an agent key such as `tools`, `model` or `skills`), a hook-shaped JSON (a
+`hooks` object of arrays) or an MCP-shaped JSON (`mcpServers`) that no rule indexed, outside
+`agents/` and `hooks/` folders, harness folders and plugin manifests, adds one warning per kind
+(`2 agent-shaped files not indexed: people/*.md; add layout: { skills: [packages/*], agents:
+[people/*.md] }`). A SKILL.md directly under an ignored name next to other skills adds
+`skipped skills/test/SKILL.md (ignored name "test"; add layout: { skills: [skills/*] })`. The
+suggested layout lists what the scan found as well, since a layout replaces detection. A
+descriptor pattern that matches nothing warns `layout agents: "people/*.md" matches nothing in
+the source`.
 
 Names: skill = frontmatter `name` (fallback dirname; if invalid slug, slugify dirname; if it
 differs from dirname keep frontmatter name and warn); a command-as-skill = file stem; agent =
@@ -1175,7 +1206,14 @@ Per command:
   script) into the in-repo source `<dir>` (default `./agent-kit`; `~/.palm/kit` under `-g`),
   declares the source in palm.yaml when absent (`+ source ./agent-kit → palm.yaml`), and
   installs the entity. No prompts, no editor; an existing file is `E_CONFLICT`. A `kind` of
-  `command` is `E_USAGE` naming `create skill`.
+  `command` is `E_USAGE` naming `create skill`. When the source's layout names globs, the
+  template lands at the kind's first glob with its `*` replaced by the name (`packages/*` →
+  `packages/<name>/SKILL.md`; `.mdc` instructions get `alwaysApply: true`); a layout without a
+  glob for the kind is `E_USAGE`. Before anything is written (a dry run too) create checks the
+  name, `--in` (inside the project or its git worktree; under `-g`, inside the home directory
+  or palm's home), the scope's targets, an overlap with an output directory, and a name the
+  source already indexes elsewhere (`E_CONFLICT`, `skill x already exists in ./skill (x)`). A
+  run that installs nothing removes the template again.
 - `palm cache clean [--yes]` removes `$PALM_HOME/cache`; without a terminal it needs `--yes`.
 - `palm completion bash|zsh|fish` prints a static script generated from the command tree.
 - `--dry-run` tables say what would happen (`would install`, `would restore`), never

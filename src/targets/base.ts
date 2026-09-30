@@ -24,10 +24,12 @@ import type {
 } from '../core/types.js';
 import { type MergedRecord, parseMergedRecord } from '../domain/merged-record.js';
 import { homeOf, palmHomeOf, ScopePaths } from '../domain/scope-paths.js';
-import { isWithin, removeEmptyParents } from '../lib/fs.js';
+import { isWithin, pathExists, removeEmptyParents } from '../lib/fs.js';
 import { isSafeName } from '../lib/names.js';
+import { isRecord } from '../lib/object.js';
+import { type AgentNameClash, agentNameClashes } from './agent-names.js';
 import { Applier } from './apply.js';
-import { removeFileIfExists } from './fs-utils.js';
+import { readTextOrUndefined, removeFileIfExists } from './fs-utils.js';
 import { unmergeJsonFile } from './json-merge.js';
 import type { CleanupRoot, TargetLayout, TargetSpec } from './layout.js';
 import { removeManagedBlock } from './managed-block.js';
@@ -112,14 +114,38 @@ async function unmergeOwn(
   paths: ScopePaths,
   layout: TargetLayout,
 ): Promise<void> {
+  const created = new Set<string>();
   for (const m of merged) {
     const abs = paths.abs(m.file);
     const claimed =
       layout.mergedFiles.includes(abs) || layout.roots.some((r) => isWithin(abs, r.dir));
     if (!claimed) continue;
     await assertDeletable(paths, abs, m.file);
-    await unmerge(parseMergedRecord({ ...m, file: abs, value: undefined }));
+    const { created: made, ...record } = m;
+    await unmerge(parseMergedRecord({ ...record, file: abs, value: undefined }));
+    if (made) created.add(abs);
   }
+  for (const abs of created) await removeIfOnlyEnsured(abs);
+}
+
+/** Keys palm sets on a shared file it creates (`RenderedFragment.ensure`: Cursor's `version`). */
+const ENSURED_KEYS: ReadonlySet<string> = new Set(['version']);
+
+/**
+ * A JSON file palm created that holds nothing but the keys palm ensured is palm's leftover
+ * (`{"version": 1}` after the last Cursor hook left, ruling J14): removed.
+ */
+async function removeIfOnlyEnsured(abs: string): Promise<void> {
+  const text = await readTextOrUndefined(abs);
+  if (text === undefined || !abs.endsWith('.json')) return;
+  let doc: unknown;
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    return;
+  }
+  if (isRecord(doc) && Object.keys(doc).every((k) => ENSURED_KEYS.has(k)))
+    await removeFileIfExists(abs);
 }
 
 export class GenericTarget implements Target {
@@ -141,8 +167,30 @@ export class GenericTarget implements Target {
     return new ScopePaths(scope, scopeRoot, palmHomeOf(e, home), e);
   }
 
-  detect(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): Promise<boolean> {
-    return this.spec.detect(this.paths(scope, scopeRoot, env));
+  async detect(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+    return (await this.evidence(scope, scopeRoot, env)) !== undefined;
+  }
+
+  /** The absolute path that marks the harness in use at the scope (`.codex`, `CLAUDE.md`), if any. */
+  async evidence(
+    scope: Scope,
+    scopeRoot: string,
+    env: NodeJS.ProcessEnv,
+  ): Promise<string | undefined> {
+    for (const marker of this.spec.markers(this.paths(scope, scopeRoot, env)))
+      if (await pathExists(marker)) return marker;
+    return undefined;
+  }
+
+  /** Agent files of this harness's agents directory that answer to one name, lock form (Y14). */
+  async agentNameClashes(
+    scope: Scope,
+    scopeRoot: string,
+    env: NodeJS.ProcessEnv,
+  ): Promise<AgentNameClash[]> {
+    const paths = this.paths(scope, scopeRoot, env);
+    const clashes = await agentNameClashes(this.spec.layout(paths).agentsDir);
+    return clashes.map((c) => ({ name: c.name, files: c.files.map((f) => paths.lockForm(f)) }));
   }
 
   configDir(scope: Scope, scopeRoot: string, env: NodeJS.ProcessEnv): string {

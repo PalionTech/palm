@@ -216,7 +216,9 @@ export async function addCommandAsSkill(
     kind: 'skill',
     skill,
   });
-  entity.notes = [`from command ${baseOf(rel)}`];
+  entity.notes = [
+    `from command ${baseOf(rel)}: installed as a skill, which a harness may also load on its own when it looks relevant`,
+  ];
   return ctx.registry.add(entity);
 }
 

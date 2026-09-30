@@ -180,7 +180,9 @@ describe('scanSource filesystem edge cases', () => {
           },
         },
       },
-      notes: ['from command review.md'],
+      notes: [
+        'from command review.md: installed as a skill, which a harness may also load on its own when it looks relevant',
+      ],
     });
     expect(r.entities.some((e) => (e.kind as string) === 'command')).toBe(false);
     expect(r.warnings).toEqual([]);

@@ -1,6 +1,5 @@
 import path from 'node:path';
 import type { ScopePaths } from '../domain/scope-paths.js';
-import { pathExists } from '../lib/fs.js';
 import {
   DISPLAY_NAMES,
   fixedSkillsDir,
@@ -51,14 +50,11 @@ export const copilotSpec: TargetSpec = {
   id: 'copilot',
   displayName: DISPLAY_NAMES.copilot,
   layout: copilotLayout,
-  async detect(paths) {
-    if (paths.scope === 'project') {
-      for (const p of ['.github/copilot-instructions.md', '.github/agents', '.vscode/mcp.json']) {
-        if (await pathExists(path.join(paths.root, p))) return true;
-      }
-      return false;
-    }
-    return pathExists(paths.harnessHome('copilot'));
-  },
+  markers: (paths) =>
+    paths.scope === 'project'
+      ? ['.github/copilot-instructions.md', '.github/agents', '.vscode/mcp.json'].map((p) =>
+          path.join(paths.root, p),
+        )
+      : [paths.harnessHome('copilot')],
   outputDirs: (paths) => outputDirsOf(copilotLayout(paths), paths),
 };

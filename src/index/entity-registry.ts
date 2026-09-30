@@ -35,6 +35,8 @@ export class EntityRegistry {
   private readonly byName = new Map<string, Entity>();
   private readonly byReal = new Map<string, Entity>();
   private readonly claimed = new Set<string>();
+  /** Paths claimed for any kind (the near-miss pass skips them). */
+  private readonly claimedPaths = new Set<string>();
 
   constructor(
     private readonly warnings: string[],
@@ -44,6 +46,12 @@ export class EntityRegistry {
   /** Mark `path` as handled for `kind`, so the convention pass does not index it again. */
   claim(kind: Kind, path: string): void {
     this.claimed.add(key(kind, path));
+    this.claimedPaths.add(path);
+  }
+
+  /** True when an earlier pass handled `path` as any kind (indexed or rejected). */
+  isClaimedAny(path: string): boolean {
+    return this.claimedPaths.has(path);
   }
 
   isClaimed(kind: Kind, path: string): boolean {

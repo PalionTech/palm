@@ -14,6 +14,7 @@ import type { ScanResult, Source } from '../core/types.js';
 import { type Detection, detectLayout, type ScanRule } from './detect.js';
 import { checkHiddenUnicode } from './hidden-unicode.js';
 import { issueWarnings } from './issues.js';
+import { warnNearMisses, warnSkippedSkills } from './near-miss.js';
 import { scanApm } from './rules/apm.js';
 import { scanConvention } from './rules/convention.js';
 import { scanDescriptor } from './rules/descriptor.js';
@@ -96,6 +97,8 @@ export async function scanSourceWith(
   const rule = await runDetected(ctx, detection);
   ctx.registry.applyInclude(ctx.layout?.include);
   ctx.registry.warnUndeclared();
+  await warnSkippedSkills(ctx);
+  await warnNearMisses(ctx);
   await checkHiddenUnicode(ctx);
   await checkSecrets(ctx, secrets);
   const entities = ctx.registry.entities;

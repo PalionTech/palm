@@ -118,6 +118,29 @@ const GEMINI_EVENTS: Readonly<Record<string, string>> = Object.fromEntries(
 /** Keys of a hook entry that hold a command line. */
 const COMMAND_KEYS = ['command', 'bash', 'powershell'] as const;
 
+/**
+ * What Codex reads in a hooks file it shares Claude's schema with (codex-rs/config
+ * hook_config.rs `MatcherGroup`, `HookHandlerConfig`): other keys a Claude entry carries
+ * (`shell`, `once`, `asyncRewake`) are left out with a note (ruling J); a handler Codex would run
+ * differently (another type, an `if` filter, PowerShell) is skipped with a note.
+ */
+const CODEX_GROUP_KEYS: ReadonlySet<string> = new Set(['matcher', 'hooks']);
+const CODEX_HANDLER_KEYS: Readonly<Record<string, ReadonlySet<string>>> = {
+  command: new Set([
+    'type',
+    'command',
+    'commandWindows',
+    'timeout',
+    'async',
+    'statusMessage',
+    'additionalContextLimit',
+  ]),
+  mcp_tool: new Set(['type', 'server', 'tool', 'input', 'timeout', 'statusMessage']),
+};
+
+/** A matcher alternative with an argument (`Bash(git commit*)`), which Copilot cannot express. */
+const MATCHER_ARGUMENT = /\(.*\)/;
+
 type Family = ToolDialect;
 
 /** The dialect a target's hooks file speaks (opencode has none: its hooks are skipped). */
@@ -342,6 +365,54 @@ function sameFamilyEvent(srcEvent: string, cx: Conversion): string | undefined {
   return cx.target === 'codex' ? undefined : srcEvent;
 }
 
+/** `obj` with only `allowed` keys; each other key is reported once per event. */
+function pickKeys(
+  obj: Record<string, unknown>,
+  allowed: ReadonlySet<string>,
+  report: (key: string) => void,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (allowed.has(k)) out[k] = v;
+    else report(k);
+  }
+  return out;
+}
+
+/**
+ * A Claude group as Codex reads it: documented keys only, handlers of a type Codex runs only
+ * (ruling J). Undefined when no handler is left.
+ */
+function codexGroup(group: unknown, event: string, cx: Conversion): unknown {
+  if (!isRecord(group) || !Array.isArray(group.hooks)) return group;
+  const noted = new Set<string>();
+  const report = (key: string): void => {
+    if (!noted.has(key)) cx.dropped.push(`${event}: ${key} (not a Codex hook key)`);
+    noted.add(key);
+  };
+  const hooks: unknown[] = [];
+  for (const h of group.hooks) {
+    const skip = codexSkip(h);
+    if (skip) cx.dropped.push(`${event}: ${skip}`);
+    else if (isRecord(h))
+      hooks.push(pickKeys(h, CODEX_HANDLER_KEYS[str(h.type) ?? 'command'] ?? new Set(), report));
+  }
+  if (hooks.length === 0) return undefined;
+  return { ...pickKeys(group, CODEX_GROUP_KEYS, report), hooks };
+}
+
+/**
+ * Why Codex cannot run a Claude handler as meant, or undefined: a type Codex does not run, an
+ * `if` filter it would ignore (the hook would fire on every call), or a PowerShell command.
+ */
+function codexSkip(h: unknown): string | undefined {
+  if (!isRecord(h)) return 'hook entry is not an object';
+  const type = str(h.type) ?? 'command';
+  if (!CODEX_HANDLER_KEYS[type]) return `${type} hook (Codex runs command and mcp_tool hooks)`;
+  if (h.if !== undefined) return `hook with if: ${String(h.if)} (Codex has no if filter)`;
+  return isPowershell(h) ? 'PowerShell hook (Codex runs hooks with sh)' : undefined;
+}
+
 /** Same family: keep entries verbatim (extra fields such as statusMessage survive). */
 function convertSameFamily(cx: Conversion): Record<string, unknown[]> {
   const events: Record<string, unknown[]> = {};
@@ -351,9 +422,21 @@ function convertSameFamily(cx: Conversion): Record<string, unknown[]> {
       cx.dropped.push(`${srcEvent}: not supported by ${cx.target}`);
       continue;
     }
-    events[out] = [...(events[out] ?? []), ...entries.map((e) => relocateEntry(e, srcEvent, cx))];
+    const kept =
+      cx.target === 'codex'
+        ? entries.map((e) => codexGroup(e, out, cx)).filter((e) => e !== undefined)
+        : entries;
+    events[out] = [...(events[out] ?? []), ...kept.map((e) => relocateEntry(e, srcEvent, cx))];
   }
   return events;
+}
+
+/**
+ * True when Copilot cannot express the hook's matcher: an alternative narrows its tool with an
+ * argument (`Bash(git commit*)`), which Copilot would match as a tool name and never fire (C6).
+ */
+function copilotCannotMatch(h: CanonHook): boolean {
+  return h.matcher?.split('|').some((alt) => MATCHER_ARGUMENT.test(alt)) ?? false;
 }
 
 /** Append `h` to the `{ matcher?, hooks: [...] }` group of its matcher (Claude/Gemini shape). */
@@ -399,6 +482,10 @@ function convertViaCanonical(cx: Conversion): Record<string, unknown[]> {
     const ev = targetEvent(h.event, cx.target);
     if (!ev) {
       cx.dropped.push(`${h.event}: not supported by ${cx.target}`);
+      continue;
+    }
+    if (cx.target === 'copilot' && copilotCannotMatch(h)) {
+      cx.dropped.push(`${h.event}: matcher "${h.matcher}" has an argument copilot cannot match`);
       continue;
     }
     const command = cx.run(h.command, h, h.powershell === true);

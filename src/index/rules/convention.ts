@@ -60,6 +60,7 @@ const CLASSIFIERS: ReadonlyArray<[ConventionKind, (f: FileShape) => boolean]> = 
   ['command', (f) => f.parent === 'commands' && mdOrToml(f) && !isDocFile(f.base)],
   ['agent', (f) => inAgentsDir(f) && mdOrToml(f) && !isDocFile(f.base)],
   ['instruction', (f) => f.parent === 'rules' && f.lower.endsWith('.mdc')],
+  ['instruction', (f) => f.parent === 'rules' && f.lower.endsWith('.md') && !isDocFile(f.base)],
   [
     'instruction',
     (f) => f.parent === 'instructions' && f.lower.endsWith('.md') && !isDocFile(f.base),
@@ -92,10 +93,19 @@ function sortCanonicalFirst(
   return items.sort((a, b) => (linked.get(a) ?? 0) - (linked.get(b) ?? 0) || byDepthThenPath(a, b));
 }
 
+/**
+ * Top-most skill directories only (ruling C4): a SKILL.md below another skill's directory
+ * (`references/animations/SKILL.md`) is that skill's content, never an entity of its own.
+ */
 async function scanConventionSkills(ctx: ScanContext): Promise<void> {
   const dirs = ctx.files
     .allSkillDirs()
-    .filter((d) => dirDepth(`${d}/SKILL.md`) <= SKILL_MAX_DEPTH && !isScanIgnoredRel(d));
+    .filter(
+      (d) =>
+        dirDepth(`${d}/SKILL.md`) <= SKILL_MAX_DEPTH &&
+        !isScanIgnoredRel(d) &&
+        ctx.files.parentSkillDir(d) === undefined,
+    );
   for (const d of sortCanonicalFirst(ctx, dirs, (x) => joinRel(x, 'SKILL.md'))) {
     if (!ctx.registry.isClaimed('skill', d)) await addSkill(ctx, d);
   }

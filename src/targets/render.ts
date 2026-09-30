@@ -14,6 +14,7 @@ import path from 'node:path';
 import { isPalmError, messageOf, PalmError } from '../core/errors.js';
 import type {
   Entity,
+  InstructionDefinition,
   Kind,
   Rendered,
   RenderedFile,
@@ -23,6 +24,7 @@ import type {
 } from '../core/types.js';
 import { fragmentId, fragmentKey } from '../domain/lock.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
+import { SKILL_MAX_BYTES, SKILL_MAX_FILES } from '../domain/skill-copy.js';
 import { isWithin, toPosix } from '../lib/fs.js';
 import { stringifyJson } from '../lib/json.js';
 import { formatPointer } from '../lib/json-pointer.js';
@@ -31,8 +33,8 @@ import { renderAgent } from './convert-agent.js';
 import { convertHooks, type Relocate } from './convert-hooks.js';
 import { renderInstruction } from './convert-instruction.js';
 import { renderCommandAsSkill } from './convert-skill.js';
-import { listCopyFiles } from './fs-utils.js';
-import type { TargetLayout } from './layout.js';
+import { listSkillFiles, type SkillFiles } from './fs-utils.js';
+import { sharedSkillsRoot, type TargetLayout } from './layout.js';
 import { renderMcp } from './mcp-config.js';
 import { relocateCommand, relocateMcp } from './relocate.js';
 import { renderHash } from './render-hash.js';
@@ -180,24 +182,59 @@ async function renderSkill(job: RenderJob): Promise<void> {
   await copySkillFiles(job, dir);
 }
 
+/** `1,192 files (42.1 MB)`: the size of a skill copy in a message. */
+function copySize(count: number, bytes: number): string {
+  const mb = (bytes / (1024 * 1024)).toFixed(1);
+  return `${count.toLocaleString('en-US')} ${count === 1 ? 'file' : 'files'} (${mb} MB)`;
+}
+
+/** A skill above 200 files or 5 MB is copied only with `--force` (ruling Y2). */
+function assertSkillSize(job: RenderJob, files: SkillFiles['files']): void {
+  const bytes = files.reduce((n, f) => n + f.size, 0);
+  if (job.input.force || (files.length <= SKILL_MAX_FILES && bytes <= SKILL_MAX_BYTES)) return;
+  const limit = `${SKILL_MAX_FILES} files or ${SKILL_MAX_BYTES / (1024 * 1024)} MB`;
+  throw new PalmError(
+    'E_SOURCE',
+    `skill ${job.entity.name}: ${copySize(files.length, bytes)} to copy; a skill above ${limit} needs --force`,
+    job.entity.path === '.'
+      ? 'a SKILL.md at the source root makes the whole repository the skill; to copy it anyway, run'
+      : `check ${job.entity.path} in the source; to copy it anyway, run`,
+    { retryWith: '--force' },
+  );
+}
+
+/** `agents/openai.yaml` is Codex metadata: only `.agents/skills` copies get it (DESIGN §2). */
+function codexOnly(job: RenderJob, dir: string, rel: string): boolean {
+  if (rel !== 'agents/openai.yaml') return false;
+  return path.dirname(dir) !== sharedSkillsRoot(job.paths).dir;
+}
+
 async function copySkillFiles(job: RenderJob, dir: string): Promise<void> {
   const { absPath, sourceRoot } = job.input;
   const name = job.entity.name;
   // Links may point anywhere inside the source (shared references), never outside it.
   const boundary = isWithin(absPath, sourceRoot) ? sourceRoot : absPath;
-  const { files, symlinksOutside } = await listCopyFiles(absPath, { boundary }).catch(
-    (e: unknown) => {
-      throw new PalmError('E_IO', `skill ${name}: cannot read ${absPath}: ${messageOf(e)}`);
-    },
-  );
-  if (symlinksOutside.length)
+  const listed = await listSkillFiles(absPath, { boundary }).catch((e: unknown) => {
+    throw new PalmError('E_IO', `skill ${name}: cannot read ${absPath}: ${messageOf(e)}`);
+  });
+  if (listed.symlinksOutside.length)
     job.note(
-      `skill ${name}: not copied (a link leaving the source): ${symlinksOutside.join(', ')}`,
+      `skill ${name}: not copied (a link leaving the source): ${listed.symlinksOutside.join(', ')}`,
     );
+  if (listed.leftOut.length) job.note(leftOutNote(name, listed.leftOut));
+  const files = listed.files.filter((f) => !codexOnly(job, dir, f.rel));
   if (files.length === 0)
     throw new PalmError('E_NOT_FOUND', `skill ${name}: no files in ${absPath}`);
+  assertSkillSize(job, files);
   for (const f of files)
     job.file(path.join(dir, ...f.rel.split('/')), await fs.readFile(f.abs), gitMode(f.mode));
+}
+
+/** `skill x: left out .cursor/, AGENTS.md +2 (harness and palm files are not skill content)`. */
+function leftOutNote(name: string, leftOut: readonly string[]): string {
+  const shown = leftOut.slice(0, 3).join(', ');
+  const more = leftOut.length > 3 ? ` +${leftOut.length - 3}` : '';
+  return `skill ${name}: left out ${shown}${more} (harness, palm and .env files are not skill content)`;
 }
 
 async function renderAgentKind(job: RenderJob): Promise<void> {
@@ -223,6 +260,33 @@ function listedPath(job: RenderJob, dest: string): string {
   return isWithin(dest, home, { strict: true }) ? `~/${toPosix(path.relative(home, dest))}` : dest;
 }
 
+/** Harnesses that keep an on-request or manual instruction as it is (Cursor's `.mdc` fields). */
+const KEEPS_ACTIVATION: ReadonlySet<TargetId> = new Set(['cursor']);
+
+/**
+ * `instruction x: on-request in the source, always-on for claude until 0.3` (ruling Y3): every
+ * harness but Cursor loads the rendered instruction always.
+ */
+function noteWidened(job: RenderJob, activation: InstructionDefinition['activation']): void {
+  if (activation !== 'on-request' && activation !== 'manual') return;
+  if (KEEPS_ACTIVATION.has(job.target.id)) return;
+  job.note(
+    `instruction ${job.entity.name}: ${activation} in the source, always-on for ${job.target.id} until 0.3`,
+  );
+}
+
+/** A Claude rule for claude: the source file byte for byte, under its own name (ruling B12). */
+async function copyClaudeRule(job: RenderJob, dir: string, def: InstructionDefinition) {
+  const fileName = def.fileName ?? `${job.entity.name}.md`;
+  const bytes = await fs.readFile(job.input.absPath).catch((e: unknown) => {
+    throw new PalmError(
+      'E_IO',
+      `instruction ${job.entity.name}: cannot read ${job.input.absPath}: ${messageOf(e)}`,
+    );
+  });
+  job.file(path.join(dir, fileName), bytes);
+}
+
 async function renderInstructionKind(job: RenderJob): Promise<void> {
   const where = job.layout.instructions;
   if ('skip' in where) {
@@ -230,6 +294,9 @@ async function renderInstructionKind(job: RenderJob): Promise<void> {
     return;
   }
   const { instruction } = defOf(job.entity, 'instruction');
+  noteWidened(job, instruction.activation);
+  if (job.target.id === 'claude' && instruction.sourceFormat === 'claude-md' && 'dir' in where)
+    return copyClaudeRule(job, where.dir, instruction);
   const r = renderInstruction({ ...instruction, name: job.entity.name }, job.target.id);
   if ('managedBlock' in r) {
     if (!('blockFile' in where))

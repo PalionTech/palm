@@ -303,6 +303,13 @@ export function closureOf(refs: SourceReference[], opts: { hooksDirRel?: string;
 //   injected by scan.ts as a `SecretScanner`; index → secrets is allowed, DESIGN §12) on env/headers/args/url/commands and on closure
 //   files; findings become `secret-literal` issues (a warning inside a closure file) and values are replaced by `<redacted sha256:8>`
 //   in the entity def. A literal is not a refusal: the render writes `${KEY}` and the summary names the variable (DESIGN §8)
+//   Every file a skill, agent or instruction copies (a skill's directory minus SKILL_COPY_SKIP, domain/skill-copy.ts) is scanned
+//   with scanText too; a finding there is a critical `secret-literal` issue, so the engine refuses the entity (ruling Y2)
+// near-miss.ts (NEW): warnNearMisses / warnSkippedSkills add ScanResult.warnings for agent-, hook- and MCP-shaped files the
+//   auto-detected scan left out and for a SKILL.md under an ignored name, each with a pasteable `add layout: { … }` (rulings K2, B13);
+//   a descriptor pattern that matches nothing warns `layout <key>: "<glob>" matches nothing in the source`
+// layout-flags.ts (NEW)
+export function parseLayoutFlags(values: readonly string[]): LayoutDescriptor;   // `--layout kind=glob[,glob]` (repeatable) → InstallRequest.layout; E_USAGE otherwise
 // marketplace.ts: findMarketplaceFile(root) stays; parseMarketplace is gone (a marketplace is a scan rule only)
 // agents.ts / instructions.ts / commands.ts / hooks.ts / mcp.ts / skills.ts
 export function parseAgentFile(absPath: string, text: string): AgentDefinition;
@@ -405,7 +412,15 @@ export function createTarget(id: TargetId, env?: NodeJS.ProcessEnv): GenericTarg
 export const PROJECT_DIR: Record<TargetId, string>;                                           // DESIGN §2 relocation table (quoted idioms)
 // placements.ts (NEW): Target.placements(at: { scope; scopeRoot; env }, active: TargetId[]) → Array<{ kind; where }> (types.ts, optional on Target):
 //   where each installable kind goes at a scope, lock form with `<name>` (DESIGN §10 `describe target`); the shared skills dir follows `active`
-// layout.ts: TargetSpec { id; displayName; layout(paths: ScopePaths): TargetLayout; detect(paths: ScopePaths): Promise<boolean>; outputDirs(paths: ScopePaths): string[] /* lock form */ }
+// layout.ts: TargetSpec { id; displayName; layout(paths: ScopePaths): TargetLayout; markers(paths: ScopePaths): string[] /* absolute, most telling first */; outputDirs(paths: ScopePaths): string[] /* lock form */ }
+//   Target.detect is true when a marker exists; Target.evidence(scope, scopeRoot, env) returns the first existing marker (absolute) for
+//   the evidence `init` prints (C25). An AGENTS.md alone never marks Codex (Y15).
+//   Target.agentNameClashes(scope, scopeRoot, env): Array<{ name; files /* lock form */ }> lists agent files of the harness's agents
+//   directory that answer to one name (agent-names.ts), for `check` to warn about (Y14).
+// same-content.ts (NEW): sameContent(existing, rendered, file): the Applier adopts a file that says what the render says in other bytes
+//   (frontmatter data, line ends, trailing spaces, JSON value) and rewrites it in palm's bytes (Y13).
+// ApplyResult.merged sets `created` on fragments whose shared file the apply created; undeploy deletes such a JSON file when only
+//   the keys palm ensured (`version`) are left (J14).
 //   one per harness (claude.ts, codex.ts, copilot.ts, cursor.ts, gemini.ts, opencode.ts). TargetLayout as 0.1 minus commands, plus `skillsDir(active: TargetId[])`
 //   (cursor: .claude/skills when claude is active, else .agents/skills).
 // base.ts: GenericTarget implements Target: render() runs the kind renderer into a Rendered (no writes; reads the source and the

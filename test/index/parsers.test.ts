@@ -282,7 +282,7 @@ describe('parseInstructionFile', () => {
         alwaysApply: false,
         activation: 'paths',
         body: 'Body',
-        sourceFormat: 'md',
+        sourceFormat: 'claude-md',
       },
     ],
     [
@@ -294,7 +294,7 @@ describe('parseInstructionFile', () => {
         alwaysApply: true,
         activation: 'always',
         body: 'Body',
-        sourceFormat: 'md',
+        sourceFormat: 'claude-md',
       },
     ],
     [
@@ -328,7 +328,7 @@ describe('parseInstructionFile', () => {
         alwaysApply: true,
         activation: 'always',
         body: '# Style\n',
-        sourceFormat: 'md',
+        sourceFormat: 'claude-md',
       },
     ],
     [
