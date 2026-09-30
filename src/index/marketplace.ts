@@ -1,19 +1,16 @@
 /**
- * Plugin marketplaces (Claude, Cursor, Copilot, Codex). Used two ways:
- *  - during a scan, relative entries become plugin entities (see rules/marketplace.ts);
- *  - `palm install origin <marketplace.json>` expands a marketplace into one OriginSpec per entry
- *    (parseMarketplace).
+ * Plugin marketplaces (Claude, Cursor, Copilot, Codex): a scan rule only (DESIGN §5 rule 3).
+ * Entries with relative sources become plugin entities (rules/marketplace.ts); remote entries are
+ * never fetched, only named with the `palm install` line that would declare them.
  */
 
 import { readFile, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { messageOf, PalmError } from '../core/errors.js';
-import type { OriginSpec } from '../core/types.js';
 import { parseJson } from '../lib/json.js';
-import { slugify } from '../lib/names.js';
 import { isRecord, withoutUndefined } from '../lib/object.js';
 import { type ComponentDecls, parseComponentDecls } from './plugin-manifest.js';
-import { asBool, asString, joinRel, normRel, toSlug } from './util.js';
+import { asBool, asString, joinRel, normRel } from './util.js';
 
 /** Marketplace file locations relative to the repo root, in precedence order. */
 const MARKETPLACE_FILES = [
@@ -46,10 +43,10 @@ export interface MarketplaceEntry {
 
 export interface Marketplace {
   name?: string;
-  /** Absolute path (or URL) of the marketplace file. */
+  /** Absolute path of the marketplace file. */
   file: string;
   /** Directory relative entries resolve against (the repo root for the standard locations). */
-  rootDir?: string;
+  rootDir: string;
   entries: MarketplaceEntry[];
   warnings: string[];
 }
@@ -122,7 +119,8 @@ function urlSource(src: SourceObject, kind: 'url' | 'git'): MarketplaceSource {
   return withoutUndefined({ type: kind, url, ref: asString(src.ref), sha: asString(src.sha) });
 }
 
-export function normalizeSource(src: unknown): MarketplaceSource {
+/** A marketplace entry's `source` (string or object, any of the four dialects), normalized. */
+export function normalizeEntrySource(src: unknown): MarketplaceSource {
   if (typeof src === 'string') return normalizeSourceString(src);
   if (!isRecord(src)) return { type: 'unknown', raw: src };
   const kind = asString(src.source) ?? asString(src.type);
@@ -157,10 +155,9 @@ function pinSuffix(s: { ref?: string; sha?: string }): string {
   return s.ref ? `#${s.ref}` : '';
 }
 
-const refSuffix = (ref: string | undefined): string => (ref ? `#${ref}` : '');
 const pathSuffix = (path: string | undefined): string => (path ? `/${path}` : '');
 
-export function describeSource(s: MarketplaceSource): string {
+export function describeEntrySource(s: MarketplaceSource): string {
   switch (s.type) {
     case 'local':
       return s.path === '' ? './' : s.path;
@@ -178,41 +175,61 @@ export function describeSource(s: MarketplaceSource): string {
   }
 }
 
-/** The `palm install origin` arguments that would fetch this remote source. */
-export function originHint(s: MarketplaceSource): string | undefined {
-  switch (s.type) {
-    case 'github':
-      return `${s.repo}${pathSuffix(s.path)}${refSuffix(s.ref)}`;
-    case 'url':
-    case 'git':
-      return `${s.url}${refSuffix(s.ref)}`;
-    case 'git-subdir':
-      return `${s.url}${refSuffix(s.ref)} --root ${s.path}`;
-    default:
-      return undefined;
-  }
-}
-
-export function isRemoteSource(s: MarketplaceSource): boolean {
+function isRemoteSource(
+  s: MarketplaceSource,
+): s is Extract<MarketplaceSource, { type: 'github' | 'git-subdir' | 'url' | 'git' }> {
   return s.type === 'github' || s.type === 'git-subdir' || s.type === 'url' || s.type === 'git';
 }
 
-async function readMarketplaceText(file: string): Promise<string> {
-  if (/^https?:\/\//.test(file)) {
-    let res: Response;
-    try {
-      res = await fetch(file);
-    } catch (e) {
-      throw new PalmError('E_NETWORK', `could not fetch ${file}: ${messageOf(e)}`);
-    }
-    if (!res.ok) throw new PalmError('E_NETWORK', `could not fetch ${file}: HTTP ${res.status}`);
-    return res.text();
-  }
-  try {
-    return await readFile(file, 'utf8');
-  } catch (e) {
-    throw new PalmError('E_IO', `cannot read marketplace file ${file}: ${messageOf(e)}`);
-  }
+const GITHUB_URL =
+  /^(?:https?:\/\/|ssh:\/\/git@|git@)github\.com[/:]([^/]+)\/([^/#?]+?)(?:\.git)?\/?$/;
+
+/** `owner/repo` for a GitHub URL (the source input form), else the URL itself. */
+function repoInput(url: string): { input: string; github: boolean } {
+  const m = GITHUB_URL.exec(url.trim());
+  return m ? { input: `${m[1]}/${m[2]}`, github: true } : { input: url.trim(), github: false };
+}
+
+/**
+ * The `palm install` input that declares a remote entry (DESIGN §5 "Input forms"): `owner/repo`,
+ * `owner/repo/sub/dir` or a URL, with `#<sha or ref>`. A subdirectory of a non-GitHub repository
+ * cannot be written in the input; it comes back as `root` for palm.yaml.
+ */
+export function installInput(s: MarketplaceSource): { input: string; root?: string } | undefined {
+  if (!isRemoteSource(s)) return undefined;
+  const pin = s.sha ?? s.ref;
+  const suffix = pin ? `#${pin}` : '';
+  if (s.type === 'github') return { input: `${s.repo}${pathSuffix(s.path)}${suffix}` };
+  const repo = repoInput(s.url);
+  const sub = s.type === 'git-subdir' ? s.path : '';
+  if (sub === '' || repo.github) return { input: `${repo.input}${pathSuffix(sub)}${suffix}` };
+  return { input: `${repo.input}${suffix}`, root: sub };
+}
+
+function parseEntry(
+  p: unknown,
+  i: number,
+  pluginRoot: string | undefined,
+): MarketplaceEntry | string {
+  if (!isRecord(p)) return `marketplace entry #${i + 1} is not an object; skipped`;
+  let source = normalizeEntrySource(p.source);
+  if (source.type === 'local' && pluginRoot)
+    source = { type: 'local', path: joinRel(pluginRoot, source.path) };
+  const name =
+    asString(p.name) ??
+    (source.type === 'local' && source.path !== '' ? basename(source.path) : undefined);
+  if (!name) return `marketplace entry #${i + 1} has no name; skipped`;
+  const { decls, unsupported } = parseComponentDecls(p);
+  return withoutUndefined({
+    name,
+    source,
+    description: asString(p.description),
+    version: asString(p.version),
+    strict: asBool(p.strict) ?? true,
+    components: decls,
+    unsupported,
+    raw: p,
+  });
 }
 
 /** Parse marketplace JSON text into normalized entries. */
@@ -226,189 +243,26 @@ function parseMarketplaceJson(text: string, file: string): Marketplace {
   if (!isRecord(json) || !Array.isArray(json.plugins)) {
     throw new PalmError('E_PARSE', `${file} is not a plugin marketplace (no "plugins" array)`);
   }
-  const warnings: string[] = [];
   const metadata = isRecord(json.metadata) ? json.metadata : {};
   const pluginRoot = asString(metadata.pluginRoot) ?? asString(json.pluginRoot);
+  const warnings: string[] = [];
   const entries: MarketplaceEntry[] = [];
   json.plugins.forEach((p, i) => {
-    if (!isRecord(p)) {
-      warnings.push(`marketplace entry #${i + 1} is not an object; skipped`);
-      return;
-    }
-    let source = normalizeSource(p.source);
-    if (source.type === 'local' && pluginRoot)
-      source = { type: 'local', path: joinRel(pluginRoot, source.path) };
-    const name =
-      asString(p.name) ??
-      (source.type === 'local' && source.path !== '' ? basename(source.path) : undefined);
-    if (!name) {
-      warnings.push(`marketplace entry #${i + 1} has no name; skipped`);
-      return;
-    }
-    const { decls, unsupported } = parseComponentDecls(p);
-    entries.push(
-      withoutUndefined({
-        name,
-        source,
-        description: asString(p.description),
-        version: asString(p.version),
-        strict: asBool(p.strict) ?? true,
-        components: decls,
-        unsupported,
-        raw: p,
-      }),
-    );
+    const entry = parseEntry(p, i, pluginRoot);
+    if (typeof entry === 'string') warnings.push(entry);
+    else entries.push(entry);
   });
-  const rootDir = /^https?:\/\//.test(file) ? undefined : marketplaceRootFor(resolve(file));
+  const rootDir = marketplaceRootFor(resolve(file));
   return withoutUndefined({ name: asString(json.name), file, rootDir, entries, warnings });
 }
 
+/** Read and parse a marketplace file (E_IO when unreadable, E_PARSE when it is not one). */
 export async function readMarketplace(file: string): Promise<Marketplace> {
-  return parseMarketplaceJson(await readMarketplaceText(file), file);
-}
-
-/** `https://github.com/o/r` → `https://github.com/o/r.git`; other URLs untouched. */
-function normalizeGitUrl(url: string): string {
-  const m = /^https?:\/\/github\.com\/([^/]+)\/([^/#?]+?)(?:\.git)?\/?$/.exec(url.trim());
-  if (m) return `https://github.com/${m[1]}/${m[2]}.git`;
-  return url.trim();
-}
-
-/** Derive base.url/ref from a raw.githubusercontent.com or github.com/blob marketplace URL. */
-function baseFromUrl(file: string): { url?: string; ref?: string; root?: string } {
-  const raw = /^https:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/.exec(file);
-  const blob = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/(?:blob|raw)\/([^/]+)\/(.+)$/.exec(file);
-  const m = raw ?? blob;
-  if (!m) return {};
-  const [, owner, repo, ref, filePath] = m;
-  const root = marketplaceRootFor(`/${filePath ?? ''}`).slice(1);
-  return withoutUndefined({
-    url: `https://github.com/${owner}/${repo}.git`,
-    ref,
-    root: root === '' ? undefined : root,
-  });
-}
-
-/** Where relative entries of an imported marketplace resolve: a repository URL or a directory. */
-interface ImportBase {
-  url?: string;
-  ref?: string;
-  /** Marketplace root inside the repository (URL imports). */
-  root: string;
-  path?: string;
-}
-
-type SpecOrWarning = Omit<OriginSpec, 'alias'> | string;
-
-function localEntrySpec(e: MarketplaceEntry, path: string, base: ImportBase): SpecOrWarning {
-  const rel = joinRel(base.root, path);
-  if (base.url)
-    return {
-      type: 'git',
-      url: normalizeGitUrl(base.url),
-      ref: base.ref,
-      root: rel === '' ? undefined : rel,
-    };
-  if (base.path) return { type: 'local', path: resolve(base.path, rel === '' ? '.' : rel) };
-  return `plugin "${e.name}": relative source ${describeSource(e.source)} cannot be resolved without a base path or URL; skipped`;
-}
-
-/** The origin an entry imports as (remote pins: `sha` wins over `ref`), or why it cannot. */
-function entrySpec(e: MarketplaceEntry, base: ImportBase): SpecOrWarning {
-  const s = e.source;
-  switch (s.type) {
-    case 'local':
-      return localEntrySpec(e, s.path, base);
-    case 'github':
-      return {
-        type: 'git',
-        url: `https://github.com/${s.repo.replace(/\.git$/, '')}.git`,
-        ref: s.sha ?? s.ref,
-        root: s.path || undefined,
-      };
-    case 'git-subdir':
-      return {
-        type: 'git',
-        url: normalizeGitUrl(s.url),
-        ref: s.sha ?? s.ref,
-        root: s.path || undefined,
-      };
-    case 'url':
-    case 'git':
-      return { type: 'git', url: normalizeGitUrl(s.url), ref: s.sha ?? s.ref };
-    case 'npm':
-      return `plugin "${e.name}": npm source ${s.package} is not supported; skipped`;
-    case 'unknown':
-      return `plugin "${e.name}": unrecognised source ${describeSource(s)}; skipped`;
+  let text: string;
+  try {
+    text = await readFile(file, 'utf8');
+  } catch (e) {
+    throw new PalmError('E_IO', `cannot read marketplace file ${file}: ${messageOf(e)}`);
   }
+  return parseMarketplaceJson(text, file);
 }
-
-interface ImportedSpec {
-  spec: OriginSpec;
-  entry: string;
-}
-
-/** One origin per distinct location; entries sharing one (several `./` subsets) import once. */
-function collapseShared(mp: Marketplace, specs: ImportedSpec[], warnings: string[]): OriginSpec[] {
-  const groups = new Map<string, ImportedSpec[]>();
-  for (const s of specs) {
-    const key = JSON.stringify([s.spec.type, s.spec.url, s.spec.path, s.spec.ref, s.spec.root]);
-    groups.set(key, [...(groups.get(key) ?? []), s]);
-  }
-  const used = new Set<string>();
-  const uniqueAlias = (wanted: string) => {
-    let a = wanted;
-    for (let i = 2; used.has(a); i++) a = `${wanted}-${i}`;
-    used.add(a);
-    return a;
-  };
-  const origins: OriginSpec[] = [];
-  for (const [first, ...rest] of groups.values()) {
-    if (!first) continue;
-    if (rest.length === 0) {
-      origins.push(
-        withoutUndefined({ ...first.spec, alias: uniqueAlias(slugify(first.entry) || 'plugin') }),
-      );
-      continue;
-    }
-    const alias = uniqueAlias(toSlug(mp.name, first.entry));
-    warnings.push(
-      `plugins ${[first, ...rest].map((g) => `"${g.entry}"`).join(', ')} share one source; imported once as origin "${alias}"`,
-    );
-    first.spec.description = mp.name ? `marketplace ${mp.name}` : first.spec.description;
-    origins.push(withoutUndefined({ ...first.spec, alias }));
-  }
-  return origins;
-}
-
-/**
- * Expand a marketplace into origin specs, one per entry. Remote sources keep their URL and
- * pin (`sha` wins over `ref`); relative sources resolve against `base.url` (same repo, with
- * `root`) or `base.path`/the marketplace's own directory (local). Entries that resolve to the
- * same location are imported once.
- */
-export const parseMarketplace = async (
-  file: string,
-  base: { url?: string; path?: string; ref?: string },
-): Promise<{ origins: OriginSpec[]; warnings: string[] }> => {
-  const mp = await readMarketplace(file);
-  const warnings = [...mp.warnings];
-  const fromUrl = /^https?:\/\//.test(file) ? baseFromUrl(file) : {};
-  const importBase: ImportBase = {
-    url: base.url ?? fromUrl.url,
-    ref: base.ref ?? fromUrl.ref,
-    root: base.url ? '' : (fromUrl.root ?? ''),
-    path: base.path ?? mp.rootDir,
-  };
-  const specs: ImportedSpec[] = [];
-  for (const e of mp.entries) {
-    const spec = entrySpec(e, importBase);
-    if (typeof spec === 'string') warnings.push(spec);
-    else
-      specs.push({
-        spec: withoutUndefined({ alias: '', ...spec, description: e.description }) as OriginSpec,
-        entry: e.name,
-      });
-  }
-  return { origins: collapseShared(mp, specs, warnings), warnings };
-};
