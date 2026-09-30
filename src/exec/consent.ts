@@ -14,27 +14,21 @@ import type {
   ExecUnit,
   Logger,
   PalmContext,
+  ScriptReader,
 } from '../core/types.js';
 import { isWithin } from '../lib/fs.js';
 import { canDiff, consentSummary, consentText, type PromptOptions, programs } from './prompt.js';
-import { execDiff, type ScriptReader, scriptsText } from './review.js';
+import { execDiff, scriptsText } from './review.js';
 
 export { unifiedDiff } from './diff.js';
 export { consentText } from './prompt.js';
-export { execDiff, type ScriptReader } from './review.js';
-
-/** A consent request plus where `v` and `d` read script bodies (the engine knows the checkouts). */
-export interface ConsentInput extends ConsentRequest {
-  read?: ScriptReader;
-}
-
-/** The context plus the command line after `palm`, when the CLI provides it (for the hint lines). */
-type ConsentContext = PalmContext & { argv?: readonly string[] };
+export { execDiff } from './review.js';
 
 const ALLOW_RE =
-  /^(hook|mcp):([A-Za-z0-9][A-Za-z0-9._-]*)@([^\s=,]+)=(?:sha256:)?([0-9a-fA-F]{8,64})$/;
-const ALLOW_FORMAT = '<hook|mcp>:<name>@<source>=sha256:<8 or more hex digits>';
-const ALLOW_EXAMPLE = 'palm install --allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911';
+  /^(hook|mcp):([A-Za-z0-9][A-Za-z0-9._-]*)@([^\s=,]+)=(?:sha256:)?([0-9a-fA-F]{16,64})$/;
+const ALLOW_FORMAT = '<hook|mcp>:<name>@<source>=sha256:<16 or more hex digits>';
+const ALLOW_EXAMPLE =
+  'palm install --allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc79110f3b2e8d';
 /** The command line assumed when the CLI did not pass one. */
 const DEFAULT_ARGS: readonly string[] = ['install'];
 
@@ -51,7 +45,7 @@ function parseEntry(item: string): AllowExec {
 
 /**
  * `--allow-exec` as typed: `all`, or comma-separated `<kind>:<name>@<source>=sha256:<hash>`
- * entries whose hash may be a prefix of at least 8 hex digits. Malformed → E_USAGE with the format.
+ * entries whose hash may be a prefix of at least 16 hex digits. Malformed → E_USAGE with the format.
  */
 export function parseAllowExec(text: string | undefined): AllowExec[] | 'all' {
   const trimmed = text?.trim() ?? '';
@@ -95,7 +89,7 @@ function splitArgs(args: readonly string[]): { base: string[]; allow: string[] }
 
 /**
  * E_UNTRUSTED_EXEC for units nobody can consent to without a terminal: the review command and
- * the exact `--allow-exec` line (keys with 8-digit hashes, after any entries already given).
+ * the exact `--allow-exec` line (keys with their full hashes, after any entries already given).
  */
 export function nonInteractiveError(
   req: ConsentRequest,
@@ -105,13 +99,13 @@ export function nonInteractiveError(
   const { base, allow } = splitArgs(argv.args);
   const keys = new Set(req.units.map((u) => u.key.toLowerCase()));
   const kept = allow.filter((a) => !keys.has((a.split('=')[0] ?? '').toLowerCase()));
-  const entries = [...kept, ...req.units.map((u) => `${u.key}=sha256:${short(u.hash, 8)}`)];
+  const entries = [...kept, ...req.units.map((u) => `${u.key}=${u.hash}`)];
   return new PalmError(
     'E_UNTRUSTED_EXEC',
     `${programs(n)} ${n === 1 ? 'needs' : 'need'} your consent and there is no terminal`,
     [
       `review:  ${command([...base, '--dry-run', '--review'])}`,
-      `  then:    ${command([...base, '--allow-exec', entries.join(',')])}`,
+      `then:    ${command([...base, '--allow-exec', entries.join(',')])}`,
     ].join('\n'),
   );
 }
@@ -165,7 +159,7 @@ function promptOptions(ctx: PalmContext, lockFile: string): PromptOptions {
 /** Asks until the answer is yes or no; `v` pages the scripts, `d` the diff, then it asks again. */
 async function consentLoop(
   ctx: PalmContext,
-  req: ConsentInput,
+  req: ConsentRequest,
   opts: PromptOptions,
 ): Promise<boolean> {
   const text = consentText(req, opts);
@@ -196,13 +190,13 @@ function allWithoutTerminal(args: readonly string[]): PalmError {
  * are shown and E_UNTRUSTED_EXEC names the review command and the `--allow-exec` line.
  * Otherwise `ctx.ui.consent` asks (Enter is no); a no declines every unit it listed.
  */
-export async function askConsent(ctx: ConsentContext, req: ConsentInput): Promise<ConsentOutcome> {
+export async function askConsent(ctx: PalmContext, req: ConsentRequest): Promise<ConsentOutcome> {
   const allow = ctx.flags.allowExec ?? [];
   const args = ctx.argv ?? DEFAULT_ARGS;
   if (allow === 'all' && !ctx.ui.isInteractive) throw allWithoutTerminal(args);
   const opts = promptOptions(ctx, req.lockFile);
   const covered = req.units.filter((u) => allowed(u, allow)).map((u) => u.key);
-  const rest: ConsentInput = { ...req, units: req.units.filter((u) => !allowed(u, allow)) };
+  const rest: ConsentRequest = { ...req, units: req.units.filter((u) => !allowed(u, allow)) };
   if (allow === 'all' && req.units.length) ctx.log.info(consentSummary(req, opts));
   if (rest.units.length === 0) return { allowed: covered, declined: [] };
   if (ctx.flags.dryRun || !ctx.ui.isInteractive) {

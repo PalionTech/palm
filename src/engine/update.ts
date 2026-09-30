@@ -206,7 +206,7 @@ export async function planUpdate(
   const deps = await resolveEngineDeps(depsIn);
   const dry: PalmContext = { ...ctx, flags: { ...ctx.flags, dryRun: true } };
   const state = await openScope(dry, opts.scope, { deps, readOnly: true });
-  const run = runOf(dry, deps, state);
+  const run = runOf(dry, deps, state, 'update');
   const plan: UpdatePlan = {
     scope: opts.scope,
     sources: [],
@@ -303,7 +303,7 @@ export async function applyUpdate(
 ): Promise<InstallResult> {
   const deps = await resolveEngineDeps(depsIn);
   const state = await openScope(ctx, opts.scope, { deps });
-  const run = runOf(ctx, deps, state);
+  const run = runOf(ctx, deps, state, 'update');
   return lockScope(ctx, state, async () => {
     try {
       const updates: SourceUpdate[] = [];

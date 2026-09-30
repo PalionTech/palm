@@ -564,7 +564,7 @@ function withValues(text: string, values: Record<string, string> | undefined): s
 function renderMcp(id: TargetId, input: RenderInput, out: Emit): void {
   const def = input.entity.def;
   if (def.kind !== 'mcp') return;
-  const { name: _n, secrets: _s, origin: _o, ...cfg } = def.mcp;
+  const { name: _n, secrets: _s, from: _o, ...cfg } = def.mcp;
   const literal = input.secretPolicy === 'literal' ? input.secretValues : undefined;
   const value = JSON.parse(withValues(JSON.stringify(cfg), literal)) as Record<string, unknown>;
   const file = fragmentFile(id, input, 'mcp.json');

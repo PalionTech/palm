@@ -110,7 +110,7 @@ async function fromSnippet(app: App, file: string, names: string[]): Promise<Mcp
   const servers = await engine(app).parseMcpJson(json);
   return pickServers(servers, names, file).map((s) => ({
     ...s,
-    origin: s.origin ?? { type: 'snippet' },
+    from: s.from ?? { type: 'snippet' },
   }));
 }
 

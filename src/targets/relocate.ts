@@ -292,7 +292,8 @@ function spliced(
 /** The plugin root's source-relative path, from a reference such as `${CLAUDE_PLUGIN_ROOT}/hooks/x.sh`. */
 function pluginRootRel(ref: SourceReference): string {
   const rel = ref.rel ?? '';
-  const tail = ref.raw.replace(/^(\$\{[^}]*\}|\$[A-Za-z_]+)\/?/, '');
+  const unquoted = ref.raw.replace(/^["']|["']$/g, '');
+  const tail = unquoted.replace(/^(\$\{[^}]*\}|\$[A-Za-z_]+)\/?/, '');
   if (tail === '' || !rel.endsWith(tail)) return rel;
   return rel.slice(0, rel.length - tail.length).replace(/\/$/, '');
 }

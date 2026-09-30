@@ -62,7 +62,7 @@ export function addMcpConfigs(
       pluginRootRel: plugin ? plugin.rootRel : dirOf(pathRel),
       closureDirs: [],
     });
-    const mcp = { ...cfg, origin: { type: 'source' as const, ref: ctx.sourceName } };
+    const mcp = { ...cfg, from: { type: 'source' as const, ref: ctx.sourceName } };
     const def = { kind: 'mcp' as const, mcp, references, closure };
     const entity = makeEntity(ctx, { name: cfg.name, path: pathRel }, plugin, def);
     addIssues(entity, issues);

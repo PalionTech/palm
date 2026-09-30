@@ -3,7 +3,6 @@ import type { ClosureFile, ConsentRequest, ExecUnit } from '../../src/core/types
 import {
   allowed,
   askConsent,
-  type ConsentInput,
   checkoutReader,
   consentText,
   nonInteractiveError,
@@ -18,8 +17,9 @@ const git = vi.hoisted(() => ({ fileAtSha: vi.fn(async () => 'echo from git\n') 
 vi.mock('../../src/core/git.js', async (real) => ({ ...(await real()), ...git }));
 
 /** The DESIGN.md example request: gh-cli and team-helper, one prompt hook. */
-function exampleRequest(overrides: Partial<ConsentInput> = {}): ConsentInput {
+function exampleRequest(overrides: Partial<ConsentRequest> = {}): ConsentRequest {
   return {
+    operation: 'install',
     units: [ghCliUnit(), teamHelperUnit()],
     prompts: [{ entity: 'fp-check', event: 'Stop' }],
     lockFile: '/work/app/palm.lock.yaml',
@@ -39,11 +39,11 @@ describe('parseAllowExec', () => {
     expect(parseAllowExec('ALL')).toBe('all');
     expect(
       parseAllowExec(
-        'hook:gh-cli@trailofbits/skills=sha256:a7cc7911, mcp:team-helper@acme-kit=75AAFD9B0011',
+        'hook:gh-cli@trailofbits/skills=sha256:a7cc7911f2bd0a61, mcp:team-helper@acme-kit=75AAFD9B00112233',
       ),
     ).toEqual([
-      { key: 'hook:gh-cli@trailofbits/skills', hash: 'sha256:a7cc7911' },
-      { key: 'mcp:team-helper@acme-kit', hash: 'sha256:75aafd9b0011' },
+      { key: 'hook:gh-cli@trailofbits/skills', hash: 'sha256:a7cc7911f2bd0a61' },
+      { key: 'mcp:team-helper@acme-kit', hash: 'sha256:75aafd9b00112233' },
     ]);
     expect(parseAllowExec(`hook:quality@./agent-kit=sha256:${'f'.repeat(64)}`)).toEqual([
       { key: 'hook:quality@./agent-kit', hash: `sha256:${'f'.repeat(64)}` },
@@ -51,18 +51,18 @@ describe('parseAllowExec', () => {
   });
 
   it.each([
-    ['a hash under 8 hex digits', 'hook:gh-cli@trailofbits/skills=sha256:a7cc791'],
+    ['a hash under 16 hex digits', 'hook:gh-cli@trailofbits/skills=sha256:a7cc7911f2bd0a6'],
     ['a hash over 64 hex digits', `hook:gh-cli@t/s=sha256:${'a'.repeat(65)}`],
-    ['a hash that is not hex', 'hook:gh-cli@t/s=sha256:a7cc79zz'],
+    ['a hash that is not hex', 'hook:gh-cli@t/s=sha256:a7cc79zzf2bd0a61'],
     ['no hash', 'hook:gh-cli@trailofbits/skills'],
-    ['no source', 'hook:gh-cli=sha256:a7cc7911'],
-    ['a kind that runs nothing', 'skill:tdd@mattpocock/skills=sha256:a7cc7911'],
-    ['all inside a list', 'all,hook:gh-cli@t/s=sha256:a7cc7911'],
+    ['no source', 'hook:gh-cli=sha256:a7cc7911f2bd0a61'],
+    ['a kind that runs nothing', 'skill:tdd@mattpocock/skills=sha256:a7cc7911f2bd0a61'],
+    ['all inside a list', 'all,hook:gh-cli@t/s=sha256:a7cc7911f2bd0a61'],
   ])('rejects %s with the format in the hint', (_label, text) => {
     expect(() => parseAllowExec(text)).toThrow(
       expect.objectContaining({
         code: 'E_USAGE',
-        hint: expect.stringContaining('<hook|mcp>:<name>@<source>=sha256:<8 or more hex digits>'),
+        hint: expect.stringContaining('<hook|mcp>:<name>@<source>=sha256:<16 or more hex digits>'),
       }),
     );
   });
@@ -93,7 +93,13 @@ describe('consentText', () => {
   it('speaks of one program and offers the diff when a trusted version exists', () => {
     const unit = teamHelperUnit();
     const text = consentText(
-      { units: [unit], prompts: [], lockFile: 'x', previous: { [unit.key]: unit } },
+      {
+        operation: 'install',
+        units: [unit],
+        prompts: [],
+        lockFile: 'x',
+        previous: { [unit.key]: unit },
+      },
       PROJECT,
     );
     expect(text.split('\n')[0]).toBe('This install adds 1 program that will run on your machine.');
@@ -119,7 +125,12 @@ describe('consentText', () => {
     const unit = teamHelperUnit();
     const cursor = unit.rendered.cursor?.map((r) => ({ ...r, command: 'node ./elsewhere.js' }));
     const text = consentText(
-      { units: [{ ...unit, rendered: { ...unit.rendered, cursor } }], prompts: [], lockFile: '' },
+      {
+        operation: 'install',
+        units: [{ ...unit, rendered: { ...unit.rendered, cursor } }],
+        prompts: [],
+        lockFile: '',
+      },
       PROJECT,
     );
     expect(text).toContain(
@@ -137,7 +148,12 @@ describe('consentText', () => {
       commands: [{ ...unit.commands[0]!, event: 'Stop\n  2. hook fake' }],
     };
     const text = consentText(
-      { units: [evil], prompts: [{ entity: `p${rlo}`, event: 'Stop' }], lockFile: '' },
+      {
+        operation: 'install',
+        units: [evil],
+        prompts: [{ entity: `p${rlo}`, event: 'Stop' }],
+        lockFile: '',
+      },
       PROJECT,
     );
     expect(text).toContain('hook x<U+001B>[2K  from');
@@ -150,15 +166,22 @@ describe('consentText', () => {
 describe('nonInteractiveError', () => {
   it('matches the DESIGN section 7 error for a bare install', () => {
     const units = [
-      { ...ghCliUnit(), hash: `sha256:a7cc7911${'0'.repeat(56)}` },
-      { ...teamHelperUnit(), hash: `sha256:75aafd9b${'1'.repeat(56)}` },
+      {
+        ...ghCliUnit(),
+        hash: 'sha256:a7cc7911f2bd0a61d9686cbc62fcfb17c8e8276fa2ea5aa0c69e646a0b23ad60',
+      },
+      {
+        ...teamHelperUnit(),
+        hash: 'sha256:75aafd9baefdaaee905cd992fe17dbe17b4fa390f7f487399d6a57f282682c79',
+      },
     ];
     const e = nonInteractiveError(
-      { units, prompts: [], lockFile: 'palm.lock.yaml' },
+      { operation: 'install', units, prompts: [], lockFile: 'palm.lock.yaml' },
       { args: ['install'] },
     );
     expect(e.code).toBe('E_UNTRUSTED_EXEC');
-    expect(`x ${e.message}\n  ${e.hint}`).toBe(designBlock('is `E_UNTRUSTED_EXEC`'));
+    const hint = (e.hint ?? '').split('\n').join('\n  ');
+    expect(`x ${e.message}\n  ${hint}`).toBe(designBlock('is `E_UNTRUSTED_EXEC`'));
   });
 
   it('repeats the command line, keeps allow entries for other programs and drops --dry-run', () => {
@@ -169,13 +192,16 @@ describe('nonInteractiveError', () => {
       'session-start',
       '--dry-run',
       '--allow-exec',
-      'mcp:x@y=sha256:12345678,hook:gh-cli@trailofbits/skills=sha256:99999999',
+      'mcp:x@y=sha256:1234567812345678,hook:gh-cli@trailofbits/skills=sha256:9999999999999999',
     ];
-    const e = nonInteractiveError({ units: [unit], prompts: [], lockFile: '' }, { args });
+    const e = nonInteractiveError(
+      { operation: 'install', units: [unit], prompts: [], lockFile: '' },
+      { args },
+    );
     expect(e.message).toBe('1 program needs your consent and there is no terminal');
     expect(e.hint).toBe(
       'review:  palm install obra/superpowers session-start --dry-run --review\n' +
-        '  then:    palm install obra/superpowers session-start --allow-exec mcp:x@y=sha256:12345678,hook:gh-cli@trailofbits/skills=sha256:a7cc7911',
+        `then:    palm install obra/superpowers session-start --allow-exec mcp:x@y=sha256:1234567812345678,hook:gh-cli@trailofbits/skills=${unit.hash}`,
     );
   });
 });
@@ -192,9 +218,9 @@ describe('askConsent', () => {
     expect(consents[0]).toEqual({ text: consentText(exampleRequest(), PROJECT), canDiff: false });
     expect(logs).toHaveLength(1);
     expect(logs[0]).toContain(
-      '==> .palm/assets/trailofbits__skills/gh-cli/hooks/persist-session-id.sh  755  612 B  sha256:1b9e04c2',
+      '==> .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh  755  612 B  sha256:1b9e04c2',
     );
-    expect(logs[0]).toContain('# gh-cli:hooks/lib/session.sh\necho hi');
+    expect(logs[0]).toContain('# gh-cli:plugins/gh-cli/hooks/lib/session.sh\necho hi');
   });
 
   it('n declines every unit it listed', async () => {
@@ -259,7 +285,7 @@ describe('askConsent', () => {
     await expect(run).rejects.toMatchObject({
       code: 'E_UNTRUSTED_EXEC',
       hint: expect.stringMatching(
-        /^review: {2}palm update acme-kit --dry-run --review\n {2}then: {4}palm update acme-kit --allow-exec hook:gh-cli@/,
+        /^review: {2}palm update acme-kit --dry-run --review\nthen: {4}palm update acme-kit --allow-exec hook:gh-cli@/,
       ),
     });
     expect(logs[0]).toContain('info: This install adds 2 programs');
@@ -281,7 +307,7 @@ describe('askConsent', () => {
       closure: {
         ...now.closure,
         files: now.closure.files.map((f) =>
-          f.path === 'hooks/lib/common.sh' ? { ...f, hash: 'sha256:old' } : f,
+          f.path === 'plugins/gh-cli/hooks/lib/common.sh' ? { ...f, hash: 'sha256:old' } : f,
         ),
       },
     };
@@ -289,6 +315,7 @@ describe('askConsent', () => {
       unit === before ? 'echo old\n' : `echo ${file.path}\n`;
     const { ctx, consents, logs } = fakeContext({ consent: ['d', 'y'] });
     await askConsent(ctx, {
+      operation: 'update',
       units: [now],
       prompts: [],
       lockFile: 'palm.lock.yaml',
@@ -298,7 +325,7 @@ describe('askConsent', () => {
     expect(consents.map((c) => c.canDiff)).toEqual([true, true]);
     expect(logs[0]).toContain('changes since the trusted version (commit 1111111 → 82fe822)');
     expect(logs[0]).toContain(
-      '--- a/hooks/lib/common.sh\n+++ b/hooks/lib/common.sh\n@@ -1 +1 @@\n-echo old\n+echo hooks/lib/common.sh',
+      '--- a/plugins/gh-cli/hooks/lib/common.sh\n+++ b/plugins/gh-cli/hooks/lib/common.sh\n@@ -1 +1 @@\n-echo old\n+echo plugins/gh-cli/hooks/lib/common.sh',
     );
   });
 
@@ -326,13 +353,13 @@ describe('viewScripts', () => {
       true,
     );
     expect(text).toContain(
-      'hooks/lib/common.sh  644  3.2 KB  sha256:c0000000\n(binary file, not shown)',
+      'plugins/gh-cli/hooks/lib/common.sh  644  3.2 KB  sha256:c0000000\n(binary file, not shown)',
     );
     expect(text).toContain(
-      'hooks/lib/gh.sh  644  3.2 KB  sha256:c1000000\n(palm could not read this file from the cache)',
+      'plugins/gh-cli/hooks/lib/gh.sh  644  3.2 KB  sha256:c1000000\n(palm could not read this file from the cache)',
     );
     expect(text).toContain(
-      'hooks/lib/json.sh  644  3.2 KB  sha256:c2000000\n(palm could not read this file from the cache)',
+      'plugins/gh-cli/hooks/lib/json.sh  644  3.2 KB  sha256:c2000000\n(palm could not read this file from the cache)',
     );
     expect(text).toContain('echo "<U+001B>[31mred"\n');
   });
@@ -371,7 +398,12 @@ describe('checkoutReader', () => {
 
 describe('a request without prompt hooks', () => {
   it('has no "Also" line and no blank line pair', () => {
-    const req: ConsentRequest = { units: [teamHelperUnit()], prompts: [], lockFile: '' };
+    const req: ConsentRequest = {
+      operation: 'install',
+      units: [teamHelperUnit()],
+      prompts: [],
+      lockFile: '',
+    };
     expect(consentText(req, PROJECT)).not.toMatch(/\n\n\n/);
   });
 });

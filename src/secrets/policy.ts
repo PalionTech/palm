@@ -6,7 +6,7 @@ import { readlink, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { Scope, SecretDecision, SecretPolicy } from '../core/types.js';
-import { gitToplevel, isGitTracked } from '../lib/fs.js';
+import { gitToplevel, isGitIgnored } from '../lib/fs.js';
 
 export interface SecretDestination {
   scope: Scope;
@@ -21,12 +21,12 @@ export interface SecretDestination {
 /** The two git questions decideSecret asks; tests pass fakes. */
 export interface GitProbe {
   gitToplevel(dir: string): Promise<string | undefined>;
-  isGitTracked(abs: string, cwd: string): Promise<boolean | undefined>;
+  isGitIgnored(abs: string, cwd: string): Promise<boolean | undefined>;
 }
 
 const GIT: GitProbe = {
   gitToplevel: (dir) => gitToplevel(dir),
-  isGitTracked: (abs, cwd) => isGitTracked(abs, cwd),
+  isGitIgnored: (abs, cwd) => isGitIgnored(abs, cwd),
 };
 
 /** Symlink hops followed through dangling links before giving up. */
@@ -67,15 +67,23 @@ function destinationText(dest: string, real: string): string {
   return dest === real ? shown(dest) : `${shown(dest)} resolves to ${shown(real)}, which`;
 }
 
+/**
+ * A typed literal in project scope: written, with a warning when git would carry it (the
+ * destination is inside a worktree and not ignored; a new `.mcp.json` is untracked until the
+ * commit that adds it).
+ */
 async function projectLiteral(input: SecretDestination, git: GitProbe): Promise<SecretDecision> {
   const real = await realOf(input.destinationAbs);
-  const tracked = await git.isGitTracked(real, await nearestDir(real));
-  if (!tracked)
-    return { policy: 'literal', action: 'literal', reason: `${shown(real)} is not tracked by git` };
+  const top = await git.gitToplevel(await nearestDir(real));
+  const ignored = top === undefined ? undefined : await git.isGitIgnored(real, top);
+  if (top === undefined || ignored) {
+    const why = top === undefined ? 'outside every git worktree' : 'ignored by git';
+    return { policy: 'literal', action: 'literal', reason: `${shown(real)} is ${why}` };
+  }
   return {
     policy: 'literal',
     action: 'warn',
-    reason: `${destinationText(input.destinationAbs, real)} is tracked by git; the literal value will be committed with it`,
+    reason: `${destinationText(input.destinationAbs, real)} is in a git worktree and not ignored; the literal value will be committed with it`,
   };
 }
 
@@ -107,7 +115,8 @@ async function globalLiteral(input: SecretDestination, git: GitProbe): Promise<S
  *
  * - a literal from a source: `refused` (palm writes the `${VAR}` reference), `force` or not;
  * - no `--secrets literal`: `env-ref`;
- * - project scope with `literal`: `literal`, or `warn` when git tracks the destination;
+ * - project scope with `literal`: `literal`, or `warn` when the destination is inside a git
+ *   worktree and not ignored (git would commit it);
  * - global scope with `literal`: `literal` only when the destination's real path lies outside
  *   every git worktree, else `refused` (`force` downgrades that to `warn`).
  */

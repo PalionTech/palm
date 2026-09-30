@@ -318,8 +318,8 @@ entries:
     exec:
       commands:
         - { id: Stop//-, command: 'bash "$CLAUDE_PROJECT_DIR"/agent-kit/hooks/quality.sh' }
-      hash: sha256:a7cc7911…
-    trust: [sha256:a7cc7911…]
+      hash: sha256:5d41c3b0…
+    trust: [sha256:5d41c3b0…]
   - kind: hook
     name: gh-cli
     source: trailofbits/skills
@@ -327,15 +327,15 @@ entries:
     path: plugins/gh-cli/hooks/hooks.json
     content: sha256:…
     render: { claude: sha256:…, cursor: sha256:… }
-    files: [.palm/assets/trailofbits__skills/gh-cli/hooks/persist-session-id.sh, …]
+    files: [.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh, …]
     merged: [ … ]
     exec:
       commands:
-        - { id: SessionStart//-, command: 'bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/persist-session-id.sh' }
-        - { id: PreToolUse//Bash, command: 'bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/intercept-github-curl.sh' }
+        - { id: SessionStart//-, command: 'bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh' }
+        - { id: PreToolUse//Bash, command: 'bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh' }
       closure: { root: .palm/assets/trailofbits__skills/gh-cli, files: 8, tree: sha256:9f1c… }
-      hash: sha256:b2d4…
-    trust: [sha256:b2d4…]
+      hash: sha256:a7cc7911…
+    trust: [sha256:a7cc7911…]
 ```
 
 Rules:
@@ -781,7 +781,8 @@ Consent semantics:
   mode size sha256:8` (first three, then `… N more`). `v` prints every script body from the
   pinned commit in the cache, paged; on update `d` prints a unified diff against the trusted
   version. A summary line comes first: `This install adds 2 programs that will run on your
-  machine.` Prompt hooks follow as `Also 2 prompt hooks (text sent to the model; no program
+  machine.` (`This update …` on update). `--review` on install and update prints every script
+  body (`Output.page`) before the question, and with `--dry-run` instead of it. Prompt hooks follow as `Also 2 prompt hooks (text sent to the model; no program
   runs): fp-check Stop, SubagentStop.`
 - The default answer is No. Enter declines.
 - `--yes` accepts defaults for everything that is not executable (pickers, "apply plan"). It
@@ -791,21 +792,27 @@ Consent semantics:
   The lock diff is the team's consent record: one hash line beside readable `command:` lines.
 - Re-consent triggers: a new unit; any change of the hash; a trust entry removed. Not
   triggers: a commit bump with the same hash, a new target, a palm version.
-- Non-interactive consent is hash-pinned: `--allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911`
-  (comma-separated for several; the hash may be a prefix of at least 8 hex characters; the key
-  is `<kind>:<name>@<source name>`). `--allow-exec all` works only on a terminal; without one it
-  is `E_USAGE`. A unit not covered without a terminal is `E_UNTRUSTED_EXEC`:
+- Non-interactive consent is hash-pinned: `--allow-exec hook:gh-cli@trailofbits/skills=<hash>`
+  (comma-separated for several; the hash may be a prefix of at least 16 hex characters, and the
+  line palm prints carries the full hash; the key is `<kind>:<name>@<source name>`, and
+  `mcp:<name>@manifest` for a server declared under `mcp:` in palm.yaml). `--allow-exec all`
+  works only on a terminal; without one it is `E_USAGE`. A unit not covered without a terminal
+  is `E_UNTRUSTED_EXEC`; its `review:` line repeats the command as typed plus `--dry-run
+  --review`, its `then:` line the command plus the `--allow-exec` entries:
 
   ```
   x 2 programs need your consent and there is no terminal
     review:  palm install --dry-run --review
-    then:    palm install --allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911,mcp:team-helper@acme-kit=sha256:75aafd9b
+    then:    palm install --allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911f2bd0a61d9686cbc62fcfb17c8e8276fa2ea5aa0c69e646a0b23ad60,mcp:team-helper@acme-kit=sha256:75aafd9baefdaaee905cd992fe17dbe17b4fa390f7f487399d6a57f282682c79
   ```
 
 - Declining a plugin's hook installs the rest (`declined: true`), so bare installs do not ask
   again; `palm install <source> hook:<name>` asks again.
 - `check` fails on an untrusted unit and on a merged command that differs from `exec.commands`.
-- palm never runs what it installs; only git and the editor run.
+- palm never runs what it installs; it runs only git (the script viewer pages through
+  `$PAGER`).
+- In-repo sources have no closure in the exec hash: their scripts run in place, and the pull
+  request diff is the review of a script edit.
 
 The prompt:
 
@@ -813,12 +820,12 @@ The prompt:
 This install adds 2 programs that will run on your machine.
 
   1. hook gh-cli  from trailofbits/skills  (commit 82fe822, v2.1.0, 2026-07-14)
-     SessionStart          bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/persist-session-id.sh
-     PreToolUse  Bash      bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/intercept-github-curl.sh
+     SessionStart          bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh
+     PreToolUse  Bash      bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh
      targets: claude (.claude/settings.json), cursor (.cursor/hooks.json)
      scripts: 8 files, 21 KB  ->  .palm/assets/trailofbits__skills/gh-cli/  (committed with your repo)
-       hooks/persist-session-id.sh     755   612 B   sha256:1b9e04c2
-       hooks/intercept-github-curl.sh  755   1.1 KB  sha256:77d0a9f1
+       plugins/gh-cli/hooks/persist-session-id.sh     755   612 B   sha256:1b9e04c2
+       plugins/gh-cli/hooks/intercept-github-curl.sh  755   1.1 KB  sha256:77d0a9f1
        ... 6 more  (v shows every script)
   2. mcp team-helper  from acme-kit  (commit 61ec102, v1.1.1)
      stdio  node ".palm/assets/acme-kit/team-helper/server.js"   env: none

@@ -108,7 +108,7 @@ describe('execUnitOf', () => {
     expect(Object.keys(unit.rendered)).toEqual(['claude', 'cursor']);
     expect(unit.rendered.cursor?.[0]).toEqual({
       id: 'SessionStart//-',
-      command: `bash "$CURSOR_PROJECT_DIR"/${GH_ASSETS}/hooks/persist-session-id.sh`,
+      command: `bash "$CURSOR_PROJECT_DIR"/${GH_ASSETS}/plugins/gh-cli/hooks/persist-session-id.sh`,
       file: '.cursor/hooks.json',
     });
     expect(unit.closure.root).toBe(GH_ASSETS);

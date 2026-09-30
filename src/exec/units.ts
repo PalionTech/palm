@@ -17,7 +17,6 @@ import type {
 } from '../core/types.js';
 import { TARGET_IDS } from '../core/types.js';
 import { canonicalJson } from '../lib/json.js';
-import { sizeOf } from './format.js';
 
 type Command = ExecUnit['commands'][number];
 type Renders = Partial<Record<TargetId, Rendered>>;
@@ -129,7 +128,7 @@ function renderedOf(renders: Renders): ExecUnit['rendered'] {
 
 /** Total size of the closure files that carry one. */
 function bytesOf(files: readonly ClosureFile[]): number {
-  return files.reduce((sum, f) => sum + (sizeOf(f) ?? 0), 0);
+  return files.reduce((sum, f) => sum + f.size, 0);
 }
 
 /**

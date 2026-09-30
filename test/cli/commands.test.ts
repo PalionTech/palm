@@ -297,7 +297,7 @@ describe('palm update', () => {
     closure: {
       root: '.palm/assets/acme-kit/team-skills',
       inPlace: false,
-      files: files.map(([path, h]) => ({ path, mode: 0o755, hash: h })),
+      files: files.map(([path, h]) => ({ path, mode: 0o755, size: 5, hash: h })),
       bytes: 10,
     },
     hash,
@@ -608,6 +608,7 @@ describe('utilities', () => {
       movedAssets: ['.palm/hooks/gh-cli → .palm/assets/trailofbits__skills/gh-cli'],
       gitignore: '.palm/ → .palm/local/',
       exec: [],
+      failures: [],
       warnings: [
         'i tdd was pinned to v1; mattpocock/skills now tracks v1.2.3; pin the source or split it',
       ],

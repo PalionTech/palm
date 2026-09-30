@@ -7,8 +7,10 @@ import type { MigrateReport } from '../core/types.js';
 import { plural } from '../lib/text.js';
 import { listJoin } from '../ui/format.js';
 import type { Output } from '../ui/output.js';
+import { printFailures } from '../ui/summary.js';
 import type { App } from './app.js';
-import type { Invocation } from './grammar.js';
+import { ExitSignal, type Invocation } from './grammar.js';
+import { EXIT } from './main.js';
 import { engine, engineDeps, type GlobalOptions, makeContext, scopeOf } from './shared.js';
 
 function printReport(out: Output, report: MigrateReport, project: boolean): void {
@@ -36,7 +38,9 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const dryRun = ctx.flags.dryRun;
   const report = await engine(app).migrateScope(ctx, { scope, dryRun }, engineDeps(app));
   for (const w of report.warnings) app.out.warn(w);
-  if (app.out.jsonMode) return app.out.json(report);
-  if (dryRun) return app.out.out(report.manifest.trimEnd());
-  printReport(app.out, report, scope === 'project');
+  if (app.out.jsonMode) app.out.json(report);
+  else if (dryRun) app.out.out(report.manifest.trimEnd());
+  else printReport(app.out, report, scope === 'project');
+  if (!app.out.jsonMode) printFailures(app.out, report.failures);
+  if (report.failures.length) throw new ExitSignal(EXIT.failure);
 }

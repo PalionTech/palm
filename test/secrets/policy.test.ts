@@ -9,7 +9,7 @@ let root: string;
 /** A git worktree (as the fake probe sees it) and a directory outside any. */
 let repo: string;
 let plain: string;
-const tracked = new Set<string>();
+const ignored = new Set<string>();
 const asked: string[] = [];
 
 const git: GitProbe = {
@@ -17,8 +17,8 @@ const git: GitProbe = {
     asked.push(dir);
     return dir === repo || dir.startsWith(`${repo}/`) ? repo : undefined;
   },
-  async isGitTracked(abs) {
-    return abs.startsWith(`${repo}/`) ? tracked.has(abs) : undefined;
+  async isGitIgnored(abs) {
+    return abs.startsWith(`${repo}/`) ? ignored.has(abs) : undefined;
   },
 };
 
@@ -30,8 +30,7 @@ beforeAll(async () => {
   await mkdir(join(plain, '.codex'), { recursive: true });
   await writeFile(join(repo, 'cursor', 'mcp.json'), '{}');
   await writeFile(join(repo, '.mcp.json'), '{}');
-  tracked.add(join(repo, 'cursor', 'mcp.json'));
-  tracked.add(join(repo, '.mcp.json'));
+  ignored.add(join(repo, 'private', 'mcp.json'));
   await mkdir(join(plain, '.cursor'), { recursive: true });
   await symlink(join(repo, 'cursor', 'mcp.json'), join(plain, '.cursor', 'mcp.json'));
   await symlink(join(repo, 'cursor', 'new.json'), join(plain, '.cursor', 'dangling.json'));
@@ -53,6 +52,7 @@ interface Row {
 
 const inRepoTracked = () => join(repo, '.mcp.json');
 const inRepoUntracked = () => join(repo, 'new', 'deeper', 'mcp.json');
+const inRepoIgnored = () => join(repo, 'private', 'mcp.json');
 const outside = () => join(plain, '.codex', 'config.toml');
 const linkedIntoRepo = () => join(plain, '.cursor', 'mcp.json');
 const danglingIntoRepo = () => join(plain, '.cursor', 'dangling.json');
@@ -119,12 +119,24 @@ describe('decideSecret', () => {
       },
     ],
     [
-      'project, literal, untracked in a worktree: literal',
+      'project, literal, untracked in a worktree (git would commit it): warn',
       {
         scope: 'project',
         fromSource: false,
         requested: 'literal',
         dest: inRepoUntracked,
+        force: false,
+        policy: 'literal',
+        action: 'warn',
+      },
+    ],
+    [
+      'project, literal, ignored in a worktree: literal',
+      {
+        scope: 'project',
+        fromSource: false,
+        requested: 'literal',
+        dest: inRepoIgnored,
         force: false,
         policy: 'literal',
         action: 'literal',

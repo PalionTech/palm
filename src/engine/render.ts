@@ -62,7 +62,7 @@ interface RenderRun {
 /** The content hash: the entity's files, or a server's canonical config (one file holds many servers). */
 async function contentOf(entity: Entity, checkout: SourceCheckout): Promise<string> {
   if (entity.def.kind === 'mcp') {
-    const { origin: _origin, secrets: _secrets, ...server } = entity.def.mcp;
+    const { from: _from, secrets: _secrets, ...server } = entity.def.mcp;
     return sha256(canonicalJson(server));
   }
   return hashPath(join(checkout.root, entity.path), { boundary: checkout.root });
@@ -185,7 +185,7 @@ function closureOf(
       for (const f of r?.files ?? []) {
         const rel = posix.relative(root, f.path);
         if (rel.startsWith('..') || rel === '' || posix.isAbsolute(rel)) continue;
-        files.set(rel, { path: rel, mode: f.mode ?? 0o644, hash: sha256(f.data) });
+        files.set(rel, { path: rel, mode: f.mode ?? 0o644, size: f.data.byteLength, hash: sha256(f.data) });
       }
   const sorted = [...files.values()].sort((a, b) => (a.path < b.path ? -1 : 1));
   return { root, inPlace, files: sorted };

@@ -15,6 +15,7 @@ import { hashPath } from '../core/hash.js';
 import type {
   EngineDeps,
   ExecUnit,
+  InstallFailure,
   LegacyConfig,
   LegacyLockEntry,
   LegacyManifest,
@@ -35,7 +36,6 @@ import { readYamlFile, stringifyYaml } from '../lib/yaml.js';
 import { resolveEngineDeps } from './deps.js';
 import { ensureIgnoreLines } from './gitignore.js';
 import { convertLegacy, kindOf, type LegacyItem, type Migration } from './migrate-legacy.js';
-import { label } from './report.js';
 import { syncScope } from './sync.js';
 
 // ---------------------------------------------------------------------------
@@ -214,7 +214,7 @@ async function install(
   ctx: PalmContext,
   scope: Scope,
   deps: EngineDeps,
-): Promise<{ units: ExecUnit[]; problems: string[] }> {
+): Promise<{ units: ExecUnit[]; failures: InstallFailure[]; warnings: string[] }> {
   const units: ExecUnit[] = [];
   const capture: EngineDeps = {
     ...deps,
@@ -224,10 +224,7 @@ async function install(
     },
   };
   const result = await syncScope(ctx, { scope }, capture);
-  const problems = result.failures.map(
-    (f) => `${label(f)} from ${f.source}: ${f.message}${f.hint ? ` (${f.hint})` : ''}`,
-  );
-  return { units, problems: [...problems, ...result.warnings] };
+  return { units, failures: result.failures, warnings: result.warnings };
 }
 
 /** DESIGN §6 "Migrate". */
@@ -255,6 +252,7 @@ export async function migrateScope(
     movedAssets: [],
     exec: [],
     warnings: [...m.warnings],
+    failures: [],
   };
   if (opts.dryRun) return report;
   report.sourcesAdded = sourceLines(ctx, m);
@@ -265,7 +263,8 @@ export async function migrateScope(
   if (ignore) report.gitignore = ignore;
   const installed = await install(ctx, opts.scope, deps);
   report.exec = installed.units;
-  report.warnings.push(...installed.problems);
+  report.failures = installed.failures;
+  report.warnings.push(...installed.warnings);
   report.movedAssets = await dropHookDirs(paths, await Lock.load(paths.lockFile));
   if (legacy.config) ctx.log.info('~/.palm/config.yaml is no longer read; delete it');
   return report;

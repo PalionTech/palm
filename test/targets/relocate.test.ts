@@ -66,6 +66,18 @@ describe('project-dir idioms', () => {
     },
   );
 
+  it('a quoted reference with a default exports the plugin root, not the script', () => {
+    const ref: SourceReference = {
+      raw: '"${CLAUDE_PLUGIN_ROOT:-.}/hooks/run.sh"',
+      form: 'plugin-root',
+      site: 'command',
+      rel: 'plugins/fmt/hooks/run.sh',
+    };
+    const r = project('bash "${CLAUDE_PLUGIN_ROOT:-.}/hooks/run.sh"', 'claude', [ref]);
+    const root = `"$CLAUDE_PROJECT_DIR"/${ASSETS}/plugins/fmt`;
+    expect(r.rendered).toBe(`CLAUDE_PLUGIN_ROOT=${root} bash ${root}/hooks/run.sh`);
+  });
+
   it('project-dir tokens are translated to the target idiom; the own variable stays', () => {
     const cmd = '"$CLAUDE_PROJECT_DIR"/.claude/hooks/x.sh && echo $CLAUDE_PROJECT_DIR';
     expect(project(cmd, 'claude', []).rendered).toBe(cmd);

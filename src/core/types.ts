@@ -129,8 +129,8 @@ export interface McpServerConfig {
   headers?: Record<string, string>;
   /** Secrets referenced by env/headers that the user must supply. */
   secrets?: SecretRef[];
-  /** Where this config came from, for display. */
-  origin?: { type: 'source' | 'manifest' | 'snippet' | 'flags'; ref?: string };
+  /** Where this config came from, for display: a source (its name and version), palm.yaml, a README snippet or flags. */
+  from?: { type: 'source' | 'manifest' | 'snippet' | 'flags'; ref?: string; version?: string };
 }
 
 export interface SecretRef {
@@ -221,7 +221,8 @@ export type ReferenceSite = 'command' | 'args' | 'cwd';
 export interface SourceReference {
   /** The text as written (`${CLAUDE_PLUGIN_ROOT}/hooks/x.sh`, `./scripts/y.sh`). */
   raw: string;
-  form: 'plugin-root' | 'relative' | 'project-dir';
+  /** `unresolvable`: `eval`, `$(…)`, backticks, `~/` or `$HOME/`, which name nothing in the source. */
+  form: 'plugin-root' | 'relative' | 'project-dir' | 'unresolvable';
   site: ReferenceSite;
   /** Source-relative path of what it names, when it resolved. */
   rel?: string;
@@ -408,7 +409,7 @@ export interface LockMerged {
 
 /** The executables of one hook entry or stdio MCP server, as the lock records them. */
 export interface LockExec {
-  /** One line per harness-run command: `<event>//<matcher or ->` for hooks, `stdio` for MCP. */
+  /** One line per harness-run command: `<Event>//<matcher or ->[#n]` (Claude event names) for hooks, `stdio` for MCP. */
   commands: Array<{ id: string; command: string }>;
   /** Asset directory (lock form) and the closure's tree hash, absent for in-place sources. */
   closure?: { root: string; files: number; tree: string };
@@ -534,12 +535,15 @@ export interface ClosureFile {
   path: string;
   /** Permission bits (0o755 / 0o644). */
   mode: number;
+  /** Bytes, for the consent prompt's sizes. */
+  size: number;
   hash: string;
 }
 
 /**
  * One unit of executable material: a hook entry (every command it merges, in every target) or
- * a stdio MCP server. `hash` = sha256(canonical commands ‖ events ‖ matchers ‖ closure tree).
+ * a stdio MCP server. `hash` = sha256(canonical commands ‖ events ‖ matchers ‖ env keys ‖ cwd ‖
+ * closure tree); in-repo sources have no closure in it (their scripts run in place).
  * `canonical` keeps placeholders, so a new target or a palm upgrade never moves the hash.
  */
 export interface ExecUnit {
@@ -560,7 +564,7 @@ export interface ExecUnit {
   cwd?: string;
 }
 
-/** `--allow-exec` as parsed: `hook:gh-cli@trailofbits/skills=sha256:a7cc7911` (hash may be a prefix of at least 8 hex). */
+/** `--allow-exec` as parsed: `hook:gh-cli@trailofbits/skills=sha256:<64 hex>` (the hash may be a prefix of at least 16 hex). */
 export interface AllowExec {
   key: string;
   hash: string;
@@ -568,7 +572,12 @@ export interface AllowExec {
 
 export type ConsentAnswer = 'yes' | 'no' | 'view' | 'diff';
 
+/** Reads one closure file's body at the unit's pinned commit, for `v` and `d`; undefined when unavailable. */
+export type ScriptReader = (unit: ExecUnit, file: ClosureFile) => Promise<string | undefined>;
+
 export interface ConsentRequest {
+  /** The prompt header: `This install adds …` or `This update adds …`. */
+  operation: 'install' | 'update';
   /** The units that need consent now (new or changed hash). */
   units: ExecUnit[];
   /** Prompt hooks listed as text. */
@@ -577,6 +586,8 @@ export interface ConsentRequest {
   previous?: Record<string, ExecUnit>;
   /** Where the hashes will be recorded. */
   lockFile: string;
+  /** Where `v` and `d` read script bodies (the engine knows the checkouts). */
+  read?: ScriptReader;
 }
 
 export interface ConsentOutcome {
@@ -678,6 +689,8 @@ export interface PalmFlags {
   secrets?: SecretPolicy;
   /** 0.3: write to palm.local.yaml. Parsed and refused with E_USAGE in 0.2. */
   local: boolean;
+  /** `--review` on install and update: script bodies before the consent question. */
+  review?: boolean;
 }
 
 export interface PalmContext {
@@ -686,6 +699,8 @@ export interface PalmContext {
   log: Logger;
   env: NodeJS.ProcessEnv;
   flags: PalmFlags;
+  /** The command line after `palm`, as typed; the consent error repeats it in its hint lines. */
+  argv?: readonly string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -702,6 +717,8 @@ export interface InstallRequest {
   /** Per-entry narrowing written to palm.yaml. */
   targets?: TargetId[];
   at?: string;
+  /** `--as <name>`: the name a newly declared source gets in palm.yaml. */
+  as?: string;
 }
 
 /** A hand-declared MCP server (`install mcp` flags, `--json` snippet) headed for `mcp:` in palm.yaml. */
@@ -823,6 +840,8 @@ export interface MigrateReport {
   /** Executables re-vendored, for the one consent. */
   exec: ExecUnit[];
   warnings: string[];
+  /** What could not be migrated; the CLI exits 1 when any exist. */
+  failures: InstallFailure[];
 }
 
 // ---------------------------------------------------------------------------
@@ -848,6 +867,8 @@ export interface RenderInput {
   secretValues?: Record<string, string>;
   /** Environment for CLAUDE_CONFIG_DIR / CODEX_HOME / COPILOT_HOME / PALM_HOME resolution (default: process.env). */
   env?: NodeJS.ProcessEnv;
+  /** The targets active for the entry (cursor writes `.claude/skills` when claude is active). */
+  targets?: readonly TargetId[];
 }
 
 export interface RenderedFile {
@@ -863,6 +884,10 @@ export interface RenderedFragment extends LockMerged {
   value: unknown;
   /** Create the shared file 0600 when it does not exist (user-level secret-bearing files). */
   createMode?: number;
+  /** Set on the shared file even when it exists (it now holds a literal secret). */
+  mode?: number;
+  /** Top-level keys the file needs (Cursor's `version: 1`): set when missing, never recorded. */
+  ensure?: Record<string, unknown>;
 }
 
 export interface Rendered {
@@ -886,13 +911,15 @@ export interface ApplyInput {
   force: boolean;
   dryRun: boolean;
   env?: NodeJS.ProcessEnv;
+  /** The scope the render is for (global renders check every boundary). */
+  scope?: Scope;
 }
 
 export interface ApplyResult {
-  /** Lock-form paths written (or that would be, in a dry run). */
+  /** Every lock-form path the render lists (written, adopted, or that would be in a dry run). */
   files: string[];
   merged: LockMerged[];
-  /** Files present with identical content, adopted without writing. */
+  /** The subset of `files` present with identical content, adopted without writing. */
   adopted: string[];
   notes: string[];
 }

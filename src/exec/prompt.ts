@@ -9,7 +9,7 @@ import type { ClosureFile, ConsentRequest, ExecUnit, Scope, TargetId } from '../
 import { TARGET_IDS } from '../core/types.js';
 import { plural } from '../lib/text.js';
 import { PROJECT_DIR } from '../targets/index.js';
-import { formatSize, modeText, sizeOf, visible } from './format.js';
+import { formatSize, modeText, visible } from './format.js';
 import { commandAt, firstTarget } from './units.js';
 
 export interface PromptOptions {
@@ -109,7 +109,7 @@ function shownScripts(unit: ExecUnit): ClosureFile[] {
 /** `hooks/persist-session-id.sh     755   612 B   sha256:1b9e04c2`, columns aligned. */
 function scriptRows(files: ClosureFile[]): string[] {
   const paths = files.map((f) => visible(f.path));
-  const sizes = files.map((f) => formatSize(sizeOf(f)));
+  const sizes = files.map((f) => formatSize(f.size));
   const pathWidth = Math.max(...paths.map((p) => p.length)) + 2;
   const sizeWidth = Math.max(...sizes.map((s) => s.length)) + 2;
   return files.map(
@@ -181,7 +181,7 @@ function question(req: ConsentRequest): string {
 export function consentSummary(req: ConsentRequest, opts: PromptOptions): string {
   const n = req.units.length;
   return [
-    `This install adds ${programs(n)} that will run on your machine.`,
+    `This ${req.operation} adds ${programs(n)} that will run on your machine.`,
     '',
     ...req.units.flatMap((u, i) => unitLines(u, i + 1, opts.scope)),
     ...promptHooksLines(req.prompts),

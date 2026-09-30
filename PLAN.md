@@ -353,7 +353,7 @@ tree hash of the scripts it reaches.
   diff against the trusted version.
 - The default is no. `--yes` covers pickers and plan confirmations, never this prompt.
 - Without a terminal the prompt is an error that prints the review command and the exact
-  `--allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911` line. There is no
+  `--allow-exec hook:gh-cli@trailofbits/skills=sha256:<hash>` line. There is no
   `--allow-exec all` without a terminal.
 - Consent is recorded in the lock as `trust:` hashes and replayed silently on every
   machine and in CI while the hash matches. A changed command, script byte, mode bit,
@@ -371,12 +371,12 @@ The prompt:
 This install adds 2 programs that will run on your machine.
 
   1. hook gh-cli  from trailofbits/skills  (commit 82fe822, v2.1.0, 2026-07-14)
-     SessionStart          bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits/gh-cli/hooks/persist-session-id.sh
-     PreToolUse  Bash      bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits/gh-cli/hooks/intercept-github-curl.sh
+     SessionStart          bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh
+     PreToolUse  Bash      bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh
      targets: claude (.claude/settings.json), cursor (.cursor/hooks.json)
-     scripts: 8 files, 21 KB  ->  .palm/assets/trailofbits/gh-cli/  (committed with your repo)
-       hooks/persist-session-id.sh     755   612 B   sha256:1b9e04c2
-       hooks/intercept-github-curl.sh  755   1.1 KB  sha256:77d0a9f1
+     scripts: 8 files, 21 KB  ->  .palm/assets/trailofbits__skills/gh-cli/  (committed with your repo)
+       plugins/gh-cli/hooks/persist-session-id.sh     755   612 B   sha256:1b9e04c2
+       plugins/gh-cli/hooks/intercept-github-curl.sh  755   1.1 KB  sha256:77d0a9f1
        ... 6 more  (v shows every script)
   2. mcp team-helper  from acme-kit  (commit 61ec102, v1.1.1)
      stdio  node ".palm/assets/acme-kit/team-helper/server.js"   env: none

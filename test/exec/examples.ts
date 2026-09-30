@@ -8,8 +8,6 @@ import { resolve } from 'node:path';
 import type { ClosureFile, Entity, ExecUnit, Rendered, TargetId } from '../../src/core/types.js';
 import { execUnitOf } from '../../src/exec/units.js';
 
-export type SizedFile = ClosureFile & { size: number };
-
 type Line = Rendered['exec'][number];
 
 export function rendered(lines: Line[]): Rendered {
@@ -66,7 +64,7 @@ export const ghCliEntity: Entity = {
       },
       pluginRootRel: 'plugins/gh-cli',
       references: [],
-      closure: { paths: ['hooks'] },
+      closure: { paths: ['plugins/gh-cli/hooks'] },
       promptHooks: [],
     },
   },
@@ -77,7 +75,7 @@ export function ghCliRender(target: 'claude' | 'cursor'): Rendered {
   const line = (id: string, script: string, event: string, matcher?: string): Line => ({
     id,
     canonical: `bash \${PLUGIN_ROOT}/hooks/${script}`,
-    command: `bash ${IDIOM[target]}/${GH_ASSETS}/hooks/${script}`,
+    command: `bash ${IDIOM[target]}/${GH_ASSETS}/plugins/gh-cli/hooks/${script}`,
     file: HOOK_FILE[target] ?? '',
     event,
     ...(matcher ? { matcher } : {}),
@@ -89,18 +87,28 @@ export function ghCliRender(target: 'claude' | 'cursor'): Rendered {
 }
 
 /** Eight scripts, 21 KB in all; the two the commands name come first in the prompt. */
-export function ghCliScripts(): SizedFile[] {
+export function ghCliScripts(): ClosureFile[] {
   const lib = ['common', 'gh', 'json', 'log', 'paths', 'session'].map(
-    (n, i): SizedFile => ({
-      path: `hooks/lib/${n}.sh`,
+    (n, i): ClosureFile => ({
+      path: `plugins/gh-cli/hooks/lib/${n}.sh`,
       mode: 0o644,
       hash: hex(`c${i}`),
       size: i === 0 ? 3296 : 3294,
     }),
   );
   return [
-    { path: 'hooks/persist-session-id.sh', mode: 0o755, hash: hex('1b9e04c2'), size: 612 },
-    { path: 'hooks/intercept-github-curl.sh', mode: 0o755, hash: hex('77d0a9f1'), size: 1126 },
+    {
+      path: 'plugins/gh-cli/hooks/persist-session-id.sh',
+      mode: 0o755,
+      hash: hex('1b9e04c2'),
+      size: 612,
+    },
+    {
+      path: 'plugins/gh-cli/hooks/intercept-github-curl.sh',
+      mode: 0o755,
+      hash: hex('77d0a9f1'),
+      size: 1126,
+    },
     ...lib,
   ];
 }

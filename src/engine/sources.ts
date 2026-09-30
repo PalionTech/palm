@@ -51,7 +51,7 @@ export function mcpConfigOf(name: string, e: McpManifestEntry): McpServerConfig 
   const cfg: McpServerConfig = {
     name,
     transport: e.transport ?? (e.url ? 'http' : 'stdio'),
-    origin: { type: 'manifest' },
+    from: { type: 'manifest' },
   };
   if (e.command) cfg.command = e.command;
   if (e.args) cfg.args = [...e.args];

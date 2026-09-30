@@ -4,12 +4,9 @@
  */
 import { posix } from 'node:path';
 import { short } from '../core/hash.js';
-import type { ClosureFile, ExecUnit } from '../core/types.js';
+import type { ClosureFile, ExecUnit, ScriptReader } from '../core/types.js';
 import { unifiedDiff } from './diff.js';
-import { formatSize, modeText, sizeOf, visible, visibleBody } from './format.js';
-
-/** Reads one closure file of a unit at the unit's pinned commit; undefined when it cannot. */
-export type ScriptReader = (unit: ExecUnit, file: ClosureFile) => Promise<string | undefined>;
+import { formatSize, modeText, visible, visibleBody } from './format.js';
 
 /** Bytes git sniffs for a NUL to call a file binary. */
 const BINARY_SNIFF = 8192;
@@ -35,7 +32,7 @@ function bodyText(body: string | undefined): string {
 
 async function fileBlock(unit: ExecUnit, file: ClosureFile, read: ScriptReader): Promise<string> {
   const path = visible(posix.join(unit.closure.root, file.path));
-  const facts = `${modeText(file.mode)}  ${formatSize(sizeOf(file))}  sha256:${short(file.hash, 8)}`;
+  const facts = `${modeText(file.mode)}  ${formatSize(file.size)}  sha256:${short(file.hash, 8)}`;
   return `==> ${path}  ${facts}\n${bodyText(await readSafely(read, unit, file))}\n`;
 }
 

@@ -95,7 +95,7 @@ export async function treeHash(
   const files: ClosureFile[] = [];
   for (const f of [...walked.files].sort((a, b) => (a.rel < b.rel ? -1 : Number(a.rel > b.rel)))) {
     const hash = sha256(normalizeEol(await readFile(f.abs)));
-    files.push({ path: f.rel, mode: treeMode(f.mode), hash });
+    files.push({ path: f.rel, mode: treeMode(f.mode), size: f.size, hash });
   }
   const lines = files.map((f) => `${f.path}\0${f.mode.toString(8)}\0${f.hash}`);
   return { tree: sha256(lines.join('\n')), files };

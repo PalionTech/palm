@@ -102,7 +102,7 @@ export async function copyClosure(input: {
   const files = await readClosure(input.sourceRoot, input.closure, input.boundary);
   for (const f of files)
     await writeFileAtomic(path.join(input.destAbs, ...f.rel.split('/')), f.data, { mode: f.mode });
-  return files.map((f) => ({ path: f.rel, mode: f.mode, hash: sha256(f.data) }));
+  return files.map((f) => ({ path: f.rel, mode: f.mode, size: f.data.byteLength, hash: sha256(f.data) }));
 }
 
 /**

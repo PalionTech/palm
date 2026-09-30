@@ -82,7 +82,7 @@ function commandServer(name: string, opts: AdhocMcpOptions): McpServerConfig {
   const env = parsePairs(opts.env, '--env');
   if (Object.keys(env).length) cfg.env = env;
   if (opts.cwd) cfg.cwd = opts.cwd;
-  return { ...cfg, origin: { type: 'flags' } };
+  return { ...cfg, from: { type: 'flags' } };
 }
 
 function urlServer(name: string, url: string, opts: AdhocMcpOptions): McpServerConfig {
@@ -97,7 +97,7 @@ function urlServer(name: string, url: string, opts: AdhocMcpOptions): McpServerC
   const cfg: McpServerConfig = { name, transport: transport ?? 'http', url };
   const headers = parsePairs(opts.headers, '--header');
   if (Object.keys(headers).length) cfg.headers = headers;
-  return { ...cfg, origin: { type: 'flags' } };
+  return { ...cfg, from: { type: 'flags' } };
 }
 
 /** The canonical server from `install mcp <name>` flags; E_USAGE for anything malformed. */

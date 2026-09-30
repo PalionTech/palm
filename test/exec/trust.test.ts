@@ -55,11 +55,11 @@ describe('withTrust', () => {
       commands: [
         {
           id: 'SessionStart//-',
-          command: `bash "$CLAUDE_PROJECT_DIR"/${GH_ASSETS}/hooks/persist-session-id.sh`,
+          command: `bash "$CLAUDE_PROJECT_DIR"/${GH_ASSETS}/plugins/gh-cli/hooks/persist-session-id.sh`,
         },
         {
           id: 'PreToolUse//Bash',
-          command: `bash "$CLAUDE_PROJECT_DIR"/${GH_ASSETS}/hooks/intercept-github-curl.sh`,
+          command: `bash "$CLAUDE_PROJECT_DIR"/${GH_ASSETS}/plugins/gh-cli/hooks/intercept-github-curl.sh`,
         },
       ],
       closure: { root: GH_ASSETS, files: 8, tree: closureTree(unit.closure.files) },

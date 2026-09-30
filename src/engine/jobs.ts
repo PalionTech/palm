@@ -4,6 +4,7 @@
  * unit the run would write, then apply.ts writes entity by entity.
  */
 import type {
+  ConsentRequest,
   EngineDeps,
   Entity,
   EntityRef,
@@ -39,6 +40,8 @@ export interface Run {
   state: ScopeState;
   result: InstallResult;
   policy: SecretPolicy;
+  /** Names the consent prompt's header: `This install …` or `This update …`. */
+  operation: 'install' | 'update';
 }
 
 /** One entity to bring onto the disk. */
@@ -72,9 +75,15 @@ export interface Prepared {
   consent: ConsentState;
 }
 
-export function runOf(ctx: PalmContext, deps: EngineDeps, state: ScopeState): Run {
+export function runOf(
+  ctx: PalmContext,
+  deps: EngineDeps,
+  state: ScopeState,
+  operation: Run['operation'] = 'install',
+): Run {
   const policy = ctx.flags.secrets ?? 'env-ref';
-  return { ctx, deps, state, policy, result: { outcomes: [], warnings: [], failures: [] } };
+  const result: InstallResult = { outcomes: [], warnings: [], failures: [] };
+  return { ctx, deps, state, policy, operation, result };
 }
 
 /** Secret values under `--secrets literal` (never in a dry run, which prompts for nothing). */
@@ -185,7 +194,12 @@ export async function askForConsent(
       );
     return;
   }
-  const req = { units, prompts: promptHooks(prepared), lockFile: run.state.paths.lockFile };
+  const req: ConsentRequest = {
+    operation: run.operation,
+    units,
+    prompts: promptHooks(prepared),
+    lockFile: run.state.paths.lockFile,
+  };
   const answer = await run.deps.askConsent(run.ctx, previous ? { ...req, previous } : req);
   const allowed = new Set(answer.allowed);
   for (const p of asking)

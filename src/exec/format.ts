@@ -63,8 +63,3 @@ export function formatSize(bytes: number | undefined): string {
 export function modeText(mode: number): string {
   return (mode & 0o777).toString(8).padStart(3, '0');
 }
-
-/** The size of a closure file, when the caller knows it (ClosureFile has no size field yet). */
-export function sizeOf(file: ClosureFile): number | undefined {
-  return (file as ClosureFile & { size?: number }).size;
-}
