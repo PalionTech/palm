@@ -168,11 +168,18 @@ function skipNote(note: string, job: RenderJob): string {
 }
 
 /**
- * Where the copies of a skill are, when claude is active with another target: cursor reads
- * `.claude/skills` (one copy); the others read only `.agents/skills` (two copies).
+ * Where the copies of a skill are. With claude active: cursor reads `.claude/skills` (one copy);
+ * the others read only `.agents/skills` (two copies). Without it, cursor and opencode (which have
+ * directories of their own) get a note that they read `.agents/skills`.
  */
 function noteCopies(job: RenderJob, dir: string, active: readonly TargetId[]): void {
-  if (job.target.id === 'claude' || !active.includes('claude')) return;
+  const id = job.target.id;
+  if (id === 'claude') return;
+  if (!active.includes('claude')) {
+    const shared = path.dirname(dir).endsWith(path.join('.agents', 'skills'));
+    if (shared && (id === 'cursor' || id === 'opencode')) job.note(`${id} reads .agents/skills`);
+    return;
+  }
   if (isWithin(dir, job.paths.harnessHome('claude')))
     job.note(`${job.target.id} reads .claude/skills; no second copy`);
   else job.note(`${job.target.id} does not read .claude/skills; claude gets a second copy there`);

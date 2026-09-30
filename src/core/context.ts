@@ -2,7 +2,10 @@
  * The context of one command: where it runs, how it talks to the user, and its flags. Nothing is
  * read to build it; scopes open their manifest and lock when a command needs them.
  */
+import { rmdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { ScopePaths } from '../domain/scope-paths.js';
+import { pathExists } from '../lib/fs.js';
 import { setGitRunner } from '../lib/git-query.js';
 import { runGit } from './git-exec.js';
 import { withLock } from './lock-file.js';
@@ -45,5 +48,12 @@ export function scopedPaths(ctx: PalmContext, scope: Scope): ScopePaths {
  * commands do not call it.
  */
 export async function withScopeLock<T>(paths: ScopePaths, fn: () => Promise<T>): Promise<T> {
-  return withLock(paths.processLock, fn);
+  const dir = dirname(paths.processLock);
+  const existed = await pathExists(dir);
+  try {
+    return await withLock(paths.processLock, fn);
+  } finally {
+    // The lock's directory (`.palm/`) goes again when the run left nothing in it.
+    if (!existed) await rmdir(dir).catch(() => undefined);
+  }
 }

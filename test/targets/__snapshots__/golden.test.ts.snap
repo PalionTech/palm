@@ -1638,7 +1638,9 @@ Review $ARGUMENTS
       },
     ],
     "fragments": [],
-    "notes": [],
+    "notes": [
+      "cursor reads .agents/skills",
+    ],
   },
   "hook": {
     "exec": [
@@ -1850,7 +1852,9 @@ echo demo
       },
     ],
     "fragments": [],
-    "notes": [],
+    "notes": [
+      "cursor reads .agents/skills",
+    ],
   },
 }
 `;
@@ -1893,7 +1897,9 @@ Review $ARGUMENTS
       },
     ],
     "fragments": [],
-    "notes": [],
+    "notes": [
+      "cursor reads .agents/skills",
+    ],
   },
   "hook": {
     "exec": [
@@ -2109,7 +2115,9 @@ echo demo
       },
     ],
     "fragments": [],
-    "notes": [],
+    "notes": [
+      "cursor reads .agents/skills",
+    ],
   },
 }
 `;
@@ -2704,6 +2712,7 @@ Review $ARGUMENTS
     ],
     "fragments": [],
     "notes": [
+      "opencode reads .agents/skills",
       "skill review (from a command): OpenCode does not expand $ARGUMENTS in skills; the text stays as written",
     ],
   },
@@ -2878,7 +2887,9 @@ echo demo
       },
     ],
     "fragments": [],
-    "notes": [],
+    "notes": [
+      "opencode reads .agents/skills",
+    ],
   },
 }
 `;
@@ -2928,6 +2939,7 @@ Review $ARGUMENTS
     ],
     "fragments": [],
     "notes": [
+      "opencode reads .agents/skills",
       "skill review (from a command): OpenCode does not expand $ARGUMENTS in skills; the text stays as written",
     ],
   },
@@ -3098,7 +3110,9 @@ echo demo
       },
     ],
     "fragments": [],
-    "notes": [],
+    "notes": [
+      "opencode reads .agents/skills",
+    ],
   },
 }
 `;

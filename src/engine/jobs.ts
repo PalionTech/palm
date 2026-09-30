@@ -15,12 +15,14 @@ import type {
   ManifestEntry,
   McpManifestEntry,
   PalmContext,
+  ScriptReader,
   SecretPolicy,
   SourceCheckout,
   TargetId,
 } from '../core/types.js';
 import type { RecordState } from '../domain/merged-record.js';
 import type { SourceRef } from '../domain/source.js';
+import { allowed, checkoutReader } from '../exec/consent.js';
 import { needsConsent } from '../exec/trust.js';
 import {
   type FileState,
@@ -42,6 +44,11 @@ export interface Run {
   policy: SecretPolicy;
   /** Names the consent prompt's header: `This install …` or `This update …`. */
   operation: 'install' | 'update';
+  /**
+   * `install <source> --all`: programs nobody named are left out without a prompt (declined),
+   * unless `--allow-exec` covers them (DESIGN §6 step 6).
+   */
+  leaveOutPrograms?: boolean;
 }
 
 /** One entity to bring onto the disk. */
@@ -147,7 +154,7 @@ export async function prepareJob(run: Run, job: Job): Promise<Prepared> {
   const edited = await knownEdits(run, previous, out);
   const decision = outcomeStatus({
     ...(edited ? { edited } : {}),
-    ...(previous ? { previous } : {}),
+    ...(previous && !previous.declined ? { previous } : {}),
     renders: out.renders,
     files,
     fragments,
@@ -172,36 +179,50 @@ function promptHooks(prepared: Prepared[]) {
   );
 }
 
+/** Script bodies for `v` and `--review`: each unit's closure file at its pinned commit. */
+function readerOf(asking: Prepared[]): ScriptReader {
+  const checkouts = new Map(asking.map((p) => [(p.out.unit as ExecUnit).key, p.job.checkout]));
+  return checkoutReader((unit) => {
+    const co = checkouts.get(unit.key);
+    return co?.sha ? { checkoutDir: co.repoDir, dirRel: co.source.root ?? '' } : undefined;
+  });
+}
+
+/** Under `--all`: the programs `--allow-exec` does not cover are declined without a prompt. */
+function leaveOut(run: Run, asking: Prepared[]): Prepared[] {
+  const allow = run.ctx.flags.allowExec;
+  if (!run.leaveOutPrograms || allow === 'all') return asking;
+  const kept = asking.filter((p) => allowed(p.out.unit as ExecUnit, allow));
+  for (const p of asking) if (!kept.includes(p)) p.consent = 'declined';
+  return kept;
+}
+
 /**
  * Asks once for every unit that needs consent (DESIGN §7): the lock's trust passes silently,
  * the rest go through `askConsent` (prompt, `--allow-exec`, or E_UNTRUSTED_EXEC without a
- * terminal). A dry run asks nothing and reports the units instead. `--yes` never consents.
+ * terminal). A dry run shows the units and asks nothing; they stay undecided, so the dry run
+ * reports what an install would write. `--yes` never consents.
  */
 export async function askForConsent(
   run: Run,
   prepared: Prepared[],
   previous?: Record<string, ExecUnit>,
 ): Promise<void> {
-  const asking = prepared.filter(
+  const pending = prepared.filter(
     (p) => p.consent === 'ask' && p.out.unit && !p.out.refusals.some((f) => !f.target),
   );
+  const asking = leaveOut(run, pending);
   if (!asking.length) return;
-  const units = asking.map((p) => p.out.unit as ExecUnit);
-  if (run.ctx.flags.dryRun) {
-    for (const u of units)
-      run.result.warnings.push(
-        `${u.key} runs a program; the install would ask for your consent (${u.hash})`,
-      );
-    return;
-  }
   const req: ConsentRequest = {
     operation: run.operation,
-    units,
+    units: asking.map((p) => p.out.unit as ExecUnit),
     prompts: promptHooks(prepared),
     lockFile: run.state.paths.lockFile,
+    read: readerOf(asking),
   };
   const answer = await run.deps.askConsent(run.ctx, previous ? { ...req, previous } : req);
-  const allowed = new Set(answer.allowed);
+  if (run.ctx.flags.dryRun) return;
+  const yes = new Set(answer.allowed);
   for (const p of asking)
-    p.consent = allowed.has((p.out.unit as ExecUnit).key) ? 'allowed' : 'declined';
+    p.consent = yes.has((p.out.unit as ExecUnit).key) ? 'allowed' : 'declined';
 }

@@ -16,7 +16,14 @@
  */
 export type Kind = 'skill' | 'agent' | 'instruction' | 'hook' | 'mcp' | 'plugin';
 
-export const KINDS: readonly Kind[] = ['skill', 'agent', 'instruction', 'hook', 'mcp', 'plugin'] as const;
+export const KINDS: readonly Kind[] = [
+  'skill',
+  'agent',
+  'instruction',
+  'hook',
+  'mcp',
+  'plugin',
+] as const;
 
 /** Kinds a user can name on the command line and in palm.yaml (`plugin` selects, the rest install). */
 export type ManifestKind = Kind;
@@ -894,7 +901,14 @@ export interface Rendered {
   files: RenderedFile[];
   fragments: RenderedFragment[];
   /** The exec commands this target will run, canonical and rendered, for the exec unit. */
-  exec: Array<{ id: string; canonical: string; command: string; file: string; event?: string; matcher?: string }>;
+  exec: Array<{
+    id: string;
+    canonical: string;
+    command: string;
+    file: string;
+    event?: string;
+    matcher?: string;
+  }>;
   notes: string[];
   /** True when the target has nothing to do for this kind/scope (documented gap; noted). */
   skipped?: boolean;

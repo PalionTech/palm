@@ -103,7 +103,8 @@ export async function listRemoteRefs(url: string): Promise<RemoteRefList> {
   return refs;
 }
 
-async function remoteDefaultBranch(url: string): Promise<string | undefined> {
+/** The branch the remote's HEAD points at (`git ls-remote --symref <url> HEAD`). */
+export async function defaultBranch(url: string): Promise<string | undefined> {
   try {
     const out = await git(['ls-remote', '--symref', '--', url, 'HEAD'], remote(url));
     return /^ref:\s+refs\/heads\/(\S+)\s+HEAD/m.exec(out)?.[1];
@@ -192,7 +193,7 @@ async function latestRef(
 ): Promise<{ ref: string; resolved: string; sha: string }> {
   const tag = latestSemverTag(refs.tags);
   if (tag) return { ref: intentFor(tag), resolved: tag, sha: shaOf(url, tag, refs.tagShas[tag]) };
-  const branch = (await remoteDefaultBranch(url)) ?? refs.heads[0];
+  const branch = (await defaultBranch(url)) ?? refs.heads[0];
   if (!branch)
     throw new PalmError('E_SOURCE', `${url} has no tags and no branches`, `git ls-remote ${url}`);
   return { ref: branch, resolved: branch, sha: shaOf(url, branch, refs.headShas[branch]) };

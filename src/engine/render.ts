@@ -185,7 +185,12 @@ function closureOf(
       for (const f of r?.files ?? []) {
         const rel = posix.relative(root, f.path);
         if (rel.startsWith('..') || rel === '' || posix.isAbsolute(rel)) continue;
-        files.set(rel, { path: rel, mode: f.mode ?? 0o644, size: f.data.byteLength, hash: sha256(f.data) });
+        files.set(rel, {
+          path: rel,
+          mode: f.mode ?? 0o644,
+          size: f.data.byteLength,
+          hash: sha256(f.data),
+        });
       }
   const sorted = [...files.values()].sort((a, b) => (a.path < b.path ? -1 : 1));
   return { root, inPlace, files: sorted };

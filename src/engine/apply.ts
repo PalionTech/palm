@@ -236,8 +236,7 @@ async function record(
   const rec = p.job.record;
   if (rec && 'mcp' in rec) state.manifest.setMcp(p.job.entity.name, rec.mcp);
   else if (rec) state.manifest.addEntry(p.job.source.name, rec.kind, rec.entry);
-  if (WROTE.has(status) && (await persistTargets(state)))
-    ctx.log.info(`targets: ${state.targets.join(', ')} (detected; change targets: in palm.yaml)`);
+  if (WROTE.has(status)) await persistTargets(state);
 }
 
 function perTarget(p: Prepared, failed: Set<TargetId>): Partial<Record<TargetId, OutcomeStatus>> {

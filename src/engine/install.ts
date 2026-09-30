@@ -114,6 +114,7 @@ async function install(
   run.result.warnings.push(...r.index.warnings);
   const jobs = requestedJobs(state, ref, r, { ...req, ...(targets ? { targets } : {}), match });
   state.lock.setSource(ref.name, lockSourceOf(state, ref, r));
+  if (req.all) run.leaveOutPrograms = true;
   await runJobs(run, dedupeJobs([...jobs, ...movedJobs(state, ref, r, run)]));
 }
 

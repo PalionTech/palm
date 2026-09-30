@@ -139,11 +139,19 @@ function programLeftOut(o: InstallOutcome): boolean {
   return o.status === 'skipped' && e.exec !== undefined && !e.trust?.includes(e.exec.hash);
 }
 
-function outcomeRow(o: InstallOutcome, opts: SummaryOptions): Row {
+/** `kind:name` when another entity of the run has the same name in the same source, else the name. */
+function nameFor(e: LockEntry, all: readonly InstallOutcome[]): string {
+  const clash = all.some(
+    (o) => o.entry.source === e.source && o.entry.name === e.name && o.entry.kind !== e.kind,
+  );
+  return clash ? `${e.kind}:${e.name}` : e.name;
+}
+
+function outcomeRow(o: InstallOutcome, opts: SummaryOptions, all: InstallOutcome[]): Row {
   const e = o.entry;
   const base = { kind: e.kind, name: e.name, after: [] };
   if (programLeftOut(o)) {
-    const cmd = `palm install ${e.source} ${e.name}`;
+    const cmd = `palm install ${e.source} ${nameFor(e, all)}`;
     const after = [`    see it:      ${cmd} --dry-run`, `    install it:  ${cmd}`];
     return { ...base, mark: '!', word: LEFT_OUT, cells: [DECLINED], after };
   }
@@ -218,6 +226,15 @@ function footer(outcomes: InstallOutcome[], opts: SummaryOptions): string | unde
   return `${counts.join(', ')}. Commit ${commit} together.`;
 }
 
+/**
+ * Whether an outcome gets a line: a plugin is a selector over its members, whose lines say it;
+ * a program declined earlier stays quiet on later runs (it was reported when it was declined).
+ */
+function shown(o: InstallOutcome): boolean {
+  if (o.entry.kind === 'plugin') return false;
+  return !(o.entry.declined && o.status === 'unchanged');
+}
+
 function filesOf(e: LockEntry): string[] {
   return [...e.files, ...(e.merged ?? []).map((m) => m.file)];
 }
@@ -233,8 +250,8 @@ export function printInstallSummary(
   opts: SummaryOptions,
 ): void {
   if (opts.detected?.length && opts.targets.length) out.out(targetsLine(opts));
-  const outcomes = sorted(result.outcomes);
-  const rows = outcomes.map((o) => outcomeRow(o, opts));
+  const outcomes = sorted(result.outcomes.filter(shown));
+  const rows = outcomes.map((o) => outcomeRow(o, opts, result.outcomes));
   const words = new Set(rows.filter((r) => r.word !== LEFT_OUT).map((r) => r.word));
   printRows(out, rows, words.size > 1 || Boolean(opts.dryRun));
   printFailures(out, result.failures);

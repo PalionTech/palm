@@ -5,7 +5,7 @@
 
 import { getIndex } from '../core/cache.js';
 import { PalmError } from '../core/errors.js';
-import { fetchSource, isSemverRange, resolveRef } from '../core/git.js';
+import { defaultBranch, fetchSource, isSemverRange, resolveRef } from '../core/git.js';
 import { deriveSourceName, parseSourceInput } from '../core/source-input.js';
 import type {
   EngineDeps,
@@ -140,13 +140,19 @@ function caretOf(tag: string): string | undefined {
   return m ? `^${m[1]}.${m[2]}` : undefined;
 }
 
-/** A git source without `#ref`: the latest release as a range, else the default branch, written explicitly. */
+/**
+ * A git source without `#ref`: the latest release as `^M.m`, else the default branch, written
+ * explicitly and reported (DESIGN §5 "Input forms").
+ */
 async function defaultRef(ctx: PalmContext, source: Source): Promise<Source> {
   if (source.type !== 'git' || source.ref || !source.url) return source;
   const r = await resolveRef(source.url, undefined);
   const caret = caretOf(r.resolved);
   if (caret) {
-    ctx.log.info(`ref ${caret} saved to palm.yaml (latest tag ${r.resolved})`);
+    const branch = (await defaultBranch(source.url).catch(() => undefined)) ?? 'main';
+    ctx.log.info(
+      `ref ${caret} saved to palm.yaml (latest tag ${r.resolved}); edit ref: to track ${branch}`,
+    );
     return { ...source, ref: caret };
   }
   ctx.log.info(`ref ${r.ref} saved to palm.yaml; edit ref: to pin a tag`);
@@ -255,7 +261,7 @@ export async function declareSource(
   const source = await defaultRef(ctx, { ...parsed, name });
   state.manifest.addSource(source, baseDirOf(state));
   state.sources = state.sources.add(source);
-  ctx.log.info(`source ${name} added to palm.yaml`);
+  if (name !== splitRef(input)[0]) ctx.log.info(`source ${name} added to palm.yaml`);
   return state.sources.byName(name) ?? SourceRef.of(source);
 }
 

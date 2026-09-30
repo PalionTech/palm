@@ -117,6 +117,13 @@ async function page(ctx: PalmContext, text: string): Promise<void> {
   else ctx.log.info(text);
 }
 
+/** A block of text as it is (the output's data lines when it has them), not as an `i` line. */
+function show(ctx: PalmContext, text: string): void {
+  const log = ctx.log as Logger & { out?: (line: string) => void };
+  if (typeof log.out === 'function') log.out(text);
+  else ctx.log.info(text);
+}
+
 /** Every script body of `units`, from the pinned commit through `read`, paged (`v`). */
 export async function viewScripts(
   ctx: PalmContext,
@@ -188,7 +195,8 @@ function allWithoutTerminal(args: readonly string[]): PalmError {
  * prompt. `--allow-exec all` without a terminal is E_USAGE; on a terminal it allows every unit
  * after showing them. A dry run shows the units and asks nothing. Without a terminal the units
  * are shown and E_UNTRUSTED_EXEC names the review command and the `--allow-exec` line.
- * Otherwise `ctx.ui.consent` asks (Enter is no); a no declines every unit it listed.
+ * Otherwise `ctx.ui.consent` asks (Enter is no); a no declines every unit it listed. `--review`
+ * pages every script body first (in a dry run, after the units).
  */
 export async function askConsent(ctx: PalmContext, req: ConsentRequest): Promise<ConsentOutcome> {
   const allow = ctx.flags.allowExec ?? [];
@@ -197,13 +205,17 @@ export async function askConsent(ctx: PalmContext, req: ConsentRequest): Promise
   const opts = promptOptions(ctx, req.lockFile);
   const covered = req.units.filter((u) => allowed(u, allow)).map((u) => u.key);
   const rest: ConsentRequest = { ...req, units: req.units.filter((u) => !allowed(u, allow)) };
-  if (allow === 'all' && req.units.length) ctx.log.info(consentSummary(req, opts));
+  if (allow === 'all' && req.units.length) show(ctx, consentSummary(req, opts));
   if (rest.units.length === 0) return { allowed: covered, declined: [] };
+  const review = () =>
+    ctx.flags.review ? viewScripts(ctx, rest.units, req.read ?? unreadable) : undefined;
   if (ctx.flags.dryRun || !ctx.ui.isInteractive) {
-    ctx.log.info(consentSummary(rest, opts));
+    show(ctx, consentSummary(rest, opts));
+    await review();
     if (ctx.flags.dryRun) return { allowed: covered, declined: [] };
     throw nonInteractiveError(rest, { args });
   }
+  await review();
   const keys = rest.units.map((u) => u.key);
   if (await consentLoop(ctx, rest, opts)) return { allowed: [...covered, ...keys], declined: [] };
   return { allowed: covered, declined: keys };
