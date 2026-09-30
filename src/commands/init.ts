@@ -37,16 +37,6 @@ interface InitFlags extends GlobalOptions {
 /** The only palm paths a project ignores (DESIGN.md §2). */
 const IGNORE_LINES = ['.palm/local/', 'palm.local.yaml'] as const;
 
-/** C25: what makes each harness count as used in a project, in the order palm looks. */
-const PROJECT_EVIDENCE: Readonly<Record<TargetId, readonly string[]>> = {
-  claude: ['.claude', 'CLAUDE.md'],
-  codex: ['.codex', 'AGENTS.md'],
-  copilot: ['.github/copilot-instructions.md', '.github/agents', '.vscode/mcp.json'],
-  cursor: ['.cursor'],
-  gemini: ['.gemini', 'GEMINI.md'],
-  opencode: ['.opencode', 'opencode.json', 'opencode.jsonc'],
-};
-
 /** `.gitignore` text with the palm lines it lacks appended, and which ones those were. */
 function withIgnoreLines(text: string): { text: string; added: string[] } {
   const have = new Set(
@@ -96,15 +86,20 @@ async function detect(ctx: PalmContext, app: App, scope: Scope): Promise<TargetI
   return api.detectTargets(ctx, paths, await api.resolveEngineDeps(engineDeps(app)));
 }
 
-/** C25: `codex (AGENTS.md)`: the file or directory that marked the harness as used here. */
+/**
+ * C25 Y15: `codex (.codex/)`: the file or directory that marked the harness as used here
+ * (`Target.evidence`), as the person types it.
+ */
 async function evidenceOf(ctx: PalmContext, app: App, id: TargetId, scope: Scope) {
-  if (scope === 'global') {
-    const target = await targetOf(app.deps ?? {}, id);
-    return `${displayPath(ctx, target.configDir('global', ctx.paths.home, ctx.env), 'global')}/`;
-  }
-  const found = PROJECT_EVIDENCE[id].find((p) => existsSync(join(ctx.paths.cwd, p)));
+  const target = await targetOf(app.deps ?? {}, id);
+  const root = scope === 'global' ? ctx.paths.home : ctx.paths.cwd;
+  const found = await target.evidence?.(scope, root, ctx.env);
   if (!found) return undefined;
-  return statSync(join(ctx.paths.cwd, found)).isDirectory() ? `${found}/` : found;
+  const shown =
+    scope === 'global'
+      ? displayPath(ctx, found, 'global')
+      : relative(ctx.paths.cwd, found).split(sep).join('/');
+  return existsSync(found) && statSync(found).isDirectory() ? `${shown}/` : shown;
 }
 
 /** L13: with nothing found here, the harnesses found in the home directory make the example. */

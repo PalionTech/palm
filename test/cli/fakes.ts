@@ -3,6 +3,7 @@
  * through `CliOptions.deps` (src/create/engine.ts), so a test hands `runCli` exactly the
  * results it wants printed and reads back the requests the CLI made.
  */
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { type CliOptions, runCli } from '../../src/commands/main.js';
 import { PalmError } from '../../src/core/errors.js';
@@ -125,6 +126,8 @@ function fakeTarget(id: TargetId): Target {
     id,
     displayName: `${id.charAt(0).toUpperCase()}${id.slice(1)}`,
     detect: async () => false,
+    evidence: async (_scope, root) =>
+      existsSync(join(root, CONFIG_DIR[id])) ? join(root, CONFIG_DIR[id]) : undefined,
     configDir: (_scope, root) => join(root, CONFIG_DIR[id]),
     outputDirs: () => [`${CONFIG_DIR[id]}/skills`, `${CONFIG_DIR[id]}/agents`],
     render: refuse,

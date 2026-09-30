@@ -369,11 +369,11 @@ describe('C25: init shows what it found and lets a terminal user change it', () 
       detectTargets: async (_ctx, paths) => found((paths as { scope: string }).scope),
     });
 
-  it('prints the evidence per target', async () => {
+  it('C25 Y15 prints the evidence each target gives (AGENTS.md alone marks no target)', async () => {
     await mkdir(join(sb.project, '.claude'), { recursive: true });
     await write(join(sb.project, 'AGENTS.md'), '# agents\n');
     const r = await palm(sb, ['init'], { deps: initDeps(() => ['claude', 'codex']) });
-    expect(r.stdout).toContain('i found claude (.claude/), codex (AGENTS.md)\n');
+    expect(r.stdout).toContain('i found claude (.claude/), codex\n');
     expect(await read(join(sb.project, 'palm.yaml'))).toContain('codex');
   });
 

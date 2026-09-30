@@ -66,6 +66,12 @@ function withoutOption(args: readonly string[], retry: readonly string[]): strin
   return out;
 }
 
+/** `palm <args> <retryWith>`, the option replaced when `args` already has it, shell-quoted. */
+export function retryCommand(args: readonly string[], retryWith: string): string {
+  const flags = retryWith.split(' ');
+  return `palm ${[...withoutOption(args, flags), ...flags].map(shellWord).join(' ')}`;
+}
+
 /**
  * The hint of an error with `retryWith`, given the command line that failed (`args` before `--`,
  * `passthrough` after it): `<hint>: palm <args> <flags> [-- <passthrough>]`.
@@ -77,9 +83,8 @@ export function retryHint(
   if (!e.retryWith) return e.hint;
   const flags = e.retryWith.split(' ');
   if (!run) return `${e.hint ?? 'run the command'} it again with ${e.retryWith}`;
-  const words = [...withoutOption(run.args, flags), ...flags].map(shellWord);
   const tail = run.passthrough.length ? ` -- ${run.passthrough.map(shellWord).join(' ')}` : '';
-  return `${e.hint ?? 'run'}: palm ${words.join(' ')}${tail}`;
+  return `${e.hint ?? 'run'}: ${retryCommand(run.args, e.retryWith)}${tail}`;
 }
 
 export function isPalmError(e: unknown): e is PalmError {

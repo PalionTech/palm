@@ -6,6 +6,7 @@
  * hook script without `--force`, ruling 28) and secret decisions that refuse a destination.
  */
 import { join, posix } from 'node:path';
+import { retryCommand } from '../core/errors.js';
 import { commitDate } from '../core/git.js';
 import { hashPath, sha256 } from '../core/hash.js';
 import type {
@@ -29,9 +30,11 @@ import type { SourceRef } from '../domain/source.js';
 import { inPlaceClosure } from '../exec/closure.js';
 import { withScriptReads } from '../exec/reads.js';
 import { canonicalJson } from '../lib/json.js';
+import { redactTypedArgs } from '../secrets/typed.js';
 import { failure, failureOf, installCommand, label, type Subject } from './report.js';
 import { localPathOf, type ScopeState } from './scope.js';
 import { referencedLine, referenceSecrets } from './source-secrets.js';
+import { MANIFEST_SOURCE } from './sources.js';
 
 export interface RenderJob {
   entity: Entity;
@@ -211,6 +214,18 @@ function destinationOf(rendered: Rendered): string | undefined {
 }
 
 /**
+ * The command that installs the server with references instead (ruling 25): the command line as
+ * typed (a typed value shown as its reference, J11) with `--secrets env-ref`; for a source's
+ * server, its install command.
+ */
+function envRefCommand(run: RenderRun): string {
+  const argv = run.ctx.argv?.filter((w) => w !== '--');
+  if (run.subject.source !== MANIFEST_SOURCE || !argv?.length)
+    return installCommand(run.subject, run.state.paths.scope, '--secrets env-ref');
+  return retryCommand(redactTypedArgs(argv), '--secrets env-ref');
+}
+
+/**
  * `--secrets literal` for an MCP server: `decideSecret` per destination (DESIGN §8). `refused`
  * drops the target with a failure; `warn` is reported; an env-ref decision renders again.
  */
@@ -230,7 +245,7 @@ async function secretPass(
     force: run.ctx.flags.force,
   });
   if (decision.action === 'refused') {
-    const hint = installCommand(run.subject, run.state.paths.scope, '--secrets env-ref');
+    const hint = envRefCommand(run);
     out.refusals.push(failure(run.subject, 'E_SECRET', { message: decision.reason, hint }, id));
     return undefined;
   }

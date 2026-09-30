@@ -51,6 +51,16 @@ function printExec(out: Output, info: EntityInfo, scope: Scope): void {
   field(out, 'trust', info.exec.trusted ? `trusted (${hash})` : `not trusted; allow it: ${allow}`);
 }
 
+/** Y3: when an instruction applies, as its source format says (`always`, `for src/**`, …). */
+function activationOf(e: Entity | undefined): string | undefined {
+  if (e?.def.kind !== 'instruction') return undefined;
+  const { activation, globs } = e.def.instruction;
+  if (activation === 'paths') return `for files matching ${(globs ?? []).join(', ')}`;
+  if (activation === 'on-request') return 'when the agent finds it relevant (its description)';
+  if (activation === 'manual') return 'only when you name it';
+  return 'always';
+}
+
 export function printEntity(out: Output, info: EntityInfo, scope: Scope): void {
   const e = info.entry;
   out.out(`${out.colors.bold(`${e.kind} ${e.name}`)}  (installed, ${scope} scope)`);
@@ -63,6 +73,7 @@ export function printEntity(out: Output, info: EntityInfo, scope: Scope): void {
   field(out, 'at', e.at ? `${e.at} (placed at the root until 0.3)` : undefined);
   field(out, 'selected by', info.selectedBy === 'manifest' ? 'palm.yaml' : info.selectedBy);
   field(out, 'members', e.deps?.map((d) => `${d.kind} ${d.name}`).join(', '));
+  field(out, 'activation', activationOf(info.entity));
   printFiles(out, info);
   for (const note of info.notes) field(out, 'note', note);
   printExec(out, info, scope);
@@ -130,6 +141,7 @@ export async function describeAvailable(ctx: PalmContext, app: App, job: Offered
   field(out, 'ref', ref.filter(Boolean).join('  '));
   field(out, 'path', e.path);
   field(out, 'version', e.version);
+  field(out, 'activation', activationOf(e));
   for (const note of e.notes ?? []) field(out, 'note', note);
   if (executable) field(out, 'program', 'runs on your machine; palm asks before installing it');
   field(out, 'install it', install);

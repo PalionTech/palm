@@ -300,3 +300,43 @@ describe('D3 C14 hook items palm merges', () => {
     expect(items(p)).toHaveLength(1);
   });
 });
+
+describe('Y3 describe says when an instruction applies', () => {
+  it('Y3 an offered and an installed rule show their activation', async () => {
+    const url = await m.source('kit', {
+      'v1.0.0': { 'rules/api.md': '---\npaths: ["src/api/**"]\n---\nUse the client.\n' },
+    });
+    const p = await m.project('app');
+    const offered = await m.palm(p, 'describe', url, 'api');
+    expect(offered.stdout).toMatch(/activation\s+for files matching src\/api\/\*\*/);
+    expect((await m.palm(p, 'install', url, 'api', '--as', 'kit')).code).toBe(0);
+    const installed = await m.palm(p, 'describe', 'instruction:api');
+    expect(installed.stdout).toMatch(/activation\s+for files matching src\/api\/\*\*/);
+  });
+});
+
+describe('ruling 25 a literal under -g', () => {
+  it('25 the worktree guard refuses under -g even with --force; the hint repeats the command with references', async () => {
+    const p = await m.project('app');
+    await m.project('home/.claude');
+    const token = fill(24);
+    const run = await m.palm(
+      p,
+      'install',
+      'mcp',
+      'docs',
+      '--url',
+      'https://docs.example/mcp',
+      '--header',
+      `X-Api-Key=${token}`,
+      '--secrets',
+      'literal',
+      '-g',
+      '--force',
+    );
+    expect(run.code, run.all).toBe(1);
+    expect(run.all).toContain('refusing to write a literal secret there');
+    expect(run.all).toContain("--header 'X-Api-Key=${DOCS_API_KEY}' -g --force --secrets env-ref");
+    expect(run.all).not.toContain(token);
+  });
+});
