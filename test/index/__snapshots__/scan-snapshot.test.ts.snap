@@ -341,11 +341,11 @@ exports[`scanSource snapshot per fixture > awesome-copilot-like 1`] = `
             "ghcr.io/microsoft/mcp-dotnet-samples/awesome-copilot:latest",
           ],
           "command": "docker",
-          "name": "awesome-copilot",
-          "origin": {
+          "from": {
             "ref": "awesome-copilot",
             "type": "source",
           },
+          "name": "awesome-copilot",
           "transport": "stdio",
         },
         "references": [],
@@ -877,14 +877,14 @@ exports[`scanSource snapshot per fixture > claude-plugins-official-like 1`] = `
         },
         "kind": "mcp",
         "mcp": {
+          "from": {
+            "ref": "claude-plugins-official",
+            "type": "source",
+          },
           "headers": {
             "Authorization": "Bearer \${GITHUB_PERSONAL_ACCESS_TOKEN}",
           },
           "name": "github",
-          "origin": {
-            "ref": "claude-plugins-official",
-            "type": "source",
-          },
           "secrets": [
             {
               "format": "Bearer {value}",
@@ -929,14 +929,14 @@ exports[`scanSource snapshot per fixture > claude-plugins-official-like 1`] = `
         },
         "kind": "mcp",
         "mcp": {
+          "from": {
+            "ref": "claude-plugins-official",
+            "type": "source",
+          },
           "headers": {
             "Authorization": "\${CONTEXT7_API_KEY:-}",
           },
           "name": "context7",
-          "origin": {
-            "ref": "claude-plugins-official",
-            "type": "source",
-          },
           "secrets": [
             {
               "header": "Authorization",
@@ -972,11 +972,11 @@ exports[`scanSource snapshot per fixture > claude-plugins-official-like 1`] = `
           "env": {
             "FS_TOKEN": "\${FS_TOKEN}",
           },
-          "name": "fs",
-          "origin": {
+          "from": {
             "ref": "claude-plugins-official",
             "type": "source",
           },
+          "name": "fs",
           "secrets": [
             {
               "in": "env",
@@ -1042,11 +1042,11 @@ exports[`scanSource snapshot per fixture > codex-agent-like 1`] = `
             "server-fs",
           ],
           "command": "npx",
-          "name": "local-fs",
-          "origin": {
+          "from": {
             "ref": "codex-agent",
             "type": "source",
           },
+          "name": "local-fs",
           "transport": "stdio",
         },
         "references": [],
@@ -1328,11 +1328,11 @@ I hate comments.
         },
         "kind": "mcp",
         "mcp": {
-          "name": "ahrefs",
-          "origin": {
+          "from": {
             "ref": "cursor-monorepo",
             "type": "source",
           },
+          "name": "ahrefs",
           "transport": "http",
           "url": "https://api.ahrefs.com/mcp/mcp",
         },
@@ -2036,11 +2036,11 @@ exports[`scanSource snapshot per fixture > nested-plugins-like 1`] = `
         },
         "kind": "mcp",
         "mcp": {
-          "name": "beta-server",
-          "origin": {
+          "from": {
             "ref": "nested-plugins",
             "type": "source",
           },
+          "name": "beta-server",
           "transport": "http",
           "url": "https://beta.example.com/mcp",
         },

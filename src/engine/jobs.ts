@@ -160,6 +160,7 @@ export async function prepareJob(run: Run, job: Job): Promise<Prepared> {
     fragments,
     force: run.ctx.flags.force,
     content: out.content,
+    local: job.source.isLocal,
   });
   return {
     job,

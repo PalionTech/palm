@@ -79,7 +79,16 @@ async function installNames(ctx: PalmContext, app: App, job: NamedInstall): Prom
     api.installFromSource(ctx, req, { scope }, engineDeps(app)),
   );
   const after = await api.openScope(ctx, scope, { readOnly: true });
+  if (!app.out.jsonMode) noteNewSource(app, job, after);
   await reportInstall(ctx, app, result, { before: job.before, after, from: job.names.length > 0 });
+}
+
+/** A source this run declared under a name other than what was typed (a URL, `--as`): its name. */
+function noteNewSource(app: App, job: NamedInstall, after: ScopeState): void {
+  const typed = job.source.split('#')[0] ?? job.source;
+  for (const s of after.sources.all())
+    if (!job.before.sources.byName(s.name) && s.name !== typed)
+      app.out.mark('+', `source ${s.name} → palm.yaml`);
 }
 
 async function sync(ctx: PalmContext, app: App, before: ScopeState): Promise<void> {

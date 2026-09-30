@@ -31,9 +31,21 @@ export interface Labels {
   bad: (n: number) => string;
 }
 
+/** Problems once each: a file two targets share (a closure script) is one problem, not two. */
+function unique(list: readonly CheckProblem[]): CheckProblem[] {
+  const seen = new Set<string>();
+  return list.filter((p) => {
+    const e = p.entity;
+    const key = [e?.kind, e?.name, e?.source, p.file, p.message].join('\0');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /** One check's result: `fail` when any failing problem, else `warn` when any warning, else `ok`. */
 export function checkRun(id: string, labels: Labels, f: Found): CheckRun {
-  const problems = [...f.fail, ...f.warn];
+  const problems = unique([...f.fail, ...f.warn]);
   let status: CheckRun['status'] = 'ok';
   if (f.fail.length) status = 'fail';
   else if (f.warn.length) status = 'warn';

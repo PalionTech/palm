@@ -97,8 +97,12 @@ export interface OutcomeInput {
   files: Map<string, FileState>;
   fragments: Map<string, RecordState>;
   force: boolean;
-  /** The entity's content hash now: a different one is `updated`, the same `re-rendered`. */
+  /**
+   * The entity's content hash now: a different one is `updated`, the same `re-rendered`. An
+   * in-repo source (`local`) is rendered from the working tree, so its changes are `re-rendered`.
+   */
   content?: string;
+  local?: boolean;
   /**
    * Lock paths and fragment keys known to be edited even though the render changed (found
    * against the render at the locked sha, or the applied record under -g): kept, not replaced.
@@ -193,7 +197,8 @@ function overall(input: OutcomeInput, verdicts: TargetVerdict[], dropped: boolea
   if (verdicts.includes('kept')) return 'modified';
   const rendering = verdicts.includes('render') || dropped;
   if (!input.previous) return verdicts.every((v) => v === 'skipped') ? 'skipped' : 'installed';
-  if (rendering && input.content && input.content !== input.previous.content) return 'updated';
+  const moved = input.content !== undefined && input.content !== input.previous.content;
+  if (rendering && moved && !input.local) return 'updated';
   if (rendering) return 're-rendered';
   return verdicts.includes('restore') ? 'restored' : 'unchanged';
 }
@@ -218,5 +223,5 @@ export function outcomeStatus(input: OutcomeInput): OutcomeDecision {
   }
   const rendered = new Set(Object.keys(input.renders));
   const dropped = Object.keys(input.previous?.render ?? {}).some((t) => !rendered.has(t));
-  return { status: overall(input, verdicts, dropped), toWrite, kept };
+  return { status: overall(input, verdicts, dropped), toWrite, kept: [...new Set(kept)] };
 }

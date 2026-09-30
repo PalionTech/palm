@@ -111,7 +111,6 @@ async function install(
   if (err) throw err;
   noteMentions(ctx, ref, match, scope);
   const targets = requestTargets(state, req.targets);
-  run.result.warnings.push(...r.index.warnings);
   const jobs = requestedJobs(state, ref, r, { ...req, ...(targets ? { targets } : {}), match });
   state.lock.setSource(ref.name, lockSourceOf(state, ref, r));
   if (req.all) run.leaveOutPrograms = true;

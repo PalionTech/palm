@@ -483,7 +483,7 @@ describe('scanSource definitions', () => {
         name: 'ahrefs',
         transport: 'http',
         url: 'https://api.ahrefs.com/mcp/mcp',
-        origin: { type: 'source', ref: 'cursor-monorepo' },
+        from: { type: 'source', ref: 'cursor-monorepo' },
       },
       references: [],
       closure: { paths: [] },

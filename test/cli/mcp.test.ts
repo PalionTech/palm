@@ -76,7 +76,7 @@ describe('palm install mcp --snippet', () => {
     expect(requests(deps)[0]?.config).toMatchObject({
       command: 'npx',
       args: ['-y', '@upstash/context7-mcp'],
-      origin: { type: 'snippet' },
+      from: { type: 'snippet' },
     });
     expect(r.stdout).toBe(
       [
@@ -157,7 +157,7 @@ describe('palm install mcp <name> by flags', () => {
           transport: 'http',
           url: 'https://example.com/mcp',
           headers: { Authorization: 'Bearer ${DOCS_TOKEN}' },
-          origin: { type: 'flags' },
+          from: { type: 'flags' },
         },
       },
     ]);
@@ -189,7 +189,7 @@ describe('palm install mcp <name> by flags', () => {
           command: 'npx',
           args: ['-y', 'xcodebuildmcp@latest'],
           env: { KEY: '${KEY}' },
-          origin: { type: 'flags' },
+          from: { type: 'flags' },
         },
         targets: ['claude'],
       },
@@ -249,7 +249,7 @@ describe('parseAdhocMcp', () => {
       transport: 'sse',
       url: 'https://x.dev/sse',
       headers: { 'X-Key': 'abc' },
-      origin: { type: 'flags' },
+      from: { type: 'flags' },
     });
   });
 

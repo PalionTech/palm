@@ -96,7 +96,7 @@ describe('templateFor', () => {
             hooks: [
               {
                 type: 'command',
-                command: 'bash "${CLAUDE_PLUGIN_ROOT}/hooks/session-log/scripts/session-log.sh"',
+                command: 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/session-log.sh"',
               },
             ],
           },

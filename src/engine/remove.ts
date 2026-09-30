@@ -200,8 +200,8 @@ async function editFailures(run: Run, entries: LockEntry[]): Promise<number> {
     if (edited && !edited.length) continue;
     n++;
     const message = edited
-      ? `${label(e)}: ${edited.join(', ')} was modified since install`
-      : `${label(e)}: palm cannot check its files against source ${e.source}`;
+      ? `${edited.join(', ')} ${edited.length === 1 ? 'was' : 'were'} modified since install`
+      : `palm cannot check its files against source ${e.source}`;
     const hint = palmCommand('remove', [e.source, e.name], run.state.paths.scope, '--force');
     run.result.failures.push(failure(subjectOf(e), 'E_CONFLICT', { message, hint }));
   }

@@ -261,7 +261,6 @@ export async function declareSource(
   const source = await defaultRef(ctx, { ...parsed, name });
   state.manifest.addSource(source, baseDirOf(state));
   state.sources = state.sources.add(source);
-  if (name !== splitRef(input)[0]) ctx.log.info(`source ${name} added to palm.yaml`);
   return state.sources.byName(name) ?? SourceRef.of(source);
 }
 

@@ -4,7 +4,7 @@
  * `-g`), declare that source in palm.yaml when it is new, and install the entity. No prompts,
  * no editor; an existing file is `E_CONFLICT`.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { PalmError } from '../core/errors.js';
@@ -95,7 +95,8 @@ Write the rules the agent follows in this project.
 /** `hooks/<name>/hooks.json` with one SessionStart command, and the script it runs (mode 755). */
 function hookFiles(name: string, description: string): TemplateFile[] {
   const script = `hooks/${name}/scripts/${name}.sh`;
-  const command = `bash "\${CLAUDE_PLUGIN_ROOT}/${script}"`;
+  // The plugin root of a loose `hooks/<name>/hooks.json` is its own directory.
+  const command = `bash "\${CLAUDE_PLUGIN_ROOT}/scripts/${name}.sh"`;
   const hooks = {
     description,
     hooks: { SessionStart: [{ hooks: [{ type: 'command', command }] }] },
@@ -142,9 +143,11 @@ function sourceDirOf(ctx: PalmContext, opts: Pick<CreateOptions, 'dir' | 'scope'
   return join(ctx.paths.projectRoot, 'agent-kit');
 }
 
+/** Writes each file of the template; one already there (with the same content, see refuseExisting) stays. */
 async function writeTemplate(dir: string, files: TemplateFile[]): Promise<void> {
   for (const f of files) {
     const abs = join(dir, f.rel);
+    if (existsSync(abs)) continue;
     await mkdir(dirname(abs), { recursive: true });
     await writeFile(abs, f.content, { flag: 'wx' });
     if (f.mode !== undefined) await chmod(abs, f.mode);
@@ -157,8 +160,16 @@ function sourceInput(ctx: PalmContext, dir: string): string {
   return rel && !rel.startsWith('..') && !isAbsolute(rel) ? `./${rel.split('\\').join('/')}` : dir;
 }
 
+/**
+ * E_CONFLICT when a file of the template exists with other content. The same content is a rerun
+ * (the install asked for consent without a terminal, and its `then:` line repeats the command).
+ */
 function refuseExisting(ctx: PalmContext, dir: string, files: TemplateFile[], opts: CreateOptions) {
-  const taken = files.find((f) => existsSync(join(dir, f.rel)));
+  const differs = (f: TemplateFile) => {
+    const abs = join(dir, f.rel);
+    return existsSync(abs) && readFileSync(abs, 'utf8') !== f.content;
+  };
+  const taken = files.find(differs);
   if (!taken) return;
   throw new PalmError(
     'E_CONFLICT',

@@ -54,7 +54,6 @@ describe('installFromSource', () => {
       w.deps,
     );
     expect(await w.manifest()).toMatchObject({ targets: ['claude', 'cursor'] });
-    expect(w.ctx.log.text()).toContain('targets: claude, cursor');
     expect(w.exists('.cursor/skills/tdd/SKILL.md')).toBe(true);
   });
 

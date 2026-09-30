@@ -104,7 +104,7 @@ describe('syncScope (bare install)', () => {
     const before = (await w.lock()).sources['./agent-kit']?.tree;
     await w.write('agent-kit/skills/review/SKILL.md', 'v2\n');
     const r = await syncScope(w.ctx, { scope: 'project' }, w.deps);
-    expect(r.outcomes.map((o) => o.status)).toEqual(['updated']);
+    expect(r.outcomes.map((o) => o.status)).toEqual(['re-rendered']);
     expect(await w.read('.claude/skills/review/SKILL.md')).toBe('v2\n');
     const after = (await w.lock()).sources['./agent-kit']?.tree;
     expect(after).toMatch(/^sha256:/);
