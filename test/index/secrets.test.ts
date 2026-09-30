@@ -5,8 +5,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Entity, ScanResult } from '../../src/core/types.js';
+import { scanSourceWith } from '../../src/index/scanner.js';
+import type { SecretScanner } from '../../src/index/secrets.js';
 import { putFile, removeDir, tempDir } from '../support/sandbox.js';
-import { fakeRedact } from './contract-fakes.js';
+import { fakeRedact, fakeSecrets } from './contract-fakes.js';
 import { scanSource } from './helpers.js';
 
 vi.mock('../../src/domain/ignore.js', async (original) => ({
@@ -148,6 +150,21 @@ describe('secrets pass', () => {
       ['critical', 'hook:notify#sessionEnd//-.env.SLACK'],
     ]);
     expect(JSON.stringify(r)).not.toContain(TOKEN);
+  });
+
+  it('scans args as one list and redacts every argument a finding cannot be placed in', async () => {
+    await put('.mcp.json', {
+      mcpServers: { s: { command: 'x', args: ['--api-key', 'abc', 'b'] } },
+    });
+    const unplaced: SecretScanner = {
+      ...fakeSecrets,
+      scanSecrets: (value, where) =>
+        Array.isArray(value) ? [{ where, shape: 'high-entropy', redacted: fakeRedact('abc') }] : [],
+    };
+    const r = await scanSourceWith(tmp, { name: './kit', type: 'local', path: tmp }, unplaced);
+    expect(find(r, 'mcp', 's').def).toMatchObject({
+      mcp: { args: [fakeRedact('--api-key'), fakeRedact('abc'), fakeRedact('b')] },
+    });
   });
 
   it('leaves clean servers and hooks without issues', async () => {

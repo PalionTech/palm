@@ -53,12 +53,29 @@ class Redactor {
     private readonly file: string,
   ) {}
 
+  private record(findings: SecretFinding[]): void {
+    this.issues.push(...findings.map((f) => issueOf(f, this.file, 'critical')));
+  }
+
   /** `value` or its redaction; `key` makes key-name heuristics apply (`API_KEY: …`). */
   value(value: string, where: string, key?: string): string {
     const findings = this.scanner.scanSecrets(key === undefined ? value : { [key]: value }, where);
     if (findings.length === 0) return value;
-    this.issues.push(...findings.map((f) => issueOf(f, this.file, 'critical')));
+    this.record(findings);
     return this.scanner.redact(value);
+  }
+
+  /**
+   * An argument list scanned whole, so a value after `--api-key` is judged by the flag's name;
+   * findings name the item as `<where>[i]`. An item it cannot place redacts every argument.
+   */
+  list(values: string[], where: string): string[] {
+    const findings = this.scanner.scanSecrets(values, where);
+    if (findings.length === 0) return values;
+    this.record(findings);
+    const hit = findings.map((f) => Number(/\[(\d+)\]$/.exec(f.where)?.[1] ?? Number.NaN));
+    const all = hit.some((i) => Number.isNaN(i));
+    return values.map((v, i) => (all || hit.includes(i) ? this.scanner.redact(v) : v));
   }
 
   /** Every string value of a key → value map (env, headers), keyed for the heuristics. */
@@ -75,7 +92,7 @@ function redactMcp(cfg: McpServerConfig, r: Redactor): void {
   const where = `mcp:${cfg.name}`;
   if (cfg.env) cfg.env = r.map(cfg.env, `${where}.env`);
   if (cfg.headers) cfg.headers = r.map(cfg.headers, `${where}.headers`);
-  if (cfg.args) cfg.args = cfg.args.map((a, i) => r.value(a, `${where}.args[${i}]`));
+  if (cfg.args) cfg.args = r.list(cfg.args, `${where}.args`);
   if (cfg.url !== undefined) cfg.url = r.value(cfg.url, `${where}.url`);
 }
 
