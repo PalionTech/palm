@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { hashPath } from '../../src/core/hash.js';
 import type { LegacyLockEntry, MigrateReport, TargetId } from '../../src/core/types.js';
 import { ScopePaths } from '../../src/domain/scope-paths.js';
+import { checkScope } from '../../src/engine/check.js';
 import { migrateScope } from '../../src/engine/migrate.js';
 import { convertLegacy } from '../../src/engine/migrate-legacy.js';
 import { onThisMachine } from '../../src/engine/migrate-lock.js';
@@ -438,7 +439,7 @@ sources:
     );
   });
 
-  it('migrate ends by running the check: a failing check is a failure of the migration', async () => {
+  it('an entry the source no longer has is a failure of the migration, and the check after it fails', async () => {
     const w = await legacyWorld();
     await w.write(
       'palm.yaml',
@@ -456,8 +457,9 @@ sources:
     });
     await legacyLock(w, lock.entries);
     const r: MigrateReport = await migrateScope(w.ctx, { scope: 'project', dryRun: false }, w.deps);
-    expect(r.check?.ok).toBe(false);
     expect(r.failures.map((f) => f.code)).toContain('E_NOT_FOUND');
-    expect(r.failures.some((f) => f.code === 'E_CHECK')).toBe(true);
+    expect(r).not.toHaveProperty('check');
+    const check = await checkScope(w.ctx, { scope: 'project' }, w.deps);
+    expect(check.ok).toBe(false);
   });
 });

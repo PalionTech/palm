@@ -44,7 +44,10 @@ export async function lockScope<T>(
 }
 
 /** Renders and diffs every job; a job that cannot be prepared is a failure, not an error. */
-async function prepareAll(run: Run, jobs: Job[]): Promise<{ prepared: Prepared[]; failed: Job[] }> {
+export async function prepareAll(
+  run: Run,
+  jobs: Job[],
+): Promise<{ prepared: Prepared[]; failed: Job[] }> {
   const prepared: Prepared[] = [];
   const failed: Job[] = [];
   for (const job of jobs) {

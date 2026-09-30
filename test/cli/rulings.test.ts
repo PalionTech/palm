@@ -40,7 +40,7 @@ describe('ruling 23: edits are found against the render hash, offline', () => {
     const manifest = readFileSync(join(p, 'palm.yaml'), 'utf8');
     await writeFiles(p, { 'palm.yaml': manifest.replace('ref: v1.0.0', 'ref: v2.0.0') });
 
-    const sync = await m.palm(p, 'install');
+    const sync = await m.palm(p, 'install', '--yes');
     expect(sync.code, sync.all).toBe(1);
     expect(sync.stdout).toMatch(/^! modified \(kept\) +skill +tdd/m);
     expect(sync.all).toContain(

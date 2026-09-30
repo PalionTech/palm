@@ -628,10 +628,10 @@ describe('palm migrate on the persona projects, continued', () => {
     expect(run.all).toContain(
       'hook skill runs in place from your repository (./skill); removed .palm/hooks/keybase',
     );
-    expect(run.all).toContain('moved .palm/hooks/powers → .palm/assets/powers/powers');
+    expect(run.all).toContain('moved .palm/hooks/powers → .palm/assets/powers\n');
     expect(await snapshot(join(p, '.palm'))).toEqual({
-      'assets/powers/powers/hooks/hooks.json': expect.any(String),
-      'assets/powers/powers/hooks/session-start': expect.any(String),
+      'assets/powers/hooks/hooks.json': expect.any(String),
+      'assets/powers/hooks/session-start': expect.any(String),
       'assets/powers/team-helper/scripts/helper.js': expect.any(String),
     });
     expect(parse(await readFile(join(p, 'palm.yaml'), 'utf8')).sources['./skill'].hooks).toEqual([
@@ -640,7 +640,7 @@ describe('palm migrate on the persona projects, continued', () => {
     const settings = await readFile(join(p, '.claude/settings.json'), 'utf8');
     expect(settings).toContain('echo mine');
     expect(settings).toContain('/skill/hooks/pre-commit-check.sh');
-    expect(settings).toContain('/.palm/assets/powers/powers/hooks/session-start');
+    expect(settings).toContain('/.palm/assets/powers/hooks/session-start');
     expect(settings).not.toContain('.palm/hooks/');
     const helper = (await readJson(join(p, '.mcp.json'))).mcpServers?.['team-helper'] as {
       args: string[];

@@ -923,12 +923,10 @@ export interface MigrateReport {
   exec: ExecUnit[];
   warnings: string[];
   /**
-   * What could not be migrated; the CLI exits 1 when any exist. A failed check after the
-   * migration adds one failure per problem, with code `E_CHECK` (the same problems as `check`).
+   * What could not be migrated; the CLI exits 1 when any exist. The CLI then runs `palm check`
+   * on the migrated scope and fails the migration when the check fails.
    */
   failures: InstallFailure[];
-  /** `palm check` run on the migrated scope (absent in a dry run). */
-  check?: CheckReport;
   /**
    * Project scope in a git repository: every path the migration changed or created, as
    * `git status` lists it (untracked output folders as `dir/`), to commit together.

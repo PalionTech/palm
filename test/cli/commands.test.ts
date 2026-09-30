@@ -635,7 +635,6 @@ describe('utilities', () => {
     expect(real.stdout).toBe(
       [
         '~ palm.yaml and palm.lock.yaml now use the palm 0.2 format',
-        '+ source mattpocock/skills → palm.yaml',
         '~ moved .palm/hooks/gh-cli → .palm/assets/trailofbits__skills/gh-cli',
         '~ .gitignore: .palm/ → .palm/local/',
         'Commit palm.yaml, palm.lock.yaml, .gitignore and .palm/assets/ together.',

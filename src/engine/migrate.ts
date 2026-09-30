@@ -6,8 +6,9 @@
  * its locked commit, the bare install's render and the one consent for the programs it
  * re-vendors. Then palm.yaml, the lock and `.gitignore` are written (through symlinks), the
  * install adopts identical files and replaces what 0.1 rendered differently, `.palm/hooks/`
- * goes, and `palm check` runs: a failing check is a failure of the migration. `--dry-run`
- * returns the new palm.yaml (and shows the programs) and writes nothing.
+ * goes, and the report lists the files to commit (the CLI then runs `palm check`; a failing check
+ * fails the migration). `--dry-run` returns the new palm.yaml (and shows the programs) and writes
+ * nothing.
  */
 import { existsSync } from 'node:fs';
 import { readdir, rm } from 'node:fs/promises';
@@ -30,13 +31,12 @@ import { detectManifestFormat, Manifest } from '../domain/manifest.js';
 import { ScopePaths } from '../domain/scope-paths.js';
 import { readTextIfExists, removeEmptyTree, writeFileAtomic } from '../lib/fs.js';
 import { parseYaml, readYamlFile, stringifyYaml } from '../lib/yaml.js';
-import { checkScope } from './check.js';
 import { resolveEngineDeps } from './deps.js';
 import { ensureIgnoreLines } from './gitignore.js';
 import { convertLegacy, type LegacyItem, type Migration } from './migrate-legacy.js';
 import { provisionalLock } from './migrate-lock.js';
 import { type Plan, planMigration } from './migrate-plan.js';
-import { checkFailures, display, filesToCommit, shown } from './migrate-report.js';
+import { display, filesToCommit, shown } from './migrate-report.js';
 import { withLegacyComments } from './migrate-text.js';
 import { applyAll } from './runner.js';
 import { saveScope } from './scope.js';
@@ -201,13 +201,12 @@ async function dropHookDirs(plan: Plan, legacy: LegacyItem[], hashes: Map<string
 }
 
 // ---------------------------------------------------------------------------
-// After the install: the check and the files to commit
+// After the install: the files to commit (the CLI runs `palm check` next)
 // ---------------------------------------------------------------------------
 
-async function finish(plan: Plan, report: MigrateReport, deps: EngineDeps): Promise<void> {
-  const { ctx, state, result } = plan.run;
-  report.check = await checkScope(ctx, { scope: state.paths.scope }, deps);
-  report.failures = [...result.failures, ...checkFailures(report.check)];
+async function finish(plan: Plan, report: MigrateReport): Promise<void> {
+  const { state, result } = plan.run;
+  report.failures = [...result.failures];
   report.warnings.push(...result.warnings);
   const commit = await filesToCommit(state);
   if (commit) report.commit = commit;
@@ -274,7 +273,7 @@ function baseReport(mig: Migrating, manifest: Manifest, lock: Lock): MigrateRepo
   };
 }
 
-/** After the consent: the files, the install, `.palm/hooks`, the check. */
+/** After the consent: the files, the install, `.palm/hooks`. */
 async function apply(ctx: PalmContext, mig: Migrating, plan: Plan, report: MigrateReport) {
   const { paths, m, legacy } = mig;
   report.sourcesAdded = sourceLines(ctx, paths, m);
@@ -303,7 +302,7 @@ async function migrate(ctx: PalmContext, mig: Migrating, deps: EngineDeps): Prom
     return report;
   }
   await apply(ctx, mig, plan, report);
-  await finish(plan, report, deps);
+  await finish(plan, report);
   return report;
 }
 

@@ -1,13 +1,12 @@
 /**
  * What `palm migrate` tells the person after the install (DESIGN §6 "Migrate"): paths as people
- * type them, the failed check as failures, and the files to commit: in a project every path the
+ * type them and the files to commit: in a project every path the
  * migration changed or created (untracked output folders 0.1 never committed included); under -g
  * the files it changed inside a git repository, such as a dotfiles checkout reached through links.
  */
 import { realpath } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { runGit } from '../core/git-exec.js';
-import type { CheckReport, InstallFailure } from '../core/types.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
 import { gitToplevel } from '../lib/fs.js';
 import type { ScopeState } from './scope.js';
@@ -21,19 +20,6 @@ export function shown(paths: ScopePaths, abs: string): string {
 /** A path for people: project-relative, or `~/…` under -g (tokens stay in the lock). */
 export function display(paths: ScopePaths, abs: string): string {
   return paths.scope === 'global' ? shown(paths, abs) : paths.lockForm(abs);
-}
-
-/** One failure per problem of a failed check (code E_CHECK; `MigrateReport.check` holds the check). */
-export function checkFailures(report: CheckReport): InstallFailure[] {
-  const out: InstallFailure[] = [];
-  for (const c of report.checks.filter((r) => r.status === 'fail'))
-    for (const p of c.problems) {
-      const who = p.entity
-        ? { kind: p.entity.kind, name: p.entity.name, source: p.entity.source }
-        : { kind: 'source' as const, name: c.id, source: p.file ?? c.label };
-      out.push({ ...who, code: 'E_CHECK', message: p.message, ...(p.fix ? { hint: p.fix } : {}) });
-    }
-  return out;
 }
 
 /** `git status --short` in `cwd` for `paths`; undefined outside a repository or without git. */

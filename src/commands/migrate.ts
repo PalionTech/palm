@@ -15,9 +15,24 @@ import { ExitSignal, type Invocation } from './grammar.js';
 import { EXIT } from './main.js';
 import { engine, engineDeps, type GlobalOptions, makeContext, scopeOf } from './shared.js';
 
+/** palm.yaml and the lock first, then the rest as `git status` listed it. */
+function commitOrder(files: readonly string[]): string[] {
+  const first = ['palm.yaml', 'palm.lock.yaml'].filter((f) => files.includes(f));
+  return [...first, ...files.filter((f) => !first.includes(f))];
+}
+
+/** The files to commit: the engine's list from `git status`, else palm's own files. */
+function toCommit(report: MigrateReport): string[] {
+  if (report.commit?.length) return commitOrder(report.commit);
+  const files = ['palm.yaml', 'palm.lock.yaml'];
+  if (report.gitignore) files.push('.gitignore');
+  if (report.movedAssets.length) files.push('.palm/assets/');
+  return files;
+}
+
+/** The engine already said which sources it added to palm.yaml (one line each, L19). */
 function printReport(out: Output, report: MigrateReport, project: boolean): void {
   out.mark('~', 'palm.yaml and palm.lock.yaml now use the palm 0.2 format');
-  for (const s of report.sourcesAdded) out.mark('+', `source ${s} → palm.yaml`);
   for (const a of report.movedAssets) out.mark('~', `moved ${a}`);
   if (report.gitignore) out.mark('~', `.gitignore: ${report.gitignore}`);
   if (report.exec.length) {
@@ -26,11 +41,8 @@ function printReport(out: Output, report: MigrateReport, project: boolean): void
       `${plural(report.exec.length, 'program')} copied again and trusted in the lock: ${keys}`,
     );
   }
-  if (!project) return;
-  const files = ['palm.yaml', 'palm.lock.yaml'];
-  if (report.gitignore) files.push('.gitignore');
-  if (report.movedAssets.length) files.push('.palm/assets/');
-  out.out(`Commit ${listJoin(files)} together.`);
+  const files = project ? toCommit(report) : (report.commit ?? []);
+  if (files.length) out.out(`Commit ${listJoin(files)} together.`);
 }
 
 /** A migration ends with `palm check` on what it wrote; a failing check fails the migration. */
@@ -53,7 +65,7 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   if (!dryRun && !app.out.jsonMode) printReport(app.out, report, scope === 'project');
   if (!app.out.jsonMode) printFailures(app.out, report.failures);
   const failed = report.failures.length > 0;
-  const check = dryRun || failed ? undefined : await checkAfter(ctx, app, scope);
+  const check = dryRun ? undefined : await checkAfter(ctx, app, scope);
   if (app.out.jsonMode) app.out.json(check ? { ...report, check } : report);
   if (failed || (check && !check.ok)) throw new ExitSignal(EXIT.failure);
 }

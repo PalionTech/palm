@@ -28,7 +28,7 @@ import { dedupeJobs, manifestJobs } from './entries.js';
 import { manifestMcpJob } from './install-mcp.js';
 import { askForConsent, type Job, type Prepared, type Run, runOf } from './jobs.js';
 import type { LegacyItem } from './migrate-legacy.js';
-import { lockedSha, lockSourceOf, type Resolved, resolveSource } from './resolve.js';
+import { lockSourceOf, pinOf, type Resolved, resolveSource } from './resolve.js';
 import { prepareAll } from './runner.js';
 import { assertNoOverlap, openScope, type ScopeState } from './scope.js';
 import { detectTargets } from './targets.js';
@@ -171,7 +171,7 @@ async function jobsOf(
   const { ctx, deps, state } = run;
   const out = { jobs: [] as Job[], renamed: [] as Rename[], failures: [] as InstallFailure[] };
   for (const ref of state.sources.all()) {
-    const r = await resolveSource({ ctx, deps, state, ref, ...lockedSha(state, ref) }).catch(
+    const r = await resolveSource({ ctx, deps, state, ref, ...pinOf(state, ref) }).catch(
       (e: unknown) => {
         throw unresolved(ref, e);
       },
@@ -231,7 +231,7 @@ export async function planMigration(
   const { jobs, renamed, failures } = await jobsOf(run, input.legacy);
   run.result.failures.push(...failures);
   dropUnlisted(run, jobs);
-  const prepared = await prepareAll(run, jobs);
+  const { prepared } = await prepareAll(run, jobs);
   await askForConsent(run, prepared);
   refuseDeclined(prepared);
   return { run, prepared, renamed, hashes: input.hashes };
