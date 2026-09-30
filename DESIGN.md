@@ -1001,16 +1001,19 @@ codes.
 
 | Verb | Aliases | Arguments |
 |---|---|---|
-| `init` | | `[--target <ids>] [--here]` |
-| `install` | `add`, `i` | `<source> [[kind:]name…] [--all] [--as name] [--targets ids] [--at dir] [--review]`; bare; `mcp <name> [flags]`; `mcp --snippet <file or ->` |
+| `init` | | `[--target <ids>] [--here]`; `-g [--target <ids>]` writes `~/.palm/palm.yaml` |
+| `install` | `add`, `i` | `<source> [--grep text]` (listing); `<source> [[kind:]name…] [--all] [--as name] [--targets ids] [--at dir] [--review]`; bare; `mcp <name> [flags]`; `mcp --snippet <file or ->` |
 | `remove` | `uninstall`, `rm` | `[source] <[kind:]name…> [--exclude]` |
 | `update` | `up` | `[sources…] [--to ref] [--dry-run] [--strict] [--review]` |
-| `check` | | `[--json]` |
+| `check` | | `[--json] [--quiet]` |
 | `get` | `list`, `ls` | `[kind] [names…] [-s/--source s] [--files]`; `get sources`, `get targets`, `get all` |
-| `describe` | `info` | `<[kind:]name or path>`; `source <s>`; `target <t>` |
+| `describe` | `info` | `<[kind:]name, path or file name>`; `<source> <name>`; `source <s>`; `target <t>` |
 | `create` | `new` | `<kind> <name> [--in dir] [--description text]` |
 
-Utilities: `migrate [--dry-run]` (0.2), `completion bash|zsh|fish`, `cache clean [--yes]`.
+Utilities: `migrate [--dry-run] [--review]` (0.2), `completion bash|zsh|fish`, `cache clean
+[--yes]` (bare `cache` prints its help). `init --targets` and `install --target` are accepted
+as the other spelling. `palm help <word>` for a word that is no command is `unknown command`,
+exit 2.
 Global flags: `-g`, `--dry-run`, `--force`, `-y/--yes`, `--allow-exec <list|all>`, `--offline`,
 `--json`, `--secrets env-ref|literal`, `--local` (0.3; `E_USAGE` "palm.local.yaml arrives in
 0.3" in 0.2). Colour follows the terminal (`NO_COLOR` honoured); there is no `--no-color` and
@@ -1020,11 +1023,15 @@ Kind words for `get` and `describe`: singular, plural and short names (`sk`, `ag
 `mcp`, `pl`), plus `source`/`sources`/`src`, `target`/`targets`/`tg`, `all` (get only). `cmd`,
 `command(s)` map to skills with a note. `origin`/`orig` map to `source` for one release.
 
-Hidden aliases for one release: `palm install [kind] name@alias[#ref]` (the alias resolved
-through palm.yaml aliases and source names; `#ref` is `E_USAGE` naming `update --to`) and
-`palm install origin <spec>` print `i palm install origin is now: palm install <spec>` and run
+Hidden aliases for one release: `palm install [kind] name@alias` (the alias resolved against
+palm.yaml: a source name or alias, else the one declared source whose repository or owner it is,
+else the alias's repository in `~/.palm/config.yaml`; unresolved it is `E_USAGE` with the 0.2
+form; a `#ref` is `E_USAGE` naming `palm install <location>#<ref> <name>`) and `palm install
+origin <spec>` (several repositories: one line each) print `i … is now: palm install …` and run
 it; `doctor`, `audit`, `outdated`, `why`, `find`, `search`, `config` print one line naming the
-replacement (`check`, `update --dry-run`, `describe`) and exit 2.
+replacement (`check`, `update --dry-run`, `describe`, `install mcp --snippet -`) and exit 2. The
+removed install flags answer the same way: `--frozen` prints `palm check` and runs it; `--from`,
+`--ref`, `--alias` and `--project` are `E_USAGE` ending with the 0.2 command line.
 
 `install <source>` first word: a declared name or alias, `owner/repo…`, a URL, a path, or the
 reserved word `mcp`. A first word that is none of these (`palm install superpowers`,
@@ -1036,27 +1043,48 @@ x "superpowers" is not a repository. palm installs from git repositories:
   Not sure which repository? https://github.com/search?q=superpowers+SKILL.md&type=code
 ```
 
+Before that answer, palm looks the word up in what it knows: under `-g` a source of the project
+(`acme is a source of this project; -g uses the sources in ~/.palm/palm.yaml only`), an installed
+entry (`palm install <its source> grill`), a directory of the project (`palm install
+./.agents-kit`), a declared source whose owner or repository the word is or whose name it nearly
+is (`did you mean mattpocock/skills?`), a kind word (`rules` is instructions, with a code search
+for that kind; an MCP server word points at `--snippet -`); the examples come from palm.yaml when
+it declares sources.
+
 The onboarding transcripts of PLAN.md section 4.9 are the reference for every message on that
 path (Nora and Lena): no hint names a placeholder alone, every hint is a command that works when
-pasted, the word "origin" appears nowhere, and nothing consults a network for a name.
+pasted, the word "origin" appears nowhere, and nothing consults a network for a name. A hint
+names a source by its palm.yaml key once declared, else as the person typed it (with its `#ref`
+and `--as`); a name the source offers in two kinds is `kind:name`; every hint carries `-g` in the
+global scope. `test/cli/hints.test.ts` feeds every hint palm prints back through the grammar.
 
 Per command:
 
-- `palm init [--target …] [--here]`: writes `targets:` (detected, or the flag) to palm.yaml and
-  the two ignore lines. Inside a directory that has a manifest above it in the same repository:
+- `palm init [--target …] [--here] [-g]`: writes `targets:` (detected, or the flag) to palm.yaml
+  (`~/.palm/palm.yaml` with `-g`) and, in a project, the two ignore lines. Detected targets are
+  printed with their evidence (`i found claude (.claude/), codex (AGENTS.md)`), and on a terminal
+  the person may change the set first. With nothing found, the hint names the harnesses of the
+  home directory. Inside a directory that has a manifest above it in the same repository:
   `x packages/jobs is inside project /work/carbon (palm.yaml). Add entries with --at
   packages/jobs, or start a separate project here: palm init --here`. It never writes outside
   the cwd and prints the path it wrote.
 - `palm get [kind] [names…] [-s source] [--files]`: installed entries from the lock: kind, name,
   source, ref (`v1.2.3`, `^1.2 → v1.2.3`, `tree 10934f8`), targets, files count, `via`, and a
   footer with the bytes each harness loads at every session (rules and skill descriptions).
-  `--files` prints every generated path with its entry, so `grep` replaces `find`. `get sources`
-  is the source table (name, alias, kind, ref, sha or tree, entries); `get targets` shows each
-  harness, whether it is active and its config dir; `get all` shows the three.
+  `--files` prints every generated path with its entry, so `grep` replaces `find`. A server
+  declared in palm.yaml shows the source `palm.yaml`; an `at` column appears when an entry has
+  `at:`; the `layer` column arrives with palm.local.yaml in 0.3 (JSON keeps `layer`; `get mcp
+  --json` adds each server's `variables`). An unknown `--source` is `E_NOT_FOUND` with the name
+  it nearly is. `get sources` is the source table (name, alias, kind, ref, sha or tree, entries);
+  `get targets` prints `root: <dir>` and each harness, whether it is active and its config dir
+  (JSON `{ root, items }`); `get all` shows the three.
 - `palm describe <name or path>`: description, source, version, files per harness, notes, what
   selected it (a plugin, palm.yaml), exec commands and trust state, the variables an MCP server
-  needs. Given a path (absolute, `~/…`, relative), the entity that wrote it (`file`, `inside`,
-  `merged`). `describe source <s>`: url or path, ref, sha, root, layout, detection rule, counts
+  needs, `at:`. Given a path (absolute, `~/…`, relative) or a bare file name that one installed
+  path ends with, the entity that wrote it (`file`, `inside`, `merged`). A name two entries
+  answer to is `E_AMBIGUOUS` with one `palm describe <source> <kind:name>` line each.
+  `describe <source> <name>` describes that source's entity, from the lock when installed, else
+  from the source's index (`offered by <source>, not installed`, with the install line). `describe source <s>`: url or path, ref, sha, root, layout, detection rule, counts
   per kind, index warnings. `describe target <t>`: where each kind goes in this scope
   (`Target.placements`: the layout's paths with the converters' file names, `<name>` for the
   entity, env overrides included; the shared skill directory follows the scope's targets).
@@ -1070,7 +1098,18 @@ Per command:
 - `palm cache clean [--yes]` removes `$PALM_HOME/cache`; without a terminal it needs `--yes`.
 - `palm completion bash|zsh|fish` prints a static script generated from the command tree.
 - `--dry-run` tables say what would happen (`would install`, `would restore`), never
-  `installed`.
+  `installed`; the JSON statuses are `would-install`, `would-update`, `would-re-render`,
+  `would-restore`, `would-remove`.
+- Install, sync, update and remove print a line per entry that changed; unchanged entries are the
+  closing count (a run that named them prints them), a note shared by rows prints once, skipped
+  entries of one source share one line, and a kept edit adds the keep-it line (`palm create
+  <kind> <name>`). A removal names the files it kept (`kept 2 files, owned by …`, `kept 42 files
+  inside source ./skill`, `RemoveResult.kept`). The update plan counts unchanged entries (`= 105
+  unchanged`), prints `latest <tag>` for a pinned source, and its JSON versions are `{ ref, sha }`.
+- `palm check` groups the problems of one entity that differ only by file (`skill tdd: 8 files
+  are missing (…)`); `--json` keeps each; `--quiet` prints the problems alone; a check that could
+  not run (status `skip`) prints `-`, never `✓`. `palm migrate` ends with `palm check` and exits 1
+  when it fails.
 
 ### Output contract
 
@@ -1081,7 +1120,8 @@ output goes through it.
   installed, `-` removed, `~` updated or re-rendered, `↺` restored, `=` unchanged, `⊘` skipped,
   `x` error or failed, `!` warning, modified or partial, `i` info.
 - Warnings are collected while the command runs and printed once at the end, on stderr,
-  under a `Warnings` heading. Errors are printed last: `x message` and a hint line that names
+  under a `Warnings` heading. An `i` line said twice in one run (by the engine and the command)
+  prints once. Errors are printed last: `x message` and a hint line that names
   a command to run; an error that the same command with another flag fixes carries
   `retryWith` and its hint repeats the command line with that flag. Each failure is printed
   once (stderr); the status table marks the item `x failed`.

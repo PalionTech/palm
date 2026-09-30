@@ -102,7 +102,7 @@ function firstKey(key: string): string {
 }
 
 /** A `[y/N]` answer: y, n, Enter (the default), a cancel, or undefined for another key. */
-export function yesNo(key: string, initial: boolean): boolean | 'cancel' | undefined {
+function yesNo(key: string, initial: boolean): boolean | 'cancel' | undefined {
   const k = firstKey(key).toLowerCase();
   if (k === CTRL_C || k === ESC) return 'cancel';
   if (k === 'y') return true;

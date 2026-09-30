@@ -311,6 +311,19 @@ const GLOBAL: Scenario[] = [
     argv: ['init', '-g', '--target', 'claude'],
     scope: 'global',
   },
+  ...[
+    ['install', 'mcp', 'docs', '-g'],
+    ['install', 'mcp', 'docs', '--url', 'ftp://x', '-g'],
+    ['doctor', '-g'],
+    ['outdated', '-g'],
+    ['describe', 'all', '-g'],
+    ['describe', 'a', 'b', '-g'],
+  ].map((argv) => ({
+    name: `J9: ${argv.join(' ')}`,
+    argv,
+    scope: 'global' as const,
+    deps: () => fakeEngine({ scopes: [scopeOf({ scope: 'global' })] }),
+  })),
 ];
 
 const MCP: Scenario[] = [

@@ -7,7 +7,7 @@
 import { PalmError } from '../core/errors.js';
 import type { McpServerConfig, Scope } from '../core/types.js';
 import { isSafeName } from '../lib/names.js';
-import { palmLine } from './hints.js';
+import { palmLine, scoped } from './hints.js';
 
 export interface AdhocMcpOptions {
   /** The scope the hints carry (` -g`). */
@@ -117,8 +117,17 @@ function urlServer(name: string, url: string, opts: AdhocMcpOptions): McpServerC
   return { ...cfg, from: { type: 'flags' } };
 }
 
-/** The canonical server from `install mcp <name>` flags; E_USAGE for anything malformed. */
+/** The canonical server from `install mcp <name>` flags; E_USAGE for anything malformed (its commands carry -g). */
 export function parseAdhocMcp(name: string, opts: AdhocMcpOptions): McpServerConfig {
+  try {
+    return adhocServer(name, opts);
+  } catch (e) {
+    if (!(e instanceof PalmError) || !e.hint) throw e;
+    throw new PalmError(e.code, e.message, scoped(e.hint, opts.scope));
+  }
+}
+
+function adhocServer(name: string, opts: AdhocMcpOptions): McpServerConfig {
   const url = opts.url?.trim() ?? '';
   const command = opts.command?.trim() ?? '';
   if (!isSafeName(name) && !url && !command && /[/.]/.test(name))

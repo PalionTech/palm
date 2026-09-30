@@ -25,7 +25,7 @@ interface StatusLook {
 }
 
 /** How each status reads; `skip` (a check that could not run) is never ✓. */
-const STATUS: Readonly<Record<CheckStatus | 'skip', StatusLook>> = {
+const STATUS: Readonly<Record<CheckStatus, StatusLook>> = {
   ok: { mark: '✓', problem: 'i', colour: 'green' },
   warn: { mark: '!', problem: '!', colour: 'yellow' },
   fail: { mark: 'x', problem: 'x', colour: 'red' },

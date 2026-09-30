@@ -27,7 +27,7 @@ import {
   ROOT_HELP,
   VERB_HELP,
 } from './help.js';
-import { palmLine } from './hints.js';
+import { palmLine, scoped } from './hints.js';
 
 export interface ProgramOptions {
   version?: string;
@@ -132,7 +132,7 @@ function removeInvocation(words: string[], opts: Opts): Invocation {
 
 function wordsInvocation(verb: 'get' | 'describe') {
   return (words: string[], opts: Opts): Invocation => {
-    const w = interpretWords(verb, words);
+    const w = interpretWords(verb, words, opts.global ? 'global' : 'project');
     return withLegacy(
       { command: verb, resource: w.resource, names: w.names, opts, words },
       w.legacy,
@@ -349,8 +349,9 @@ function registerLegacy(program: Command): void {
       .argument('[args...]')
       .allowUnknownOption()
       .helpOption(false)
-      .action((args: string[]) => {
-        throw usage(line(args));
+      .action((args: string[], _opts: unknown, cmd: Command) => {
+        const global = Boolean(cmd.optsWithGlobals().global);
+        throw usage(scoped(line(args), global ? 'global' : 'project'));
       });
   }
 }

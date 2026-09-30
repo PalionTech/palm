@@ -126,9 +126,13 @@ async function sourceAndName(ctx: PalmContext, app: App, inv: Invocation, flags:
 
 function oneName(inv: Invocation): EntityRefSpec {
   const [first, ...rest] = inv.names;
-  if (!first) throw usage('name what to describe', 'palm get');
+  const scope = scopeOf(inv.opts as DescribeFlags);
+  if (!first) throw usage('name what to describe', palmLine('get', [], scope));
   if (rest.length)
-    throw usage('describe shows one thing at a time', `palm describe ${formatName(first)}`);
+    throw usage(
+      'describe shows one thing at a time',
+      palmLine('describe', [formatName(first)], scope),
+    );
   return first;
 }
 

@@ -828,7 +828,8 @@ export interface UpdatePlan {
   warnings: string[];
 }
 
-export type CheckStatus = 'ok' | 'warn' | 'fail';
+/** `skip`: the check could not run (for example `--offline` with an empty cache); never a pass. */
+export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
 
 export interface CheckProblem {
   entity?: { kind: Kind; name: string; source: string };

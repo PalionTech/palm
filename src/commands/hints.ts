@@ -20,6 +20,18 @@ export function palmLine(verb: string, words: readonly string[], scope?: Scope):
   return `${['palm', verb, ...words].filter(Boolean).join(' ')}${scopeFlag(scope)}`;
 }
 
+/** A line that ends with a command (`palm …` at its start or after `: ` or `| `). */
+const ENDS_WITH_COMMAND = /(^\s*|: |\| )palm [a-z]/;
+
+/** J9: `text` with ` -g` after each command line under the global scope. */
+export function scoped(text: string, scope: Scope | undefined): string {
+  if (scope !== 'global') return text;
+  return text
+    .split('\n')
+    .map((l) => (ENDS_WITH_COMMAND.test(l) && !/ -g( |$)/.test(l) ? `${l} -g` : l))
+    .join('\n');
+}
+
 const SHELL_SAFE = /^[\w@%+=:,./-]+$/;
 
 /** A word as it would be typed in a shell. */

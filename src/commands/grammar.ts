@@ -7,7 +7,7 @@
 import { PalmError } from '../core/errors.js';
 import { isCommandWord, parseKind, parseResource, type Resource } from '../core/kinds.js';
 import { looksLikeSourceInput } from '../core/source-input.js';
-import type { EntityRefSpec, Kind } from '../core/types.js';
+import type { EntityRefSpec, Kind, Scope } from '../core/types.js';
 import { parseEntityRef } from '../domain/entity-ref.js';
 import { type GrammarContext, palmLine, shellWord } from './hints.js';
 import { commandLine, kindWord, legacyAlias, legacyOrigin, sourcedNames } from './legacy.js';
@@ -232,12 +232,13 @@ function legacyWord(verb: 'get' | 'describe', words: string[]): Legacy | undefin
 export function interpretWords(
   verb: 'get' | 'describe',
   words: string[],
+  scope?: Scope,
 ): { resource?: Resource; names: EntityRefSpec[]; legacy?: Legacy } {
   const [first, ...rest] = words;
   const resource = parseResource(first);
   if (!resource) return { names: words.map(nameOrPath) };
   if (resource === 'all' && verb === 'describe')
-    throw usage('describe shows one thing at a time', 'palm get all');
+    throw usage('describe shows one thing at a time', palmLine('get', ['all'], scope));
   const plain = resource === 'source' || resource === 'target' || resource === 'all';
   const names = rest.map((w) => (plain ? { name: w } : nameOrPath(w)));
   const legacy = legacyWord(verb, words);
@@ -283,7 +284,11 @@ export function applyPassthrough(inv: Invocation, passthrough: string[]): Invoca
   if (inv.command !== 'install mcp' || !command)
     throw usage(
       'palm reads words after -- only for palm install mcp',
-      'palm install mcp docs --command npx --arg -y --arg docs-mcp',
+      palmLine(
+        'install',
+        ['mcp', 'docs', '--command', 'npx', '--arg', '-y', '--arg', 'docs-mcp'],
+        inv.opts.global ? 'global' : 'project',
+      ),
     );
   const flags = [`--command ${shellWord(command)}`, ...args.map((a) => `--arg ${shellWord(a)}`)];
   const legacy = {

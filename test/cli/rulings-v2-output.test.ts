@@ -314,7 +314,7 @@ describe('C24, D24: check groups the files of an entity; --quiet; skipped is not
       {
         id: 'local-sources',
         label: 'in-repo sources (cache empty; run palm install)',
-        status: 'skip' as CheckReport['checks'][number]['status'],
+        status: 'skip',
         problems: [],
       },
       {
