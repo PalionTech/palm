@@ -193,7 +193,9 @@ s02_list_saves_nothing() {
   run "$P1" install microsoft/apm-sample-package
   has "agent        design-reviewer"
   # L15: the index notes for maintainers are one count line (details under PALM_DEBUG).
-  has "notes from indexing microsoft/apm-sample-package"
+  has "from indexing microsoft/apm-sample-package (see: palm describe source microsoft/apm-sample-package)"
+  # R1': the dependency palm does not follow is a note printed in full.
+  has "apm.yml: 1 dependency is not installed"
   nofile "$P1/palm.yaml"
   nofile "$P1/palm.lock.yaml"
 }
