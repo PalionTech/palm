@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { lstat, stat } from 'node:fs/promises';
 import { basename, posix } from 'node:path';
 import type { CheckRun, LockEntry } from '../core/types.js';
+import { commandSkillClashes } from '../index/command-clashes.js';
 import { walkFiles } from '../lib/fs.js';
 import { BLOCK_CAPS, blockSizeProblem } from './block-size.js';
 import { type CheckContext, checkRun, count, entityOf, type Found, found } from './check-kit.js';
@@ -193,15 +194,35 @@ export async function doubleLoad(c: CheckContext): Promise<CheckRun> {
   );
 }
 
-/** Y14: agent files with one name in a harness's agents folder (warning). */
+/**
+ * Y11': a command file left beside the skill palm installed from it (adopted `.cursor/commands/`)
+ * answers to the same `/name`; the harness lists both.
+ */
+async function commandsTwice(c: CheckContext, f: Found): Promise<void> {
+  const { lock, paths } = c.run.state;
+  const skills = lock.entries.filter((e) => e.kind === 'skill');
+  const names = new Set(skills.map((e) => e.name));
+  for (const clash of await commandSkillClashes(paths.root, names)) {
+    const owner = skills.find((e) => e.name === clash.name);
+    f.warn.push({
+      ...(owner ? { entity: entityOf(owner) } : {}),
+      file: clash.file,
+      message: `${clash.file} answers to /${clash.name} like the installed skill ${clash.name}; the harness lists both`,
+      fix: `remove ${clash.file} once the skill does its job`,
+    });
+  }
+}
+
+/** Y14 Y11': agent files with one name in a harness's agents folder, and commands beside same-named skills (warnings). */
 export async function agentNames(c: CheckContext): Promise<CheckRun> {
   const f = found();
   await agentsTwice(c, f);
+  await commandsTwice(c, f);
   return checkRun(
     'agent-names',
     {
-      ok: 'no two agents share a name in a harness folder',
-      bad: (n) => `${count(n, 'agent name')} used twice in a harness folder`,
+      ok: 'no two agents or commands share a name in a harness folder',
+      bad: (n) => `${count(n, 'name')} used twice in a harness folder`,
     },
     f,
   );

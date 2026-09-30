@@ -28,11 +28,12 @@ import type {
 import { isTreeExcluded } from '../domain/ignore.js';
 import { isSkillCopySkipped } from '../domain/skill-copy.js';
 import type { SourceRef } from '../domain/source.js';
-import { inPlaceClosure } from '../exec/closure.js';
+import { inPlaceClosure, type KeepFile } from '../exec/closure.js';
 import { withScriptReads } from '../exec/reads.js';
 import { excludedReferenceNote, hookReadsExcluded } from '../index/excluded-refs.js';
 import { canonicalJson } from '../lib/json.js';
 import { redactTypedArgs } from '../secrets/typed.js';
+import { hookClosureFiles } from '../targets/hook-closure.js';
 import {
   failure,
   failureOf,
@@ -306,8 +307,19 @@ async function closureOf(run: RenderRun, out: RenderOutput, root: string): Promi
   const { entity, checkout, source } = run.job;
   if (!source.isLocal) return copiedClosure(out.renders, root);
   const declared = declaredClosure(entity);
-  const files = declared?.paths.length ? await inPlaceClosure(checkout.root, declared) : [];
+  const keep = entity.kind === 'hook' ? hookKeep(run, declared) : undefined;
+  const files = declared?.paths.length ? await inPlaceClosure(checkout.root, declared, keep) : [];
   return { root, inPlace: true, files, abs: checkout.root };
+}
+
+/** M8 S15: an in-repo hook's closure keeps the definition files a copy would keep. */
+function hookKeep(run: RenderRun, closure: Closure | undefined): KeepFile {
+  const scope = {
+    entityPath: run.job.entity.path,
+    targets: run.job.targets,
+    ...(closure?.reads ? { reads: closure.reads } : {}),
+  };
+  return (file) => hookClosureFiles([file], scope).length > 0;
 }
 
 /** The closure files the renders write under the entity's asset root. */

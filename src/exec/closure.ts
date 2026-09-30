@@ -18,13 +18,18 @@ function gitMode(mode: number): number {
   return mode & 0o111 ? 0o755 : 0o644;
 }
 
-async function fileOf(abs: string, rel: string): Promise<ClosureFile | undefined> {
+/** Which read files the closure keeps (default: all): a hook keeps only the definitions a target reads. */
+export type KeepFile = (file: { rel: string; mode: number; data: Buffer }) => boolean;
+
+async function fileOf(abs: string, rel: string, keep?: KeepFile): Promise<ClosureFile | undefined> {
   const [st, data] = await Promise.all([
     stat(abs).catch(() => undefined),
     readFile(abs).catch(() => undefined),
   ]);
   if (!st?.isFile() || !data) return undefined;
-  return { path: rel, mode: gitMode(st.mode), size: data.byteLength, hash: contentHash(data) };
+  const mode = gitMode(st.mode);
+  if (keep && !keep({ rel, mode, data })) return undefined;
+  return { path: rel, mode, size: data.byteLength, hash: contentHash(data) };
 }
 
 /** The source-relative files below one closure path (a directory swallows its files). */
@@ -41,9 +46,14 @@ async function filesAt(sourceRoot: string, rel: string, reads: ReadonlySet<strin
 
 /**
  * Every file of `closure` read in place from `sourceRoot`, sorted by path, without duplicates.
- * A path the working tree lacks is left out (`palm check` reports a missing hook script).
+ * A path the working tree lacks is left out (`palm check` reports a missing hook script), and so
+ * is a file `keep` refuses (M8 S15: a hooks definition no active target reads, as for a copy).
  */
-export async function inPlaceClosure(sourceRoot: string, closure: Closure): Promise<ClosureFile[]> {
+export async function inPlaceClosure(
+  sourceRoot: string,
+  closure: Closure,
+  keep?: KeepFile,
+): Promise<ClosureFile[]> {
   const reads = new Set(closure.reads ?? []);
   const seen = new Map<string, string>();
   for (const p of closure.paths) {
@@ -52,7 +62,7 @@ export async function inPlaceClosure(sourceRoot: string, closure: Closure): Prom
   }
   const out: ClosureFile[] = [];
   for (const [rel, abs] of [...seen].sort(([a], [b]) => (a < b ? -1 : Number(a > b)))) {
-    const file = await fileOf(abs, rel);
+    const file = await fileOf(abs, rel, keep);
     if (file) out.push(file);
   }
   return out;

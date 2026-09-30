@@ -3,9 +3,11 @@
  * `manifest-lock`, `local-sources` and `sources-declared`.
  */
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { short } from '../core/hash.js';
 import type { CheckProblem, CheckRun, LockEntry, LockSource } from '../core/types.js';
 import { lockId, Via } from '../domain/entity-key.js';
+import { isPlaceholderDescription } from '../index/placeholder-description.js';
 import { type CheckContext, checkRun, count, entityOf, type Found, found } from './check-kit.js';
 import { missingPreloads, preloadLine } from './preloads.js';
 import { palmCommand } from './report.js';
@@ -162,9 +164,33 @@ export function localSources(c: CheckContext): CheckRun {
       ),
     );
   }
+  placeholders(c, f);
   const bad = (n: number) =>
     `${count(n, 'in-repo entity', 'in-repo entities')} changed since the lock`;
-  return checkRun('local-sources', { ok: 'in-repo sources match the lock', bad }, f);
+  const warned = (n: number) =>
+    `${count(n, 'in-repo entity', 'in-repo entities')} still ${n === 1 ? 'has' : 'have'} the placeholder description`;
+  return checkRun('local-sources', { ok: 'in-repo sources match the lock', bad, warned }, f);
+}
+
+/**
+ * M21: an in-repo entity whose description is still the `TODO: describe` line `palm create`
+ * wrote: every harness lists it with that text until someone writes the real one.
+ */
+function placeholders(c: CheckContext, f: Found): void {
+  const { lock, paths, sources } = c.run.state;
+  for (const e of lock.entries) {
+    const entity = c.renders.get(lockId(e))?.entity;
+    const dir = sources.byName(e.source)?.source.path;
+    if (!entity || dir === undefined || !isPlaceholderDescription(entity.description)) continue;
+    const file = paths.lockForm(join(dir, e.kind === 'skill' ? `${e.path}/SKILL.md` : e.path));
+    f.warn.push(
+      problem(
+        `${e.kind} ${e.name} still has the placeholder description from palm create`,
+        `write its description in ${file}, then ${install(c)}`,
+        e,
+      ),
+    );
+  }
 }
 
 /** Every lock source is declared; every declared local source exists. */

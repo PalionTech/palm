@@ -13,6 +13,7 @@ import { existsSync } from 'node:fs';
 import type { Entity, InstallRequest, LayoutDescriptor, PalmContext } from '../core/types.js';
 import type { ScopeState, SourceListing } from '../create/engine.js';
 import { parseLayoutFlags } from '../index/layout-flags.js';
+import { indexNotes } from '../index/notes.js';
 import type { App } from './app.js';
 import { type Invocation, interpretInstall, usage } from './grammar.js';
 import {
@@ -94,9 +95,6 @@ function layoutOf(flags: InstallFlags): { layout?: LayoutDescriptor } {
   return flags.layout?.length ? { layout: parseLayoutFlags(flags.layout) } : {};
 }
 
-/** N1, R1', S5: notes a person acts on (a file the layout misses, a dependency, a link left out). */
-const FOR_PEOPLE = /not indexed|matches nothing|dependenc|outside the source|leaving the source/;
-
 /**
  * L15, N1, Q18: notes a person acts on print in full; the other index notes are one count line
  * with one pointer, `palm describe source <source>` (each also under PALM_DEBUG).
@@ -104,13 +102,19 @@ const FOR_PEOPLE = /not indexed|matches nothing|dependenc|outside the source|lea
 function noteIndexWarnings(app: App, listed: SourceListing, job: NamedInstall): void {
   const { warnings } = listed.index;
   if (!warnings.length || app.out.jsonMode) return;
-  const shown = warnings.filter((w) => FOR_PEOPLE.test(w));
+  const scope = job.before.paths.scope;
+  const as = typedOptions(app.argv, (name) => name === '--as');
+  const install = (args: readonly string[]) =>
+    pasteLine('install', [job.source, ...args], as, scope);
+  const { shown, rest } = indexNotes(
+    warnings,
+    listed.declared ? { declared: true } : { declared: false, install },
+  );
   for (const w of shown) app.out.info(`${listed.source.name}: ${w}`);
-  const rest = warnings.filter((w) => !FOR_PEOPLE.test(w));
   for (const w of rest) app.out.debug(w);
   if (!rest.length) return;
   const source = listed.declared ? listed.source.name : job.source;
-  const see = pasteLine('describe', ['source', source], [], job.before.paths.scope);
+  const see = pasteLine('describe', ['source', source], [], scope);
   const n = `${rest.length}${shown.length ? ' more' : ''}`;
   const notes = rest.length === 1 ? 'note' : 'notes';
   app.out.info(`${n} ${notes} from indexing ${listed.source.name} (see: ${see})`);

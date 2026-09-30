@@ -24,7 +24,7 @@ function printBlocks(out: Output, blocks: NonNullable<EntityInfo['blocks']>): vo
   for (const t of TARGET_IDS)
     for (const b of blocks[t] ?? []) {
       field(out, t, `${displayLockPath(b.file)} ${b.at}`);
-      for (const line of JSON.stringify(b.value, null, 2).split('\n')) out.out(`      ${line}`);
+      for (const line of b.text.split('\n')) out.out(`      ${line}`);
     }
 }
 
@@ -78,7 +78,7 @@ export function printEntity(
   field(out, 'path', e.path);
   field(out, 'version', info.entity?.version);
   field(out, 'at', e.at ? `${e.at} (placed at the root until 0.3)` : undefined);
-  field(out, 'selected by', info.selectedBy === 'manifest' ? 'palm.yaml' : info.selectedBy);
+  field(out, 'selected by', info.selectedBy);
   field(out, 'members', e.deps?.map((d) => `${d.kind} ${d.name}`).join(', '));
   field(out, 'activation', activationOf(info.entity));
   printFiles(out, info, missing);

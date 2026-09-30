@@ -19,7 +19,9 @@ import type {
 } from '../core/types.js';
 import { sameName } from '../domain/entity-ref.js';
 import { findPlaceholders, isRuntimeVar } from '../lib/placeholders.js';
+import { fragmentText } from '../targets/fragment-text.js';
 import { resolveEngineDeps } from './deps.js';
+import { excludedNotes } from './excluded.js';
 import { runOf } from './jobs.js';
 import type { RenderOutput } from './render.js';
 import { palmCommand } from './report.js';
@@ -40,10 +42,15 @@ export interface EntityInfo {
   notes: string[];
   exec?: { commands: LockExec['commands']; hash: string; trusted: boolean };
   secrets?: Array<{ name: string; set: boolean }>;
-  /** `manifest` (palm.yaml lists it) or `plugin:<name>`. */
+  /** `palm.yaml` (palm.yaml lists it) or `plugin:<name>`. */
   selectedBy: string;
-  /** An MCP server's rendered block per harness (DESIGN §9 `describe mcp`). */
-  blocks?: Partial<Record<TargetId, Array<{ file: string; at: string; value: unknown }>>>;
+  /**
+   * An MCP server's rendered block per harness (DESIGN §9 `describe mcp`), with `text`: the
+   * lines it adds to that file in the file's own language (R20': TOML for Codex).
+   */
+  blocks?: Partial<
+    Record<TargetId, Array<{ file: string; at: string; value: unknown; text: string }>>
+  >;
 }
 
 function sourceFilter(state: ScopeState, source?: string): string | undefined {
@@ -116,7 +123,13 @@ function blocksOf(entry: LockEntry, out?: RenderOutput): EntityInfo['blocks'] {
   const blocks: NonNullable<EntityInfo['blocks']> = {};
   for (const id of Object.keys(entry.render) as TargetId[]) {
     const r = out.renders[id];
-    if (r) blocks[id] = r.fragments.map((f) => ({ file: f.file, at: f.at, value: f.value }));
+    if (r)
+      blocks[id] = r.fragments.map((f) => ({
+        file: f.file,
+        at: f.at,
+        value: f.value,
+        text: fragmentText(f),
+      }));
   }
   return blocks;
 }
@@ -142,13 +155,14 @@ export async function describeEntity(
   const quiet: PalmContext = { ...ctx, flags: { ...ctx.flags, dryRun: true } };
   const state = await openScope(quiet, opts.scope, { readOnly: true });
   const entry = pick(state, q);
-  const out = await renderLocked(runOf(quiet, deps, state), entry).catch(() => undefined);
+  const run = runOf(quiet, deps, state);
+  const out = await renderLocked(run, entry).catch(() => undefined);
   const info: EntityInfo = {
     entry,
     source: state.lock.source(entry.source) ?? {},
     files: filesPerTarget(entry, out),
-    notes: entry.notes ?? [],
-    selectedBy: entry.via ?? 'manifest',
+    notes: [...(entry.notes ?? []), ...(await excludedNotes(run, entry))],
+    selectedBy: entry.via ?? 'palm.yaml',
   };
   const entity = out?.entity;
   if (entity) info.entity = entity;

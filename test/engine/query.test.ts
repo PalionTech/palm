@@ -48,7 +48,7 @@ describe('queries', () => {
       { scope: 'project' },
       w.deps,
     );
-    expect(info.selectedBy).toBe('manifest');
+    expect(info.selectedBy).toBe('palm.yaml');
     expect(info.files).toEqual({ claude: ['.claude/mcp.json'], cursor: ['.cursor/mcp.json'] });
     expect(info.secrets).toEqual([{ name: 'DOCS_TOKEN', set: false }]);
     expect(info.entity?.name).toBe('docs');

@@ -19,7 +19,8 @@ import type {
 import { KINDS } from '../core/types.js';
 import { entityId } from '../domain/entity-key.js';
 import { formatEntityRef, sameName } from '../domain/entity-ref.js';
-import { closestWord } from '../lib/text.js';
+import { type NearMissHit, nearMissFor } from '../index/near-miss-lookup.js';
+import { closestWord, shellWord } from '../lib/text.js';
 import { palmCommand } from './report.js';
 import { membersOf } from './resolve.js';
 
@@ -91,8 +92,34 @@ function shownSpec(spec: EntityRefSpec): string {
   return spec.kind ? `${spec.kind}:${spec.name}` : spec.name;
 }
 
+/** Where the names were matched: the source as typed (or its key) and whether palm.yaml declares it. */
+export interface MatchSource {
+  source: string;
+  declared: boolean;
+}
+
+/**
+ * N1: a name the source lacks that a near-miss file holds (`people/reviewer.md looks like an
+ * agent but is not indexed`), with the layout that indexes it: `layout:` in palm.yaml for a
+ * declared source, `--layout` flags on the install line for a new one.
+ */
+function nearMissError(at: MatchSource, missing: EntityRefSpec, hit: NearMissHit, scope: Scope) {
+  const message = `"${shownSpec(missing)}" is not in source ${at.source}: ${hit.message}`;
+  if (at.declared)
+    return new PalmError(
+      'E_NOT_FOUND',
+      message,
+      `add layout: ${hit.layout} under sources: ${at.source} in palm.yaml, then run: ${palmCommand('install', [at.source, shownSpec(missing)], scope)}`,
+    );
+  const words = [at.source, shownSpec(missing), ...hit.layoutArgs.map(shellWord)];
+  return new PalmError('E_NOT_FOUND', message, palmCommand('install', words, scope));
+}
+
 /** E_NOT_FOUND for the first name the source lacks. */
-function notFound(source: string, index: SourceIndex, missing: EntityRefSpec, scope: Scope) {
+function notFound(at: MatchSource, index: SourceIndex, missing: EntityRefSpec, scope: Scope) {
+  const hit = missing.kind === 'skill' ? undefined : nearMissFor(index, missing.name);
+  if (hit) return nearMissError(at, missing, hit, scope);
+  const { source } = at;
   const near = closestName(index, missing);
   const words = near ? [source, near] : [source];
   const guess = near ? `; did you mean ${near}?` : '; list what it offers:';
@@ -137,14 +164,14 @@ function ambiguityError(
 
 /** E_NOT_FOUND for names the source lacks; E_AMBIGUOUS for names meaning two kinds. */
 export function matchError(
-  source: string,
+  at: MatchSource,
   index: SourceIndex,
   match: NameMatch,
   scope: Scope,
 ): PalmError | undefined {
   const [missing] = match.missing;
-  if (missing) return notFound(source, index, missing, scope);
-  return ambiguityError(source, index, match, scope);
+  if (missing) return notFound(at, index, missing, scope);
+  return ambiguityError(at.source, index, match, scope);
 }
 
 function kindOption(index: SourceIndex, e: Entity): PickOption<EntityRef> {
