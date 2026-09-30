@@ -23,12 +23,6 @@ import {
 
 const git = vi.hoisted(() => ({ commitDate: vi.fn(async () => '2026-07-14T09:12:00+02:00') }));
 
-vi.mock('../../src/core/hash.js', async (real) =>
-  (await import('./shims.js')).shim(real, 'core/hash'),
-);
-vi.mock('../../src/lib/json.js', async (real) =>
-  (await import('./shims.js')).shim(real, 'lib/json'),
-);
 vi.mock('../../src/core/git.js', async (real) => ({ ...(await real()), ...git }));
 
 const hashOf = (unit: ExecUnit) => unit.hash;

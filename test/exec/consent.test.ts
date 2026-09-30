@@ -15,15 +15,6 @@ import { fakeContext } from './fakes.js';
 
 const git = vi.hoisted(() => ({ fileAtSha: vi.fn(async () => 'echo from git\n') }));
 
-vi.mock('../../src/core/hash.js', async (real) =>
-  (await import('./shims.js')).shim(real, 'core/hash'),
-);
-vi.mock('../../src/lib/json.js', async (real) =>
-  (await import('./shims.js')).shim(real, 'lib/json'),
-);
-vi.mock('../../src/targets/index.js', async (real) =>
-  (await import('./shims.js')).shim(real, 'targets/index'),
-);
 vi.mock('../../src/core/git.js', async (real) => ({ ...(await real()), ...git }));
 
 /** The DESIGN.md example request: gh-cli and team-helper, one prompt hook. */

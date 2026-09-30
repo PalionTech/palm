@@ -1,15 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { LockEntry } from '../../src/core/types.js';
 import { needsConsent, withDeclined, withTrust } from '../../src/exec/trust.js';
 import { closureTree } from '../../src/exec/units.js';
 import { GH_ASSETS, ghCliUnit, teamHelperUnit } from './examples.js';
-
-vi.mock('../../src/core/hash.js', async (real) =>
-  (await import('./shims.js')).shim(real, 'core/hash'),
-);
-vi.mock('../../src/lib/json.js', async (real) =>
-  (await import('./shims.js')).shim(real, 'lib/json'),
-);
 
 const unit = ghCliUnit();
 

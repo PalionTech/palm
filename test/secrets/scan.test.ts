@@ -1,5 +1,5 @@
 import fc from 'fast-check';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   looksLikeSecret,
   redact,
@@ -8,13 +8,6 @@ import {
   scanSecrets,
   scanText,
 } from '../../src/secrets/scan.js';
-
-vi.mock('../../src/core/hash.js', async (real) =>
-  (await import('../exec/shims.js')).shim(real, 'core/hash'),
-);
-vi.mock('../../src/lib/text.js', async (real) =>
-  (await import('../exec/shims.js')).shim(real, 'lib/text'),
-);
 
 /** 24 distinct characters: log2(24) ≈ 4.58 bits per character. */
 const RANDOM = 'Zx8kQ2mN7pL4vR9tW3yB6cF1';

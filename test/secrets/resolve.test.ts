@@ -1,14 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { McpServerConfig } from '../../src/core/types.js';
 import { resolveSecrets } from '../../src/secrets/resolve.js';
 import { fakeContext } from '../exec/fakes.js';
-
-vi.mock('../../src/core/hash.js', async (real) =>
-  (await import('../exec/shims.js')).shim(real, 'core/hash'),
-);
-vi.mock('../../src/lib/text.js', async (real) =>
-  (await import('../exec/shims.js')).shim(real, 'lib/text'),
-);
 
 const brave: McpServerConfig = {
   name: 'brave',
