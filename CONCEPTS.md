@@ -28,9 +28,11 @@ A source has one `ref:`, a tag, branch, commit or semver range, and that is the 
 lives. The lock records what the ref resolved to. `palm update` moves the commit within the range,
 and `palm update --to` moves the range.
 
-An in-repo source, such as `./agent-kit`, is rendered from the working tree and is the truth. A bare
-`palm install` re-renders what changed, and `palm check` fails on drift. `palm create` writes
-templates into it.
+An in-repo source, such as `./agent-kit`, is rendered from the working tree and is the truth. It may
+sit anywhere in the project's git worktree. Each entry's content hash in the lock is the drift
+signal, so two changes to two skills never conflict in the lock. A bare `palm install` re-renders
+what changed, and `palm check` fails on drift. Its hook scripts run in place and are still hashed
+for consent. `palm create` writes templates into it.
 
 A marketplace or plugin manifest inside a source is only a hint palm uses to find entities. palm
 never fetches another repository on its own and has no registry to look a name up in.
@@ -62,7 +64,9 @@ dependencies you did not ask for.
 Markdown context a harness injects: always on, scoped to paths, or loaded on
 request. `.claude/rules/*.md`, a block in `AGENTS.md` or `GEMINI.md`, `*.instructions.md` with
 `applyTo`, `.cursor/rules/*.mdc` with `globs` or `alwaysApply`. It shapes behaviour and enforces
-nothing; only hooks enforce. palm never edits `CLAUDE.md`.
+nothing; only hooks enforce. palm never edits `CLAUDE.md`. Claude Code and OpenCode have no
+on-request or manual rule, so palm 0.2 installs such a rule always-on there and prints a notice
+per rule; 0.3 maps it to a skill.
 
 ### Hook
 
@@ -93,7 +97,9 @@ in a harness as a unit. Each member gets its own lock entry with `via: plugin:<n
 A `/name` prompt template (`commands/*.md`, `prompts/*.prompt.md`,
 Gemini `commands/*.toml`) is indexed as a skill of the same name, with a note. Claude Code and Cursor
 merged commands into skills, and Codex and Copilot deprecate prompt files. `$ARGUMENTS` survives in
-Claude Code and Cursor; where a harness does not expand it, the note says so.
+Claude Code and Cursor. The trade-off: a harness without skill commands, such as OpenCode, loses the
+`/name` call, and `$ARGUMENTS` stays literal where it is not expanded. The note says both. A command
+without a description gets its first body line.
 
 ## Targets
 
@@ -109,8 +115,9 @@ end-to-end job runs the real CLIs.
 
 A **scope** is `project` (the directory holding `palm.yaml`, found by walking up to the nearest
 `.git`) or `global` (`-g`, your home directory and the harness homes). Both use the same files and
-verbs. The global lock writes paths as tokens such as `<claude>/skills/x`, so `~/.palm/palm.yaml`
-and its lock can live in a dotfiles repository; `~/.palm/applied.yaml` records what this machine
+verbs. Your home directory, `~/.palm` and the harness homes are never a project. The global lock
+writes paths as tokens such as `<claude>/skills/x`, so `~/.palm/palm.yaml`, its lock and
+`~/.palm/kit/` can live in a dotfiles repository; `~/.palm/applied.yaml` records what this machine
 holds.
 
 ## Generated files
@@ -135,8 +142,11 @@ Hooks and stdio MCP servers run programs. Before palm writes one, it shows the s
 every command as each harness will run it, the files it lands in, and every script with its mode,
 size and hash. The default answer is no, and `--yes` never consents. A yes is a hash over the
 commands and the script bytes, recorded as `trust:` in the lock and replayed silently on every
-machine while it matches; any change asks again. Without a terminal, only an
-`--allow-exec <kind>:<name>@<source>=<hash>` line consents. palm never runs what it installs.
+machine while it matches; any change asks again. The scripts of an in-repo source and the files a
+script reads are part of the hash. The hash pins a command such as `npx -y <package>` as text, not
+the package it downloads. Without a terminal, only an
+`--allow-exec <kind>:<name>@<source>=<hash>` line consents. `--all` leaves programs out, and a
+declined plugin hook becomes an `exclude:` in `palm.yaml`. palm never runs what it installs.
 
 ## Not palm words
 

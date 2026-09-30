@@ -41,15 +41,15 @@ moves sources to the newest commit their range allows.
 
 | Verb | Aliases | What it does |
 |---|---|---|
-| `init [--target ids] [--here]` | | Write `palm.yaml` with the detected or given targets, and add `.palm/local/` and `palm.local.yaml` to `.gitignore`. |
-| `install <source> [[kind:]name...] [--all]` | `add`, `i` | Without names, list what the source offers and save nothing. With names or `--all`, render every entity for every target, declare the source in `palm.yaml` and pin it in the lock. `--all` leaves out hooks and stdio servers and prints the command for each. |
+| `init [--target ids] [--here]` | | Write `palm.yaml` with the detected or given targets, printing the evidence for each, and add `.palm/local/` and `palm.local.yaml` to `.gitignore`. `init -g --target ids` sets the global targets. |
+| `install <source> [[kind:]name...] [--all]` | `add`, `i` | Without names, list what the source offers (`--grep text` filters it) and save nothing. With names or `--all`, render every entity for every target, declare the source in `palm.yaml` and pin it in the lock. `--all` leaves out hooks and stdio servers and prints the command for each. `--layout kind=glob` declares a layout with the source. |
 | `install` | | Sync: make the disk match `palm.yaml` and the lock. Installs new entries, removes dropped ones, restores missing files, re-renders changed in-repo sources, keeps files you edited (exit 1). Offline when the cache holds every commit. |
 | `install mcp <name> [flags]`, `install mcp --snippet <file or ->` | | Declare an MCP server from flags or from a README snippet, rendered into every harness. |
 | `remove [source] <[kind:]name...> [--exclude]` | `uninstall`, `rm` | Delete exactly the files and merged entries the lock lists, and update both files. `--exclude` drops one plugin member for the team. |
-| `update [sources...] [--to ref] [--dry-run] [--review]` | `up` | Re-resolve refs within their ranges, print a plan with every changed entity and every new or changed program, ask (default no), then install. `--dry-run` is the outdated report. |
-| `check [--json]` | | Read-only CI gate. Fails when `palm.yaml`, the lock, the generated files or an in-repo source disagree, when a program is untrusted, when a tracked file holds a secret, or when git ignores an output folder. Prints the fix for every problem. |
-| `get [kind] [names...] [-s source] [--files]` | `list`, `ls` | What is installed, with source, ref, targets and file counts. `get sources`, `get targets`, `get all`. |
-| `describe <[kind:]name or path>` | `info` | One entity: source, version, files per harness, notes, program trust. Given a path, the entity that wrote it. `describe source <s>`, `describe target <t>`. |
+| `update [sources...] [--to ref] [--dry-run] [--strict] [--review]` | `up` | Re-resolve refs within their ranges, print a plan with every changed entity and every new or changed program, ask (default no), then install. `--dry-run` is the outdated report, with the latest tag for pinned sources; `--strict` exits 1 when a source is behind and says why. |
+| `check [--quiet] [--json]` | | Read-only CI gate. Fails when `palm.yaml`, the lock, the generated files or an in-repo source disagree, when an entry is partial, when a program is untrusted, when a tracked file or a merged harness config holds a secret, or when git ignores a generated file. Prints the fix for every problem, one line per entity. `--quiet` prints only what failed or warned. |
+| `get [kind] [names...] [-s source] [--files]` | `list`, `ls` | What is installed, with source, ref, targets and file counts. `get sources`, `get targets` (with the project root), `get all`. |
+| `describe [source] <[kind:]name or path>` | `info` | One entity: source, version, files per harness, notes, activation, program trust. With a source first, an entity that is not installed yet. Given a path, the entity that wrote it. `describe source <s>`, `describe target <t>`. |
 | `create <kind> <name> [--in dir]` | `new` | Write a template skill, agent, instruction or hook into `./agent-kit`, declare it in `palm.yaml`, install it. No prompts, no editor. |
 
 Utilities: `palm migrate` (palm 0.1 files to 0.2; removed in 0.3), `palm completion bash|zsh|fish`,
@@ -159,7 +159,11 @@ script with its mode, size and hash. `v` pages the script bodies, and on update 
 
 - The default answer is no, and `--yes` never consents.
 - Your yes is a hash over the commands and every script byte, recorded as `trust:` in the lock.
-  Teammates and CI replay it silently; any change asks again.
+  Teammates and CI replay it silently; any change asks again. The scripts of an in-repo source
+  and the files a script reads are hashed too. The hash pins `npx -y <package>` as text, not the
+  package npx downloads, so pin a version in the command.
+- `install <source> --all` leaves programs out without asking. Declining a plugin's hook writes
+  `exclude: [hook:<name>]` on the plugin entry in `palm.yaml`; declining a program you named exits 130.
 - Without a terminal, palm stops with `E_UNTRUSTED_EXEC` and prints the exact
   `--allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911f2bd0a61d9686cbc62fcfb17c8e8276fa2ea5aa0c69e646a0b23ad60`
   line to consent: the full hash (a prefix of at least 16 hex digits is accepted).
@@ -171,12 +175,15 @@ script with its mode, size and hash. `v` pages the script bodies, and on update 
 
 - A literal secret that arrives from a source or a pasted snippet is never written. palm writes
   `${NAME}`, in each harness's syntax, and names the variable to export.
-- A literal you type needs `--secrets literal`, and palm warns when git would commit the
-  destination (inside a worktree and not ignored).
-  Under `-g`, a literal is written only outside every git worktree, into a file with mode `0600`.
+- A value you type with `--env K=V` or `--header K=V` becomes `${K}`, and palm prints the
+  `export` line; the value is stored nowhere. So does a README placeholder such as `YOUR_API_KEY`.
+- Only `--secrets literal` writes a value, recorded as `secrets: literal` on the entry. palm warns
+  when git would commit the destination (inside a worktree and not ignored). Under `-g`, a literal
+  is written only outside every git worktree, into a file with mode `0600`, and `--force` does not
+  change that.
 - The index and the lock store redacted hashes, never values.
-- `palm check` fails on a literal in a tracked file and lists every variable the installed servers
-  need and whether it is set.
+- `palm check` fails on a literal in a tracked file, including harness configs palm merges into,
+  and lists every variable the installed servers need and whether it is set.
 
 ## Exit codes
 
@@ -185,7 +192,7 @@ script with its mode, size and hash. `v` pages the script bodies, and on update 
 | 0 | success; warnings never change it |
 | 1 | a refusal, a failed or partial install, a modified file palm kept, a failed check |
 | 2 | usage error, including a removed 0.1 command or a 0.1 `palm.yaml` (run `palm migrate`) |
-| 130 | cancelled at a prompt |
+| 130 | cancelled: Ctrl-C, a declined program you named, or a declined ref change |
 
 ## How palm differs from Microsoft APM
 
