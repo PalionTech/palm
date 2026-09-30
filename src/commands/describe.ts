@@ -62,7 +62,17 @@ function isPath(name: string): boolean {
 
 const setWord = (s: { name: string; set: boolean }) => `${s.name} (${s.set ? 'set' : 'not set'})`;
 
+/** An MCP server: each harness's file and pointer, then the block palm merged there. */
+function printBlocks(out: Output, blocks: NonNullable<EntityInfo['blocks']>): void {
+  for (const t of TARGET_IDS)
+    for (const b of blocks[t] ?? []) {
+      field(out, t, `${displayLockPath(b.file)} ${b.at}`);
+      for (const line of JSON.stringify(b.value, null, 2).split('\n')) out.out(`      ${line}`);
+    }
+}
+
 function printFiles(out: Output, info: EntityInfo): void {
+  if (info.blocks) return printBlocks(out, info.blocks);
   for (const t of TARGET_IDS) {
     const files = info.files[t];
     if (files?.length) field(out, t, files.map(displayLockPath).join(', '));
@@ -76,7 +86,7 @@ function printExec(out: Output, info: EntityInfo): void {
   for (const c of info.exec.commands) field(out, 'runs', `${c.id}  ${c.command}`);
   const hash = `sha256:${shortHash(info.exec.hash, 8)}`;
   const e = info.entry;
-  const allow = `palm install --allow-exec ${e.kind}:${e.name}@${e.source}=${hash}`;
+  const allow = `palm install --allow-exec ${e.kind}:${e.name}@${e.source}=${info.exec.hash}`;
   field(out, 'trust', info.exec.trusted ? `trusted (${hash})` : `not trusted; allow it: ${allow}`);
 }
 

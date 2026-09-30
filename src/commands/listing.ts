@@ -20,6 +20,8 @@ import type { Output } from '../ui/output.js';
 
 const PROGRAM = '(a program; asks before installing)';
 const INTERPRETERS = new Set(['bash', 'sh', 'zsh', 'node', 'python', 'python3', 'deno', 'bun']);
+/** Package runners: the package they run names the program (`npx prettier`). */
+const RUNNERS = new Set(['npx', 'uvx', 'bunx', 'pnpx']);
 
 /** The entities a person installs: every kind but plugins, grouped by kind in KINDS order. */
 function listable(entities: readonly Entity[]): Entity[] {
@@ -42,7 +44,10 @@ const unquote = (w: string) => w.replace(/^["']|["']$/g, '');
 /** The program a hook command runs: `hooks/run-hook.cmd` for `"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd"`. */
 function programOf(command: string): string {
   const words = command.split(/\s+/).map(unquote).filter(Boolean);
-  const word = INTERPRETERS.has(words[0] ?? '') && words[1] ? words[1] : (words[0] ?? '');
+  const [first = '', second] = words;
+  if (RUNNERS.has(first) && second)
+    return `${first} ${words.find((w, i) => i > 0 && !w.startsWith('-')) ?? second}`;
+  const word = INTERPRETERS.has(first) && second ? second : first;
   return word.replace(PLUGIN_ROOT_TOKENS, '').replace(/^\/+/, '');
 }
 

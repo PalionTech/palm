@@ -171,7 +171,7 @@ describe('palm describe', () => {
         '  claude      .palm/assets/trailofbits__skills/gh-cli/hooks/a.sh',
         '  note        opencode has no declarative hooks; skipped',
         '  runs        SessionStart//-  bash a.sh',
-        '  trust       not trusted; allow it: palm install --allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911',
+        '  trust       not trusted; allow it: palm install --allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911ff',
         '',
       ].join('\n'),
     );

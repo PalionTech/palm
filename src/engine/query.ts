@@ -42,6 +42,8 @@ export interface EntityInfo {
   secrets?: Array<{ name: string; set: boolean }>;
   /** `manifest` (palm.yaml lists it) or `plugin:<name>`. */
   selectedBy: string;
+  /** An MCP server's rendered block per harness (DESIGN §9 `describe mcp`). */
+  blocks?: Partial<Record<TargetId, Array<{ file: string; at: string; value: unknown }>>>;
 }
 
 function sourceFilter(state: ScopeState, source?: string): string | undefined {
@@ -108,6 +110,17 @@ function filesPerTarget(entry: LockEntry, out?: RenderOutput): Partial<Record<Ta
   return files;
 }
 
+/** What each harness's file holds for an MCP server, rendered as the lock records it. */
+function blocksOf(entry: LockEntry, out?: RenderOutput): EntityInfo['blocks'] {
+  if (entry.kind !== 'mcp' || !out) return undefined;
+  const blocks: NonNullable<EntityInfo['blocks']> = {};
+  for (const id of Object.keys(entry.render) as TargetId[]) {
+    const r = out.renders[id];
+    if (r) blocks[id] = r.fragments.map((f) => ({ file: f.file, at: f.at, value: f.value }));
+  }
+  return blocks;
+}
+
 function secretsOf(ctx: PalmContext, entity?: Entity): EntityInfo['secrets'] {
   if (entity?.def.kind !== 'mcp') return undefined;
   const names = new Set(
@@ -147,6 +160,8 @@ export async function describeEntity(
     };
   const secrets = secretsOf(ctx, entity);
   if (secrets) info.secrets = secrets;
+  const blocks = blocksOf(entry, out);
+  if (blocks) info.blocks = blocks;
   return info;
 }
 
