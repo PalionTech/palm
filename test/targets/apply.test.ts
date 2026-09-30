@@ -213,8 +213,11 @@ describe('fragments by (at, key)', () => {
         at: 'block:instruction:demo',
         id: 'palm:instruction:demo:0',
         key: 'instruction:demo',
+        created: true,
       },
     ]);
+    const again = await apply('codex', root, r);
+    expect(again.merged[0]).not.toHaveProperty('created');
   });
 });
 

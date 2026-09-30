@@ -16,7 +16,19 @@ import { renderAgent } from '../../src/targets/convert-agent.js';
 import { convertHooks, type Relocate } from '../../src/targets/convert-hooks.js';
 import { createTarget } from '../../src/targets/index.js';
 import { sameContent } from '../../src/targets/same-content.js';
-import { cleanupTmp, fakeEnv, mkEntity, renderInput, SKILL_MD, tmpDir, write } from './helpers.js';
+import {
+  allKinds,
+  cleanupTmp,
+  exists,
+  fakeEnv,
+  install,
+  makeSource,
+  mkEntity,
+  renderInput,
+  SKILL_MD,
+  tmpDir,
+  write,
+} from './helpers.js';
 
 afterEach(cleanupTmp);
 
@@ -445,5 +457,37 @@ describe('Y13 adoption compares meaning, not bytes', () => {
       ),
     ).toBe(true);
     expect(sameContent(Buffer.from('{"a":1}'), Buffer.from('{"a":2}'), 'x.json')).toBe(false);
+  });
+});
+
+describe('J14 a Cursor hooks.json palm created goes with its last hook', () => {
+  async function cursorHook(existing?: string) {
+    const root = await tmpDir();
+    const src = await makeSource();
+    const hooksJson = path.join(root, '.cursor/hooks.json');
+    if (existing !== undefined) await write(hooksJson, existing);
+    const k = allKinds(src).find((e) => e.label === 'hook');
+    if (!k) throw new Error('no hook fixture');
+    const target = createTarget('cursor', fakeEnv(root));
+    const done = await install(target, {
+      ...k,
+      scope: 'project',
+      scopeRoot: root,
+      sourceRoot: src.root,
+    });
+    await target.undeploy(done.entry, 'project', root, false);
+    return { hooksJson, entry: done.entry };
+  }
+
+  it('J14 created by palm: deleted when only version is left', async () => {
+    const { hooksJson, entry } = await cursorHook();
+    expect(entry.merged?.every((m) => m.created)).toBe(true);
+    expect(await exists(hooksJson)).toBe(false);
+  });
+
+  it('J14 the person had it: kept, with its version', async () => {
+    const { hooksJson, entry } = await cursorHook('{\n  "version": 1\n}\n');
+    expect(entry.merged?.some((m) => m.created)).toBe(false);
+    expect(JSON.parse(await fs.readFile(hooksJson, 'utf8'))).toEqual({ version: 1 });
   });
 });

@@ -419,6 +419,12 @@ export interface LockMerged {
   at: string;
   id: string;
   key: string;
+  /**
+   * palm created the shared file when it merged this fragment (`ApplyResult.merged` sets it; the
+   * lock keeps it while the fragment stays). Undeploy deletes such a file when only the keys palm
+   * ensured are left (Cursor's `{"version": 1}`, ruling J14); a file the person had stays.
+   */
+  created?: boolean;
 }
 
 /** The executables of one hook entry or stdio MCP server, as the lock records them. */
@@ -946,6 +952,7 @@ export interface ApplyInput {
 export interface ApplyResult {
   /** Every lock-form path the render lists (written, adopted, or that would be in a dry run). */
   files: string[];
+  /** The render's fragments; `created` on those whose shared file this apply created (J14). */
   merged: LockMerged[];
   /** The subset of `files` present with identical content, adopted without writing. */
   adopted: string[];

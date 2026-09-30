@@ -272,19 +272,24 @@ export class Applier {
         throw e;
       }
     }
-    return this.result(files);
+    return this.result(files, edits);
   }
 
-  private async result(files: readonly CheckedFile[]): Promise<ApplyResult> {
+  private async result(
+    files: readonly CheckedFile[],
+    edits: readonly PlannedEdit[],
+  ): Promise<ApplyResult> {
     const adopted: string[] = [];
     for (const f of files)
       if (f.adopted || (f.state === 'same' && !(await this.ownsFile(f.lockPath, f.abs))))
         adopted.push(f.lockPath);
+    const created = new Set(edits.filter((e) => !e.existed && e.changed).map((e) => e.abs));
     const merged: LockMerged[] = this.input.rendered.fragments.map(({ file, at, id, key }) => ({
       file,
       at,
       id,
       key,
+      ...(created.has(this.paths.abs(file)) ? { created: true } : {}),
     }));
     return {
       files: files.map((f) => f.lockPath).sort(),
