@@ -1146,8 +1146,7 @@ Review $ARGUMENTS
     "sessionStart": [
       {
         "type": "command",
-        "bash": "echo hi",
-        "powershell": "echo hi"
+        "bash": "echo hi"
       }
     ]
   }
@@ -1415,8 +1414,7 @@ Review $ARGUMENTS
     "sessionStart": [
       {
         "type": "command",
-        "bash": "echo hi",
-        "powershell": "echo hi"
+        "bash": "echo hi"
       }
     ]
   }

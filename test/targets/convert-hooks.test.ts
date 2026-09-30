@@ -210,10 +210,9 @@ describe('convertHooks from Claude', () => {
             matcher: 'edit|create',
           },
         ],
-        // a program both shells run the same way also gets its powershell line (O11)
-        sessionStart: [{ type: 'command', bash: 'echo hi', powershell: 'echo hi' }],
-        userPromptSubmitted: [{ type: 'command', bash: 'guard', powershell: 'guard' }],
-        agentStop: [{ type: 'command', bash: 'done', powershell: 'done', timeoutSec: 5 }],
+        sessionStart: [{ type: 'command', bash: 'echo hi' }],
+        userPromptSubmitted: [{ type: 'command', bash: 'guard' }],
+        agentStop: [{ type: 'command', bash: 'done', timeoutSec: 5 }],
       },
     });
     expect(r.dropped).toEqual([]);

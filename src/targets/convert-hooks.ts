@@ -5,7 +5,7 @@
  * - claude / codex: `{ hooks: { <PascalEvent>: [{ matcher?, hooks: [{ type: "command", command, timeout? }] }] } }`
  * - cursor:         `{ version: 1, hooks: { <camelEvent>: [{ command, matcher?, timeout? }] } }`
  * - copilot:        `{ version: 1, hooks: { <camelEvent>: [{ type: "command", bash, powershell?, cwd?, env?, timeoutSec?, matcher? }] } }`
- *                   (`powershell`: the source's own, or the bash line when it runs in both shells)
+ *                   (`powershell`, `cwd` and `env` as the source has them)
  * - gemini:         `{ hooks: { <GeminiEvent>: [{ matcher?, hooks: [{ type: "command", command, timeout? }] }] } }`
  *                   with Gemini event names, tool names in matchers and `timeout` in milliseconds
  *                   ("`timeout` is in milliseconds", docs/hooks/reference.md)
@@ -465,34 +465,14 @@ function pushGrouped(list: unknown[], h: CanonHook, command: string): void {
   else list.push({ ...(h.matcher !== undefined ? { matcher: h.matcher } : {}), hooks: [item] });
 }
 
-/** Characters whose meaning differs between sh and PowerShell (or that only one of them has). */
-const SHELL_SYNTAX = /[$`;&|<>(){}\\*?~!#]/;
-/** Programs that are a POSIX shell or run one, and shell scripts. */
-const SHELL_PROGRAM =
-  /^(?:sh|bash|zsh|fish|dash|ksh|source|\.|exec|env|sudo)$|\.(?:sh|bash|zsh|fish)$/i;
-
 /**
- * True when `command` runs a program the same way under sh and PowerShell: a program on the
- * PATH (no `./`, `/` or `~` path, no shell script, no `VAR=value` prefix) with plain arguments
- * and no shell syntax (`go run .agents/hooks/main.go`, `npx prettier --write`). Copilot then gets
- * the same line as its `powershell` command, so the hook runs on Windows too (ruling O11).
- */
-function runsInBothShells(command: string): boolean {
-  if (SHELL_SYNTAX.test(command)) return false;
-  const program = command.trim().split(/\s+/)[0] ?? '';
-  if (program === '' || /^[./~]/.test(program) || program.includes('=')) return false;
-  return !SHELL_PROGRAM.test(program);
-}
-
-/**
- * A Copilot entry: `bash` and `powershell` (the source's own, or the bash line when it runs in
- * both shells), `cwd` and `env` as the source has them, `timeoutSec` (ruling O11). `h` keeps
- * Claude's tool names (the exec ids); `matcher` is in Copilot's.
+ * A Copilot entry: `bash`, and `powershell`, `cwd` and `env` as the source has them,
+ * `timeoutSec` (ruling O11). `h` keeps Claude's tool names (the exec ids); `matcher` is in
+ * Copilot's.
  */
 function copilotItem(h: CanonHook, matcher: string | undefined, cx: Conversion) {
   const bash = h.command !== undefined ? cx.run(h.command, h, false) : undefined;
-  const own = h.powershell !== undefined ? cx.run(h.powershell, h, true) : undefined;
-  const powershell = own ?? (bash !== undefined && runsInBothShells(bash) ? bash : undefined);
+  const powershell = h.powershell !== undefined ? cx.run(h.powershell, h, true) : undefined;
   return withoutUndefined({
     type: 'command',
     bash,

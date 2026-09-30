@@ -83,33 +83,6 @@ describe('O11 an equivalent hook already on disk is adopted, Copilot keeps power
       expect(projectRelativeCommand(written)).toBe(want);
   });
 
-  it('O11 Copilot gets a powershell line for a program both shells run, never for a shell script', () => {
-    const raw = {
-      hooks: {
-        Stop: [
-          { hooks: [{ type: 'command', command: 'go run .agents/hooks/main.go', timeout: 600 }] },
-        ],
-        SessionStart: [{ hooks: [{ type: 'command', command: './hooks/start.sh' }] }],
-        PreToolUse: [{ hooks: [{ type: 'command', command: 'jq -r .x | tee "$LOG"' }] }],
-      },
-    };
-    expect(convertHooks(hookSet('claude', raw), 'copilot', asIs).hooks).toEqual({
-      version: 1,
-      hooks: {
-        agentStop: [
-          {
-            type: 'command',
-            bash: 'go run .agents/hooks/main.go',
-            powershell: 'go run .agents/hooks/main.go',
-            timeoutSec: 600,
-          },
-        ],
-        sessionStart: [{ type: 'command', bash: './hooks/start.sh' }],
-        preToolUse: [{ type: 'command', bash: 'jq -r .x | tee "$LOG"' }],
-      },
-    });
-  });
-
   it('O11 a Claude PowerShell hook is Copilot’s powershell line, and dropped where hooks run with sh', () => {
     const raw = {
       hooks: {
