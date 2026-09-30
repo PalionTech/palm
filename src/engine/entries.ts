@@ -112,12 +112,25 @@ export function manifestJobs(
   return { jobs: dedupeJobs(jobs), failures, missing };
 }
 
-/** A direct request (install with names): the palm.yaml entry it records, options kept. */
+/** The plugin palm.yaml still declares that the lock says the entity came through, if any. */
+function memberOf(b: Omit<Build, 'explicit'>, entity: Entity): string | undefined {
+  const via = b.state.lock.find(entity, b.ref.name)?.via;
+  const plugin = via ? Via.tryParse(via)?.name : undefined;
+  return plugin && b.state.manifest.hasEntry(b.ref.name, 'plugin', plugin) ? via : undefined;
+}
+
+/**
+ * A direct request (install with names): the palm.yaml entry it records, options kept. A member
+ * of an installed plugin named on its own (a declined hook asked for again) stays a member.
+ */
 export function requestJobs(
   b: Omit<Build, 'explicit'>,
   entity: Entity,
   opts: { targets?: ManifestEntryObject['targets']; at?: string },
 ): Job[] {
+  const via = memberOf(b, entity);
+  if (via && !opts.targets && !opts.at)
+    return [{ ...jobFor({ ...b, explicit: true }, entity, {}, via) }];
   const current = b.state.manifest
     .entries(b.ref.name, entity.kind)
     .find((e) => sameName(e.name, entity.name));

@@ -108,6 +108,7 @@ export interface OutcomeInput {
 
 export interface OutcomeDecision {
   status: OutcomeStatus;
+  /** Targets to apply; a target with kept paths is applied without them. */
   toWrite: TargetId[];
   /** Lock paths (and `file#at#key` fragments) the user changed: left as they are. */
   kept: string[];
@@ -115,69 +116,76 @@ export interface OutcomeDecision {
 
 type TargetVerdict = 'unchanged' | 'restore' | 'render' | 'kept' | 'skipped';
 
-/** Files the render writes that differ on disk; edited ones (owned, render unchanged) listed. */
+interface Inspection {
+  /** Paths and fragment keys whose disk state differs from the render. */
+  pending: string[];
+  /** Of those, the ones the person edited (owned by the lock, render unchanged or known edits). */
+  edited: string[];
+}
+
+function isEdit(input: OutcomeInput, key: string, renderChanged: boolean): boolean {
+  return !renderChanged || !!input.edited?.has(key);
+}
+
 function inspectFiles(
   input: OutcomeInput,
   rendered: Rendered,
   renderChanged: boolean,
-  edited: string[],
-): boolean {
+  out: Inspection,
+) {
   const owned = new Set(input.previous?.files ?? []);
-  let write = false;
   for (const f of rendered.files) {
     const s = input.files.get(f.path) ?? 'missing';
     if (s === 'same') continue;
-    write = true;
-    const edit = !renderChanged || input.edited?.has(f.path);
-    if (s === 'modified' && owned.has(f.path) && edit) edited.push(f.path);
+    out.pending.push(f.path);
+    if (s === 'modified' && owned.has(f.path) && isEdit(input, f.path, renderChanged))
+      out.edited.push(f.path);
   }
-  return write;
 }
 
-/** Fragments that are not held; changed ones the lock owns (render unchanged) listed as edited. */
 function inspectFragments(
   input: OutcomeInput,
   rendered: Rendered,
   renderChanged: boolean,
-  edited: string[],
-): boolean {
+  out: Inspection,
+) {
   const owned = new Set((input.previous?.merged ?? []).map(fragmentKey));
-  let write = false;
   for (const f of rendered.fragments) {
     const key = fragmentKey(f);
     const s = input.fragments.get(key) ?? 'missing';
     if (s === 'held') continue;
-    write = true;
-    const edit = !renderChanged || input.edited?.has(key);
-    if (s === 'changed' && owned.has(key) && edit) edited.push(key);
+    out.pending.push(key);
+    if (s === 'changed' && owned.has(key) && isEdit(input, key, renderChanged))
+      out.edited.push(key);
   }
-  return write;
 }
 
 /** What the disk says for one target's render. */
-function inspect(input: OutcomeInput, rendered: Rendered, renderChanged: boolean) {
-  const edited: string[] = [];
-  const files = inspectFiles(input, rendered, renderChanged, edited);
-  const fragments = inspectFragments(input, rendered, renderChanged, edited);
-  return { edited, write: files || fragments };
+function inspect(input: OutcomeInput, rendered: Rendered, renderChanged: boolean): Inspection {
+  const out: Inspection = { pending: [], edited: [] };
+  inspectFiles(input, rendered, renderChanged, out);
+  inspectFragments(input, rendered, renderChanged, out);
+  return out;
 }
 
+/** One target: its verdict, and whether it is applied (a kept target applies the unedited rest). */
 function verdictFor(
   input: OutcomeInput,
   id: TargetId,
   rendered: Rendered,
   kept: string[],
-): TargetVerdict {
-  if (rendered.skipped) return 'skipped';
-  const previousHash = input.previous?.render[id];
-  const renderChanged = previousHash !== rendered.hash;
-  const { edited, write } = inspect(input, rendered, renderChanged);
+): { verdict: TargetVerdict; write: boolean } {
+  if (rendered.skipped) return { verdict: 'skipped', write: false };
+  const renderChanged = input.previous?.render[id] !== rendered.hash;
+  const { pending, edited } = inspect(input, rendered, renderChanged);
   if (edited.length && !input.force) {
     kept.push(...edited);
-    return 'kept';
+    return { verdict: 'kept', write: renderChanged || pending.length > edited.length };
   }
-  if (renderChanged) return 'render';
-  return write ? 'restore' : 'unchanged';
+  if (renderChanged) return { verdict: 'render', write: true };
+  return pending.length
+    ? { verdict: 'restore', write: true }
+    : { verdict: 'unchanged', write: false };
 }
 
 function overall(input: OutcomeInput, verdicts: TargetVerdict[], dropped: boolean): OutcomeStatus {
@@ -203,9 +211,9 @@ export function outcomeStatus(input: OutcomeInput): OutcomeDecision {
   for (const id of TARGET_IDS) {
     const rendered = input.renders[id];
     if (!rendered) continue;
-    const v = verdictFor(input, id, rendered, kept);
-    verdicts.push(v);
-    if (v === 'render' || v === 'restore') toWrite.push(id);
+    const { verdict, write } = verdictFor(input, id, rendered, kept);
+    verdicts.push(verdict);
+    if (write) toWrite.push(id);
   }
   const rendered = new Set(Object.keys(input.renders));
   const dropped = Object.keys(input.previous?.render ?? {}).some((t) => !rendered.has(t));

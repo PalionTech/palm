@@ -2,6 +2,7 @@ import './fakes.js';
 
 import { describe, expect, it } from 'vitest';
 import { installFromSource } from '../../src/engine/install.js';
+import { syncScope } from '../../src/engine/sync.js';
 import { applyUpdate, planChanges, planUpdate, reviewText } from '../../src/engine/update.js';
 import { makeWorld, type World } from './world.js';
 
@@ -80,6 +81,7 @@ describe('update', () => {
 
   it('keeps a file the person edited unless --force, and lists it as at risk', async () => {
     const { w, name } = await world();
+    const locked = (await w.entry('skill', 'tdd'))?.render.claude;
     await w.write('.claude/skills/tdd/SKILL.md', 'my notes\n');
     const plan = await planUpdate(w.ctx, [name], { scope: 'project', to: '^2.0' }, w.deps);
     expect(plan.items.find((i) => i.name === 'tdd')?.atRisk).toEqual([
@@ -88,5 +90,11 @@ describe('update', () => {
     const r = await applyUpdate(w.ctx, plan, { scope: 'project', to: '^2.0' }, w.deps);
     expect(r.outcomes.find((o) => o.entry.name === 'tdd')?.status).toBe('modified');
     expect(await w.read('.claude/skills/tdd/SKILL.md')).toBe('my notes\n');
+    expect((await w.entry('skill', 'tdd'))?.render.claude).not.toBe(locked);
+    const again = await syncScope(w.ctx, { scope: 'project' }, w.deps);
+    expect(again.outcomes.find((o) => o.entry.name === 'tdd')?.status).toBe('modified');
+    const forced = await syncScope(w.context({ force: true }), { scope: 'project' }, w.deps);
+    expect(forced.outcomes.find((o) => o.entry.name === 'tdd')?.status).toBe('restored');
+    expect(await w.read('.claude/skills/tdd/SKILL.md')).toBe('two\n');
   });
 });

@@ -154,9 +154,10 @@ export async function prepareJob(run: Run, job: Job): Promise<Prepared> {
   };
 }
 
+/** Prompt hooks of the hook sets this run writes: listed as text, never gated. */
 function promptHooks(prepared: Prepared[]) {
-  return prepared.flatMap(({ job }) =>
-    job.entity.def.kind === 'hook'
+  return prepared.flatMap(({ job, decision }) =>
+    job.entity.def.kind === 'hook' && decision.toWrite.length
       ? job.entity.def.hooks.promptHooks.map((p) => ({ entity: job.entity.name, ...p }))
       : [],
   );
@@ -173,7 +174,7 @@ export async function askForConsent(
   previous?: Record<string, ExecUnit>,
 ): Promise<void> {
   const asking = prepared.filter(
-    (p) => p.consent === 'ask' && p.out.unit && !p.out.refusals.length,
+    (p) => p.consent === 'ask' && p.out.unit && !p.out.refusals.some((f) => !f.target),
   );
   if (!asking.length) return;
   const units = asking.map((p) => p.out.unit as ExecUnit);

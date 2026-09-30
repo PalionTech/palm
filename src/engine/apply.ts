@@ -10,6 +10,7 @@ import {
   type LockEntry,
   type LockMerged,
   type OutcomeStatus,
+  type Rendered,
   TARGET_IDS,
   type TargetId,
 } from '../core/types.js';
@@ -122,12 +123,24 @@ function ownedFor(run: Run, previous?: LockEntry): string[] {
   return [...files, ...merged];
 }
 
+/** The render without what the person edited (those stay as they are on disk). */
+function withoutKept(rendered: Rendered, kept: string[]): Rendered {
+  if (!kept.length) return rendered;
+  const skip = new Set(kept);
+  return {
+    ...rendered,
+    files: rendered.files.filter((f) => !skip.has(f.path)),
+    fragments: rendered.fragments.filter((f) => !skip.has(fragmentKey(f))),
+  };
+}
+
 async function writeTargets(run: Run, p: Prepared, failed: Set<TargetId>): Promise<void> {
   const { ctx, state } = run;
   const owned = ownedFor(run, p.previous);
   for (const id of p.decision.toWrite) {
-    const rendered = p.out.renders[id];
-    if (!rendered || failed.has(id)) continue;
+    const full = p.out.renders[id];
+    if (!full || failed.has(id)) continue;
+    const rendered = withoutKept(full, p.decision.kept);
     try {
       await run.deps.getTarget(id).apply({
         rendered,
@@ -239,7 +252,8 @@ export async function applyPrepared(run: Run, p: Prepared): Promise<InstallOutco
   if (p.out.refusals.some((f) => !f.target)) return refused(run, p);
   if (p.consent === 'quiet' && p.previous)
     return { entry: p.previous, status: 'unchanged', notes: [] };
-  if (p.consent === 'declined') return declined(run, p);
+  const unsettled = p.consent === 'ask' && !run.ctx.flags.dryRun;
+  if (p.consent === 'declined' || unsettled) return declined(run, p);
   run.result.failures.push(...p.out.refusals);
   const failed = new Set(p.out.refusals.flatMap((f) => (f.target ? [f.target] : [])));
   await writeTargets(run, p, failed);
