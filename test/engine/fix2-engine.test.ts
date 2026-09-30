@@ -13,7 +13,8 @@ import { requestInstallStop } from '../../src/engine/runner.js';
 import { openScope } from '../../src/engine/scope.js';
 import { syncScope } from '../../src/engine/sync.js';
 import { droppedTargets } from '../../src/engine/targets.js';
-import { makeWorld, type World } from './world.js';
+import { scopeTwins } from '../../src/engine/twins.js';
+import { makeWorld, type World, writeTree } from './world.js';
 
 const project = { scope: 'project' as const };
 
@@ -124,5 +125,39 @@ describe("B2 J10' a target palm.yaml no longer lists", () => {
     await w.write('palm.yaml', yaml.replace(/tdd, |, tdd/, ''));
     const plan = await syncScope(w.context({ dryRun: true }), project, w.deps);
     expect(plan.removals).toEqual(['.claude/skills/tdd/SKILL.md']);
+  });
+});
+
+describe('X13 M9 the same entity in both scopes', () => {
+  async function both(globalTargets: string) {
+    const w = await makeWorld({ targets: ['claude'] });
+    await writeTree(w.palmHome, { 'palm.yaml': `targets: [${globalTargets}]\n` });
+    await install(w, ['tdd', 'review']);
+    const url = await w.remote('kit', { 'v1.0.0': KIT });
+    const req = { source: url, names: [{ name: 'tdd' }] };
+    await installFromSource(w.ctx, req, { scope: 'global' }, w.deps);
+    return w;
+  }
+
+  it('X13 scopeTwins names an entity the project and -g both install for claude', async () => {
+    const w = await both('claude');
+    const state = await openScope(w.ctx, 'project', { readOnly: true });
+    expect(await scopeTwins(w.ctx, state)).toEqual([
+      {
+        kind: 'skill',
+        name: 'tdd',
+        source: 'kit',
+        other: { scope: 'global', source: 'kit' },
+        targets: ['claude'],
+      },
+    ]);
+    const mine = await openScope(w.ctx, 'global', { readOnly: true });
+    expect((await scopeTwins(w.ctx, mine)).map((t) => t.other.scope)).toEqual(['project']);
+  });
+
+  it('M9 nothing is reported when the other scope renders for other harnesses', async () => {
+    const w = await both('codex');
+    const state = await openScope(w.ctx, 'project', { readOnly: true });
+    expect(await scopeTwins(w.ctx, state)).toEqual([]);
   });
 });
