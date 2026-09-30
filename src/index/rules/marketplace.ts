@@ -12,47 +12,73 @@ import {
   type Marketplace,
   type MarketplaceEntry,
   readMarketplace,
+  selfEntryPath,
 } from '../marketplace.js';
 import { findPluginManifest, type PluginManifest } from '../plugin-manifest.js';
 import type { ScanContext } from '../scan-context.js';
 import { escapesRoot, joinRel, normRel } from '../util.js';
 import { scanPlugin } from './plugin-manifest.js';
 
-/** The source-relative plugin directory of an entry; undefined (with a warning) when unusable. */
+/**
+ * A path inside the repository as a path inside the scanned source: below the source's `root`
+ * it is relative to it; the root itself (or above it) is the source root.
+ */
+function rebaseSelf(ctx: ScanContext, repoPath: string): string {
+  const root = normRel(ctx.source.root ?? '');
+  if (root === '') return repoPath;
+  return repoPath.startsWith(`${root}/`) ? repoPath.slice(root.length + 1) : '';
+}
+
+/** A remote entry: never fetched; the warning names the line that declares it. */
+function warnRemote(ctx: ScanContext, entry: MarketplaceEntry): void {
+  const s = entry.source;
+  const remote = installInput(s);
+  if (!remote) {
+    ctx.warnings.push(
+      `plugin "${entry.name}": unsupported source ${describeEntrySource(s)}; skipped`,
+    );
+    return;
+  }
+  const root = remote.root ? `, then set root: ${remote.root} on it in palm.yaml` : '';
+  ctx.warnings.push(
+    `remote plugin "${entry.name}" (${describeEntrySource(s)}) not fetched: declare it: palm install ${remote.input} <names>${root}`,
+  );
+}
+
+/** A source-relative plugin directory, checked: inside the source and present. */
+async function localRoot(
+  ctx: ScanContext,
+  entry: MarketplaceEntry,
+  rootRel: string,
+): Promise<string | undefined> {
+  const shown = describeEntrySource(entry.source);
+  if (escapesRoot(rootRel)) {
+    ctx.warnings.push(`plugin "${entry.name}": source ${shown} points outside the source; skipped`);
+    return undefined;
+  }
+  if ((await ctx.fsKind(rootRel)) !== 'dir') {
+    ctx.warnings.push(`plugin "${entry.name}": source directory ${shown} not found; skipped`);
+    return undefined;
+  }
+  return rootRel;
+}
+
+/**
+ * The source-relative plugin directory of an entry; undefined (with a warning) when unusable. An
+ * entry that names the scanned repository itself is local (ruling C21).
+ */
 async function entryRoot(
   ctx: ScanContext,
   mpRootRel: string,
   entry: MarketplaceEntry,
 ): Promise<string | undefined> {
-  const s = entry.source;
-  const remote = installInput(s);
-  if (remote) {
-    const root = remote.root ? `, then set root: ${remote.root} on it in palm.yaml` : '';
-    ctx.warnings.push(
-      `remote plugin "${entry.name}" (${describeEntrySource(s)}) not fetched: declare it: palm install ${remote.input} <names>${root}`,
-    );
+  const self = selfEntryPath(entry.source, ctx.source.url);
+  if (self !== undefined) return localRoot(ctx, entry, rebaseSelf(ctx, self));
+  if (entry.source.type !== 'local') {
+    warnRemote(ctx, entry);
     return undefined;
   }
-  if (s.type !== 'local') {
-    ctx.warnings.push(
-      `plugin "${entry.name}": unsupported source ${describeEntrySource(s)}; skipped`,
-    );
-    return undefined;
-  }
-  const rootRel = joinRel(mpRootRel, s.path);
-  if (escapesRoot(rootRel)) {
-    ctx.warnings.push(
-      `plugin "${entry.name}": source ${describeEntrySource(s)} points outside the source; skipped`,
-    );
-    return undefined;
-  }
-  if ((await ctx.fsKind(rootRel)) !== 'dir') {
-    ctx.warnings.push(
-      `plugin "${entry.name}": source directory ${describeEntrySource(s)} not found; skipped`,
-    );
-    return undefined;
-  }
-  return rootRel;
+  return localRoot(ctx, entry, joinRel(mpRootRel, entry.source.path));
 }
 
 async function loadMarketplace(

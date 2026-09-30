@@ -204,3 +204,46 @@ describe('K2 near-miss lines and layout globs', () => {
     ]);
   });
 });
+
+describe('C21 a marketplace entry naming its own repository', () => {
+  const url = 'https://github.com/Acme/skills.git';
+
+  it('C21 is scanned as a local plugin, with no remote-plugin warning', async () => {
+    await put('.claude-plugin/marketplace.json', {
+      name: 'acme',
+      plugins: [
+        { name: 'skills', source: { source: 'github', repo: 'acme/skills' } },
+        { name: 'extra', source: { source: 'url', url: 'https://github.com/acme/skills' } },
+        { name: 'other', source: { source: 'github', repo: 'acme/other' } },
+      ],
+    });
+    await put('skills/lint/SKILL.md', skillMd('lint'));
+    const r = await run({ name: 'acme/skills', type: 'git', url, path: undefined });
+    expect(kindNames(r)).toEqual(['plugin:extra .', 'plugin:skills .', 'skill:lint skills/lint']);
+    expect(r.warnings).toEqual([
+      expect.stringMatching(/^remote plugin "other" \(github:acme\/other\) not fetched/),
+    ]);
+  });
+
+  it('C21 a path inside the repository is rebased onto the source root', async () => {
+    await put('.claude-plugin/marketplace.json', {
+      name: 'acme',
+      plugins: [
+        {
+          name: 'fmt',
+          source: { source: 'git-subdir', url, path: 'kit/plugins/fmt' },
+        },
+      ],
+    });
+    await put('plugins/fmt/skills/fmt/SKILL.md', skillMd('fmt'));
+    const r = await run({
+      name: 'acme/skills/kit',
+      type: 'git',
+      url,
+      root: 'kit',
+      path: undefined,
+    });
+    expect(kindNames(r)).toEqual(['plugin:fmt plugins/fmt', 'skill:fmt plugins/fmt/skills/fmt']);
+    expect(r.warnings).toEqual([]);
+  });
+});

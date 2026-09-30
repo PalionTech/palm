@@ -190,6 +190,29 @@ function repoInput(url: string): { input: string; github: boolean } {
   return m ? { input: `${m[1]}/${m[2]}`, github: true } : { input: url.trim(), github: false };
 }
 
+/** A repository's identity for comparison: `owner/repo` of a GitHub URL, else the URL without `.git`. */
+function repoKey(url: string): string {
+  return repoInput(url)
+    .input.replace(/\.git\/?$/, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+}
+
+/**
+ * The path inside the scanned repository that a remote entry names when it names that very
+ * repository (`selfUrl`), else undefined. A marketplace listing its own repository by URL is a
+ * local entry, never a remote plugin to declare (ruling C21).
+ */
+export function selfEntryPath(
+  s: MarketplaceSource,
+  selfUrl: string | undefined,
+): string | undefined {
+  if (!selfUrl || !isRemoteSource(s)) return undefined;
+  const other = s.type === 'github' ? s.repo.replace(/\.git$/, '').toLowerCase() : repoKey(s.url);
+  if (other !== repoKey(selfUrl)) return undefined;
+  return normRel(s.type === 'github' || s.type === 'git-subdir' ? (s.path ?? '') : '');
+}
+
 /**
  * The `palm install` input that declares a remote entry (DESIGN §5 "Input forms"): `owner/repo`,
  * `owner/repo/sub/dir` or a URL, with `#<sha or ref>`. A subdirectory of a non-GitHub repository
