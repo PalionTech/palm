@@ -25,7 +25,14 @@ import { resolveEngineDeps } from './deps.js';
 import { fragmentKey } from './diff.js';
 import { type Run, runOf } from './jobs.js';
 import { notePreloadsLeaving } from './preloads.js';
-import { failure, failureOf, label, palmCommand, type Subject } from './report.js';
+import {
+  failure,
+  failureOf,
+  label,
+  palmCommand,
+  type Subject,
+  throwIfCancelled,
+} from './report.js';
 import { settle, withLockedScope } from './runner.js';
 import type { ScopeState } from './scope.js';
 import { MANIFEST_SOURCE } from './sources.js';
@@ -149,6 +156,7 @@ export async function undeploy(
           .getTarget(id)
           .undeploy(view, job.paths.scope, job.paths.root, job.dryRun, ctx.env);
       } catch (e) {
+        throwIfCancelled(e);
         report.failures.push(failureOf(subjectOf(entry), e, id));
       }
     }

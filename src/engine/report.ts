@@ -12,6 +12,14 @@ export interface Subject {
   source: string;
 }
 
+/**
+ * Rethrows a cancellation (a Ctrl-C, or a program palm ran that died of it): it ends the run and
+ * is never recorded as one entity's or one target's failure (O13 J4').
+ */
+export function throwIfCancelled(e: unknown): void {
+  if (isPalmError(e) && e.code === 'E_CANCELLED') throw e;
+}
+
 /** A failure for `subject` (optionally one target) from an error. */
 export function failureOf(subject: Subject, error: unknown, target?: TargetId): InstallFailure {
   const f: InstallFailure = {

@@ -74,18 +74,36 @@ export async function prepareAll(
   return { prepared, failed };
 }
 
-/** Applies prepared jobs one by one, saving once something is on disk; stops early on a stop request. */
+function isCancel(e: unknown): boolean {
+  return e instanceof PalmError && e.code === 'E_CANCELLED';
+}
+
+/** The run stopped before entity `done` of `total`: the result says how far it got (L11). */
+function stoppedAt(run: Run, done: number, total: number): void {
+  run.result.interrupted = { done, total };
+  run.result.warnings.push(
+    `cancelled after ${done} of ${total}; palm.lock.yaml records what was installed`,
+  );
+}
+
+/**
+ * Applies prepared jobs one by one, saving once something is on disk; stops early on a stop
+ * request. A cancel raised inside an entity (a program palm ran died of the same Ctrl-C) after
+ * something was written ends the run the same way, so the report is printed (O13 J4').
+ */
 export async function applyAll(run: Run, prepared: Prepared[]): Promise<void> {
   for (const [i, p] of prepared.entries()) {
     if (stopRequested) {
       if (!run.touched) throw cancelled();
-      run.result.interrupted = { done: i, total: prepared.length };
-      run.result.warnings.push(
-        `cancelled after ${i} of ${prepared.length}; palm.lock.yaml records what was installed`,
-      );
-      return;
+      return stoppedAt(run, i, prepared.length);
     }
-    run.result.outcomes.push(await applyPrepared(run, p));
+    try {
+      run.result.outcomes.push(await applyPrepared(run, p));
+    } catch (e) {
+      if (!isCancel(e) || !run.touched) throw e;
+      await saveScope(run.state);
+      return stoppedAt(run, i, prepared.length);
+    }
     if (run.touched) await saveScope(run.state);
   }
 }

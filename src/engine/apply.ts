@@ -25,7 +25,14 @@ import type { Prepared, Run } from './jobs.js';
 import { keptProgram } from './moves.js';
 import { removeOrphans } from './orphans.js';
 import { protectedPaths, sourceRoots, undeploy } from './remove.js';
-import { failure, failureOf, installCommand, label, type Subject } from './report.js';
+import {
+  failure,
+  failureOf,
+  installCommand,
+  label,
+  type Subject,
+  throwIfCancelled,
+} from './report.js';
 import { literalsBefore, rotationWarnings } from './rotate.js';
 import { noteWritten, persistTargets } from './scope.js';
 
@@ -209,6 +216,7 @@ async function writeTarget(
     }
     return (applied.merged ?? []).filter((m) => m.created).map(fragmentKey);
   } catch (e) {
+    throwIfCancelled(e);
     const f = failureOf(subjectOf(p), e, id);
     if (isPalmError(e) && e.code === 'E_CONFLICT')
       f.hint = installCommand(subjectOf(p), state.paths.scope, '--force');

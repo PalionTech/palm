@@ -31,7 +31,14 @@ import { inPlaceClosure } from '../exec/closure.js';
 import { withScriptReads } from '../exec/reads.js';
 import { canonicalJson } from '../lib/json.js';
 import { redactTypedArgs } from '../secrets/typed.js';
-import { failure, failureOf, installCommand, label, type Subject } from './report.js';
+import {
+  failure,
+  failureOf,
+  installCommand,
+  label,
+  type Subject,
+  throwIfCancelled,
+} from './report.js';
 import { localPathOf, type ScopeState } from './scope.js';
 import { referencedLine, referenceSecrets } from './source-secrets.js';
 import { MANIFEST_SOURCE } from './sources.js';
@@ -272,6 +279,7 @@ async function renderTargets(run: RenderRun, out: RenderOutput): Promise<void> {
       const rendered = await secretPass(run, id, first, out);
       if (rendered) out.renders[id] = withLfText(rendered);
     } catch (e) {
+      throwIfCancelled(e);
       out.refusals.push(failureOf(run.subject, e, id));
     }
   }
