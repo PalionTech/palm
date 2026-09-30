@@ -13,16 +13,25 @@ mcp:
     headers: {Authorization: "Bearer ${DOCS_TOKEN}"}
 $ palm check
 ✓ manifest and lock agree
+✓ every entry is rendered
+✓ every entry is on all its targets
 ✓ generated files match the lock
+✓ no stray file in a folder palm owns
+- applied files outside the lock: skipped (global scope only)
 ✓ in-repo sources match the lock
+✓ no generated path lies inside a source
 ✓ every program palm installed is trusted
+✓ no foreign command in the hook files palm manages
 ✓ every hook script exists
-! 1 secret problem
-✓ output directories are committed
+! no literal secret in generated files; 1 server needs variables that are not set
+✓ generated files are committed
 ✓ every source is declared
 ✓ no link leaves the scope
 ✓ no hidden Unicode in generated files
 ✓ no harness loads an entity twice
+✓ no two agents share a name in a harness folder
+! 1 agent preloads what is not installed
 ✓ instruction files are within harness limits
 
-! mcp docs: needs DOCS_TOKEN, which is not set; fix: export DOCS_TOKEN
+! mcp docs: needs DOCS_TOKEN, which is not set; fix: export DOCS_TOKEN=…
+! agent agent-sdk-verifier-py preloads skill sdk-helper, mcp context7, not installed; fix: palm install anthropics/claude-plugins-official sdk-helper mcp:context7

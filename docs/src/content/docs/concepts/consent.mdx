@@ -133,12 +133,13 @@ At the prompt, what you decline decides what palm writes.
 | You decline | palm writes | Exit |
 | --- | --- | --- |
 | a program you named, such as `palm install <source> hook:<name>` | nothing | `130` |
-| a hook that arrives with a plugin | the rest of the plugin, and `exclude: [hook:<name>]` on the plugin entry in `palm.yaml` | `0`, with a `⊘ skipped` line |
+| a hook that arrives with a plugin | the rest of the plugin, and `exclude: [hook:<name>]` on the plugin entry in `palm.yaml` | `0`, with a `! … not installed` line |
+| the new version of a program you trusted before | nothing: the update stops | `130` |
 
 The `exclude:` line goes through review like any other change, and later bare installs keep the hook out.
 `palm install <source> hook:<name>` asks again.
 
-Declining a changed version of a program you trusted before writes nothing new.
+Declining a changed version of a program you trusted before ends the run and writes nothing.
 The previous version stays active, and palm prints its trusted hash and the `palm remove` command that takes it out.
 
 ## Related

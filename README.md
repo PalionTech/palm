@@ -192,7 +192,7 @@ script with its mode, size and hash. `v` pages the script bodies, and on update 
 | 0 | success; warnings never change it |
 | 1 | a refusal, a failed or partial install, a modified file palm kept, a failed check |
 | 2 | usage error, including a removed 0.1 command or a 0.1 `palm.yaml` (run `palm migrate`) |
-| 130 | cancelled: Ctrl-C, a declined program you named, or a declined ref change |
+| 130 | cancelled: Ctrl-C, a declined program you named, a declined new version of a trusted program, or a declined ref change |
 
 ## How palm differs from Microsoft APM
 

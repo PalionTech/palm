@@ -5,5 +5,4 @@ $ palm install --offline
 x source mattpocock/skills: source "mattpocock/skills" at 2c0db90 is not in the cache and --offline is set
   run the command again without --offline to fetch it
 $ palm install
-= skill  tdd   .claude/skills/tdd/   3 files
 1 unchanged.

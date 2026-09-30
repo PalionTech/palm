@@ -3,7 +3,7 @@ $ palm create skill release-notes --description 'Write release notes from the pu
 + source ./agent-kit → palm.yaml
 + skill  release-notes   .agents/skills/release-notes/, .claude/skills/release-notes/   2 files   (claude gets its own copy in .claude/skills)
 1 installed. Commit palm.yaml, palm.lock.yaml, agent-kit/, .agents/ and .claude/ together.
-edit agent-kit/skills/release-notes/SKILL.md; palm install renders the change
+edit agent-kit/skills/release-notes/SKILL.md, then run: palm install
 $ cat agent-kit/skills/release-notes/SKILL.md
 ---
 name: release-notes
@@ -17,19 +17,29 @@ $ printf '\n4. Group the entries by label.\n' >> agent-kit/skills/release-notes/
 
 $ palm check
 ✓ manifest and lock agree
+✓ every entry is rendered
+✓ every entry is on all its targets
 ✓ generated files match the lock
-x 1 in-repo source changed since the lock
+✓ no stray file in a folder palm owns
+- applied files outside the lock: skipped (global scope only)
+x 1 in-repo entity changed since the lock
+✓ no generated path lies inside a source
 ✓ every program palm installed is trusted
+✓ no foreign command in the hook files palm manages
 ✓ every hook script exists
 ✓ no literal secret in generated files
-✓ output directories are committed
+! 2 output paths not committed yet
 ✓ every source is declared
 ✓ no link leaves the scope
 ✓ no hidden Unicode in generated files
 ✓ no harness loads an entity twice
+✓ no two agents share a name in a harness folder
+✓ every skill an agent preloads is installed
 ✓ instruction files are within harness limits
 
-x source ./agent-kit changed since palm.lock.yaml (tree d44197d → 25cac45); fix: palm install and commit palm.lock.yaml
+x skill release-notes: skill release-notes in source ./agent-kit changed since palm.lock.yaml (content c293a4e → 341192a); fix: palm install, then commit palm.lock.yaml and the files it re-rendered
+! .agents/skills/release-notes/SKILL.md is not committed yet (untracked); fix: git add .agents/skills/release-notes/SKILL.md
+! .claude/skills/release-notes/SKILL.md is not committed yet (untracked); fix: git add .claude/skills/release-notes/SKILL.md
 $ palm install
 ~ skill  release-notes   .agents/skills/release-notes/, .claude/skills/release-notes/   2 files   (claude gets its own copy in .claude/skills)
 1 re-rendered.

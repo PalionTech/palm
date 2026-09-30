@@ -19,7 +19,7 @@ x 1 program needs your consent and there is no terminal
   then:    palm install trailofbits/skills plugin:gh-cli --allow-exec hook:gh-cli@trailofbits/skills=sha256:23759d85ebda016f23c6343d5a49064f98ce3f65bd1d68616ad0a2541ae18adb
 $ palm install trailofbits/skills plugin:gh-cli --allow-exec hook:gh-cli@trailofbits/skills=sha256:23759d85ebda016f23c6343d5a49064f98ce3f65bd1d68616ad0a2541ae18adb
 i ref ^2.1 saved to palm.yaml (latest tag v2.1.0); edit ref: to track main
-+ hook  gh-cli   .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/, .claude/settings.json +1   3 files   from trailofbits/skills v2.1.0
++ hook  gh-cli   .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/, .claude/settings.json +1   3 files +4 merged   from trailofbits/skills v2.1.0
 1 installed. Commit palm.yaml, palm.lock.yaml, .palm/, .claude/ and .cursor/ together.
 $ grep -n -A 8 'exec:' palm.lock.yaml
 27:    exec:

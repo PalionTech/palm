@@ -1,5 +1,5 @@
 $ palm install anthropics/claude-plugins-official agent-sdk-verifier-py sdk-helper
-i agent agent-sdk-verifier-py mentions sdk-helper, mcp:context7; palm installs only what you name: palm install anthropics/claude-plugins-official sdk-helper mcp:context7
+i agent agent-sdk-verifier-py preloads mcp context7, not installed: palm install anthropics/claude-plugins-official mcp:context7
 i ref main saved to palm.yaml; edit ref: to pin a tag
 + skill  sdk-helper              .agents/skills/sdk-helper/, .claude/skills/sdk-helper/   2 files   from anthropics/claude-plugins-official main
     claude gets its own copy in .claude/skills
@@ -7,7 +7,7 @@ i ref main saved to palm.yaml; edit ref: to pin a tag
 + agent  agent-sdk-verifier-py   .claude/agents/agent-sdk-verifier-py.md, .codex/agents/agent-sdk-verifier-py.toml +4   6 files   from anthropics/claude-plugins-official main
     .codex/agents/agent-sdk-verifier-py.toml: dropped model (sonnet), tools, skills, mcpServers, color (not supported by Codex)
     .github/agents/agent-sdk-verifier-py.agent.md: dropped model (sonnet), tools: Bash(python -m pytest:*) restriction (all of execute), mcpServers, skills, color (not supported by GitHub Copilot)
-    .cursor/agents/agent-sdk-verifier-py.md: dropped model (sonnet), tools (mapped to readonly: true), skills, mcpServers, color (not supported by Cursor)
+    .cursor/agents/agent-sdk-verifier-py.md: dropped model (sonnet), tools, skills, mcpServers, color (not supported by Cursor)
     .gemini/agents/agent-sdk-verifier-py.md: dropped model (sonnet), tools: Bash(python -m pytest:*) restriction (all of run_shell_command), skills, color (not supported by Gemini CLI)
     .opencode/agents/agent-sdk-verifier-py.md: dropped model (sonnet), color (green), tools: Bash(python -m pytest:*) restriction (all of bash), skills (not supported by OpenCode)
-2 installed. Commit palm.yaml, palm.lock.yaml, .agents/, .claude/, .codex/, .cursor/, .gemini/, .github/ and .opencode/ together.
+2 installed. Commit palm.yaml, palm.lock.yaml, .claude/, .codex/, .cursor/, .gemini/, .github/, .opencode/ and .agents/ together.

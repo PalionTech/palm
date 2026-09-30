@@ -1,8 +1,9 @@
 $ palm init --target claude,codex
 + wrote palm.yaml: targets claude, codex
 + wrote .gitignore: .palm/local/, palm.local.yaml
-next: see what a source offers, for example palm install mattpocock/skills
+next: see what a source offers, for example: palm install mattpocock/skills
 $ palm install mattpocock/skills
+i 1 note from indexing mattpocock/skills (see: PALM_DEBUG=1 palm install mattpocock/skills)
 mattpocock/skills  v1.2.3 (2c0db90)   5 skills
   skill  tdd              Test-driven development with red-green-refactor.
   skill  grill-me         Interview the user relentlessly about a plan.
@@ -12,10 +13,7 @@ mattpocock/skills  v1.2.3 (2c0db90)   5 skills
 Nothing written. Install some:
     palm install mattpocock/skills tdd grill-me
     palm install mattpocock/skills --all
-
-Warnings
-  ! plugin "mattpocock-skills" at . does not declare 2 skills (old-thing, git-guardrails); indexed standalone
 $ palm install mattpocock/skills grill-me
 i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
-+ skill  grill-me   .agents/skills/grill-me/, .claude/skills/grill-me/   4 files   from mattpocock/skills v1.2.3   (claude gets its own copy in .claude/skills)
++ skill  grill-me   .agents/skills/grill-me/, .claude/skills/grill-me/   3 files   from mattpocock/skills v1.2.3   (claude gets its own copy in .claude/skills)
 1 installed. Commit palm.yaml, palm.lock.yaml, .agents/ and .claude/ together.

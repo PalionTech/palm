@@ -9,6 +9,18 @@ $ palm check --json
       "problems": []
     },
     {
+      "id": "render",
+      "label": "every entry is rendered",
+      "status": "ok",
+      "problems": []
+    },
+    {
+      "id": "partial",
+      "label": "every entry is on all its targets",
+      "status": "ok",
+      "problems": []
+    },
+    {
       "id": "lock-disk",
       "label": "1 generated file differs from the lock",
       "status": "fail",
@@ -26,14 +38,38 @@ $ palm check --json
       ]
     },
     {
+      "id": "orphans",
+      "label": "no stray file in a folder palm owns",
+      "status": "ok",
+      "problems": []
+    },
+    {
+      "id": "pending",
+      "label": "applied files outside the lock: skipped (global scope only)",
+      "status": "skipped",
+      "problems": []
+    },
+    {
       "id": "local-sources",
       "label": "in-repo sources match the lock",
       "status": "ok",
       "problems": []
     },
     {
+      "id": "source-paths",
+      "label": "no generated path lies inside a source",
+      "status": "ok",
+      "problems": []
+    },
+    {
       "id": "exec-trusted",
       "label": "every program palm installed is trusted",
+      "status": "ok",
+      "problems": []
+    },
+    {
+      "id": "foreign-hooks",
+      "label": "no foreign command in the hook files palm manages",
       "status": "ok",
       "problems": []
     },
@@ -45,7 +81,7 @@ $ palm check --json
     },
     {
       "id": "secrets",
-      "label": "1 secret problem",
+      "label": "no literal secret in generated files; 1 server needs variables that are not set",
       "status": "warn",
       "problems": [
         {
@@ -55,13 +91,13 @@ $ palm check --json
             "source": "manifest"
           },
           "message": "needs DOCS_TOKEN, which is not set",
-          "fix": "export DOCS_TOKEN"
+          "fix": "export DOCS_TOKEN=…"
         }
       ]
     },
     {
       "id": "git-ignored",
-      "label": "output directories are committed",
+      "label": "generated files are committed",
       "status": "ok",
       "problems": []
     },
@@ -86,6 +122,18 @@ $ palm check --json
     {
       "id": "double-load",
       "label": "no harness loads an entity twice",
+      "status": "ok",
+      "problems": []
+    },
+    {
+      "id": "agent-names",
+      "label": "no two agents share a name in a harness folder",
+      "status": "ok",
+      "problems": []
+    },
+    {
+      "id": "preloads",
+      "label": "every skill an agent preloads is installed",
       "status": "ok",
       "problems": []
     },

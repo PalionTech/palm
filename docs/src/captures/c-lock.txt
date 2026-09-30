@@ -20,10 +20,9 @@ entries:
     source: mattpocock/skills
     path: skills/engineering/tdd
     content: sha256:e751ad1a5bc7e0600cfc571ddb396bcec66547a02c03ce1d3b8b5bc6d5a2069e
-    render: {claude: sha256:f994697008c9de615b88e7bbc1fe68e796f8a5fb61d5ee62a50923044d47768a, cursor: sha256:f994697008c9de615b88e7bbc1fe68e796f8a5fb61d5ee62a50923044d47768a}
+    render: {claude: sha256:04476c5e20ef4f78bac75223193a01ac7248dfc993dce7d085160e577436dec8, cursor: sha256:04476c5e20ef4f78bac75223193a01ac7248dfc993dce7d085160e577436dec8}
     files:
       - .claude/skills/tdd/SKILL.md
-      - .claude/skills/tdd/agents/openai.yaml
       - .claude/skills/tdd/references/mocking.md
     notes:
       - cursor reads .claude/skills; no second copy
@@ -39,10 +38,10 @@ entries:
       - .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh
       - .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh
     merged:
-      - {file: .claude/settings.json, at: /hooks/PreToolUse, id: palm:hook:gh-cli:1, key: sha256:b290792c}
-      - {file: .claude/settings.json, at: /hooks/SessionStart, id: palm:hook:gh-cli:0, key: sha256:291c1125}
-      - {file: .cursor/hooks.json, at: /hooks/preToolUse, id: palm:hook:gh-cli:1, key: sha256:ec2c0c34}
-      - {file: .cursor/hooks.json, at: /hooks/sessionStart, id: palm:hook:gh-cli:0, key: sha256:0e246eba}
+      - {file: .claude/settings.json, at: /hooks/PreToolUse, id: palm:hook:gh-cli:1, key: sha256:b290792c, created: true}
+      - {file: .claude/settings.json, at: /hooks/SessionStart, id: palm:hook:gh-cli:0, key: sha256:291c1125, created: true}
+      - {file: .cursor/hooks.json, at: /hooks/preToolUse, id: palm:hook:gh-cli:1, key: sha256:ec2c0c34, created: true}
+      - {file: .cursor/hooks.json, at: /hooks/sessionStart, id: palm:hook:gh-cli:0, key: sha256:0e246eba, created: true}
     exec:
       commands:
         - {id: PreToolUse//Bash, command: CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh}

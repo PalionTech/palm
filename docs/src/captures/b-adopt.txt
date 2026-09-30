@@ -1,6 +1,6 @@
 $ palm install mattpocock/skills tdd
 i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
-+ skill  tdd   .claude/skills/tdd/   3 files   from mattpocock/skills v1.2.3   (cursor reads .claude/skills; no second copy)
++ skill  tdd   .claude/skills/tdd/   2 files   from mattpocock/skills v1.2.3   (cursor reads .claude/skills; no second copy)
 1 installed. Commit palm.yaml, palm.lock.yaml and .claude/ together.
 $ palm install cursor/plugins/pstack comment-sicko
 i ref main saved to palm.yaml; edit ref: to pin a tag

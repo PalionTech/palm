@@ -12,21 +12,25 @@ rules
 skills
 $ cd ~/teammate && palm check
 ✓ manifest and lock agree
+✓ every entry is rendered
+✓ every entry is on all its targets
 ✓ generated files match the lock
+✓ no stray file in a folder palm owns
+- applied files outside the lock: skipped (global scope only)
 ✓ in-repo sources match the lock
+✓ no generated path lies inside a source
 ✓ every program palm installed is trusted
+✓ no foreign command in the hook files palm manages
 ✓ every hook script exists
 ✓ no literal secret in generated files
-✓ output directories are committed
+✓ generated files are committed
 ✓ every source is declared
 ✓ no link leaves the scope
 ✓ no hidden Unicode in generated files
 ✓ no harness loads an entity twice
+✓ no two agents share a name in a harness folder
+✓ every skill an agent preloads is installed
 ✓ instruction files are within harness limits
 no problems
 $ cd ~/teammate && palm install
-= skill        ci-watch     .agents/skills/ci-watch/, .claude/skills/ci-watch/   2 files   (claude gets its own copy in .claude/skills)
-= agent        ci-watcher   .claude/agents/ci-watcher.md, .codex/agents/ci-watcher.toml   2 files
-    .codex/agents/ci-watcher.toml: dropped extra: readonly (not supported by Codex)
-= instruction  typescript   .claude/rules/typescript.md, AGENTS.md   1 file
 3 unchanged.

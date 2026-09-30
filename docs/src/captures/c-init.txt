@@ -1,7 +1,8 @@
 $ palm init
+i found claude (.claude/), cursor (.cursor/)
 + wrote palm.yaml: targets claude, cursor
 + wrote .gitignore: .palm/local/, palm.local.yaml
-next: see what a source offers, for example palm install mattpocock/skills
+next: see what a source offers, for example: palm install mattpocock/skills
 $ cat palm.yaml .gitignore
 targets: [claude, cursor]
 node_modules/

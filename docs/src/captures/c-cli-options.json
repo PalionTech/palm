@@ -222,22 +222,28 @@
               "description": "everything the source offers"
             },
             {
+              "flags": "--grep <text>",
+              "long": "--grep",
+              "argument": "<text>",
+              "description": "list only what matches the text (name or description)"
+            },
+            {
               "flags": "--as <name>",
               "long": "--as",
               "argument": "<name>",
               "description": "the name a URL source gets in palm.yaml"
             },
             {
+              "flags": "--layout <k=glob>",
+              "long": "--layout",
+              "argument": "<k=glob>",
+              "description": "a new source’s layout: skills=packages/* (repeatable)"
+            },
+            {
               "flags": "--targets <ids>",
               "long": "--targets",
               "argument": "<ids>",
               "description": "only these targets for these entries (recorded per entry)"
-            },
-            {
-              "flags": "--at <dir>",
-              "long": "--at",
-              "argument": "<dir>",
-              "description": "placement directory for these entries (recorded; honoured in 0.3)"
             },
             {
               "flags": "--review",
@@ -410,6 +416,11 @@
         {
           "title": "Options",
           "options": [
+            {
+              "flags": "--quiet",
+              "long": "--quiet",
+              "description": "print only the problems (nothing when there are none)"
+            },
             {
               "flags": "-h, --help",
               "short": "-h",
@@ -661,6 +672,11 @@
         {
           "title": "Options",
           "options": [
+            {
+              "flags": "--review",
+              "long": "--review",
+              "description": "print the scripts of every program first; with --dry-run, only print"
+            },
             {
               "flags": "-h, --help",
               "short": "-h",

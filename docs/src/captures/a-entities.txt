@@ -1,4 +1,5 @@
 $ palm install anthropics/claude-plugins-official
+i 5 notes from indexing anthropics/claude-plugins-official (see: PALM_DEBUG=1 palm install anthropics/claude-plugins-official)
 anthropics/claude-plugins-official  main (bc94689)   2 skills, 1 agent, 1 hook, 3 MCP servers
   skill  sdk-helper              Helps with Agent SDK questions.
   skill  new-sdk-app             Create and setup a new Claude Agent SDK application
@@ -10,10 +11,3 @@ anthropics/claude-plugins-official  main (bc94689)   2 skills, 1 agent, 1 hook, 
 Nothing written. Install some:
     palm install anthropics/claude-plugins-official sdk-helper new-sdk-app
     palm install anthropics/claude-plugins-official --all
-
-Warnings
-  ! plugin clangd-lsp: lspServers not supported by palm (ignored)
-  ! plugin "clangd-lsp" at plugins/clangd-lsp has no installable components; skipped
-  ! remote plugin "42crunch" (https://github.com/42Crunch-AI/claude-plugins.git (plugins/api-security-testing)@faf5305385de) not fetched: declare it: palm install 42Crunch-AI/claude-plugins/plugins/api-security-testing#faf5305385de8afed9468904e8639be737aff39e <names>
-  ! remote plugin "agentforce-adlc" (https://github.com/SalesforceAIResearch/agentforce-adlc.git@09bf1539d41f) not fetched: declare it: palm install SalesforceAIResearch/agentforce-adlc#09bf1539d41f9ff355ba3eb5d05d4a75813423bb <names>
-  ! plugin "npm-plugin": unsupported source npm:@acme/plugin; skipped

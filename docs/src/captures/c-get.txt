@@ -1,8 +1,8 @@
 $ palm get
-kind   name                   source                              ref            sha      targets       files  layer
-─────  ─────────────────────  ──────────────────────────────────  ─────────────  ───────  ────────────  ─────  ─────
-skill  tdd                    mattpocock/skills                   ^1.2 → v1.2.3  2c0db90  claude,codex  6      team
-agent  agent-sdk-verifier-py  anthropics/claude-plugins-official  main           bc94689  claude,codex  2      team
+kind   name                   source                              ref            sha      targets       files
+─────  ─────────────────────  ──────────────────────────────────  ─────────────  ───────  ────────────  ─────
+skill  tdd                    mattpocock/skills                   ^1.2 → v1.2.3  2c0db90  claude,codex  5
+agent  agent-sdk-verifier-py  anthropics/claude-plugins-official  main           bc94689  claude,codex  2
 $ palm get sources
 source                              alias  kind  ref            sha/tree  entries
 ──────────────────────────────────  ─────  ────  ─────────────  ────────  ───────
@@ -13,5 +13,4 @@ $ palm get skills --files
 .agents/skills/tdd/agents/openai.yaml     skill tdd  mattpocock/skills
 .agents/skills/tdd/references/mocking.md  skill tdd  mattpocock/skills
 .claude/skills/tdd/SKILL.md               skill tdd  mattpocock/skills
-.claude/skills/tdd/agents/openai.yaml     skill tdd  mattpocock/skills
 .claude/skills/tdd/references/mocking.md  skill tdd  mattpocock/skills

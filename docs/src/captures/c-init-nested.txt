@@ -1,6 +1,6 @@
 $ cd packages/jobs && palm init
-x packages/jobs is inside project ~/project (palm.yaml). Add entries with --at packages/jobs, or start a separate project here: palm init --here
+x packages/jobs is inside project ~/project (palm.yaml). Add entries with --at packages/jobs (placed at the root until 0.3), or start a separate project here: palm init --here
 $ cd packages/jobs && palm init --here --target claude
 + wrote packages/jobs/palm.yaml: targets claude
 + wrote packages/jobs/.gitignore: .palm/local/, palm.local.yaml
-next: see what a source offers, for example palm install mattpocock/skills
+next: see what a source offers, for example: palm install mattpocock/skills

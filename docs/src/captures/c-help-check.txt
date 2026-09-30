@@ -4,6 +4,7 @@ Usage: palm check [options]
 Verify palm.yaml, the lock and the files (CI gate).
 
 Options:
+  --quiet              print only the problems (nothing when there are none)
   -h, --help           display help for command
 
 Global Options:
@@ -22,5 +23,6 @@ Exit 1 when a check fails; warnings alone exit 0.
 
 Examples:
   palm check
+  palm check --quiet                          only the problems (for CI logs)
   palm check --json
   palm check -g

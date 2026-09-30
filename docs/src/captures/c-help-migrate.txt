@@ -4,6 +4,8 @@ Usage: palm migrate [options]
 Convert palm 0.1 files (palm.yaml, palm.lock.yaml, ~/.palm/config.yaml).
 
 Options:
+  --review             print the scripts of every program first; with --dry-run,
+                       only print
   -h, --help           display help for command
 
 Global Options:

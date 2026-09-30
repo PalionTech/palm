@@ -16,7 +16,7 @@ palm check --json || echo "palm failed with $?"
 | `0` | Success, including `--help`, `--version` and a bare `palm`. Warnings never change it. |
 | `1` | Failure: any error except a usage error or a cancel; an install with a failed, partial or modified outcome; a failed check; an internal error. |
 | `2` | Usage error: an unknown command or option, a missing argument, a removed 0.1 command, a first word that is not a source, or a 0.1 `palm.yaml`. |
-| `130` | Cancelled: Ctrl-C, Esc at a prompt, a declined source ref change, or a declined program you named. |
+| `130` | Cancelled: Ctrl-C, Esc at a prompt, a declined source ref change, a declined program you named, or a declined new version of a trusted program. |
 
 <Capture name="c-errors" title="~/project" />
 
@@ -27,7 +27,8 @@ Every error prints `x` and the message, then a hint that is a command you can pa
 | What happened | Exit | What palm wrote |
 | --- | --- | --- |
 | You declined a program you named, such as `palm install <source> hook:<name>` | `130` | nothing |
-| You declined a hook that came with a plugin | `0` | the rest of the plugin, and `exclude: [hook:<name>]` in `palm.yaml`; the report shows `⊘ skipped` |
+| You declined a hook that came with a plugin | `0` | the rest of the plugin, and `exclude: [hook:<name>]` in `palm.yaml`; the report shows `! hook <name>  runs a program on your machine; not installed` |
+| You declined the new version of a program the lock trusts, during `palm update` or after a `ref:` edit | `130` | nothing; the trusted version stays active, and palm prints its hash and the `palm remove` command |
 | `--all` left a program out | `0` | everything else; the report prints the command that installs the program |
 | You declined the update plan | `0` | nothing; palm prints `Nothing changed.` |
 | You declined a source ref change | `130` | nothing |

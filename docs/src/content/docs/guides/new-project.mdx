@@ -58,13 +58,15 @@ When you finish, these files exist and all of them are committed:
 
    <Capture name="b-new-project" title="~/project" />
 
-5. Check and commit.
+5. Commit and check.
 
    ```sh
-   palm check
    git add -A
    git commit -m "Add the agent setup"
+   palm check
    ```
+
+   Commit first: `palm check` warns about generated files git does not track yet.
 
 </Steps>
 
@@ -73,8 +75,9 @@ When you finish, these files exist and all of them are committed:
 <Capture name="b-new-project-result" title="~/project" />
 
 `palm.yaml` reads like a dependency list: two sources with their ranges, what you took from each, and one hand-declared server.
-`palm check` passes with one warning, because `DOCS_TOKEN` is not set in this shell.
-Export it before you start Claude Code or Codex, and the warning goes away.
+`palm check` passes with two warnings.
+`DOCS_TOKEN` is not set in this shell: export it before you start Claude Code or Codex.
+The agent preloads a skill and a server the project does not install: the warning prints the `palm install` line for them, if you want them.
 
 ## Next steps
 

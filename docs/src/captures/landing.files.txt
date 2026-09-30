@@ -3,7 +3,6 @@
 .agents/skills/tdd/references/mocking.md
 .claude/agents/agent-sdk-verifier-py.md
 .claude/skills/tdd/SKILL.md
-.claude/skills/tdd/agents/openai.yaml
 .claude/skills/tdd/references/mocking.md
 .codex/agents/agent-sdk-verifier-py.toml
 .cursor/agents/agent-sdk-verifier-py.md

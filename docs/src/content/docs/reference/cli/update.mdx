@@ -89,7 +89,8 @@ palm fetches the trusted commit for the diff when the cache no longer holds it.
 `--review` prints those diffs before the question, paged on a terminal.
 Without a terminal, a changed program stops with `E_UNTRUSTED_EXEC` and the `--allow-exec` line to consent to its new hash.
 
-A refused or declined program leaves the lock as it was, source commit included.
+A refused program leaves its source at the locked commit.
+Declining the new version of a program ends the update with exit 130 and writes nothing.
 The previous version stays active, and palm prints its trusted hash and the `palm remove` command that takes it out.
 
 ## Applying
@@ -119,7 +120,7 @@ When git is present, palm prints `git diff --stat` of the scope, so you see what
 | `0` | The plan was applied, declined, or printed with `--dry-run`. |
 | `1` | A source failed, an entry failed or is partial, a source argument is not in `palm.yaml`, a program needs consent without a terminal, the plan needs `--yes` without a terminal, or `--dry-run --strict` found a source behind its ref. |
 | `2` | An unknown option. |
-| `130` | You pressed Esc or Ctrl-C at a prompt. |
+| `130` | You declined the new version of a program, or pressed Esc or Ctrl-C at a prompt. palm wrote nothing. |
 
 ## Related
 

@@ -1,7 +1,6 @@
 .agents/skills/grill-me/SKILL.md
 .agents/skills/grill-me/agents/openai.yaml
 .claude/skills/grill-me/SKILL.md
-.claude/skills/grill-me/agents/openai.yaml
 .gitignore
 palm.lock.yaml
 palm.yaml

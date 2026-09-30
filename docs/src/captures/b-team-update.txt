@@ -2,19 +2,16 @@ $ palm update --dry-run
 Update plan (project scope)
 acme/agent-kit   ^1.0   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
 ~ updated     skill         ci-watch     acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
-= unchanged   agent         ci-watcher   acme/agent-kit
-= unchanged   instruction   typescript   acme/agent-kit
+= unchanged   agent         ci-watcher   acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)  same content
+= unchanged   instruction   typescript   acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)  same content
 dry run: nothing written.
 $ palm update --yes
 Update plan (project scope)
 acme/agent-kit   ^1.0   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
 ~ updated     skill         ci-watch     acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
-= unchanged   agent         ci-watcher   acme/agent-kit
-= unchanged   instruction   typescript   acme/agent-kit
-~ updated    skill        ci-watch     .agents/skills/ci-watch/, .claude/skills/ci-watch/   2 files   (claude gets its own copy in .claude/skills)
-= unchanged  agent        ci-watcher   .claude/agents/ci-watcher.md, .codex/agents/ci-watcher.toml   2 files
-    .codex/agents/ci-watcher.toml: dropped extra: readonly (not supported by Codex)
-= unchanged  instruction  typescript   .claude/rules/typescript.md, AGENTS.md   1 file
+= unchanged   agent         ci-watcher   acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)  same content
+= unchanged   instruction   typescript   acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)  same content
+~ skill  ci-watch   .agents/skills/ci-watch/, .claude/skills/ci-watch/   2 files   (claude gets its own copy in .claude/skills)
 1 updated, 2 unchanged.
  .agents/skills/ci-watch/SKILL.md | 2 ++
  .claude/skills/ci-watch/SKILL.md | 2 ++

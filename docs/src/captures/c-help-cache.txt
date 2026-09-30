@@ -19,4 +19,3 @@ Global Options:
 
 Commands:
   clean                Delete every checkout and index (sources stay declared).
-  help [command]       display help for command

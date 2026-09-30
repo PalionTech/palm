@@ -82,7 +82,8 @@ When you finish, the project runs on 0.2, `palm check` passes, and palm has list
 | lock version 1 or 2 | lock version 3 |
 
 After the conversion palm runs a bare install, which adopts every file that already matches and restores any that are missing.
-It never deletes or unlinks a harness file.
+A file palm 0.1 copied into a skill folder that 0.2 no longer writes there, such as `agents/openai.yaml` in `.claude/skills/<name>/` (0.2 writes it only into `.agents/skills`), is removed while it still matches the source, and palm says so.
+It never deletes or unlinks a harness file such as `.mcp.json` or `.claude/settings.json`.
 An MCP server or hook palm 0.1 merged into `.mcp.json` or `.cursor/mcp.json` is adopted by its key, your own entries stay, and a symlinked file stays a link.
 The report ends with the check result and the files to commit.
 
@@ -95,9 +96,8 @@ palm migrate -g
 Under `-g`, palm rewrites absolute paths in `~/.palm/palm.lock.yaml` as tokens, such as `<claude>/skills/tdd`, so the lock can live in a dotfiles repository.
 A path written under another machine's home also becomes a token when it matches a harness home layout.
 palm writes through a symlinked `~/.palm/palm.yaml` or harness config and keeps the link.
-It lists every literal secret it finds in the harness files, with the advice to rotate it.
 It leaves `~/.palm/config.yaml` in place and says you can delete it once every project is migrated.
-In project scope it says nothing about that file, because other projects may still need it.
+In project scope it says to keep that file until every project is migrated, because `palm migrate` reads it.
 
 ## Old commands and flags
 

@@ -263,7 +263,7 @@ export async function fileAtSha(checkoutDir: string, sha: string, rel: string): 
 // git-exec.ts: unchanged (runGit, GitCall, cleanGitEnv, gitArgs, NETWORK_TIMEOUT_MS, LOCAL_TIMEOUT_MS, GitFailure, isGitTimeout, withBatchMode, isSshUrl)
 
 // cache.ts: the scanner is always injected
-export const INDEX_FORMAT = 3;
+export const INDEX_FORMAT = 4;
 export async function getIndex(ctx: PalmContext, checkout: SourceCheckout, opts: { scan: EngineDeps['scan']; refresh?: boolean }): Promise<SourceIndex>; // keyed by sha or tree + layout
 export async function readCachedIndex(ctx: PalmContext, source: SourceRef, version: string): Promise<SourceIndex | undefined>;
 export function cacheDir(paths: PalmPaths): string;                                          // `$PALM_HOME/cache` (lives here, in core/cache.ts)
@@ -389,9 +389,8 @@ export function checkoutReader(locate: (unit: ExecUnit) => { checkoutDir: string
 export async function execDiff(units: readonly ExecUnit[], previous: Record<string, ExecUnit> | undefined, read: ScriptReader): Promise<string>; // review.ts, re-exported: commands, env keys, cwd and every changed script against the trusted unit (`d`, `update --review`)
 export function unifiedDiff(a: string, b: string, name: string): string;                       // diff.ts, re-exported
 // trust.ts
-export function needsConsent(entry: LockEntry | undefined, unit: ExecUnit, opts?: { explicit?: boolean }): boolean; // no entry, no trust, or unit.hash ∉ trust; a declined entry only when asked by name (`explicit`)
-export function withTrust(entry: LockEntry, unit: ExecUnit): LockEntry;                       // exec (commands as the first target renders them, closure, hash) + trust recorded; a previous decline is lifted
-export function withDeclined(entry: LockEntry): LockEntry;
+export function needsConsent(entry: LockEntry | undefined, unit: ExecUnit): boolean; // no entry, no trust, or unit.hash ∉ trust
+export function withTrust(entry: LockEntry, unit: ExecUnit): LockEntry;                       // exec (commands as the first target renders them, closure, hash) + trust recorded
 export function previousStaysActive(entry: LockEntry | undefined, scope: Scope): string | undefined; // V5: `hook fmt: previous version stays active (trusted sha256:…); palm remove <source> hook:fmt removes it`
 // closure.ts (fix wave E2, reverses ruling 24): in-repo closures are hashed as the working tree holds them
 export async function inPlaceClosure(sourceRoot: string, closure: Closure): Promise<ClosureFile[]>; // source-relative files; CLOSURE_NEVER inside directories, `Closure.reads` files kept
@@ -472,7 +471,7 @@ export function jsonRecordState(text: string | undefined, rec: MergedRecord): Re
 export async function resolveEngineDeps(partial?: Partial<EngineDeps>): Promise<EngineDeps>; // lazily imported defaults (scanSource, getTarget, execUnitOf, askConsent, scanSecrets, decideSecret, resolveSecrets)
 // scope.ts
 export interface ScopeState { paths: ScopePaths; manifest: Manifest; lock: Lock; sources: SourceSet; targets: TargetId[]; applied?: Applied }
-export async function openScope(ctx: PalmContext, scope: Scope, opts?: { readOnly?: boolean; deps?: EngineDeps }): Promise<ScopeState>;
+export async function openScope(ctx: PalmContext, scope: Scope, opts?: { readOnly?: boolean; deps?: EngineDeps; preload?: { manifest: Manifest; lock: Lock } }): Promise<ScopeState>; // preload: palm migrate's converted files instead of the disk
 //   guards (DESIGN §2), lock + manifest load (E_USAGE migrate), targets (manifest, else detection when `deps` is given; not saved here),
 //   a declared local source outside the project → E_SOURCE, and unless `readOnly` the overlap check of every local source against the
 //   outputDirs of active targets (E_SOURCE). `readOnly` has no side effects
@@ -498,7 +497,7 @@ export async function renderEntity(ctx: PalmContext, deps: EngineDeps, state: Sc
 export type FileState = 'same' | 'missing' | 'modified' | 'foreign' | 'stale'; // stale: differs, but is exactly what palm last wrote here (global scope, applied.yaml)
 export async function fileStates(paths: ScopePaths, rendered: Rendered, opts?: { applied?: Applied }): Promise<Map<string /* lock path */, FileState>>; // disk vs render; global: applied hashes decide `modified`, `foreign` or `stale`
 export function fragmentKey(f: { file: string; at: string; key: string }): string;           // `file#at#key`
-export async function fragmentStates(paths: ScopePaths, rendered: Rendered, deps?: EngineDeps): Promise<Map<string /* file#at#key */, RecordState>>;
+export async function fragmentStates(paths: ScopePaths, rendered: Rendered, owned?: ReadonlySet<string>): Promise<Map<string /* file#at#key */, RecordState>>; // owned: the entry's lock keys; such a hook item changed on disk is found by its matcher (D3)
 export function outcomeStatus(input: OutcomeInput): { status: OutcomeStatus; toWrite: TargetId[]; kept: string[] }; // pure
 //   OutcomeInput { previous?: LockEntry; renders; files: Map<string, FileState>; fragments: Map<string, RecordState>; force: boolean;
 //   content?: string /* now: another is `updated`, the same `re-rendered` */; edited?: Set<string> /* paths and fragment keys found edited against the lock's render hash (DESIGN §6 step 8): kept; an edited file the render no longer writes is kept too */ }
@@ -511,14 +510,14 @@ export async function knownEdits(run: Run, input: EditInput): Promise<EditCheck 
 export function uncheckedNote(u: Unchecked): string; // `locked commit <sha7> unavailable; palm install <source> <kind:name> --force overwrites`
 // install.ts
 export async function installFromSource(ctx: PalmContext, req: InstallRequest, opts: InstallOptions, deps?: Partial<EngineDeps>): Promise<InstallResult>; // DESIGN §6 "Install with names" (InstallRequest.as: `--as`); the CLI calls listSource instead when the request has no names and no `all`
-//   programs left out by `all` or declined come back as outcomes whose entry has `declined: true`; the engine prints nothing itself (the CLI prints)
+//   programs left out by `all` or declined come back as outcomes with `declined: true` (a plugin member lands in the plugin's `exclude:`, D28); the engine prints nothing itself (the CLI prints)
 export async function listSource(ctx: PalmContext, input: string, opts: { scope: Scope }, deps?: Partial<EngineDeps>): Promise<{ source: SourceRef; checkout: SourceCheckout; index: SourceIndex; declared: boolean }>; // fetch + index, save nothing; checkout.ref is the resolved tag
 export async function installMcp(ctx: PalmContext, reqs: McpRequest[], opts: InstallOptions & { force?: boolean }, deps?: Partial<EngineDeps>): Promise<InstallResult>; // `mcp:` entries: secrets typed by the user (decideSecret with fromSource false), consent for stdio, E_CONFLICT on an existing name unless force
 export function requestInstallStop(): void;                                                   // SIGINT: stop after the current entity
 // sync.ts
 export async function syncScope(ctx: PalmContext, opts: InstallOptions, deps?: Partial<EngineDeps>): Promise<InstallResult>; // DESIGN §6 "Bare install"
 // remove.ts
-export async function removeEntities(ctx: PalmContext, refs: Array<EntityRefSpec & { source?: string }>, opts: InstallOptions & { exclude?: boolean }, deps?: Partial<EngineDeps>): Promise<RemoveResult>; // DESIGN §6 "Remove"; RemoveResult.kept?: KeptFiles[] names the files it left (owned by another entry, or inside a declared source)
+export async function removeEntities(ctx: PalmContext, refs: Array<EntityRefSpec & { source?: string }>, opts: InstallOptions & { exclude?: boolean }, deps?: Partial<EngineDeps>): Promise<RemoveResult>; // DESIGN §6 "Remove"; RemoveResult.kept?: KeptFile[] names each file it left (owned by another entry, or inside a declared source)
 export async function undeploy(ctx: PalmContext, deps: EngineDeps, job: UndeployJob): Promise<{ failures: InstallFailure[]; warnings: string[] }>;
 //   UndeployJob { paths: ScopePaths; entries: LockEntry[]; protect: Set<string> /* lock form + file#at#key */; dryRun: boolean; sources?: string[] /* real paths of local sources: never deleted inside */ }
 // update.ts
@@ -538,10 +537,10 @@ export async function renderLockedOrThrow(run: Run, entry: LockEntry, targets?: 
 // migrate.ts
 export async function migrateScope(ctx: PalmContext, opts: { scope: Scope; dryRun: boolean }, deps?: Partial<EngineDeps>): Promise<MigrateReport>; // DESIGN §6 "Migrate"; reads LegacyManifest/LegacyLockfile/LegacyConfig;
 //   MigrateReport.manifest is the new palm.yaml text; MigrateReport.failures: what could not be migrated (the CLI exits 1 on any); the only user of copyClosure
-//   nothing is written before the consent (migrate-plan.ts `planMigration`); MigrateReport.check: `palm check` after the install (failed problems also as
-//   `E_CHECK` failures); MigrateReport.commit: the files to commit (git status, project; changed files in a repository under -g); ctx.flags.review pages scripts
+//   nothing is written before the consent (migrate-plan.ts `planMigration`); the CLI runs checkScope after it (a failing check exits 1);
+//   MigrateReport.commit: the files to commit (git status, project; changed files in a repository under -g); ctx.flags.review pages scripts
 // migrate-legacy.ts, migrate-lock.ts, migrate-text.ts, migrate-plan.ts, migrate-report.ts: the conversion (pure), the provisional lock, palm.yaml with the 0.1
-//   comments, the plan up to the consent, the report helpers (paths for people, E_CHECK failures, files to commit)
+//   comments, the plan up to the consent, the report helpers (paths for people, files to commit)
 // query.ts
 export interface InstalledRow { entry: LockEntry; source: LockSource; layer: 'team' | 'local' }
 export interface EntityInfo { entry: LockEntry; entity?: Entity; source: LockSource; files: Partial<Record<TargetId, string[]>>; notes: string[]; exec?: { commands: LockExec['commands']; hash: string; trusted: boolean }; secrets?: Array<{ name: string; set: boolean }>; selectedBy: string /* manifest | plugin:<n> */; blocks?: Partial<Record<TargetId, Array<{ file: string; at: string; value: unknown }>>> /* an MCP server's block per harness */ }
@@ -614,7 +613,7 @@ export function parseArgv(argv: string[]): { invocation: Invocation; passthrough
 //     (`--json` stays the global flag); secret-shaped literals through detectSecrets; then installMcp
 //   check.ts: prints one line per CheckRun (status `skip` prints `-`) then problems grouped per entity and fix; `--quiet`; ExitSignal(1) when !ok; printCheck is reused by migrate.ts
 //   describe.ts (+ describe-entity.ts, describe-scope.ts): `<source> <name>` reads the index for an entity not installed; a bare file name resolves to the installed path
-//   migrate.ts (ExitSignal(1) on any MigrateReport.failures; then checkScope, printed, ExitSignal(1) when it fails), create.ts, get.ts, update.ts, remove.ts, init.ts (`-g`), cache.ts, completion.ts
+//   migrate.ts (checkScope after every real migration, printed; ExitSignal(1) on any MigrateReport.failures or a failing check), create.ts, get.ts, update.ts, remove.ts, init.ts (`-g`), cache.ts, completion.ts
 //   The commands import core/kinds, core/source-input, domain/entity-ref and domain/ignore directly (there is no ports module) and reach the
 //   engine through create/engine.ts (lazy imports). shared.ts `makeContext(app, flags)` builds the PalmContext and sets `ctx.argv` (the consent hints repeat it).
 // commands/app.ts

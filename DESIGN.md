@@ -421,8 +421,9 @@ Rules:
   palm's identity, `key` finds the fragment on disk (section 2 "merged" and `LockMerged`).
   "Changed" (found by key, value differs) and "missing" (not found) are distinct states, so one
   plugin's removal cannot take another plugin's hook.
-- `exec` and `trust` are section 7. `declined: true` marks a program the user said no to, or
-  one that `install <source> --all` left out (section 6).
+- `exec` and `trust` are section 7. A program the user said no to, or one that
+  `install <source> --all` left out, has no lock entry: a plugin's member is recorded as
+  `exclude: [kind:name]` on the plugin entry in palm.yaml (D28), where review sees it.
 - `notes` persist what install printed once (dropped fields, skipped targets, "from command",
   "cursor reads .claude/skills"), and `describe` shows them.
 - `targets` appears only when the entry is narrowed below the scope's set; the scope's set
@@ -559,7 +560,7 @@ sha the lock names is the only network access a bare install needs. `palm cache 
 ### Index
 
 The index for a source is the `ScanResult` of `scanSource()`, cached with the sha (or tree)
-and the layout hash. The cache file records `format` (`INDEX_FORMAT`, now 3) and a `cacheKey`
+and the layout hash. The cache file records `format` (`INDEX_FORMAT`, now 4) and a `cacheKey`
 (format, sha or tree, root, layout); a file is used only when its shape checks out (`format`
 matches, `cacheKey` a string, `entities` and `warnings` arrays, every entity with string
 `kind`/`name`/`path` and an object `def`); anything else is a cache miss and the source is
@@ -689,7 +690,10 @@ palm install <source> [[kind:]name…] [--all] [-g] [--dry-run] [--review] [--fo
 6. Exec units (section 7): build one per hook entry and stdio server from the renders and the
    closure; units whose hash the lock already trusts pass; the rest go through `askConsent`
    (prompt, `--allow-exec`, or `E_UNTRUSTED_EXEC` without a terminal). A declined unit installs
-   nothing for that entry (`declined: true`), the run goes on. `install <source> --all` leaves
+   nothing for that entry (`InstallOutcome.declined`), the run goes on; a program the person named
+   and declined ends the run (exit 130, nothing written), and so does the declined new version
+   of a program the lock trusts (ruling 30: the trusted version stays active and the line says
+   so). `install <source> --all` leaves
    executables out without a prompt and prints, per skipped program:
 
    ```
@@ -698,7 +702,8 @@ palm install <source> [[kind:]name…] [--all] [-g] [--dry-run] [--review] [--fo
        install it:  palm install <source> <name>
    ```
 
-   They are recorded as declined, so bare installs stay quiet. A program named explicitly
+   A plugin's member left out or declined is recorded as `exclude: [kind:name]` on the plugin
+   entry in palm.yaml (D28), so bare installs stay quiet. A program named explicitly
    (`palm install <source> <name>`) goes through consent, and `--allow-exec` entries on the
    command line still allow a program under `--all`. `--review` (install and update) pages every
    script body through `Output.page` before the prompt, and with `--dry-run` instead of it.
@@ -952,8 +957,9 @@ runs the same command again; a declined program is `E_CANCELLED` (exit 130).
   warning names it; a hook that did not migrate keeps its copy. `.gitignore`'s `.palm/` line
   becomes `.palm/local/`; the executables re-vendored are printed once for the one consent (the
   trust goes into the new lock).
-- Then a bare install adopts identical files, `palm check` runs (`MigrateReport.check`; a failed
-  check adds one `E_CHECK` failure per problem, exit 1), and the report lists the files to
+- Then a bare install adopts identical files, a file 0.1 copied into a folder palm now owns that
+  0.2 does not write there goes while it still matches the source, the CLI runs `palm check` on
+  the result (a failing check exits 1), and the report lists the files to
   commit (`MigrateReport.commit`: every changed path `git status` lists, untracked output
   folders by their top folder).
 - `~/.palm/config.yaml` stays: in a project palm says to keep it until every project is
@@ -1034,8 +1040,13 @@ Consent semantics:
     then:    palm install --allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911f2bd0a61d9686cbc62fcfb17c8e8276fa2ea5aa0c69e646a0b23ad60,mcp:team-helper@acme-kit=sha256:75aafd9baefdaaee905cd992fe17dbe17b4fa390f7f487399d6a57f282682c79
   ```
 
-- Declining a plugin's hook installs the rest (`declined: true`), so bare installs do not ask
-  again; `palm install <source> hook:<name>` asks again.
+- Declining a plugin's hook installs the rest and records `exclude: [hook:<name>]` on the
+  plugin entry in palm.yaml (D28), so bare installs do not ask again; `palm install <source>
+  hook:<name>` asks again. Declining the new version of a program the lock trusts ends the run
+  (exit 130, nothing written); the trusted version stays active.
+- A literal secret in a hook script refuses the hook unless `--force`, and then the consent review
+  lists it (ruling 28). A file a hook script reads travels in its closure, even a `SKILL.md`,
+  and only that file (rulings E1 and 27).
 - `check` fails on an untrusted unit and on a merged command that differs from `exec.commands`.
 - palm never runs what it installs; it runs only git (the script viewer pages through
   `$PAGER`).

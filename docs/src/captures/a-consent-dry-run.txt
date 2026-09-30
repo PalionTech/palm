@@ -15,5 +15,5 @@ This install adds 1 program that will run on your machine.
 palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
 so teammates and CI install it without being asked; any change asks again.
 i ref ^2.1 would be saved to palm.yaml (latest tag v2.1.0); edit ref: to track main
-+ would install  hook  gh-cli   .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/, .claude/settings.json +1   3 files
++ would install  hook  gh-cli   .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/, .claude/settings.json +1   3 files +4 merged
 dry run: 1 would install; nothing written.

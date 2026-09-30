@@ -1,7 +1,7 @@
 $ palm install anthropics/claude-plugins-official new-sdk-app
 i ref main saved to palm.yaml; edit ref: to pin a tag
 + skill  new-sdk-app   .agents/skills/new-sdk-app/, .claude/skills/new-sdk-app/   2 files   from anthropics/claude-plugins-official main
-    from command new-sdk-app.md
+    from command new-sdk-app.md: installed as a skill, which a harness may also load on its own when it looks relevant
     claude gets its own copy in .claude/skills
     cursor reads .claude/skills; no second copy
 1 installed. Commit palm.yaml, palm.lock.yaml, .agents/ and .claude/ together.
@@ -18,7 +18,7 @@ This install adds 1 program that will run on your machine.
 
 palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
 so teammates and CI install it without being asked; any change asks again.
-+ would install  hook  agent-sdk-dev   .github/hooks/agent-sdk-dev.json, .palm/assets/anthropics__claude-plugins-official/agent-sdk-dev/plugins/agent-sdk-dev/ +4   3 files   from anthropics/claude-plugins-official main
++ would install  hook  agent-sdk-dev   .github/hooks/agent-sdk-dev.json, .palm/assets/anthropics__claude-plugins-official/agent-sdk-dev/plugins/agent-sdk-dev/ +4   3 files +4 merged   from anthropics/claude-plugins-official main
     OpenCode hooks are JS plugins; hook agent-sdk-dev not installed
     opencode: skipped
 dry run: 1 would install; nothing written.

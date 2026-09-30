@@ -13,15 +13,41 @@ Warnings
   ! grill-me was pinned to v1.2.0; mattpocock/skills now tracks v1.2.3; pin the source or split it
 $ palm migrate
 i palm.yaml: source mattpocock/skills added from ~/.palm/config.yaml, needed by 3 entries; commit it
-i ~/.palm/config.yaml is no longer read; delete it
+i removed 3 files palm 0.1 copied that palm 0.2 does not write there: .claude/skills/tdd/agents/openai.yaml, …
+i keep ~/.palm/config.yaml until every project is migrated; palm migrate reads it
 ~ palm.yaml and palm.lock.yaml now use the palm 0.2 format
-+ source mattpocock/skills → palm.yaml
 ~ .gitignore: .palm/ is now .palm/local/, so .palm/assets/ is committed
-Commit palm.yaml, palm.lock.yaml and .gitignore together.
+Commit palm.yaml, palm.lock.yaml, .claude/ and .gitignore together.
+
+palm check:
+✓ manifest and lock agree
+✓ every entry is rendered
+✓ every entry is on all its targets
+✓ generated files match the lock
+✓ no stray file in a folder palm owns
+- applied files outside the lock: skipped (global scope only)
+✓ in-repo sources match the lock
+✓ no generated path lies inside a source
+✓ every program palm installed is trusted
+✓ no foreign command in the hook files palm manages
+✓ every hook script exists
+✓ no literal secret in generated files
+✓ generated files are committed
+✓ every source is declared
+✓ no link leaves the scope
+✓ no hidden Unicode in generated files
+✓ no harness loads an entity twice
+✓ no two agents share a name in a harness folder
+✓ every skill an agent preloads is installed
+✓ instruction files are within harness limits
+no problems
 
 Warnings
   ! grill-me was pinned to v1.2.0; mattpocock/skills now tracks v1.2.3; pin the source or split it
 $ git status --short
+ D .claude/skills/grill-me/agents/openai.yaml
+ D .claude/skills/handoff/agents/openai.yaml
+ D .claude/skills/tdd/agents/openai.yaml
  M .gitignore
  M palm.lock.yaml
  M palm.yaml

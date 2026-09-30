@@ -13,7 +13,6 @@ $ palm get skills --json
       ],
       "files": [
         ".claude/skills/tdd/SKILL.md",
-        ".claude/skills/tdd/agents/openai.yaml",
         ".claude/skills/tdd/references/mocking.md"
       ],
       "merged": [],

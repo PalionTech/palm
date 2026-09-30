@@ -1,14 +1,14 @@
 $ palm init --target claude,codex
 + wrote palm.yaml: targets claude, codex
 + wrote .gitignore: .palm/local/, palm.local.yaml
-next: see what a source offers, for example palm install mattpocock/skills
+next: see what a source offers, for example: palm install mattpocock/skills
 $ palm install mattpocock/skills tdd grill-me
 i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
-+ skill  tdd        .agents/skills/tdd/, .claude/skills/tdd/   6 files   from mattpocock/skills v1.2.3   (claude gets its own copy in .claude/skills)
-+ skill  grill-me   .agents/skills/grill-me/, .claude/skills/grill-me/   4 files   from mattpocock/skills v1.2.3   (claude gets its own copy in .claude/skills)
++ skill  tdd        .agents/skills/tdd/, .claude/skills/tdd/   5 files   from mattpocock/skills v1.2.3   (claude gets its own copy in .claude/skills)
++ skill  grill-me   .agents/skills/grill-me/, .claude/skills/grill-me/   3 files   from mattpocock/skills v1.2.3
 2 installed. Commit palm.yaml, palm.lock.yaml, .agents/ and .claude/ together.
 $ palm install anthropics/claude-plugins-official agent-sdk-verifier-py
-i agent agent-sdk-verifier-py mentions sdk-helper, mcp:context7; palm installs only what you name: palm install anthropics/claude-plugins-official sdk-helper mcp:context7
+i agent agent-sdk-verifier-py preloads skill sdk-helper, mcp context7, not installed: palm install anthropics/claude-plugins-official sdk-helper mcp:context7
 i ref main saved to palm.yaml; edit ref: to pin a tag
 + agent  agent-sdk-verifier-py   .claude/agents/agent-sdk-verifier-py.md, .codex/agents/agent-sdk-verifier-py.toml   2 files   from anthropics/claude-plugins-official main
     .codex/agents/agent-sdk-verifier-py.toml: dropped model (sonnet), tools, skills, mcpServers, color (not supported by Codex)

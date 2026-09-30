@@ -1,7 +1,7 @@
 $ palm install mattpocock/skills tdd handoff
 i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
-+ skill  tdd       .agents/skills/tdd/, .claude/skills/tdd/   6 files   from mattpocock/skills v1.2.3   (claude gets its own copy in .claude/skills)
-+ skill  handoff   .agents/skills/handoff/, .claude/skills/handoff/   4 files   from mattpocock/skills v1.2.3   (claude gets its own copy in .claude/skills)
++ skill  tdd       .agents/skills/tdd/, .claude/skills/tdd/   5 files   from mattpocock/skills v1.2.3   (claude gets its own copy in .claude/skills)
++ skill  handoff   .agents/skills/handoff/, .claude/skills/handoff/   3 files   from mattpocock/skills v1.2.3
 2 installed. Commit palm.yaml, palm.lock.yaml, .agents/ and .claude/ together.
 $ palm install obra/superpowers plugin:superpowers --dry-run
 This install adds 1 program that will run on your machine.
@@ -17,13 +17,12 @@ palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
 so teammates and CI install it without being asked; any change asks again.
 i ref ^4.0 would be saved to palm.yaml (latest tag v4.0.3); edit ref: to track main
 + would install  skill  brainstorming             .agents/skills/brainstorming/, .claude/skills/brainstorming/   2 files   (claude gets its own copy in .claude/skills)
-+ would install  skill  test-driven-development   .agents/skills/test-driven-development/, .claude/skills/test-driven-development/   6 files   (claude gets its own copy in .claude/skills)
-+ would install  skill  writing-skills            .agents/skills/writing-skills/, .claude/skills/writing-skills/   4 files   (claude gets its own copy in .claude/skills)
-+ would install  hook   superpowers               .palm/assets/obra__superpowers/superpowers/, .claude/settings.json +1   3 files
++ would install  skill  test-driven-development   .agents/skills/test-driven-development/, .claude/skills/test-driven-development/   6 files
++ would install  skill  writing-skills            .agents/skills/writing-skills/, .claude/skills/writing-skills/   4 files
++ would install  hook   superpowers               .palm/assets/obra__superpowers/superpowers/, .claude/settings.json +1   3 files +2 merged
 dry run: 4 would install; nothing written.
 $ rm -r .claude/skills/handoff
 
 $ palm install
-↺ restored   skill  handoff   .agents/skills/handoff/, .claude/skills/handoff/   4 files   (claude gets its own copy in .claude/skills)
-= unchanged  skill  tdd       .agents/skills/tdd/, .claude/skills/tdd/   6 files   (claude gets its own copy in .claude/skills)
+↺ skill  handoff   .agents/skills/handoff/, .claude/skills/handoff/   3 files   (claude gets its own copy in .claude/skills)
 1 restored, 1 unchanged.

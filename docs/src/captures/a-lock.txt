@@ -14,30 +14,36 @@ entries:
     source: mattpocock/skills
     path: skills/engineering/tdd
     content: sha256:e751ad1a5bc7e0600cfc571ddb396bcec66547a02c03ce1d3b8b5bc6d5a2069e
-    render: {claude: sha256:f994697008c9de615b88e7bbc1fe68e796f8a5fb61d5ee62a50923044d47768a, codex: sha256:c3bb4f3b844914d883e9628da120269fb927a582796e4dce255fc07d4e01d1f7}
+    render: {claude: sha256:04476c5e20ef4f78bac75223193a01ac7248dfc993dce7d085160e577436dec8, codex: sha256:c3bb4f3b844914d883e9628da120269fb927a582796e4dce255fc07d4e01d1f7}
     files:
       - .agents/skills/tdd/SKILL.md
       - .agents/skills/tdd/agents/openai.yaml
       - .agents/skills/tdd/references/mocking.md
       - .claude/skills/tdd/SKILL.md
-      - .claude/skills/tdd/agents/openai.yaml
       - .claude/skills/tdd/references/mocking.md
     notes:
       - claude gets its own copy in .claude/skills
 $ palm install
-= skill  tdd   .agents/skills/tdd/, .claude/skills/tdd/   6 files   (claude gets its own copy in .claude/skills)
 1 unchanged.
 $ palm check
 ✓ manifest and lock agree
+✓ every entry is rendered
+✓ every entry is on all its targets
 ✓ generated files match the lock
+✓ no stray file in a folder palm owns
+- applied files outside the lock: skipped (global scope only)
 ✓ in-repo sources match the lock
+✓ no generated path lies inside a source
 ✓ every program palm installed is trusted
+✓ no foreign command in the hook files palm manages
 ✓ every hook script exists
 ✓ no literal secret in generated files
-✓ output directories are committed
+✓ generated files are committed
 ✓ every source is declared
 ✓ no link leaves the scope
 ✓ no hidden Unicode in generated files
 ✓ no harness loads an entity twice
+✓ no two agents share a name in a harness folder
+✓ every skill an agent preloads is installed
 ✓ instruction files are within harness limits
 no problems

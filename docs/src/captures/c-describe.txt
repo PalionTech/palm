@@ -6,7 +6,7 @@ skill tdd  (installed, project scope)
   path        skills/engineering/tdd
   version     1.2.3
   selected by palm.yaml
-  claude      .claude/skills/tdd/SKILL.md, .claude/skills/tdd/agents/openai.yaml, .claude/skills/tdd/references/mocking.md
+  claude      .claude/skills/tdd/SKILL.md, .claude/skills/tdd/references/mocking.md
   codex       .agents/skills/tdd/SKILL.md, .agents/skills/tdd/agents/openai.yaml, .agents/skills/tdd/references/mocking.md
   note        claude gets its own copy in .claude/skills
 $ palm describe hook:gh-cli

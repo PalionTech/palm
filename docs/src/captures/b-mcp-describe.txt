@@ -1,6 +1,6 @@
 $ palm describe mcp docs
 mcp docs  (installed, project scope)
-  source      manifest
+  source      palm.yaml
   path        mcp/docs
   selected by palm.yaml
   claude      .mcp.json /mcpServers/docs

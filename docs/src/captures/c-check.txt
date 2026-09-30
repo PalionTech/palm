@@ -1,35 +1,50 @@
 $ palm check
 ✓ manifest and lock agree
+✓ every entry is rendered
+✓ every entry is on all its targets
 x 1 generated file differs from the lock
+✓ no stray file in a folder palm owns
+- applied files outside the lock: skipped (global scope only)
 ✓ in-repo sources match the lock
+✓ no generated path lies inside a source
 ✓ every program palm installed is trusted
+✓ no foreign command in the hook files palm manages
 ✓ every hook script exists
-! 1 secret problem
-✓ output directories are committed
+! no literal secret in generated files; 1 server needs variables that are not set
+✓ generated files are committed
 ✓ every source is declared
 ✓ no link leaves the scope
 ✓ no hidden Unicode in generated files
 ✓ no harness loads an entity twice
+✓ no two agents share a name in a harness folder
+✓ every skill an agent preloads is installed
 ✓ instruction files are within harness limits
 
 x skill tdd: .agents/skills/tdd/references/mocking.md is missing; fix: palm install
-! mcp docs: needs DOCS_TOKEN, which is not set; fix: export DOCS_TOKEN
+! mcp docs: needs DOCS_TOKEN, which is not set; fix: export DOCS_TOKEN=…
 $ palm install
-↺ restored   skill  tdd    .agents/skills/tdd/, .claude/skills/tdd/   6 files   (claude gets its own copy in .claude/skills)
-= unchanged  mcp    docs   .mcp.json, .codex/config.toml   merged   (needs DOCS_TOKEN in the environment)
+↺ skill  tdd   .agents/skills/tdd/, .claude/skills/tdd/   5 files   (claude gets its own copy in .claude/skills)
 1 restored, 1 unchanged.
 $ palm check
 ✓ manifest and lock agree
+✓ every entry is rendered
+✓ every entry is on all its targets
 ✓ generated files match the lock
+✓ no stray file in a folder palm owns
+- applied files outside the lock: skipped (global scope only)
 ✓ in-repo sources match the lock
+✓ no generated path lies inside a source
 ✓ every program palm installed is trusted
+✓ no foreign command in the hook files palm manages
 ✓ every hook script exists
-! 1 secret problem
-✓ output directories are committed
+! no literal secret in generated files; 1 server needs variables that are not set
+✓ generated files are committed
 ✓ every source is declared
 ✓ no link leaves the scope
 ✓ no hidden Unicode in generated files
 ✓ no harness loads an entity twice
+✓ no two agents share a name in a harness folder
+✓ every skill an agent preloads is installed
 ✓ instruction files are within harness limits
 
-! mcp docs: needs DOCS_TOKEN, which is not set; fix: export DOCS_TOKEN
+! mcp docs: needs DOCS_TOKEN, which is not set; fix: export DOCS_TOKEN=…

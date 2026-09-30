@@ -48,7 +48,7 @@ When you finish, CI passes on a clean branch and fails on an edited file, with t
 
    Each check prints one line: `✓`, `x`, `!` or `skipped` with the reason. Then come the problems, one line per entity, each ending in the command that fixes it.
    Run that command on your machine, review the diff, and commit.
-   `palm check --quiet` prints only the checks that failed or warned, so a passing run prints nothing.
+   `palm check --quiet` prints only the problems, so a passing run prints nothing.
 
 3. Use JSON for anything that parses the result.
 
@@ -68,20 +68,22 @@ Replace the line with `palm check`.
 
 | Check | Fails when | Fix |
 | --- | --- | --- |
-| `manifest-lock` | an entry of `palm.yaml` has no lock entry, or the reverse; a `ref:` differs from the lock; a plugin filter names nothing; an entry installed only partly | `palm install` |
-| `lock-disk` | a generated file is missing or differs from the render; a merged entry is missing or changed; a stray file sits in an entity folder palm owns | `palm install`, or `palm install <source> <name> --force` for an edited file |
-| `local-sources` | an entry of an in-repo source changed since the lock was written, or the source folder is gone | `palm install`, then commit `palm.lock.yaml` and the files it re-rendered |
-| `exec-trusted` | a hook or stdio server has no trusted hash, or a merged command differs from the lock | `palm install --allow-exec <key>=<hash>` |
+| `manifest-lock` | an entry of `palm.yaml` has no lock entry, or the reverse; a `ref:` differs from the lock; a plugin filter names nothing | `palm install` |
+| `render`, `partial` | an entry is installed for no target, or for only some of its targets | `palm install` |
+| `lock-disk` | a generated file is missing or differs from the render; a merged entry is missing or changed | `palm install`, or `palm install <source> <name> --force` for an edited file |
+| `orphans` | a stray file sits in an entity folder palm owns | `palm install <source> <name> --force` |
+| `local-sources` | an entry of an in-repo source changed since the lock was written | `palm install`, then commit `palm.lock.yaml` and the files it re-rendered |
+| `source-paths` | a path palm owns reaches into a declared source through a link | move the source, or remove the link |
+| `exec-trusted` | a hook or stdio server has no trusted hash, or a merged command was changed on disk | `palm install --allow-exec <key>=<hash>` |
 | `hook-scripts` | a hook command names a script that is missing or not executable | `palm install` |
 | `secrets` | a tracked or world-readable generated file, or a harness config palm merges into, holds a literal secret | fix the source, then `palm install <source> <name> --force` |
 | `git-ignored` | a generated file, a file palm merged into, or `.palm/assets` is ignored by git, so teammates never get it | edit `.gitignore` |
 | `sources-declared` | a lock source is missing from `palm.yaml`, or an in-repo source is missing on disk | `palm install`, or restore the directory |
 | `links` | an output path resolves outside the project, a link under an output folder dangles, or a source overlaps an output directory | move the source, or remove the link |
 | `hidden-unicode` | a generated file holds a bidi override, a tag character or a rare variation selector | fix the source, then `palm install --force` |
-| `double-load` | warning only: a harness would load one entity twice | narrow the entry with `targets:` until 0.3 |
-| `block-size` | warning above 24 KiB of `AGENTS.md` or `GEMINI.md` blocks; failure above the harness's cap | narrow the entry with `targets:` until `at:` works in 0.3 |
+| `block-size` | above the harness's cap of `AGENTS.md` blocks (a warning above 24 KiB) | narrow the entry with `targets:` until `at:` works in 0.3 |
 
-`palm check` also warns, without failing, about MCP variables that are not set, generated files not yet added to git, and hook commands palm did not write.
+`palm check` also warns, without failing, about MCP variables that are not set, generated files not yet added to git (`git-ignored`), hook commands palm did not write (`foreign-hooks`), entities a harness loads twice (`double-load`), two agents with one name (`agent-names`) and preloaded skills nothing installs (`preloads`).
 [palm check](/palm/reference/cli/check/#the-checks) lists every warning.
 Checks that need git are listed as `skipped (not a git repository)` outside a repository.
 Its only network access is fetching a locked commit that is not in the cache, so a cache between runs makes it offline.
