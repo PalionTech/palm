@@ -39,6 +39,7 @@ import { sharedSkillsRoot, type TargetLayout } from './layout.js';
 import { renderMcp } from './mcp-config.js';
 import { relocateCommand, relocateMcp } from './relocate.js';
 import { renderHash } from './render-hash.js';
+import { withSkillName } from './skill-name.js';
 
 /** Permission bits of a file that can hold secrets. */
 const PRIVATE_MODE = 0o600;
@@ -222,20 +223,28 @@ async function copySkillFiles(job: RenderJob, dir: string): Promise<void> {
     job.note(
       `skill ${name}: not copied (a link leaving the source): ${listed.symlinksOutside.join(', ')}`,
     );
-  if (listed.leftOut.length) job.note(leftOutNote(name, listed.leftOut));
+  if (listed.leftOut.length)
+    job.note(
+      leftOutNote(name, listed.leftOut, 'harness, palm and .env files are not skill content'),
+    );
+  if (listed.testsLeftOut.length)
+    job.note(leftOutNote(name, listed.testsLeftOut, 'tests and fixtures stay in the source'));
   const files = listed.files.filter((f) => !codexOnly(job, dir, f.rel));
   if (files.length === 0)
     throw new PalmError('E_NOT_FOUND', `skill ${name}: no files in ${absPath}`);
   assertSkillSize(job, files);
-  for (const f of files)
-    job.file(path.join(dir, ...f.rel.split('/')), await fs.readFile(f.abs), gitMode(f.mode));
+  for (const f of files) {
+    const bytes = await fs.readFile(f.abs);
+    const data = f.rel === 'SKILL.md' ? withSkillName(bytes, name) : bytes;
+    job.file(path.join(dir, ...f.rel.split('/')), data, gitMode(f.mode));
+  }
 }
 
-/** `skill x: left out .cursor/, AGENTS.md +2 (harness and palm files are not skill content)`. */
-function leftOutNote(name: string, leftOut: readonly string[]): string {
+/** `skill x: left out .cursor, palm.yaml +2 (harness, palm and .env files are not skill content)`. */
+function leftOutNote(name: string, leftOut: readonly string[], why: string): string {
   const shown = leftOut.slice(0, 3).join(', ');
   const more = leftOut.length > 3 ? ` +${leftOut.length - 3}` : '';
-  return `skill ${name}: left out ${shown}${more} (harness, palm and .env files are not skill content)`;
+  return `skill ${name}: left out ${shown}${more} (${why})`;
 }
 
 async function renderAgentKind(job: RenderJob): Promise<void> {

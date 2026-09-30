@@ -1,6 +1,7 @@
 /**
  * Adoption compares meaning, not bytes (ruling Y13): a file already on disk that says what the
- * render says (frontmatter with the same data in any order or quoting, a body that differs only
+ * render says (frontmatter with the same data in any order or quoting, an empty key the same as
+ * an absent one, a SKILL.md's `name` the same as its folder's name, a body that differs only
  * in line ends, trailing spaces or blank lines at either end, JSON with the same value) is
  * adopted, never a conflict. The Applier then writes palm's bytes, so the lock's render hash
  * matches the disk.
@@ -27,11 +28,31 @@ function normalizeLines(text: string): string {
     .replace(/\n+$/, '');
 }
 
-function sameMarkdown(a: string, b: string): boolean {
+/** An empty value says what an absent key says (`description:` vs no description, ruling Y8'). */
+function isEmptyValue(v: unknown): boolean {
+  return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
+}
+
+/**
+ * Frontmatter data as it means: keys with empty values dropped, and a SKILL.md's `name` dropped
+ * when it is its folder's name, which the render adds when the source leaves it out (ruling T5).
+ */
+function meaningOf(data: Record<string, unknown>, file: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(data)) if (!isEmptyValue(v)) out[k] = v;
+  const segs = file.split(/[\\/]/);
+  if (segs.at(-1) === 'SKILL.md' && out.name === segs.at(-2)) delete out.name;
+  return out;
+}
+
+function sameMarkdown(a: string, b: string, file: string): boolean {
   try {
     const x = parseFrontmatter(a.replace(/\r\n?/g, '\n'));
     const y = parseFrontmatter(b.replace(/\r\n?/g, '\n'));
-    return deepEqual(x.data, y.data) && normalizeLines(x.body) === normalizeLines(y.body);
+    return (
+      deepEqual(meaningOf(x.data, file), meaningOf(y.data, file)) &&
+      normalizeLines(x.body) === normalizeLines(y.body)
+    );
   } catch {
     return false;
   }
@@ -51,7 +72,7 @@ export function sameContent(existing: Uint8Array, rendered: Uint8Array, file: st
   if (!isText(existing) || !isText(rendered)) return false;
   const a = Buffer.from(existing).toString('utf8');
   const b = Buffer.from(rendered).toString('utf8');
-  if (/\.(md|mdc)$/i.test(file)) return sameMarkdown(a, b);
+  if (/\.(md|mdc)$/i.test(file)) return sameMarkdown(a, b, file);
   if (/\.json$/i.test(file)) return sameJson(a, b);
   return normalizeLines(a) === normalizeLines(b);
 }
