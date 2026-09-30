@@ -1,0 +1,15 @@
+$ palm install mattpocock/skills tdd
+i ref ^1.2 saved to palm.yaml (latest tag v1.2.3)
++ skill  tdd   .claude/skills/tdd/   3 files   from mattpocock/skills v1.2.3
+1 installed. Commit palm.yaml, palm.lock.yaml and .claude/ together.
+$ palm get sources
+name               alias  kind    ref            sha or tree  entries
+─────────────────  ─────  ──────  ─────────────  ───────────  ───────
+mattpocock/skills         github  ^1.2 → v1.2.3  2c0db90      1
+$ cat palm.yaml
+targets: [claude]
+
+sources:
+  mattpocock/skills:
+    ref: ^1.2
+    skills: [tdd]

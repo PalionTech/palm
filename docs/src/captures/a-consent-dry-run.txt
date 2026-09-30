@@ -1,0 +1,15 @@
+$ palm install trailofbits/skills plugin:gh-cli --dry-run
+This install adds 1 program that will run on your machine.
+
+  1. hook gh-cli  from trailofbits/skills  (commit 924ffa8, v2.1.0, 2026-09-28)
+     SessionStart          bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/persist-session-id.sh
+     PreToolUse  Bash      bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/intercept-github-curl.sh
+     targets: claude (.claude/settings.json), cursor (.cursor/hooks.json)
+     scripts: 3 files, 646 B  ->  .palm/assets/trailofbits__skills/gh-cli/  (committed with your repo)
+       hooks/hooks.json                644   498 B   sha256:5d1c0e7a
+       hooks/intercept-github-curl.sh  755   104 B   sha256:77d0a9f1
+       hooks/persist-session-id.sh     755   44 B    sha256:1b9e04c2
+
++ would install  hook  gh-cli   .palm/assets/trailofbits__skills/gh-cli/ (3 files), .claude/settings.json, .cursor/hooks.json   via plugin:gh-cli
+i would save trailofbits/skills with ref ^2.1 to palm.yaml
+dry run: nothing written

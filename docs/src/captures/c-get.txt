@@ -1,13 +1,19 @@
 $ palm get
-kind   name  origin      version  targets       via
-─────  ────  ──────────  ───────  ────────────  ───
-skill  tdd   mattpocock           claude,codex
-$ palm get skills --available -o mattpocock
-mattpocock (5)
-kind   name            version  description
-─────  ──────────────  ───────  ────────────────────────────────────────────────
-skill  git-guardrails           Block dangerous git commands.
-skill  grill-me        1.2.3    Interview the user relentlessly about a plan.
-skill  handoff         1.2.3    Write a handoff note for the next session.
-skill  old-thing                An old skill kept for reference.
-skill  tdd             1.2.3    Test-driven development with red-green-refactor.
+kind   name                   source                              ref            targets       files  via
+─────  ─────────────────────  ──────────────────────────────────  ─────────────  ────────────  ─────  ───
+skill  tdd                    mattpocock/skills                   ^1.2 → v1.2.3  claude,codex  6
+agent  agent-sdk-verifier-py  anthropics/claude-plugins-official  main           claude,codex  2
+$ palm get sources
+name                                alias  kind    ref            sha or tree  entries
+──────────────────────────────────  ─────  ──────  ─────────────  ───────────  ───────
+anthropics/claude-plugins-official         github  main           bc94689      1
+mattpocock/skills                          github  ^1.2 → v1.2.3  2c0db90      1
+$ palm get skills --files
+file                                      kind   name
+────────────────────────────────────────  ─────  ────
+.agents/skills/tdd/SKILL.md               skill  tdd
+.agents/skills/tdd/agents/openai.yaml     skill  tdd
+.agents/skills/tdd/references/mocking.md  skill  tdd
+.claude/skills/tdd/SKILL.md               skill  tdd
+.claude/skills/tdd/agents/openai.yaml     skill  tdd
+.claude/skills/tdd/references/mocking.md  skill  tdd

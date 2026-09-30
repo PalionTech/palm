@@ -1,0 +1,24 @@
+$ palm install
+x palm.yaml is in the 0.1 format
+    palm migrate
+$ palm migrate --dry-run
+targets: [claude, codex]
+
+sources:
+  mattpocock/skills:
+    ref: v1.2.3
+    alias: mattpocock
+    skills: [tdd, handoff, grill-me]
+$ palm migrate
+~ palm.yaml: source mattpocock/skills added from ~/.palm/config.yaml, needed by 3 entries; commit it
+i grill-me was pinned to v1.2.0; mattpocock/skills now tracks v1.2.3; pin the source or split it
+~ palm.lock.yaml: version 2 → 3
+~ .gitignore: .palm/ → .palm/local/ and palm.local.yaml
+= unchanged  skill  tdd        files already match; adopted
+= unchanged  skill  grill-me   files already match; adopted
+= unchanged  skill  handoff    files already match; adopted
+Migrated. Commit palm.yaml, palm.lock.yaml and .gitignore together.
+$ git status --short
+ M .gitignore
+ M palm.lock.yaml
+ M palm.yaml

@@ -1,0 +1,48 @@
+---
+title: Monorepos (coming in 0.3)
+description: palm 0.2 treats a monorepo as one project with one palm.yaml at the root. Placement per package arrives in palm 0.3.
+sidebar:
+  label: Monorepos
+---
+
+palm 0.2 treats a monorepo as one project, with one `palm.yaml` at the repository root.
+Every entry installs at the root, and every package sees it.
+Placing an instruction in one package arrives in palm 0.3.
+
+```sh
+cd ~/work/carbon
+palm install acme/agent-kit db-conventions --at packages/database
+```
+
+palm 0.2 stores `at: packages/database` in `palm.yaml` and in the lock, and installs at the root for now.
+When you upgrade to 0.3, the next `palm install` moves the entry into the package without an edit to `palm.yaml`.
+
+## What works in 0.2
+
+- One root `palm.yaml`, committed, with the targets and sources for the whole repository.
+- Project discovery stops at the nearest `.git`, so a `palm.yaml` in another repository above yours is never used.
+- `palm init` inside a package refuses when a `palm.yaml` sits above it in the same repository, and names both ways forward.
+
+```text
+x packages/jobs is inside project /work/carbon (palm.yaml). Add entries with --at packages/jobs, or start a separate project here: palm init --here
+```
+
+`palm init --here` makes the package a project of its own.
+Use it only for a package that should not share the root setup, because two projects in one repository install and check separately.
+
+## What 0.3 adds
+
+| Feature | What it does |
+| --- | --- |
+| `at: <dir>` honoured | The entry's placement root: nested `AGENTS.md` and `GEMINI.md` blocks, `<dir>/.cursor/rules`, `<dir>/.agents/skills`, globs rebased. Claude Code keeps root rules with `paths:`. |
+| Derived placement | An instruction whose paths share one directory gets that directory as `at:`, and palm prints it. |
+| One carrier per harness | An entity reaches each harness through exactly one file, so Cursor never loads a rule from both `AGENTS.md` and `.cursor/rules`. |
+| Version check across projects | `palm check` warns when one entity is installed at two versions in nested projects or scopes. |
+
+Until then, keep package-specific rules small, or scope them with globs, so the root `AGENTS.md` stays under the 24 KiB at which `palm check` starts to warn.
+
+## Related
+
+- [Project and global scope](/palm/concepts/scopes/)
+- [palm.yaml reference](/palm/reference/palm-yaml/)
+- [palm init](/palm/reference/cli/init/)

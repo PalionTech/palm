@@ -1,104 +1,99 @@
 ---
-title: Install from plugin marketplaces
-description: Plugins listed in a marketplace.json install into every harness you use, and you see their hooks before they run.
+title: Install plugins and marketplaces
+description: Install a plugin's members for every harness you use, see its hooks before they run, and drop one member for the whole team.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 import Capture from '../../../components/Capture.astro';
 import CaptureTree from '../../../components/CaptureTree.astro';
 
-Claude Code, Cursor and Codex plugins ship through marketplaces: a `marketplace.json` that lists plugin folders or repositories.
-Each harness's own plugin installer serves only that harness.
-palm reads the same marketplace and installs a plugin's skills, agents (subagents), hooks and MCP servers for all your harnesses.
+Claude Code, Cursor and Codex plugins ship in repositories, often listed in a `marketplace.json`.
+Each harness's own installer serves only that harness.
+palm reads the same repository and installs a plugin's skills, agents (subagents), hooks and MCP servers for all your harnesses at once.
 
-When you finish, one plugin is installed for Claude Code and Codex, hook scripts included:
+When you finish, one plugin is installed for Claude Code and Codex, its hook script is committed, and one skill is excluded for the team:
 
-<CaptureTree name="b-plugin-consent" depth={3} />
+<CaptureTree name="b-plugin" depth={4} />
 
-`.palm/hooks/superpowers/` holds the plugin files its hook runs.
-Keep `.palm/` out of git: inside a git repository, `palm init` adds it to `.gitignore`.
-The sessions on this page ran against palm's test fixtures, which mirror `obra/superpowers` and `anthropics/claude-plugins-official`.
+The session on this page ran against palm's fixture that mirrors `obra/superpowers`.
 
 ## Before you start
 
 - A project with its targets set, for example `palm init --target claude,codex`.
-- The path or URL of a `marketplace.json`, or the repository that holds one.
+- The repository that holds the plugin or the marketplace.
 
 ## Steps
 
 <Steps>
 
-1. Add the marketplace.
+1. See what the repository offers.
 
    ```sh
-   palm install origin ./catalog/.claude-plugin/marketplace.json
+   palm install anthropics/claude-plugins-official
    ```
 
-   <Capture name="b-marketplace" title="~/project" />
+   <Capture name="a-entities" title="~/project" />
 
-   Each plugin the file lists becomes its own origin, named after the plugin.
-   palm fetches and scans each one before it saves anything.
-   The file can also be an `https://` URL.
+   A marketplace lists plugins. palm indexes each plugin kept in the same repository and lists its members.
+   A plugin hosted elsewhere gets a warning with the `palm install` line that declares its repository as a source of its own. palm never fetches it by itself.
 
-2. Or add the repository that holds the marketplace.
+2. Install the plugin.
 
    ```sh
-   palm install origin anthropics/claude-plugins-official --alias official
+   palm install obra/superpowers plugin:superpowers
    ```
 
-   This gives one origin, and each plugin in it becomes an entity of that origin.
-   The two forms differ for plugins hosted elsewhere:
+   `plugin:` selects every member. palm records `plugins: [superpowers]` in `palm.yaml`, and each member's lock entry says `via: plugin:superpowers`.
+   To take only some members, name them instead, or add `only:` to the plugin entry.
 
-   | You add | Plugins in the same repository | Plugins in other repositories |
-   | --- | --- | --- |
-   | the `marketplace.json` file | one origin each | one origin each, fetched |
-   | the repository | entities of one origin | listed with the command to add them |
+3. Review the hook, and consent.
 
-   <Capture name="b-plugin-remote" title="~/project" />
+   A plugin's hook runs a program on every matching event.
+   palm shows the command, the targets and every script, and asks. Without a terminal it stops and prints the `--allow-exec` line.
 
-   Copy the command from a `remote plugin` warning to add that plugin as an origin.
-   palm cannot fetch npm sources and skips them with a warning.
+   <Capture name="b-plugin" title="~/project" />
 
-3. Install a plugin.
+4. Drop a member for everyone.
 
    ```sh
-   palm install plugin superpowers
+   palm remove obra/superpowers brainstorming --exclude
    ```
 
-   A plugin with a hook or a stdio MCP server runs commands on your machine.
-   In a terminal, palm lists each one and asks once, with yes as the default.
-   Without a terminal it stops and names `--yes`:
-
-   <Capture name="b-plugin-consent" title="~/project" />
-
-   `--dry-run` prints the same list and writes nothing.
+   Removing a plugin member by name alone stops and names both choices.
+   `--exclude` adds `skill:brainstorming` to the plugin's `exclude:` list, so a teammate's bare install and the next update keep it out.
 
 </Steps>
 
 :::caution
 A hook runs its command on every matching event, such as each session start.
-Read the plugin's `hooks.json` and the scripts it calls before you answer yes.
+Press `v` at the prompt to read every script before you answer. The default is no.
 :::
 
-palm copies the plugin's files to `.palm/hooks/<plugin>/`, because hook scripts often read files next to them.
-Committed configs refer to that folder through the project directory, never through an absolute path.
-After a fresh clone, `palm install` restores the folder.
+## Where hook scripts go
 
-Gemini CLI and OpenCode get a plugin's members as loose files, because their own plugin formats need their own installers.
-OpenCode receives no hooks at all.
+palm copies what a hook runs into `.palm/assets/<source>/<hook>/`. That is the folder that holds the hook definition, plus every file a command names.
+It never copies `SKILL.md`, `AGENTS.md` or plugin manifests, so no harness finds a second copy of anything there.
+Commands point at the copy through each harness's project directory variable, such as `"$CLAUDE_PROJECT_DIR"`, never through an absolute path.
+You commit the folder, so a clone without palm has working hooks.
+
+## Harnesses without plugins
+
+Gemini CLI and OpenCode get a plugin's members as loose files.
+OpenCode has no declarative hooks, so palm skips a plugin's hooks there, says so, and installs the rest.
 
 ## Check the result
 
 ```sh
 palm get
-palm uninstall plugin superpowers
+palm remove obra/superpowers plugin:superpowers
 ```
 
-`palm get` lists each member with `plugin:superpowers` in the `via` column.
-`palm uninstall plugin superpowers` removes every member, the merged hook entries and `.palm/hooks/superpowers/`.
+`palm get` shows each member with `plugin:superpowers` in the `via` column.
+`palm remove ... plugin:superpowers` removes every member, the merged hook entries and the asset folder.
+A member that another installed plugin also declares stays, and palm says which command removes both.
 
 ## Next steps
 
-- [Build an agent that brings its tools](/palm/guides/agent-bundles/) makes your own bundle without a plugin manifest.
-- [Make a repository palm reads well](/palm/guides/palm-friendly-repos/) shows how palm reads `plugin.json` and `marketplace.json`.
-- [Security model](/palm/explanation/security/) explains consent and the hidden-Unicode check.
+- [Consent and executable content](/palm/concepts/consent/)
+- [Scanning](/palm/concepts/scanning/) shows how palm reads `plugin.json` and `marketplace.json`.
+- [Publish your own source](/palm/guides/publish-your-own/)

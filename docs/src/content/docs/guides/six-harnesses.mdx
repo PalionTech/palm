@@ -1,49 +1,48 @@
 ---
-title: One setup, six harnesses
-description: One agent installed for Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI and OpenCode, each in its own format.
+title: Install for six harnesses
+description: One agent and one skill installed for Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI and OpenCode, each in its own format, from one command.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 import Capture from '../../../components/Capture.astro';
 import CaptureTree from '../../../components/CaptureTree.astro';
 
-On many teams, one developer uses Claude Code, another uses Cursor, and a CI job runs Codex.
+On many teams one developer uses Claude Code, another uses Cursor, and a CI job runs Codex.
 Each harness wants the same agent (subagent) in a different folder and format.
-palm writes all six from one command and records every file in one lockfile.
+palm writes all six from one command, records every file in one lock, and tells you what each harness could not take.
 
-When you finish, one agent and its dependencies exist once per harness format:
+When you finish, the agent exists once per harness format and the skill twice:
 
 <CaptureTree name="b-six-install" depth={3} />
 
-The skill appears twice: Claude Code reads `.claude/skills`, and the other five harnesses share `.agents/skills`.
-The sessions on this page ran against a palm test fixture that mirrors `anthropics/claude-plugins-official`.
+The skill appears twice because Claude Code reads `.claude/skills`, which Cursor reads too, and the other four share `.agents/skills`.
+The sessions on this page ran against palm's fixture that mirrors `anthropics/claude-plugins-official`.
 
 ## Before you start
 
-- An origin that holds an agent. This guide uses `anthropics/claude-plugins-official`:
-
-  ```sh
-  palm install origin anthropics/claude-plugins-official --alias official
-  ```
+- The project is a git repository.
+- You accept that the Gemini CLI and OpenCode placements are unverified. They follow each harness's documentation and source, checked on 2026-09-28, and have not run against a live CLI in palm's tests yet.
 
 ## Steps
 
 <Steps>
 
-1. Install the agent for all six targets. A **target** is palm's name for a harness.
+1. Declare all six targets.
 
    ```sh
-   palm install agent agent-sdk-verifier-py --target claude,codex,copilot,cursor,gemini,opencode
+   palm init --target claude,codex,copilot,cursor,gemini,opencode
    ```
 
-   palm saves the six targets to `palm.yaml`, so later installs in this project use them without the flag.
+2. Install the agent and the skill it uses.
 
-2. Read the summary.
+   ```sh
+   palm install anthropics/claude-plugins-official agent-sdk-verifier-py sdk-helper
+   ```
 
    <Capture name="b-six-install" title="~/project" />
 
-   Each `i` line names the fields one harness has no place for.
-   For Codex, palm drops the model, the tool list and three more fields, and says so.
+   Each `i` line names what one harness has no place for, such as a model field for Codex or an argument restriction for Copilot.
+   palm records the same notes in the lock, and `palm describe agent-sdk-verifier-py` shows them later.
 
 3. Compare the formats palm wrote.
 
@@ -54,51 +53,55 @@ The sessions on this page ran against a palm test fixture that mirrors `anthropi
    | Claude Code | `.claude/agents/<name>.md` | nothing: this is the source format |
    | Codex | `.codex/agents/<name>.toml` | TOML with `name`, `description` and `developer_instructions` |
    | GitHub Copilot | `.github/agents/<name>.agent.md` | Copilot tool names such as `read` and `execute`, MCP servers as `context7/*` |
-   | Cursor | `.cursor/agents/<name>.md` | the tool list maps to `readonly: true` |
-   | Gemini CLI | `.gemini/agents/<name>.md` | strict frontmatter: `kind: local`, Gemini tool names, MCP tools as `mcp_context7_*` |
-   | OpenCode | `.opencode/agents/<name>.md` | `mode: subagent` and a `permission` map that denies by default |
+   | Cursor | `.cursor/agents/<name>.md` | the tool list maps to `readonly` |
+   | Gemini CLI | `.gemini/agents/<name>.md` | strict frontmatter with `kind: local` and Gemini tool names |
+   | OpenCode | `.opencode/agents/<name>.md` | `mode: subagent` and a `permission` map that denies what the tool list leaves out |
 
 4. Install kinds that some harnesses cannot hold.
 
    ```sh
-   palm install command new-sdk-app
-   palm install hook agent-sdk-dev --yes
+   palm install anthropics/claude-plugins-official new-sdk-app
+   palm install anthropics/claude-plugins-official hook:agent-sdk-dev --dry-run
    ```
 
    <Capture name="b-six-skips" title="~/project" />
 
-   palm skips a combination the harness does not support and says why in an `i` line.
-   The hook asks for consent first, because it runs a command on your machine; `--yes` gives it.
+   The command file installs as a skill everywhere, with a note about `$ARGUMENTS`.
+   The hook lands in five harnesses. OpenCode has no declarative hooks, so palm skips it there and says so.
 
 </Steps>
 
-These are the combinations palm skips:
+These are the combinations palm skips.
 
 | Kind | Harness | Scope | Why |
 | --- | --- | --- | --- |
-| command | Codex | project | Codex reads prompts only from `~/.codex/prompts`: install with `-g` |
-| command | GitHub Copilot | global | Copilot has no user-level prompt files |
-| instruction | Cursor | global | Cursor has no user-level rules |
 | hook | OpenCode | both | OpenCode hooks are JavaScript plugins |
+| instruction | Cursor | global | Cursor keeps user rules in its settings |
 
-`palm describe target <id>` prints where each kind goes for one target, skips included:
+`palm describe target <target>` prints where each kind goes for one harness, skips included.
 
 ```sh
 palm describe target opencode
 ```
 
+## One entity, one carrier
+
+Several harnesses read the same files, and palm keeps each entity loaded once per harness.
+With `claude` and `cursor`, a skill lives only in `.claude/skills`, because Cursor reads it there.
+Codex reads instructions from `AGENTS.md`, which Cursor, OpenCode and Copilot also read.
+palm 0.2 still writes Cursor's own `.cursor/rules` file too, and `palm check` warns about the double load. palm 0.3 records one carrier per harness and drops the second copy.
+
 ## Check the result
 
-Ask palm where the agent went:
+```sh
+palm describe agent-sdk-verifier-py
+palm check
+```
 
-<Capture name="b-six-check" title="~/project" />
-
-`depends on` lists the skill and the MCP server that came with the agent.
-Each target lists the one file it received.
+`palm describe` lists the file each target received and every note palm recorded.
 
 ## Next steps
 
-- [Share a team baseline](/palm/guides/team-baseline/) so every developer gets the same six harnesses.
-- [Build an agent that brings its tools](/palm/guides/agent-bundles/) explains `depends on`.
+- [Share a team baseline](/palm/guides/team-baseline/), so every developer gets the same six harnesses.
 - The [targets matrix](/palm/reference/targets-matrix/) lists every path for every kind.
 - [Why native files per harness](/palm/explanation/why-native-files/) explains the design.

@@ -3,122 +3,147 @@ title: Troubleshooting
 description: From a message palm prints to its cause and its fix.
 ---
 
-Each section starts with the message palm prints, then names the cause and the fix.
-Start with `palm doctor`: it checks git, Node, harness detection, drift, hook scripts and origins.
+Each section starts with what palm prints, then says why and what to do.
+Start with `palm check`. It runs every consistency check, writes nothing, and ends each problem with the command that fixes it.
 
 ```sh
-palm doctor
+palm check
 palm install --dry-run
 ```
 
 | Symptom | Section |
 | --- | --- |
-| `"tdd" matches 2 entities` | [Several origins have the name](#several-origins-have-the-name) |
-| `input needed but no interactive terminal` | [No terminal to ask](#no-terminal-to-ask) |
-| `No coding harness detected in this project` | [No target set](#no-target-set) |
-| `refusing to overwrite <file>` | [A file is in the way](#a-file-is-in-the-way) |
-| `changed since palm installed it; not overwriting` | [You changed an installed file](#you-changed-an-installed-file) |
-| `do not match (--frozen)` | [`--frozen` fails in CI](#--frozen-fails-in-ci) |
-| `Cannot fetch origin`, `did not answer in time` | [An origin is unreachable](#an-origin-is-unreachable) |
-| `Origin alias "<alias>" is already used` | [Two origins want one alias](#two-origins-want-one-alias) |
-| `the home directory is not a project` | [palm refuses your home directory](#palm-refuses-your-home-directory) |
-| `restore hook assets after a fresh clone` | [Hook scripts missing after a clone](#hook-scripts-missing-after-a-clone) |
-| `contains hidden Unicode` | [Hidden Unicode refusal](#hidden-unicode-refusal) |
-| `Codex does not expand environment variables` | [Codex keeps a placeholder](#codex-keeps-a-placeholder) |
+| `"tdd" is not a repository` | [A name instead of a repository](#a-name-instead-of-a-repository) |
+| `palm.yaml is in the 0.1 format` | [Files from palm 0.1](#files-from-palm-01) |
+| `programs need your consent and there is no terminal` | [Consent in CI](#consent-in-ci) |
+| `exists and differs from what palm would write` | [A file is in the way](#a-file-is-in-the-way) |
+| `modified since install`, `! modified (kept)` | [You changed a generated file](#you-changed-a-generated-file) |
+| `changed since palm.lock.yaml` | [An in-repo source changed](#an-in-repo-source-changed) |
+| `is ignored by git` | [Generated files are ignored](#generated-files-are-ignored) |
+| `did not answer`, `not in the cache` | [A source is unreachable](#a-source-is-unreachable) |
+| `overlaps the claude output directory` | [A source overlaps an output folder](#a-source-overlaps-an-output-folder) |
+| `cannot relocate` | [A hook names a missing script](#a-hook-names-a-missing-script) |
+| `hidden Unicode` | [Hidden Unicode refusal](#hidden-unicode-refusal) |
+| `is not set` | [A variable is not set](#a-variable-is-not-set) |
 
-## Several origins have the name
+## A name instead of a repository
 
-- Symptom: `x "tdd" matches 2 entities`, followed by `use name@origin: tdd@mattpocock, tdd@pstack`.
-- Cause: more than one origin offers the name, and there is no terminal for the picker.
-- Fix: name the origin, as in `palm install skill tdd@mattpocock`. `palm search skill tdd` lists the candidates.
+You see `x "tdd" is not a repository. palm installs from git repositories:`, followed by a pasteable command.
 
-## No terminal to ask
+palm installs from repositories you name and has no registry to look a name up in.
 
-- Symptom: `input needed but no interactive terminal`, a consent refusal that ends in `without your consent`, or `palm update changes installed files and needs a confirmation`.
-- Cause: palm needs an answer, and stdin or stdout is not a terminal, or `CI` is set.
-- Fix: answer up front. Pass `--yes` for consent and confirmations, `--target` for targets, and `name@origin` for ambiguous names. Export the variable a secret prompt asks for.
+Run the command on the next line with the repository, such as `palm install mattpocock/skills tdd`. The GitHub search link finds the repository when you do not know it.
 
-## No target set
+## Files from palm 0.1
 
-- Symptom: `x No coding harness detected in this project`.
-- Cause: `palm.yaml` has no `targets:`, `config.yaml` has none, palm detects no harness folder, and there is no terminal for the prompt.
-- Fix: run `palm init --target claude,codex` once and commit `palm.yaml`, or pass `--target` to the install.
+You see `x palm.yaml is in the 0.1 format` or `x palm.lock.yaml is version 2 (palm 0.1)`, with the hint `palm migrate`.
+
+palm 0.2 declares sources in `palm.yaml` and writes lock version 3.
+
+Run `palm migrate --dry-run`, then `palm migrate`, and commit. See [Migrate from palm 0.1](/palm/guides/migrate-from-0-1/).
+
+## Consent in CI
+
+You see `x 1 program needs your consent and there is no terminal`, with a `review:` and a `then:` line.
+
+A hook or stdio MCP server is new or changed, and its hash is not in the lock's `trust:`.
+
+Run the `review:` command on your machine, read the scripts, install with the `then:` line or on a terminal, and commit the lock. CI replays the trust from then on.
 
 ## A file is in the way
 
-- Symptom: `x skill tdd@mattpocock → claude: refusing to overwrite .claude/skills/tdd/SKILL.md`, with the hint `to overwrite it, run: palm install skill tdd@mattpocock --force`.
-- Cause: the file exists and the lockfile does not list it, such as a copy you made by hand. For a shared file, palm's key holds a different value.
-- Fix: compare the file with the entity. Move it aside, or install with `--force` to replace it and record it in the lockfile.
+You see `x agent comment-sicko from cursor/plugins → cursor: .cursor/agents/comment-sicko.md exists and differs from what palm would write`, with the command and `--force` below.
 
-## You changed an installed file
+The file exists, the lock does not list it, and its content differs. An identical file would have been adopted silently.
 
-- Symptom: `x skill tdd: .claude/skills/tdd/SKILL.md changed since palm installed it; not overwriting`. On uninstall: `x skill tdd@mattpocock: .claude/skills/tdd/SKILL.md modified since install; rerun with --force to remove`, and the skill stays installed.
-- Cause: the file's hash differs from the one in `palm.lock.yaml`.
-- Fix: to keep your edits, copy the file into your own origin with `palm create`. To drop them, repeat the command with `--force`.
+Compare the file with the source. Keep your change in your own in-repo source, or repeat the command with `--force` to replace the file. See [Adopt files you copied by hand](/palm/guides/adopt-existing-files/).
 
-## `--frozen` fails in CI
+## You changed a generated file
 
-- Symptom: `x palm.yaml, palm.lock.yaml and the installed files do not match (--frozen):`, followed by one line per difference.
-- Cause: `palm.yaml` changed without the lockfile, or the lockfile names a ref `palm.yaml` no longer allows. A committed harness file may also have changed, or an entry palm merged into `.mcp.json`, a settings file or `AGENTS.md` was removed or edited.
-- Fix: run `palm install` without `--frozen` on your machine, review the result, and commit `palm.yaml` and `palm.lock.yaml` together.
+You see `! modified (kept)` in an install, `x skill tdd: .claude/skills/tdd/SKILL.md was modified since install` on remove, or `x 1 file differs from the lock` in `palm check`.
 
-## An origin is unreachable
+The file differs from the render the lock records.
 
-- Symptom: `x Cannot fetch origin "<alias>"`, `The remote did not answer in time`, or `unreachable` in `palm doctor`.
-- Cause: no network, a proxy git does not know about, a private repository without credentials, or a repository that moved.
-- Fix: run `git ls-remote <url>` to see git's own error. palm never prompts for credentials, so set up an ssh key or a credential helper. `--offline` works from the cache.
+To keep the edit, move the entity into an in-repo source and edit it there. To drop it, repeat the command the message prints, with `--force`.
 
-## Two origins want one alias
+## An in-repo source changed
 
-- Symptom: `x Origin alias "pstack" is already used by …`, or `palm.yaml declares origin "pstack" as …, but your origin "pstack" is …`.
-- Cause: the alias is taken, or a project origin and one of your own origins use one alias for two sources.
-- Fix: pick another alias with `--alias`, or remove yours with `palm uninstall origin pstack` and add it again under a new alias.
+You see `x source ./agent-kit changed since palm.lock.yaml (tree 10934f8 → f18c42f); run palm install and commit palm.lock.yaml`.
 
-## palm refuses your home directory
+Someone edited `./agent-kit` without running palm, so the harness copies are older than the source.
 
-- Symptom: `x run inside a project or use -g: the home directory is not a project`.
-- Cause: the current folder is your home directory, which has no `palm.yaml`, so project scope would write `.claude/` into it.
-- Fix: change into a project folder, or install for yourself with `-g`.
+Run `palm install`, which re-renders the changed entries, and commit the lock with the generated files.
 
-## Hook scripts missing after a clone
+## Generated files are ignored
 
-- Symptom: `palm doctor` warns `missing .palm/hooks/<name>; run palm install to restore hook assets after a fresh clone`.
-- Cause: palm copies hook scripts into `.palm/hooks/`, which is not committed. The hook entries in the harness config are.
-- Fix: run `palm install`. It redeploys every entry whose files are missing.
+You see `palm check` fails on `git-ignored`, naming an output folder or `.palm/assets`.
+
+A `.gitignore` line, often `.palm/` from palm 0.1 or a blanket `.claude/`, keeps the files out of git, so teammates never receive them.
+
+Remove the line. palm needs only `.palm/local/` and `palm.local.yaml` ignored.
+
+## A source is unreachable
+
+You see `The remote did not answer`, `E_NETWORK`, or `is not in the cache, and --offline allows no fetch`.
+
+No network, a proxy git does not know about, a private repository without credentials, a moved repository, or an empty cache under `--offline`.
+
+Run `git ls-remote <url>` to see git's own error. palm never prompts for credentials, so set up an ssh key or a credential helper. Run once without `--offline` to fill the cache.
+
+## A source overlaps an output folder
+
+You see `x source "kit" (./.claude) overlaps the claude output directory .claude/; move the sources (for example ./agent-kit) and declare that`.
+
+An in-repo source sits inside, or contains, a folder palm writes to.
+
+Move the files into a folder of their own, such as `./agent-kit`, and declare that folder instead. palm refuses this on real paths, so a symlink does not get around it.
+
+## A hook names a missing script
+
+You see `x hook do-stop-guard from agency: cannot relocate "./scripts/do-stop-guard.sh"`, with the folder palm searched.
+
+The hook command names a file that is not in the source, or uses `$(...)` or `~/...`.
+
+Tell the source's author. palm never merges a command it cannot resolve, so the rest of the source still installs.
 
 ## Hidden Unicode refusal
 
-- Symptom: `x skill <name> contains hidden Unicode that can smuggle instructions`.
-- Cause: a file of the entity holds bidirectional overrides or tag characters, which can hide text from a reviewer.
-- Fix: read the file in the origin and tell its author. To install it anyway, pass `--force`, then remove the characters with `palm audit --strip`.
+You see `hidden Unicode U+202E (right-to-left override) in SKILL.md, line 6`.
 
-## Codex keeps a placeholder
+A file of the entity holds bidirectional overrides, isolates or tag characters, which can hide text from a reviewer.
 
-- Symptom: the install summary says `Codex does not expand environment variables in args: ${TOKEN} is passed literally`.
-- Cause: Codex expands no variables in an MCP server's command, arguments or URL.
-- Fix: install with `--secrets literal` to write the value, or move the value into the server's `env`.
+Read the file in the source and tell its author. There is no override. Fork the source and remove the character if you need the entity now.
+
+## A variable is not set
+
+You see `! DOCS_TOKEN is not set; mcp docs needs it (export DOCS_TOKEN)` from `palm check` or an install.
+
+An MCP server references the variable, and your shell does not define it.
+
+Export it before you start the harness. It is a warning, so `palm check` still exits 0.
 
 ## Known limitations
 
-- MCP servers inside plugins that point at `${CLAUDE_PLUGIN_ROOT}` reference files palm does not copy. palm copies hook scripts only.
-- Codex has no project prompts, Copilot has no user prompt files, and Cursor has no user rules. palm skips those and says so.
-- When two plugins in one origin ship the same name, palm indexes the first and warns.
-- palm reports marketplace entries with a remote source and does not fetch them. Add them with `palm install origin`.
-- The Gemini CLI and OpenCode targets follow those harnesses' documentation and source. Neither has been tested against a running CLI.
-- Windows is untested.
+- Gemini CLI and OpenCode placements follow those harnesses' documentation and source, and have not run against a live CLI in palm's tests.
+- OpenCode has no declarative hooks, and Cursor has no user rules file. palm skips those and says so.
+- An agent's `skills:` and `mcpServers:` are not installed with it. palm prints the command for them.
+- Remote marketplace entries are not fetched. palm prints the command that declares each as a source.
+- Per-person additions (`palm.local.yaml`) and per-package placement (`at:`) arrive in palm 0.3.
+- Windows is not supported.
 
 ## Report a bug
 
 Open an issue at [github.com/PalionTech/palm/issues](https://github.com/PalionTech/palm/issues) with:
 
 - `palm --version` and your OS.
-- The command you ran and its output with `--verbose`.
-- The output of `palm doctor --json`. It holds your palm home, cache size, detected harnesses, drift and origin URLs, so remove anything private.
+- The command you ran, and its output with `PALM_DEBUG=1`.
+- The output of `palm check --json`. It holds your source URLs and file paths, so remove anything private.
 
+An unexpected error prints `this is a palm bug; report it with --json output`. Include that output too.
 Report a security problem privately instead, as [Policies](/palm/reference/policies/#security) describes.
 
 ## Related
 
 - [Exit codes and errors](/palm/reference/exit-codes/)
-- [`palm doctor`](/palm/reference/cli/doctor/)
+- [palm check](/palm/reference/cli/check/)
 - [Environment variables](/palm/reference/environment/)

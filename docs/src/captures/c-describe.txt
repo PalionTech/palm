@@ -1,19 +1,32 @@
-$ palm describe skill tdd
-skill tdd  installed (project)
+$ palm describe tdd
+skill tdd  (project)
   Test-driven development with red-green-refactor.
 
-  origin      mattpocock
-  url         ~/src/skills
-  path        skills/engineering/tdd
-  version     1.2.3
-  plugin      mattpocock-skills
+  source       mattpocock/skills   ^1.2 → v1.2.3 (2c0db90)
+  path         skills/engineering/tdd
+  version      1.2.3
+  selected by  palm.yaml
+  claude       .claude/skills/tdd/SKILL.md
+               .claude/skills/tdd/agents/openai.yaml
+               .claude/skills/tdd/references/mocking.md
+  codex        .agents/skills/tdd/SKILL.md
+               .agents/skills/tdd/agents/openai.yaml
+               .agents/skills/tdd/references/mocking.md
+  notes        claude reads .claude/skills, codex reads .agents/skills: two copies
+$ palm describe hook:gh-cli
+hook gh-cli  (project)
+  Route GitHub calls through gh
 
-  targets     claude, codex
-  shared .agents
-    .agents/skills/tdd/SKILL.md
-    .agents/skills/tdd/agents/openai.yaml
-    .agents/skills/tdd/references/mocking.md
-  claude
-    .claude/skills/tdd/SKILL.md
-    .claude/skills/tdd/agents/openai.yaml
-    .claude/skills/tdd/references/mocking.md
+  source       trailofbits/skills   ^2.1 → v2.1.0 (924ffa8)
+  path         plugins/gh-cli/hooks/hooks.json
+  selected by  plugin:gh-cli in palm.yaml
+  program      trusted (sha256:a7cc7911)
+    SessionStart//-   bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/persist-session-id.sh
+    PreToolUse//Bash  bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/intercept-github-curl.sh
+  scripts      .palm/assets/trailofbits__skills/gh-cli/  3 files
+  claude       .claude/settings.json  /hooks/SessionStart, /hooks/PreToolUse
+  codex        .codex/hooks.json  /hooks/SessionStart, /hooks/PreToolUse
+$ palm describe .claude/settings.json
+.claude/settings.json  merged: palm owns 2 entries, the rest is yours
+  /hooks/SessionStart  palm:hook:gh-cli:0  hook gh-cli from trailofbits/skills
+  /hooks/PreToolUse    palm:hook:gh-cli:1  hook gh-cli from trailofbits/skills

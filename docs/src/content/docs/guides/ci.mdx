@@ -1,76 +1,29 @@
 ---
-title: Use palm in CI and scripts
-description: A CI job that fails when palm.yaml, palm.lock.yaml and the installed files disagree, and scripts that never wait for input.
+title: Check the setup in CI
+description: A CI step with palm check fails the pull request when palm.yaml, the lock, the committed files or an in-repo source disagree, and names the command that fixes each problem.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 import Capture from '../../../components/Capture.astro';
 
 A teammate edits a skill in `.claude/` by hand, or adds an entry to `palm.yaml` without running palm.
-Review misses it, and the harnesses on each machine drift apart.
-One CI step with `palm install --frozen` catches both, and palm never waits for input there.
+Review misses it, and the harnesses on each laptop drift apart.
+One CI step, `palm check`, catches both, never prompts and never writes.
 
-When you finish, CI restores missing files from the locked commits and fails on an edited one:
+When you finish, CI passes on a clean branch and fails on an edited file, with the fix on the line:
 
-<Capture name="b-ci-frozen" title="CI: ~/project" />
-
-The first run restores the files a clean checkout lacks.
-The second run finds a local edit and exits 1.
-`palm audit` reports the same edit as a warning and exits 0, because it fails only on hidden Unicode.
+<Capture name="b-ci-check" title="CI: ~/project" />
 
 ## Before you start
 
-- `palm.yaml` and `palm.lock.yaml` committed. See [Share a team baseline](/palm/guides/team-baseline/).
-- Origins that CI can reach: put them under `origins:` in `palm.yaml` with `--project`.
+- `palm.yaml`, `palm.lock.yaml` and the generated files are committed. See [Share a team baseline](/palm/guides/team-baseline/).
+- CI can reach the sources over git. Private sources need a deploy key or token in the runner, as for any git dependency.
 
 ## Steps
 
 <Steps>
 
-1. Name every entity with its origin in scripts.
-
-   ```sh
-   palm install skill tdd@mattpocock
-   ```
-
-   Without a terminal, palm cannot show a picker, so an ambiguous name stops the run.
-   A hook or a stdio MCP server stops it too, until you pass `--yes`:
-
-   <Capture name="b-ci-errors" title="~/project" />
-
-2. Pass `--yes` wherever palm would ask.
-
-   | palm would ask about | Without a terminal and without `--yes` |
-   | --- | --- |
-   | a name that several origins have | `E_AMBIGUOUS`, with the `name@origin` forms to use |
-   | a hook or a stdio MCP server | `E_NON_INTERACTIVE`, naming `--yes` |
-   | applying a `palm update` plan | `E_NON_INTERACTIVE`, naming `palm update --yes` |
-   | which harnesses to use | an error naming `--target` |
-   | a secret under `--secrets literal` | an error naming the variable to export |
-
-   `--yes` settles an ambiguous name only when every candidate has the same content.
-   `palm create` always needs a terminal.
-
-3. Read results as JSON.
-
-   ```sh
-   palm get --json
-   ```
-
-   With `--json`, stdout holds exactly one JSON document and every other line goes to stderr.
-   Lists come as `{ "items": [...] }`, and an error comes as `{ "error": { "code", "message", "hint" } }`.
-
-4. Check the exit code.
-
-   | Code | Meaning |
-   | --- | --- |
-   | 0 | success |
-   | 1 | failure, including an install where one target failed |
-   | 2 | usage error |
-   | 70 | internal error; `--verbose` prints the stack trace |
-   | 130 | cancelled at a prompt |
-
-5. Add the checks to your CI workflow.
+1. Add the job.
 
    ```yaml title=".github/workflows/agents.yml"
    name: agent setup
@@ -84,37 +37,73 @@ The second run finds a local edit and exits 1.
            with:
              node-version: 22
          - run: npm install -g @paliontech/palm
-         - run: palm install --frozen --yes
-         - run: palm audit
+         - run: palm check
    ```
+
+   `palm check` exits 1 when any check fails. Warnings alone exit 0.
+
+2. Read the report when it fails.
+
+   Each check prints one line, `✓` or `x`. Then comes one line per problem, ending in the command that fixes it.
+   Run that command on your machine, review the diff, and commit.
+
+3. Use JSON for anything that parses the result.
+
+   ```sh
+   palm check --json
+   ```
+
+   stdout holds one document shaped `{ ok, checks: [{ id, label, status, problems: [{ entity, file, message, fix }] }], warnings }`.
 
 </Steps>
 
-### What each check covers
+## What palm check covers
 
-| Command | Fails when |
+| Check | Fails when | Fix |
+| --- | --- | --- |
+| `manifest-lock` | an entry of `palm.yaml` has no lock entry, or the reverse; a `ref:` differs from the lock; a plugin filter names nothing | `palm install` |
+| `lock-disk` | a generated file is missing or differs from the render; a merged entry is missing or changed | `palm install`, or `palm install <source> <name> --force` for an edited file |
+| `local-sources` | an in-repo source changed since the lock was written | `palm install`, then commit `palm.lock.yaml` |
+| `exec-trusted` | a hook or stdio server has no trusted hash, or a merged command differs from the lock | `palm install --allow-exec <key>=<hash>` |
+| `hook-scripts` | a hook command names a script that is missing or not executable | `palm install` |
+| `secrets` | a tracked or world-readable generated file holds a literal secret | fix the source, then `palm install <source> <name> --force` |
+| `git-ignored` | an output directory or `.palm/assets` is ignored by git, so teammates never get the files | edit `.gitignore` |
+| `sources-declared` | a lock source is missing from `palm.yaml`, or an in-repo source is missing on disk | `palm install`, or restore the directory |
+| `links` | an output path resolves outside the project, or a source overlaps an output directory | move the source |
+| `hidden-unicode` | a generated file holds a bidi override, a tag character or a rare variation selector | fix the source, then `palm install --force` |
+| `double-load` | warning only: a harness would load one entity twice | palm 0.3 carrier rule |
+| `block-size` | warning above 24 KiB of `AGENTS.md` or `GEMINI.md` blocks; failure above the harness's cap | move entries with `at:` in palm 0.3 |
+
+`palm check` also lists every environment variable the installed MCP servers need, and warns when one is not set.
+Checks that need git are listed as `skipped (not a git repository)` outside a repository.
+Its only network access is fetching a locked commit that is not in the cache, so a cache between runs makes it offline.
+
+## Programs in CI
+
+A trusted hook installs in CI without a flag, because its hash is in the lock.
+A new or changed one stops a bare install with `E_UNTRUSTED_EXEC`, and the error prints the line that consents.
+
+<Capture name="b-ci-errors" title="CI: ~/project" />
+
+Do not paste that `--allow-exec` line into a pipeline.
+Review the program on your machine, where palm shows the scripts, and commit the lock with its new `trust:` hash.
+From then on CI replays it silently, and any later change fails CI again until someone reviews it.
+
+## Scripts that call palm
+
+| palm would ask about | Without a terminal |
 | --- | --- |
-| `palm install --frozen --yes` | `palm.yaml` and the lockfile list different entries or targets, a locked file was edited, or a merged config entry is missing or changed |
-| `palm audit` | a file palm installed holds a bidi override, a tag character or another critical hidden character |
-| `palm doctor` | git is missing, or an origin cannot be reached |
+| running a hook or stdio MCP server | `E_UNTRUSTED_EXEC`, naming the `--allow-exec` line |
+| applying an update plan | `E_NON_INTERACTIVE`, naming `palm update ... --yes` |
+| cleaning the cache | `E_NON_INTERACTIVE`, naming `palm cache clean --yes` |
+| a secret value under `--secrets literal` | `E_NON_INTERACTIVE`, naming `--secrets env-ref` |
 
-`--frozen` never writes `palm.yaml`, `palm.lock.yaml` or `~/.palm/config.yaml`.
-Its only network access is fetching a locked commit that is not in the cache.
-It restores a missing file only when the result matches the hash in the lockfile.
-It also fails when an entry palm merged into a shared file, such as a server in `.mcp.json`, is missing or changed.
-
-`palm doctor` also reports missing files and missing or changed merged entries, as a warning.
-Add `--offline` to skip its reachability check, for example on a runner without network access.
-`--offline` on any command uses cached origins only, and a fresh runner has no cache.
-
-## Check the result
-
-Push a branch that edits a file palm installed, such as a `SKILL.md`.
-The `palm install --frozen --yes` step fails and names the file, as in the session at the top.
+`--yes` accepts every prompt except consent.
+With `--json`, stdout holds exactly one JSON document, and an error is `{ "error": { "code", "message", "hint" }, "warnings": [] }`.
+[Exit codes and errors](/palm/reference/exit-codes/) lists every code.
 
 ## Next steps
 
-- [Share a team baseline](/palm/guides/team-baseline/) sets up what this job checks.
-- [Add an MCP server with a secret](/palm/guides/mcp-secrets/) keeps tokens out of CI logs and git.
-- [Exit codes and errors](/palm/reference/exit-codes/) lists every error code.
-- [Security model](/palm/explanation/security/) explains the consent step and the hidden-Unicode check.
+- [palm check reference](/palm/reference/cli/check/)
+- [Consent and executable content](/palm/concepts/consent/)
+- [Troubleshooting](/palm/reference/troubleshooting/)

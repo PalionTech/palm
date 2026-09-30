@@ -1,0 +1,21 @@
+$ palm install superpowers
+x "superpowers" is not a repository. palm installs from git repositories:
+    palm install <owner/repo> [names...]      for example  palm install obra/superpowers
+  Not sure which repository? https://github.com/search?q=superpowers+SKILL.md&type=code
+$ palm install obra/superpowers
+obra/superpowers  v4.0.3 (a1b2c3d)   15 skills, 1 hook
+  skill  brainstorming             Explore requirements before writing code
+  skill  test-driven-development   Write the failing test first
+  ...
+  hook   session-start             claude: SessionStart -> hooks/run-hook.cmd   (a program; asks before installing)
+Nothing written. Install some:
+    palm install obra/superpowers brainstorming test-driven-development
+    palm install obra/superpowers --all
+$ palm install obra/superpowers --all
+targets: claude   (detected from .claude/; change targets: in palm.yaml)
++ skill  brainstorming             .claude/skills/brainstorming/   3 files
+  ... 14 more
+! hook   session-start             runs a program on your machine; not installed
+    see it:      palm install obra/superpowers session-start --dry-run
+    install it:  palm install obra/superpowers session-start
+15 installed. Commit palm.yaml, palm.lock.yaml and .claude/ together.

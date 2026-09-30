@@ -1,13 +1,13 @@
-$ palm install agent comment-sicko --target claude,codex,copilot,cursor,gemini,opencode
-i saved targets claude, codex, copilot, cursor, gemini, opencode to palm.yaml
-project scope → claude, codex, copilot, cursor, gemini, opencode
-status       kind   name           origin  targets                                      files
-───────────  ─────  ─────────────  ──────  ───────────────────────────────────────────  ─────
-+ installed  agent  comment-sicko  pstack  claude,codex,copilot,cursor,gemini,opencode  6
-1 installed
-$ palm install skill tdd@mattpocock
-project scope → claude, codex, copilot, cursor, gemini, opencode
-status       kind   name  origin      targets                                      files
-───────────  ─────  ────  ──────────  ───────────────────────────────────────────  ─────
-+ installed  skill  tdd   mattpocock  claude,codex,copilot,cursor,gemini,opencode  6
-1 installed
+$ palm init --target claude,codex,copilot,cursor,gemini,opencode
++ palm.yaml   targets: claude, codex, copilot, cursor, gemini, opencode
++ .gitignore  .palm/local/ and palm.local.yaml
+$ palm install anthropics/claude-plugins-official agent-sdk-verifier-py
+i ref main saved to palm.yaml; edit ref: to pin a tag
++ agent  agent-sdk-verifier-py   6 files, one per harness   from anthropics/claude-plugins-official main (bc94689)
+i agent agent-sdk-verifier-py names sdk-helper, context7: palm install anthropics/claude-plugins-official sdk-helper mcp:context7
+i codex: .codex/agents/agent-sdk-verifier-py.toml: dropped model, tools and color (no Codex field)
+1 installed. Commit palm.yaml, palm.lock.yaml, .claude/, .codex/, .cursor/, .gemini/, .github/ and .opencode/ together.
+$ palm install mattpocock/skills tdd
+i ref ^1.2 saved to palm.yaml (latest tag v1.2.3)
++ skill  tdd   .claude/skills/tdd/, .agents/skills/tdd/   6 files   from mattpocock/skills v1.2.3
+1 installed.

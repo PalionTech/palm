@@ -1,20 +1,27 @@
-$ palm install skill tdd@mattpocock --target claude,codex
-i saved targets claude, codex to palm.yaml
-project scope → claude, codex
-status       kind   name  origin      targets       files
-───────────  ─────  ────  ──────────  ────────────  ─────
-+ installed  skill  tdd   mattpocock  claude,codex  6
-1 installed
-$ palm install agent comment-sicko
-project scope → claude, codex
-status       kind   name           origin  targets       files
-───────────  ─────  ─────────────  ──────  ────────────  ─────
-+ installed  agent  comment-sicko  pstack  claude,codex  2
-1 installed
+$ palm install mattpocock/skills tdd handoff
+i ref ^1.2 saved to palm.yaml (latest tag v1.2.3)
++ skill  tdd       .claude/skills/tdd/, .agents/skills/tdd/           6 files   from mattpocock/skills v1.2.3
++ skill  handoff   .claude/skills/handoff/, .agents/skills/handoff/   4 files   from mattpocock/skills v1.2.3
+2 installed. Commit palm.yaml, palm.lock.yaml, .claude/ and .agents/ together.
+$ palm install obra/superpowers plugin:superpowers --dry-run
+This install adds 1 program that will run on your machine.
+
+  1. hook session-start  from obra/superpowers  (commit 1b6aef2, v4.0.3, 2026-09-28)
+     SessionStart  startup|clear|compact   "$CLAUDE_PROJECT_DIR"/.palm/assets/obra__superpowers/session-start/hooks/run-hook.cmd session-start
+     targets: claude (.claude/settings.json), codex (.codex/hooks.json)
+     scripts: 3 files, 2 KB  ->  .palm/assets/obra__superpowers/session-start/  (committed with your repo)
+       hooks/hooks-cursor.json  644   312 B   sha256:0c4d2e19
+       hooks/hooks.json         644   355 B   sha256:8b17f0a3
+       hooks/run-hook.cmd       755   1.3 KB  sha256:e5a9c410
+
++ would install  skill  brainstorming             2 files   via plugin:superpowers
++ would install  skill  test-driven-development   6 files   via plugin:superpowers
++ would install  skill  writing-skills            4 files   via plugin:superpowers
++ would install  hook   session-start             3 asset files, 2 merged entries   via plugin:superpowers
+i would save obra/superpowers with ref ^4.0 to palm.yaml
+dry run: nothing written
+$ rm -r .claude/skills/handoff
 $ palm install
-project scope → claude, codex
-status       kind   name           origin      targets       files
-───────────  ─────  ─────────────  ──────────  ────────────  ─────
-= unchanged  skill  tdd            mattpocock  claude,codex  6
-= unchanged  agent  comment-sicko  pstack      claude,codex  2
-2 unchanged
+↺ restored   skill  handoff   .claude/skills/handoff/SKILL.md, .claude/skills/handoff/agents/openai.yaml
+= unchanged  skill  tdd       mattpocock/skills v1.2.3
+1 restored, 1 unchanged.

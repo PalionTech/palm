@@ -1,106 +1,83 @@
 ---
 title: Set up a new project
-description: A project whose skill, agent, MCP server and lockfile are committed, so every clone starts from the same setup.
+description: A project with two skills, an agent and an MCP server for Claude Code and Codex, committed in one go and passing palm check.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 import Capture from '../../../components/Capture.astro';
 import CaptureTree from '../../../components/CaptureTree.astro';
 
-A new repository needs the same skills, agents and MCP servers in Claude Code and in Codex.
-Copying them by hand means two folders, two config files and no record of where anything came from.
-With palm it takes four commands, and a lockfile records every file for the next developer.
+You start a service and want your agents to test first, review Python Agent SDK code and read your internal docs.
+Four commands give Claude Code and Codex the same setup, and one commit gives it to everyone else.
 
-When you finish, the project holds these files:
+When you finish, these files exist and all of them are committed:
 
-<CaptureTree name="b-new-project" depth={3} />
-
-`palm.yaml` lists what you asked for, and `palm.lock.yaml` records each file palm wrote.
-The sessions on this page ran against palm's test fixtures, which mirror `mattpocock/skills` and `anthropics/claude-plugins-official`.
+<CaptureTree name="b-new-project" />
 
 ## Before you start
 
-- palm, git and Node 22 or later. See [Installation](/palm/getting-started/install/).
-- A git repository for the project.
+- palm is installed, and the project is a git repository.
+- You know which harnesses the team uses. This guide uses Claude Code and Codex.
 
 ## Steps
 
 <Steps>
 
-1. Add the two origins. An **origin** is a repository palm installs from.
-
-   ```sh
-   palm install origin mattpocock/skills
-   palm install origin anthropics/claude-plugins-official --alias official
-   ```
-
-   palm clones each repository, scans it and saves it in `~/.palm/config.yaml`.
-
-2. Choose the harnesses for this project.
+1. Declare the targets.
 
    ```sh
    palm init --target claude,codex
    ```
 
-   palm writes `targets: [claude, codex]` to `palm.yaml` and adds `.palm/` to `.gitignore`.
-   Inside a git repository, palm creates `.gitignore` when there is none.
-   `.palm/` holds the hook scripts palm copies, and those stay out of git.
+   Committing `targets:` means every clone installs for the same harnesses, whatever each laptop has.
 
-3. Install a skill.
+2. Install two skills from one repository.
 
    ```sh
-   palm install skill tdd@mattpocock
+   palm install mattpocock/skills tdd grill-me
    ```
 
-   `@mattpocock` names the origin. You can leave it out when only one origin has a skill called `tdd`.
+   Name as many entities as you want after the source.
+   Not sure what a repository offers? Run `palm install mattpocock/skills` first. It lists everything and writes nothing.
 
-4. Install an agent (subagent) together with its dependencies.
+3. Install an agent from another repository.
 
    ```sh
-   palm install agent agent-sdk-verifier-py
+   palm install anthropics/claude-plugins-official agent-sdk-verifier-py
    ```
 
-   An agent file can name the skills and MCP servers it uses, and palm installs them with it.
-   In the fixture, the agent names the skill `sdk-helper` and the MCP server `context7`.
+   The agent names a skill and an MCP server it likes to use. palm prints the command for them and installs only what you named.
 
-5. Add an MCP server of your own.
+4. Add the docs MCP server.
 
    ```sh
-   palm install mcp docs --url https://docs.example.com/mcp
+   palm install mcp docs --url https://docs.example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
    ```
 
-   The server declares no token, so each harness starts OAuth the first time it connects.
+   The token stays in your environment. Each harness gets its own spelling of the reference.
 
-6. Commit the manifest, the lockfile and the files palm wrote.
+   <Capture name="b-new-project" title="~/project" />
+
+5. Check and commit.
 
    ```sh
+   palm check
    git add -A
-   git commit -m "Set up coding agents with palm"
+   git commit -m "Add the agent setup"
    ```
 
 </Steps>
 
 ## Check the result
 
-This is the recorded session for steps 2 to 5:
-
-<Capture name="b-new-project" title="~/project" />
-
-Each line that starts with `+` is one entity palm installed.
-The two marked `(agent:agent-sdk-verifier-py)` came in as dependencies of the agent.
-The `i` line for Codex lists the agent fields its format has no place for.
-
-Now read the manifest, the ignore file and the list of installed entities:
-
 <Capture name="b-new-project-result" title="~/project" />
 
-`palm get` lists five entities.
-The `via` column names the agent that pulled in `sdk-helper` and `context7`.
-`palm.yaml` lists only the three you asked for, because palm resolves the rest from the agent again.
+`palm.yaml` reads like a dependency list: two sources with their ranges, what you took from each, and one hand-declared server.
+`palm check` passes with one warning, because `DOCS_TOKEN` is not set in this shell.
+Export it before you start Claude Code or Codex, and the warning goes away.
 
 ## Next steps
 
-- [One setup, six harnesses](/palm/guides/six-harnesses/) adds Copilot, Cursor, Gemini CLI and OpenCode.
-- [Share a team baseline](/palm/guides/team-baseline/) gives every clone the same commits.
-- [Add an MCP server with a secret](/palm/guides/mcp-secrets/) keeps tokens out of git.
-- [Manifest and lockfile](/palm/concepts/manifest-and-lockfile/) explains the two files you committed.
+- Add the same check to CI. See [Check the setup in CI](/palm/guides/ci/).
+- Invite the team. See [Share a team baseline](/palm/guides/team-baseline/).
+- Write a project-specific skill with `palm create skill <name>`. See [Publish your own source](/palm/guides/publish-your-own/).

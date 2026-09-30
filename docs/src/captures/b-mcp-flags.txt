@@ -1,0 +1,18 @@
+$ palm install mcp docs --url https://docs.example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
++ mcp  docs   .mcp.json, .codex/config.toml, .cursor/mcp.json   http   needs DOCS_TOKEN (not set)
+i export DOCS_TOKEN before starting Claude Code, Codex or Cursor
+1 installed. Commit palm.yaml, palm.lock.yaml, .mcp.json, .codex/ and .cursor/ together.
+$ palm install mcp xcodebuild --command npx --arg -y --arg xcodebuildmcp@latest
+This install adds 1 program that will run on your machine.
+
+  1. mcp xcodebuild  from palm.yaml
+     stdio  npx -y xcodebuildmcp@latest   env: none
+     targets: claude (.mcp.json), codex (.codex/config.toml), cursor (.cursor/mcp.json)
+
+x 1 program needs your consent and there is no terminal
+  review:  palm install mcp xcodebuild --command npx --arg -y --arg xcodebuildmcp@latest --dry-run
+  then:    palm install mcp xcodebuild --command npx --arg -y --arg xcodebuildmcp@latest --allow-exec mcp:xcodebuild@manifest=sha256:75aafd9b
+$ palm install mcp xcodebuild --command npx --arg -y --arg xcodebuildmcp@latest --allow-exec mcp:xcodebuild@manifest=sha256:75aafd9b
++ mcp  xcodebuild   .mcp.json, .codex/config.toml, .cursor/mcp.json   stdio
+i trusted mcp xcodebuild (sha256:75aafd9b): teammates and CI install it without asking while the hash matches
+1 installed.

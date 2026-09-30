@@ -1,0 +1,80 @@
+---
+title: palm migrate
+description: Convert a palm 0.1 project or global scope to the 0.2 format, adopt every file that already matches, and print what to commit. Ships with 0.2 only.
+---
+
+import Capture from '../../../../components/Capture.astro';
+
+`palm migrate` reads the palm 0.1 `palm.yaml`, lockfile and `~/.palm/config.yaml`, and writes the 0.2 `palm.yaml` and lock.
+It ships with palm 0.2 and is removed in 0.3.
+
+```sh
+palm migrate [--dry-run]
+palm migrate -g [--dry-run]
+```
+
+| Command | What it does |
+| --- | --- |
+| `palm migrate --dry-run` | Print the new `palm.yaml` to stdout and write nothing. |
+| `palm migrate` | Migrate the project, adopt matching files, print what to commit. |
+| `palm migrate -g` | Migrate `~/.palm`, with tokens for harness homes and a list of literal secrets. |
+
+<Capture name="b-migrate" title="~/project" />
+
+## Options
+
+{/* cli-reference:options migrate */}
+
+No options of its own. The [global options](/palm/reference/cli/#global-options) apply.
+
+{/* /cli-reference */}
+
+## Behavior
+
+1. Every repository alias the old lock references becomes a source in `palm.yaml`, with the URL, root, layout and locked ref. The key is `owner/repo` for a GitHub URL, else the alias, and an alias that differs from the key is kept as `alias:`.
+2. `name@alias#ref` becomes an entry under its source. When entries of one source disagree on refs, the most common ref wins, and palm prints one line per other entry.
+3. A plugin becomes a `plugins:` entry, with `exclude:` for members you had uninstalled. A command becomes a skill of the same name.
+4. An MCP server from the MCP registry is copied from the rendered `.mcp.json`, or the harness file that has it, into `mcp:`.
+5. An entry on a target outside the project's set becomes per-entry `targets:`, with a note. An entry from `~/.palm/mine` warns and names the folder to copy the file into.
+6. `.palm/hooks/<name>/` is re-copied from the locked commit into `.palm/assets/<source>/<name>/`, then deleted. The `.palm/` line in `.gitignore` becomes `.palm/local/` and `palm.local.yaml`.
+7. palm prints the programs it re-copied, once, for one consent. The trust goes into the new lock.
+8. A bare install adopts every file that already matches, and the report lists the files to commit.
+
+A source that came from `~/.palm/config.yaml` prints `~ palm.yaml: source <name> added from ~/.palm/config.yaml, needed by <n> entries; commit it`.
+
+## Global scope
+
+Under `-g`, palm migrates `~/.palm/palm.yaml` and its lock.
+It rewrites absolute paths as tokens such as `<claude>/skills/tdd`, lists every literal secret in the harness files with the advice to rotate it, and leaves `~/.palm/config.yaml` in place.
+
+```text
+i ~/.palm/config.yaml is no longer read; delete it
+```
+
+## Reads and writes
+
+| File | Reads | Writes |
+| --- | --- | --- |
+| `palm.yaml` (0.1) | yes | the 0.2 format |
+| `palm.lock.yaml` (version 1 or 2) | yes | version 3 |
+| `~/.palm/config.yaml` | yes | never |
+| `.palm/hooks/` | yes | deleted after the copy |
+| `.palm/assets/` | no | the re-copied scripts |
+| `.gitignore` | yes | the new ignore lines |
+
+Every other palm command stops on the old files with `x palm.yaml is in the 0.1 format` or `x palm.lock.yaml is version 2 (palm 0.1)`, and the hint `palm migrate`.
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | The scope was migrated, or `--dry-run` printed the new `palm.yaml`. |
+| `1` | A repository could not be fetched, a program needs consent without a terminal, or a file could not be adopted. |
+| `2` | An unknown option. |
+| `130` | You declined consent or pressed Ctrl-C. |
+
+## Related
+
+- [Migrate from palm 0.1](/palm/guides/migrate-from-0-1/)
+- [palm.yaml reference](/palm/reference/palm-yaml/)
+- [palm.lock.yaml reference](/palm/reference/palm-lock-yaml/)

@@ -1,0 +1,99 @@
+---
+title: Add MCP servers
+description: Declare an MCP server once, from a source, a README snippet, flags or by hand, and palm writes it into every harness's config with secrets as environment references.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Capture from '../../../components/Capture.astro';
+
+Every MCP server's README shows a JSON block for `mcpServers`.
+Six harnesses want that block in six files, with six ways to spell an environment variable.
+palm takes the block once and writes all six, with no secret in any of them.
+
+<Capture name="b-mcp-snippet" title="~/project" />
+
+## Four ways in
+
+| Way | Command | Use it when |
+| --- | --- | --- |
+| From a source | `palm install <source> mcp:<name>` | a repository or plugin ships the server in its `.mcp.json` |
+| From a README snippet | `palm install mcp --json -` | the server's README shows a JSON block |
+| By flags | `palm install mcp <name> --url ...` or `--command ...` | you know the URL or command |
+| By hand | an entry under `mcp:` in `palm.yaml`, then `palm install` | you prefer to edit YAML |
+
+All four end in the same entry, so `palm get mcp` lists every server with the variables it needs, and `palm describe mcp <name>` prints the block each harness received.
+palm has no registry client and never searches for a server by name.
+
+## From a README snippet
+
+<Steps>
+
+1. Copy the JSON block from the README.
+
+2. Pipe it into palm.
+
+   ```sh
+   pbpaste | palm install mcp --json -
+   ```
+
+   On Linux, use `xclip -o` or `wl-paste`. `--json server.json` reads a file instead.
+
+3. Export the variables palm names, and restart the harness.
+
+</Steps>
+
+palm reads the `{ "mcpServers": { ... } }` form, the flat form without the wrapper, and VS Code's `servers` form.
+Every server in the block becomes an `mcp:` entry in `palm.yaml`.
+A literal secret in the snippet becomes `${NAME}`, with a notice.
+A server name that already exists stops with `E_CONFLICT` unless you pass `--force`.
+
+## By flags
+
+<Capture name="b-mcp-flags" title="~/project" />
+
+| Flag | For |
+| --- | --- |
+| `--url <url>` | a remote server |
+| `--header <K=V>` | a request header, repeatable |
+| `--command <program>` | a stdio server |
+| `--arg <value>` | one argument, repeatable, in order |
+| `--env <K=V>` | an environment variable, repeatable |
+| `--transport http\|sse\|stdio` | when palm cannot infer it from the other flags |
+
+Quote a value that holds `${...}`, so your shell does not expand it.
+
+## Stdio servers run programs
+
+A remote server only needs a URL, and nothing runs on your machine.
+A stdio server is a program the harness starts with your permissions, so it goes through [consent](/palm/concepts/consent/) like a hook.
+palm shows the command, arguments, working directory and environment keys, and pins your yes by hash in the lock.
+Without a terminal, the error prints the `--allow-exec` line, as in the session above.
+
+## What each harness receives
+
+<Capture name="b-mcp-describe" title="~/project" />
+
+| Harness | File | Key |
+| --- | --- | --- |
+| Claude Code | `.mcp.json` | `mcpServers` |
+| Codex | `.codex/config.toml` | `[mcp_servers.<name>]` |
+| GitHub Copilot | `.vscode/mcp.json` | `servers` |
+| Cursor | `.cursor/mcp.json` | `mcpServers` |
+| Gemini CLI | `.gemini/settings.json` | `mcpServers` |
+| OpenCode | `opencode.json` | `mcp` |
+
+palm merges its entry into the file and keeps your other servers.
+`palm remove docs` takes out exactly that entry, and deletes a JSON file left as `{}`.
+
+## In your home directory
+
+Add `-g` to any of these commands, and palm writes to the harness home files, such as `~/.claude.json` or `~/.codex/config.toml`, and declares the server in `~/.palm/palm.yaml`.
+The global scope writes environment references too.
+A literal secret needs `--secrets literal` there.
+palm writes it only when the file's real path lies outside every git worktree, so it never lands in a dotfiles repository.
+
+## Next steps
+
+- [Secrets](/palm/concepts/secrets/)
+- [palm install reference](/palm/reference/cli/install/#mcp-servers)
+- [Targets matrix](/palm/reference/targets-matrix/#mcp-servers)

@@ -1,11 +1,8 @@
-$ palm install target claude
-x palm install does not take targets
-  targets are chosen per command: palm install skill <name> --target claude,codex
-$ palm install skill tdd
-x "tdd" matches 2 entities
-  use name@origin: tdd@mattpocock, tdd@pstack
-$ palm install mcp fs -- npx -y @modelcontextprotocol/server-filesystem .
-i This install adds a command that runs on your machine:
-i   mcp fs: npx -y @modelcontextprotocol/server-filesystem .
-x palm will not install a command that runs on your machine without your consent
-  review them above (or with --dry-run), then run: palm install mcp fs --yes -- npx -y @modelcontextprotocol/server-filesystem .
+$ palm install tdd
+x "tdd" is not a repository. palm installs from git repositories:
+    palm install <owner/repo> tdd             for example  palm install mattpocock/skills tdd
+$ palm install mattpocock/skills tdd-coach
+x mattpocock/skills has no tdd-coach. Did you mean tdd?
+    palm install mattpocock/skills tdd
+$ palm doctor
+x palm doctor was removed in 0.2; run palm check

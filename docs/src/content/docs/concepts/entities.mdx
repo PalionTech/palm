@@ -1,0 +1,98 @@
+---
+title: Entities and kinds
+description: An entity is one skill, agent, instruction, hook or MCP server in a source. A plugin selects several, and a command installs as a skill.
+---
+
+import Capture from '../../../components/Capture.astro';
+
+An **entity** is one item palm installs: a skill, an agent (subagent), an instruction, a hook or an MCP server.
+Its **kind** decides which file each harness gets. Every entity is named within its source.
+
+<Capture name="a-entities" title="~/project" />
+
+Listing a source shows every entity it offers, one row per entity, with the kind first.
+Hooks and stdio MCP servers carry the note `(a program; asks before installing)`.
+The warnings name what palm found and will not install.
+
+## Five kinds
+
+| Kind | What it is | A harness reads it as |
+| --- | --- | --- |
+| `skill` | A folder with a `SKILL.md`, plus optional `scripts/`, `references/` and `assets/`. The harness loads it on demand. | a skill folder |
+| `agent` | An agent (subagent). One file holds a system prompt, a delegation description, tools and a model. | an agent file in the harness's format |
+| `instruction` | Markdown context that is always on, scoped to paths, or loaded on request. It advises the model and enforces nothing. | a rule file, or a managed block in `AGENTS.md` or `GEMINI.md` |
+| `hook` | Lifecycle events, matchers and shell commands. It runs programs on your machine. | entries merged into the harness's settings or hooks file |
+| `mcp` | An MCP server connection, either a command that starts it (stdio) or a URL (HTTP). | an entry merged into the harness's MCP config |
+
+The [targets matrix](/palm/reference/targets-matrix/) lists the exact path per kind and harness.
+
+## Plugins select, they do not install
+
+A **plugin** is a set of entities that a source groups together, usually with a `plugin.json`.
+In palm a plugin is a selector over a source's entities, never something that lands in a harness as a unit.
+
+```sh
+palm install obra/superpowers plugin:superpowers
+```
+
+That command installs every member of the plugin and records `plugins: [superpowers]` in `palm.yaml`.
+Each member gets its own lock entry with `via: plugin:superpowers`.
+To drop one member for the whole team, exclude it.
+
+```yaml title="palm.yaml"
+sources:
+  obra/superpowers:
+    ref: ^4.0
+    plugins:
+      - name: superpowers
+        exclude: [skill:brainstorming]
+```
+
+A plugin's hook is a member like any other and asks for consent on its own.
+[Install plugins and marketplaces](/palm/guides/plugins-and-marketplaces/) shows the full flow.
+
+## Commands install as skills
+
+Claude Code and Cursor merged slash commands into skills, and Codex and Copilot deprecate prompt files.
+palm has no command kind.
+A `commands/*.md`, `commands/*.toml` or `prompts/*.prompt.md` file in a source is indexed as a skill of the same name and installed to the skill paths, with a note.
+
+`$ARGUMENTS` keeps working in Claude Code and Cursor.
+Where a harness does not expand it, the install note says so.
+When a skill and a command in one source share a name, the skill wins and palm warns.
+
+## Naming an entity
+
+After the source, you name entities, optionally with a kind prefix.
+
+```sh
+palm install mattpocock/skills tdd grill-me
+palm install anthropics/claude-plugins-official mcp:context7
+palm remove anthropics/claude-plugins-official mcp:context7
+```
+
+The prefix is needed only when one name means two kinds in that source, such as a plugin and an MCP server both called `context7`.
+palm then stops with `E_AMBIGUOUS` and lists the `kind:name` forms.
+`--all` takes every entity except those that run a program.
+
+An entity name is one path segment of letters, digits, `.`, `_` and `-`, starting with a letter or a digit.
+A skill takes the `name` in its `SKILL.md`, else its folder name. An agent takes its file name without `.md` or `.agent.md`.
+The [scan rules](/palm/reference/scan-rules/#names-and-versions) list the source of every other name.
+
+## Agents name, palm does not chase
+
+An agent file may list the skills and MCP servers it uses.
+palm installs the agent and prints one line with the command for the rest.
+
+```text
+i agent agent-sdk-verifier-py names sdk-helper, context7: palm install anthropics/claude-plugins-official sdk-helper mcp:context7
+```
+
+palm never installs dependencies you did not name, so a removal never takes something another entry needs.
+
+## Related
+
+- [Targets matrix](/palm/reference/targets-matrix/)
+- [Consent and executable content](/palm/concepts/consent/)
+- [Scan rules](/palm/reference/scan-rules/)
+- [Glossary](/palm/reference/glossary/)

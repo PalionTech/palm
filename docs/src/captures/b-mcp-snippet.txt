@@ -1,0 +1,17 @@
+$ palm install mcp --json - <<'JSON'
+{
+  "mcpServers": {
+    "github": {
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": { "Authorization": "Bearer ${GITHUB_PAT}" }
+    }
+  }
+}
+JSON
++ mcp  github   .mcp.json, .codex/config.toml, .vscode/mcp.json, .cursor/mcp.json, .gemini/settings.json, opencode.json   http   needs GITHUB_PAT (not set)
+i export GITHUB_PAT before starting your harnesses
+1 installed. Commit palm.yaml, palm.lock.yaml and the six MCP config files together.
+$ palm get mcp
+name    transport  source     targets  needs
+──────  ─────────  ─────────  ───────  ────────────────────
+github  http       palm.yaml  6        GITHUB_PAT (not set)

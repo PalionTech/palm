@@ -1,0 +1,107 @@
+---
+title: palm remove
+description: Delete exactly the files and merged config entries an entity wrote, and update palm.yaml and the lock.
+---
+
+import Capture from '../../../../components/Capture.astro';
+
+`palm remove` deletes exactly what the lock says an entity wrote, then drops it from `palm.yaml` and the lock.
+
+```sh
+palm remove [source] <[kind:]name...> [--exclude]
+```
+
+Aliases: `palm uninstall`, `palm rm`.
+
+| Command | What it does |
+| --- | --- |
+| `palm remove tdd` | Remove the entity named `tdd`, from whichever source it came from. |
+| `palm remove mattpocock/skills tdd handoff` | Remove two entities of one source. |
+| `palm remove obra/superpowers brainstorming --exclude` | Drop one plugin member for the whole team. |
+| `palm remove obra/superpowers plugin:superpowers` | Remove a plugin and every member no other plugin declares. |
+| `palm remove mcp:docs` | Remove a hand-declared MCP server. |
+| `palm remove handoff -g` | Remove from your home directory. |
+
+<Capture name="c-remove" title="~/project" />
+
+## Options
+
+{/* cli-reference:options remove */}
+
+| Argument | Meaning |
+| --- | --- |
+| `source` | a declared source name or alias; needed when the name exists in two sources |
+| `names` | entity names, with a kind: prefix when one name means two kinds |
+
+| Option | Meaning |
+| --- | --- |
+| `--exclude` | for a plugin member: add it to the plugin's exclude list for the team |
+
+The [global options](/palm/reference/cli/#global-options) also apply.
+
+{/* /cli-reference */}
+
+## Behavior
+
+palm selects each entity by name, by kind when a name means two kinds, and by source when a name exists in two sources.
+It then undoes exactly what the lock lists.
+
+- Files by path. Folders palm emptied are removed, up to but never including the harness folders such as `.claude` or `.github`.
+- Merged entries by identity: a hook inside `.claude/settings.json`, a server inside `.mcp.json`, a block in `AGENTS.md`. Your own entries in the same file stay. A JSON, TOML or Markdown file left empty is deleted.
+- The entity's `.palm/assets/<source>/<entity>/` folder.
+
+palm then removes the entry from `palm.yaml` and the lock.
+A source with no entries left is dropped from both.
+
+In a project, the result is a set of deleted and edited files that you commit.
+A teammate's `git pull` removes the entity for them, with no palm run.
+Under `-g`, `~/.palm/applied.yaml` records the removal, and `palm install -g` on another machine repeats it.
+
+## Plugin members
+
+A member installed through a plugin cannot be removed on its own name alone, because the plugin would bring it back.
+
+```text
+x brainstorming belongs to plugin superpowers: exclude it for the team (palm remove obra/superpowers brainstorming --exclude) or remove the plugin
+```
+
+`--exclude` adds `skill:brainstorming` to the plugin entry's `exclude:` list and removes the member.
+Removing a plugin removes its members, except a member another installed plugin still declares. That member stays, and a warning names the command that removes both.
+
+## Reads and writes
+
+| File | Reads | Writes |
+| --- | --- | --- |
+| `palm.yaml` | yes | removes entries, empty sections and sources with no entries |
+| `palm.lock.yaml` | yes | removes entries and unused sources |
+| harness files | yes, to compare with the render | deletes files, removes merged entries |
+| `.palm/assets/` | no | deletes the entity's folder |
+
+## What it refuses
+
+A file you changed since palm wrote it stops the removal, and the entity stays installed and locked.
+
+```text
+x skill tdd: .claude/skills/tdd/SKILL.md was modified since install
+    palm remove mattpocock/skills tdd --force
+```
+
+`--force` deletes the changed file too.
+palm never deletes a path whose real path is inside a declared source, `--force` included.
+
+Removing something that is not installed prints `i <name> is not installed` and exits 0.
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | Every named entity is removed, or was not installed. |
+| `1` | A file was modified since install, a plugin member was named without `--exclude`, a name exists in two sources, or a file could not be removed. |
+| `2` | No name, an unknown option, or `--local`. |
+| `130` | You pressed Esc or Ctrl-C at a prompt. |
+
+## Related
+
+- [palm install](/palm/reference/cli/install/)
+- [Install plugins and marketplaces](/palm/guides/plugins-and-marketplaces/)
+- [palm.yaml and palm.lock.yaml](/palm/concepts/manifest-and-lockfile/)

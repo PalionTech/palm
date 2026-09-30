@@ -1,583 +1,404 @@
 // Terminal sessions recorded by scripts/capture.mjs for the docs.
 //
-// A spec runs in a fresh sandbox home (printed as ~) with an empty project at ~/project:
+// REGENERATE BEFORE RELEASE. The palm 0.2 docs were rewritten before the 0.2 CLI existed, so every
+// src/captures/*.txt was written by hand from the contract (DESIGN.md, PLAN.md section 4.9). Build
+// the CLI and run `npm run capture` to replace them with real output, then delete this note.
+// `npm run capture:check` fails until then.
+//
+// A spec runs in a fresh sandbox home (printed as ~) with an empty git project at ~/project:
 //   name       output file: src/captures/<name>.txt (and <name>.files.txt with `files: true`)
-//   origins    fixture origins: test/fixtures/<fixture> is copied to ~/src/<dir> and added with
-//              `palm origin add ~/src/<dir> --alias <alias>` before the shown commands (not shown)
-//   setup      steps run after the origins and before the shown commands (not shown)
+//   sources    git repositories served as https://github.com/<repo> (see capture.mjs):
+//              { fixture: '<dir in test/fixtures>', repo: 'owner/repo', tags: ['v1.2.3'] }, or
+//              { repo, tags, sh: '<bash that writes the files, run in the empty repository>' }
+//   setup      steps run before the shown commands (not shown)
 //   commands   steps run in ~/project and shown with their real output. A step is a palm argument
 //              list (an argument starting with ~/ or file://~/ is expanded as a shell would),
 //              { palm: [...], exit: n } for a command expected to exit n, or { sh: '<bash>' } for
-//              a shell command ($FIXTURES is test/fixtures; git commits get a fixed identity and
-//              date, so their shas repeat). Every step must exit 0 unless it names `exit`.
+//              a shell command. In shell steps `palm` is on PATH, $FIXTURES is test/fixtures and
+//              $SRC is ~/src; git commits get a fixed identity and date, so shas repeat. Every
+//              step must exit 0 unless it names `exit`. `{{allow-exec}}` in a step is replaced by
+//              the --allow-exec value an earlier step printed.
 //   files      also record which files under ~/project the shown commands created or changed
 //
 // Pages include a capture with <Capture name="..." /> and its files with <CaptureTree name="..." />.
+// Names: `landing`, a- for getting started, concepts and explanation, b- for guides, c- for reference.
+
+const ALL_TARGETS = 'claude,codex,copilot,cursor,gemini,opencode';
+
+const MATT = { fixture: 'mattpocock-like', repo: 'mattpocock/skills', tags: ['v1.2.0', 'v1.2.3'] };
+const SUPERPOWERS = { fixture: 'superpowers-like', repo: 'obra/superpowers', tags: ['v4.0.3'] };
+const OFFICIAL = {
+  fixture: 'claude-plugins-official-like',
+  repo: 'anthropics/claude-plugins-official',
+};
+const TEAM_KIT = {
+  fixture: 'cursor-monorepo-like/team-kit',
+  repo: 'acme/agent-kit',
+  tags: ['v1.0.0'],
+};
+const CURSOR_PLUGINS = { fixture: 'cursor-monorepo-like', repo: 'cursor/plugins' };
+const APM = { fixture: 'apm-like', repo: 'acme/standards', tags: ['v1.0.0'] };
+const UNICODE = { fixture: 'hidden-unicode-like', repo: 'acme/unicode-demo', tags: ['v1.0.0'] };
+
+// A plugin with two hook scripts, shaped like trailofbits/skills' gh-cli plugin (DESIGN.md section 7).
+const GH_CLI = {
+  repo: 'trailofbits/skills',
+  tags: ['v2.1.0'],
+  sh: `mkdir -p .claude-plugin plugins/gh-cli/.claude-plugin plugins/gh-cli/hooks
+cat > .claude-plugin/marketplace.json <<'JSON'
+{ "name": "trailofbits", "owner": { "name": "Trail of Bits" },
+  "plugins": [{ "name": "gh-cli", "source": "./plugins/gh-cli", "description": "Route GitHub calls through gh" }] }
+JSON
+cat > plugins/gh-cli/.claude-plugin/plugin.json <<'JSON'
+{ "name": "gh-cli", "version": "2.1.0", "description": "Route GitHub calls through gh" }
+JSON
+cat > plugins/gh-cli/hooks/hooks.json <<'JSON'
+{ "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "bash $CLAUDE_PLUGIN_ROOT/hooks/persist-session-id.sh" }] }],
+    "PreToolUse": [{ "matcher": "Bash", "hooks": [{ "type": "command", "command": "bash $CLAUDE_PLUGIN_ROOT/hooks/intercept-github-curl.sh" }] }] } }
+JSON
+printf '#!/bin/sh\\necho "$CLAUDE_SESSION_ID" > .gh-session\\n' > plugins/gh-cli/hooks/persist-session-id.sh
+printf '#!/bin/sh\\ngrep -q "curl https://api.github.com" && echo "use gh api instead" >&2 && exit 2\\nexit 0\\n' > plugins/gh-cli/hooks/intercept-github-curl.sh
+chmod 755 plugins/gh-cli/hooks/*.sh`,
+};
+
+// palm 0.1 files for the migration captures: an old palm.yaml, a version 2 lockfile, the old
+// ~/.palm/config.yaml and the generated skill files, for mattpocock/skills at v1.2.3.
+const PALM_01_PROJECT = `sha=$(git -C "$SRC/mattpocock/skills" rev-parse HEAD)
+mkdir -p ~/.palm .claude/skills .agents/skills
+cat > ~/.palm/config.yaml <<'YAML'
+origins:
+  - alias: mattpocock
+    type: git
+    url: https://github.com/mattpocock/skills.git
+YAML
+cat > palm.yaml <<'YAML'
+targets: [claude, codex]
+skills:
+  - tdd@mattpocock
+  - handoff@mattpocock
+  - grill-me@mattpocock#v1.2.0
+YAML
+{
+  echo "version: 2"
+  echo "entries:"
+  for s in engineering/tdd productivity/handoff engineering/grill-me; do
+    n=\${s#*/}
+    cp -R "$SRC/mattpocock/skills/skills/$s" .claude/skills/
+    cp -R "$SRC/mattpocock/skills/skills/$s" .agents/skills/
+    ref=v1.2.3; [ "$n" = grill-me ] && ref=v1.2.0
+    echo "  - { kind: skill, name: $n, origin: mattpocock, ref: $ref, sha: $sha, path: skills/$s, targets: [claude, codex] }"
+  done
+} > palm.lock.yaml
+printf 'node_modules/\\n.palm/\\n' > .gitignore
+git add -A && git commit -qm "palm 0.1 setup"`;
 
 export const specs = [
-  {
-    name: 'palm-help',
-    commands: [['--help']],
-  },
+  // Landing page and "What is palm".
   {
     name: 'landing',
-    origins: [
-      { fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' },
-      { fixture: 'cursor-monorepo-like/pstack', dir: 'pstack', alias: 'pstack' },
-    ],
+    sources: [MATT, OFFICIAL],
     commands: [
-      [
-        'install',
-        'agent',
-        'comment-sicko',
-        '--target',
-        'claude,codex,copilot,cursor,gemini,opencode',
-      ],
-      ['install', 'skill', 'tdd@mattpocock'],
+      ['init', '--target', ALL_TARGETS],
+      ['install', 'anthropics/claude-plugins-official', 'agent-sdk-verifier-py'],
+      ['install', 'mattpocock/skills', 'tdd'],
     ],
     files: true,
   },
-  // Section A: landing, getting started, concepts and explanation pages. Names start with a-.
+
+  // Section A: getting started, concepts and explanation pages.
   {
-    name: 'a-ambiguity',
-    origins: [
-      { fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' },
-      { fixture: 'cursor-monorepo-like/pstack', dir: 'pstack', alias: 'pstack' },
-    ],
+    // PLAN.md section 4.9, Nora: Claude Code only, an empty project with .claude/.
+    name: 'a-onboarding-nora',
+    sources: [SUPERPOWERS],
+    setup: [{ sh: 'mkdir .claude' }],
     commands: [
-      ['search', 'skill', 'tdd'],
-      ['install', 'skill', 'tdd@mattpocock', '--target', 'claude,cursor'],
+      { palm: ['install', 'superpowers'], exit: 2 },
+      ['install', 'obra/superpowers'],
+      ['install', 'obra/superpowers', '--all'],
     ],
   },
   {
+    // PLAN.md section 4.9, Lena: Cursor only, typed a skill name first.
+    name: 'a-onboarding-lena',
+    sources: [MATT],
+    setup: [{ sh: 'mkdir .cursor' }],
+    commands: [{ palm: ['install', 'tdd'], exit: 2 }, ['install', 'mattpocock/skills', 'tdd']],
+  },
+  {
     name: 'a-quick-start',
-    origins: [{ fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' }],
+    sources: [MATT],
     commands: [
       ['init', '--target', 'claude,codex'],
-      ['get', 'skills', '--available'],
-      ['install', 'skill', 'grill-me'],
+      ['install', 'mattpocock/skills'],
+      ['install', 'mattpocock/skills', 'grill-me'],
     ],
     files: true,
   },
   {
     name: 'a-quick-start-remove',
-    origins: [{ fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' }],
-    commands: [
-      ['install', 'skill', 'grill-me', '--target', 'claude,codex'],
-      ['uninstall', 'skill', 'grill-me'],
-      ['get'],
+    sources: [MATT],
+    setup: [
+      ['init', '--target', 'claude,codex'],
+      ['install', 'mattpocock/skills', 'grill-me'],
     ],
+    commands: [['check'], ['remove', 'grill-me'], ['get']],
     files: true,
+  },
+  {
+    name: 'a-sources',
+    sources: [MATT],
+    setup: [['init', '--target', 'claude']],
+    commands: [
+      ['install', 'mattpocock/skills', 'tdd'],
+      ['get', 'sources'],
+      { sh: 'cat palm.yaml' },
+    ],
+  },
+  {
+    name: 'a-entities',
+    sources: [OFFICIAL],
+    commands: [['install', 'anthropics/claude-plugins-official']],
   },
   {
     name: 'a-targets',
-    origins: [{ fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' }],
+    setup: [{ sh: 'mkdir .claude .cursor' }],
     commands: [
-      ['install', 'skill', 'tdd', '--target', 'claude,codex'],
       ['get', 'targets'],
+      ['describe', 'target', 'cursor'],
     ],
-  },
-  {
-    name: 'a-describe-target',
-    commands: [['describe', 'target', 'codex']],
   },
   {
     name: 'a-scopes',
-    origins: [{ fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' }],
+    sources: [MATT],
+    setup: [['init', '--target', 'claude'], { sh: 'mkdir ~/.claude' }],
     commands: [
-      ['install', 'skill', 'tdd', '--target', 'claude'],
-      ['install', 'skill', 'tdd', '-g', '--target', 'claude'],
+      ['install', 'mattpocock/skills', 'tdd'],
+      ['install', 'mattpocock/skills', 'handoff', '-g'],
+      ['get', '-g'],
     ],
   },
   {
-    name: 'a-lockfile',
-    origins: [{ fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' }],
-    commands: [
-      ['install', 'skill', 'tdd', '--target', 'claude,codex'],
-      ['install'],
-      ['install', '--frozen'],
+    name: 'a-lock',
+    sources: [MATT],
+    setup: [
+      ['init', '--target', 'claude,codex'],
+      ['install', 'mattpocock/skills', 'tdd'],
+      { sh: 'git add -A && git commit -qm "Add palm setup"' },
     ],
-  },
-  {
-    name: 'a-dependencies',
-    origins: [{ fixture: 'claude-plugins-official-like', dir: 'official', alias: 'official' }],
-    commands: [
-      ['install', 'agent', 'agent-sdk-verifier-py', '--target', 'claude,copilot'],
-      ['why', 'skill', 'sdk-helper'],
-    ],
-  },
-  {
-    name: 'a-dependencies-remove',
-    origins: [{ fixture: 'claude-plugins-official-like', dir: 'official', alias: 'official' }],
-    commands: [
-      ['install', 'agent', 'agent-sdk-verifier-py', '--target', 'claude,copilot'],
-      ['install', 'skill', 'sdk-helper'],
-      ['uninstall', 'agent', 'agent-sdk-verifier-py'],
-      ['get'],
-    ],
-  },
-  {
-    name: 'a-scan-marketplace',
-    // The fixture is registered once more under another alias before the session, because the
-    // runner copies fixtures only through `origins`; the output is the same as a first add.
-    origins: [
-      { fixture: 'claude-plugins-official-like', dir: 'claude-plugins-official', alias: 'copy' },
-    ],
-    commands: [
-      ['install', 'origin', '~/src/claude-plugins-official', '--alias', 'official'],
-      ['get', '--available', '-o', 'official'],
-    ],
-  },
-  {
-    name: 'a-scan-layout',
-    origins: [{ fixture: 'openai-like', dir: 'openai-skills', alias: 'openai' }],
-    commands: [
-      ['get', 'skills', '--available', '-o', 'openai'],
-      [
-        'install',
-        'origin',
-        '~/src/openai-skills',
-        '--alias',
-        'curated',
-        '--layout',
-        'skills=skills/.curated/*',
-      ],
-      ['get', 'skills', '--available', '-o', 'curated'],
-    ],
-  },
-  {
-    name: 'a-mcp-secrets',
-    commands: [
-      [
-        'install',
-        'mcp',
-        'docs',
-        '--url',
-        'https://example.com/mcp',
-        '--header',
-        // biome-ignore lint/suspicious/noTemplateCurlyInString: palm placeholder syntax, not a template
-        'Authorization=Bearer ${DOCS_TOKEN}',
-        '--target',
-        'claude,codex,copilot,cursor,gemini,opencode',
-      ],
-    ],
-    files: true,
+    commands: [{ sh: 'cat palm.lock.yaml' }, ['install'], ['check']],
   },
   {
     name: 'a-consent',
-    origins: [{ fixture: 'superpowers-like', dir: 'superpowers', alias: 'superpowers' }],
+    sources: [GH_CLI],
+    setup: [['init', '--target', 'claude,cursor']],
     commands: [
-      ['install', 'plugin', 'superpowers', '--target', 'claude,codex', '--dry-run'],
-      ['install', 'plugin', 'superpowers', '--target', 'claude,codex', '--yes'],
+      { palm: ['install', 'trailofbits/skills', 'plugin:gh-cli'], exit: 1 },
+      ['install', 'trailofbits/skills', 'plugin:gh-cli', '--allow-exec', '{{allow-exec}}'],
+      { sh: "grep -n -A 8 'exec:' palm.lock.yaml" },
     ],
   },
   {
-    name: 'a-audit',
-    origins: [{ fixture: 'hidden-unicode-like', dir: 'unicode-demo', alias: 'demo' }],
+    name: 'a-consent-dry-run',
+    sources: [GH_CLI],
+    setup: [['init', '--target', 'claude,cursor']],
+    commands: [['install', 'trailofbits/skills', 'plugin:gh-cli', '--dry-run']],
+  },
+  {
+    name: 'a-secrets',
+    setup: [['init', '--target', 'claude,cursor']],
     commands: [
-      ['install', 'skill', 'zero-width', '--target', 'claude'],
-      ['audit'],
-      ['audit', '--strip'],
-      ['audit'],
-    ],
-  },
-  // Section C: reference pages. Names start with c-. (c-help-* and c-cli-options.json are
-  // written by scripts/cli-reference.mjs, not by these specs.)
-  {
-    name: 'c-install',
-    origins: [
-      { fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' },
-      { fixture: 'cursor-monorepo-like/pstack', dir: 'pstack', alias: 'pstack' },
-    ],
-    commands: [
-      ['install', 'skill', 'tdd@mattpocock', '--target', 'claude,codex'],
-      ['install', 'agent', 'comment-sicko'],
-      ['install'],
-    ],
-    files: true,
-  },
-  {
-    name: 'c-uninstall',
-    origins: [{ fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' }],
-    setup: [['install', 'skill', 'tdd', '--target', 'claude,codex']],
-    commands: [
-      ['uninstall', 'skill', 'tdd', '--dry-run'],
-      ['uninstall', 'skill', 'tdd'],
+      {
+        sh: `palm install mcp --json - <<'JSON'
+{ "mcpServers": { "inbound": {
+    "url": "https://mcp.inbound.example/v1",
+    "headers": { "x-inbound-api-key": "sk-live-4f9a2c7e1b8d6f3a0c5e9b2d" } } } }
+JSON`,
+      },
+      { sh: 'grep -n INBOUND .mcp.json .cursor/mcp.json palm.yaml' },
     ],
   },
   {
-    name: 'c-get',
-    origins: [
-      { fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' },
-      { fixture: 'cursor-monorepo-like/pstack', dir: 'pstack', alias: 'pstack' },
-    ],
-    setup: [['install', 'skill', 'tdd@mattpocock', '--target', 'claude,codex']],
-    commands: [['get'], ['get', 'skills', '--available', '-o', 'mattpocock']],
-  },
-  {
-    name: 'c-describe',
-    origins: [{ fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' }],
-    setup: [['install', 'skill', 'tdd', '--target', 'claude,codex']],
-    commands: [['describe', 'skill', 'tdd']],
-  },
-  {
-    name: 'c-update',
+    name: 'a-scan',
+    sources: [OFFICIAL],
     setup: [
-      {
-        sh: 'cp -R "$FIXTURES/mattpocock-like" ~/src/skills && cd ~/src/skills && git init -q && git add -A && git commit -qm v1.0.0 && git tag v1.0.0',
-      },
-      ['install', 'origin', 'file://~/src/skills', '--alias', 'mattpocock'],
-      ['install', 'skill', 'tdd', '--target', 'claude'],
-      {
-        sh: 'cd ~/src/skills && printf "\\nRefactor after each green test.\\n" >> skills/engineering/tdd/SKILL.md && git commit -qam v1.1.0 && git tag v1.1.0',
-      },
+      ['init', '--target', 'claude'],
+      ['install', 'anthropics/claude-plugins-official', 'sdk-helper'],
     ],
+    commands: [['describe', 'source', 'anthropics/claude-plugins-official']],
+  },
+  {
+    name: 'a-hidden-unicode',
+    sources: [UNICODE],
+    setup: [['init', '--target', 'claude']],
+    commands: [{ palm: ['install', 'acme/unicode-demo', 'bidi-override'], exit: 1 }],
+  },
+
+  // Section B: guides.
+  {
+    name: 'b-new-project',
+    sources: [MATT, OFFICIAL],
+    setup: [{ sh: "printf 'node_modules/\\n' > .gitignore" }],
     commands: [
-      ['update', '--dry-run'],
-      ['update', '--yes'],
-    ],
-  },
-  {
-    name: 'c-outdated',
-    setup: [
-      {
-        sh: 'cp -R "$FIXTURES/mattpocock-like" ~/src/skills && cd ~/src/skills && git init -q && git add -A && git commit -qm v1.0.0 && git tag v1.0.0',
-      },
-      ['install', 'origin', 'file://~/src/skills', '--alias', 'mattpocock'],
-      ['install', 'skill', 'tdd', '--target', 'claude'],
-      ['install', 'skill', 'grill-me#v1.0.0'],
-      {
-        sh: 'cd ~/src/skills && printf "\\nRefactor after each green test.\\n" >> skills/engineering/tdd/SKILL.md && git commit -qam v1.1.0 && git tag v1.1.0',
-      },
-    ],
-    commands: [['outdated']],
-  },
-  {
-    name: 'c-search',
-    origins: [
-      { fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' },
-      { fixture: 'cursor-monorepo-like/pstack', dir: 'pstack', alias: 'pstack' },
-    ],
-    commands: [['search', 'skill', 'tdd']],
-  },
-  {
-    name: 'c-init',
-    setup: [{ sh: 'printf "node_modules/\\n" > .gitignore' }],
-    commands: [['init', '--target', 'claude,codex'], { sh: 'cat palm.yaml .gitignore' }],
-  },
-  {
-    name: 'c-config',
-    origins: [{ fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' }],
-    commands: [
-      ['config', 'set', 'targets', 'claude,codex'],
-      ['config', 'get'],
-      { sh: 'cat ~/.palm/config.yaml' },
-    ],
-  },
-  {
-    name: 'c-why',
-    origins: [{ fixture: 'superpowers-like', dir: 'superpowers', alias: 'superpowers' }],
-    setup: [['install', 'plugin', 'superpowers', '--target', 'claude', '--yes']],
-    commands: [['why', 'skill', 'brainstorming']],
-  },
-  {
-    name: 'c-find',
-    origins: [{ fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' }],
-    setup: [
-      ['install', 'skill', 'tdd', '--target', 'claude,codex'],
-      ['install', 'mcp', 'docs', '--url', 'https://example.com/mcp'],
-    ],
-    commands: [
-      ['find', '.claude/skills/tdd/SKILL.md'],
-      ['find', '.mcp.json'],
-      { palm: ['find', 'README.md'], exit: 1 },
-    ],
-  },
-  {
-    name: 'c-audit',
-    origins: [{ fixture: 'hidden-unicode-like', dir: 'unicode-demo', alias: 'demo' }],
-    setup: [['install', 'skill', 'bidi-override', '--target', 'claude', '--force']],
-    commands: [{ palm: ['audit'], exit: 1 }, ['audit', '--strip'], ['audit']],
-  },
-  {
-    name: 'c-lockfile',
-    setup: [
-      {
-        sh: 'cp -R "$FIXTURES/mattpocock-like" ~/src/skills && cd ~/src/skills && git init -q && git add -A && git commit -qm v1.2.0 && git tag v1.2.0',
-      },
-      ['install', 'origin', 'file://~/src/skills', '--alias', 'mattpocock'],
-    ],
-    commands: [
-      ['install', 'skill', 'grill-me', '--target', 'claude,codex'],
-      { sh: 'cat palm.yaml' },
-      { sh: 'cat palm.lock.yaml' },
-    ],
-  },
-  {
-    name: 'c-manifest',
-    origins: [{ fixture: 'cursor-monorepo-like/pstack', dir: 'pstack', alias: 'pstack' }],
-    setup: [
-      {
-        sh: 'cp -R "$FIXTURES/mattpocock-like" ~/src/skills && cd ~/src/skills && git init -q && git add -A && git commit -qm v1.2.0 && git tag v1.2.0',
-      },
-      ['install', 'origin', 'file://~/src/skills', '--alias', 'mattpocock'],
-      ['install', 'skill', 'tdd@mattpocock', '--target', 'claude,codex'],
-      ['install', 'skill', 'grill-me#^1.2'],
-      ['install', 'agent', 'comment-sicko'],
+      ['init', '--target', 'claude,codex'],
+      ['install', 'mattpocock/skills', 'tdd', 'grill-me'],
+      ['install', 'anthropics/claude-plugins-official', 'agent-sdk-verifier-py'],
       [
         'install',
         'mcp',
         'docs',
         '--url',
-        'https://example.com/mcp',
+        'https://docs.example.com/mcp',
         '--header',
         // biome-ignore lint/suspicious/noTemplateCurlyInString: palm placeholder syntax, not a template
         'Authorization=Bearer ${DOCS_TOKEN}',
       ],
-      [
-        'install',
-        'mcp',
-        'fs',
-        '--yes',
-        '--',
-        'npx',
-        '-y',
-        '@modelcontextprotocol/server-filesystem',
-        '.',
-      ],
-    ],
-    commands: [{ sh: 'cat palm.yaml' }],
-  },
-  {
-    name: 'c-lockfile-deps',
-    origins: [{ fixture: 'claude-plugins-official-like', dir: 'official', alias: 'official' }],
-    setup: [
-      ['install', 'agent', 'agent-sdk-verifier-py', '--target', 'claude'],
-      ['install', 'mcp', 'docs', '--url', 'https://example.com/mcp'],
-    ],
-    commands: [{ sh: 'cat palm.lock.yaml' }],
-  },
-  {
-    name: 'c-json',
-    origins: [{ fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' }],
-    commands: [
-      ['get', 'skills', '--json'],
-      ['config', 'get', 'targets', '--json'],
-      { palm: ['install', 'skill', 'nope', '--json'], exit: 1 },
-    ],
-  },
-  {
-    name: 'c-errors',
-    origins: [
-      { fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' },
-      { fixture: 'cursor-monorepo-like/pstack', dir: 'pstack', alias: 'pstack' },
-    ],
-    setup: [['init', '--target', 'claude']],
-    commands: [
-      { palm: ['install', 'target', 'claude'], exit: 2 },
-      { palm: ['install', 'skill', 'tdd'], exit: 1 },
-      {
-        palm: [
-          'install',
-          'mcp',
-          'fs',
-          '--',
-          'npx',
-          '-y',
-          '@modelcontextprotocol/server-filesystem',
-          '.',
-        ],
-        exit: 1,
-      },
-    ],
-  },
-  // Section B: guides. Names start with b-.
-  {
-    name: 'b-new-project',
-    origins: [
-      { fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' },
-      {
-        fixture: 'claude-plugins-official-like',
-        dir: 'claude-plugins-official',
-        alias: 'official',
-      },
-    ],
-    setup: [{ sh: "printf 'node_modules/\\n' > .gitignore" }],
-    commands: [
-      ['init', '--target', 'claude,codex'],
-      ['install', 'skill', 'tdd@mattpocock'],
-      ['install', 'agent', 'agent-sdk-verifier-py'],
-      ['install', 'mcp', 'docs', '--url', 'https://docs.example.com/mcp'],
     ],
     files: true,
   },
   {
     name: 'b-new-project-result',
-    origins: [
-      { fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' },
-      {
-        fixture: 'claude-plugins-official-like',
-        dir: 'claude-plugins-official',
-        alias: 'official',
-      },
-    ],
+    sources: [MATT, OFFICIAL],
     setup: [
       { sh: "printf 'node_modules/\\n' > .gitignore" },
       ['init', '--target', 'claude,codex'],
-      ['install', 'skill', 'tdd@mattpocock'],
-      ['install', 'agent', 'agent-sdk-verifier-py'],
-      ['install', 'mcp', 'docs', '--url', 'https://docs.example.com/mcp'],
-    ],
-    commands: [{ sh: 'cat palm.yaml' }, { sh: 'cat .gitignore' }, ['get']],
-  },
-  {
-    name: 'b-six-install',
-    origins: [
-      {
-        fixture: 'claude-plugins-official-like',
-        dir: 'claude-plugins-official',
-        alias: 'official',
-      },
-    ],
-    commands: [
+      ['install', 'mattpocock/skills', 'tdd', 'grill-me'],
+      ['install', 'anthropics/claude-plugins-official', 'agent-sdk-verifier-py'],
       [
         'install',
-        'agent',
-        'agent-sdk-verifier-py',
-        '--target',
-        'claude,codex,copilot,cursor,gemini,opencode',
+        'mcp',
+        'docs',
+        '--url',
+        'https://docs.example.com/mcp',
+        '--header',
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: palm placeholder syntax, not a template
+        'Authorization=Bearer ${DOCS_TOKEN}',
       ],
     ],
-    files: true,
-  },
-  {
-    name: 'b-six-files',
-    origins: [
-      {
-        fixture: 'claude-plugins-official-like',
-        dir: 'claude-plugins-official',
-        alias: 'official',
-      },
-    ],
-    setup: [
-      [
-        'install',
-        'agent',
-        'agent-sdk-verifier-py',
-        '--target',
-        'claude,codex,copilot,cursor,gemini,opencode',
-      ],
-    ],
-    commands: [
-      { sh: 'cat .claude/agents/agent-sdk-verifier-py.md' },
-      { sh: 'cat .codex/agents/agent-sdk-verifier-py.toml' },
-      { sh: 'cat .github/agents/agent-sdk-verifier-py.agent.md' },
-      { sh: 'cat .gemini/agents/agent-sdk-verifier-py.md' },
-      { sh: 'cat .opencode/agents/agent-sdk-verifier-py.md' },
-    ],
-  },
-  {
-    name: 'b-six-skips',
-    origins: [
-      {
-        fixture: 'claude-plugins-official-like',
-        dir: 'claude-plugins-official',
-        alias: 'official',
-      },
-    ],
-    setup: [['init', '--target', 'claude,codex,copilot,cursor,gemini,opencode']],
-    commands: [
-      ['install', 'command', 'new-sdk-app'],
-      ['install', 'hook', 'agent-sdk-dev', '--yes'],
-    ],
+    commands: [{ sh: 'cat palm.yaml' }, ['check']],
   },
   {
     name: 'b-team-setup',
-    setup: [
-      {
-        sh: 'cp -R "$FIXTURES/cursor-monorepo-like/team-kit" ~/src/team-kit && cd ~/src/team-kit && git init -q -b main && git add -A && git commit -qm "team kit 1.0.0" && git tag v1.0.0',
-      },
-    ],
+    sources: [TEAM_KIT],
+    setup: [['init', '--target', 'claude,codex']],
     commands: [
-      ['init', '--target', 'claude,codex'],
-      ['install', 'origin', 'file://~/src/team-kit', '--alias', 'team', '--project'],
-      ['install', 'skill', 'ci-watch@team'],
-      ['install', 'agent', 'ci-watcher@team'],
-      { sh: 'cat palm.yaml' },
+      ['install', 'acme/agent-kit', 'ci-watch', 'ci-watcher', 'typescript'],
+      {
+        sh: 'git add -A && git commit -qm "Add the team agent setup" && git show --stat --format=%s HEAD',
+      },
     ],
   },
   {
     name: 'b-team-clone',
+    sources: [TEAM_KIT],
     setup: [
-      {
-        sh: 'cp -R "$FIXTURES/cursor-monorepo-like/team-kit" ~/src/team-kit && cd ~/src/team-kit && git init -q -b main && git add -A && git commit -qm "team kit 1.0.0" && git tag v1.0.0',
-      },
       ['init', '--target', 'claude,codex'],
-      ['install', 'origin', 'file://~/src/team-kit', '--alias', 'team', '--project'],
-      ['install', 'skill', 'ci-watch@team'],
-      ['install', 'agent', 'ci-watcher@team'],
-      {
-        sh: 'git add palm.yaml palm.lock.yaml && git commit -qm "Add the palm baseline" && git clean -fdxq && rm -rf ~/.palm',
-      },
-      {
-        sh: "cd ~/src/team-kit && printf '\\nAlso report flaky tests.\\n' >> skills/ci-watch/SKILL.md && git commit -qam 'team kit 1.1.0' && git tag v1.1.0",
-      },
+      ['install', 'acme/agent-kit', 'ci-watch', 'ci-watcher', 'typescript'],
+      { sh: 'git add -A && git commit -qm "Add the team agent setup"' },
+      { sh: 'git clone -q . ~/teammate && rm -rf ~/.palm' },
     ],
-    commands: [['install'], ['get'], ['outdated']],
+    commands: [
+      { sh: 'cd ~/teammate && ls -a .claude .agents' },
+      { sh: 'cd ~/teammate && palm check' },
+      { sh: 'cd ~/teammate && palm install' },
+    ],
   },
   {
     name: 'b-team-update',
+    sources: [TEAM_KIT],
     setup: [
-      {
-        sh: 'cp -R "$FIXTURES/cursor-monorepo-like/team-kit" ~/src/team-kit && cd ~/src/team-kit && git init -q -b main && git add -A && git commit -qm "team kit 1.0.0" && git tag v1.0.0',
-      },
       ['init', '--target', 'claude,codex'],
-      ['install', 'origin', 'file://~/src/team-kit', '--alias', 'team', '--project'],
-      ['install', 'skill', 'ci-watch@team'],
-      ['install', 'agent', 'ci-watcher@team'],
+      ['install', 'acme/agent-kit', 'ci-watch', 'ci-watcher', 'typescript'],
+      { sh: 'git add -A && git commit -qm "Add the team agent setup"' },
       {
-        sh: "cd ~/src/team-kit && printf '\\nAlso report flaky tests.\\n' >> skills/ci-watch/SKILL.md && git commit -qam 'team kit 1.1.0' && git tag v1.1.0",
+        sh: "cd $SRC/acme/agent-kit && printf '\\nAlso report flaky tests.\\n' >> skills/ci-watch/SKILL.md && git commit -qam 'team kit 1.1.0' && git tag v1.1.0",
       },
     ],
-    commands: [['update', '--dry-run'], ['update', '--yes'], ['get']],
+    commands: [['update', '--dry-run'], ['update', '--yes'], { sh: 'git status --short' }],
   },
   {
-    name: 'b-publish-teammate',
+    name: 'b-team-remove',
+    sources: [TEAM_KIT],
     setup: [
+      ['init', '--target', 'claude,codex'],
+      ['install', 'acme/agent-kit', 'ci-watch', 'ci-watcher', 'typescript'],
+      { sh: 'git add -A && git commit -qm "Add the team agent setup"' },
+    ],
+    commands: [['remove', 'ci-watcher'], { sh: 'git status --short' }],
+  },
+  {
+    name: 'b-ci-check',
+    sources: [MATT],
+    setup: [
+      ['init', '--target', 'claude,codex'],
+      ['install', 'mattpocock/skills', 'tdd'],
+      { sh: 'git add -A && git commit -qm "Add palm setup"' },
+    ],
+    commands: [
+      ['check'],
+      { sh: "printf 'Skip the tests when in a hurry.\\n' >> .claude/skills/tdd/SKILL.md" },
+      { palm: ['check'], exit: 1 },
+    ],
+  },
+  {
+    name: 'b-ci-errors',
+    sources: [GH_CLI, MATT],
+    setup: [
+      ['init', '--target', 'claude'],
       {
-        sh: `mkdir -p ~/src/mine/skills/release-notes && cd ~/src/mine && cat > skills/release-notes/SKILL.md <<'SKILL'
----
-name: release-notes
-description: Use when the user asks for release notes. Reads merged pull requests and writes a changelog entry.
----
-
-# Release Notes
-
-## When to use
-
-Describe the situations and requests this skill is for, and when not to use it.
-
-## Steps
-
-1. First step.
-2. Second step.
-
-## Notes
-
-- Gotchas, constraints, and pointers to files in references/ or scripts/.
-SKILL
-git init -q -b main && git add -A && git commit -qm "release-notes skill" && git tag v1.0.0`,
+        sh: "printf 'sources:\\n  trailofbits/skills:\\n    ref: ^2.1\\n    plugins: [gh-cli]\\n' >> palm.yaml",
       },
     ],
     commands: [
-      ['install', 'origin', 'file://~/src/mine', '--alias', 'ana'],
-      ['install', 'skill', 'release-notes@ana', '--target', 'claude,codex'],
-      ['get', 'skills'],
+      { palm: ['install'], exit: 1 },
+      { palm: ['install', 'mattpocock/skills', 'tdd-coach', '--json'], exit: 1 },
     ],
   },
   {
-    name: 'b-mcp-http',
-    setup: [['init', '--target', 'claude,codex,copilot,cursor,gemini,opencode']],
+    name: 'b-migrate',
+    sources: [MATT],
+    setup: [{ sh: PALM_01_PROJECT }],
+    commands: [
+      { palm: ['install'], exit: 2 },
+      ['migrate', '--dry-run'],
+      ['migrate'],
+      { sh: 'git status --short' },
+    ],
+  },
+  {
+    name: 'b-apm',
+    sources: [APM],
+    setup: [['init', '--target', 'claude,copilot']],
+    commands: [
+      ['install', 'acme/standards'],
+      ['install', 'acme/standards', '--all'],
+      { palm: ['install', 'acme/standards', 'format-on-save'], exit: 1 },
+      ['install', 'acme/standards', 'format-on-save', '--allow-exec', '{{allow-exec}}'],
+    ],
+    files: true,
+  },
+  {
+    name: 'b-mcp-snippet',
+    setup: [['init', '--target', ALL_TARGETS]],
+    commands: [
+      {
+        sh: `palm install mcp --json - <<'JSON'
+{
+  "mcpServers": {
+    "github": {
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": { "Authorization": "Bearer \${GITHUB_PAT}" }
+    }
+  }
+}
+JSON`,
+      },
+      ['get', 'mcp'],
+    ],
+  },
+  {
+    name: 'b-mcp-flags',
+    setup: [['init', '--target', 'claude,codex,cursor']],
     commands: [
       [
         'install',
@@ -586,251 +407,369 @@ git init -q -b main && git add -A && git commit -qm "release-notes skill" && git
         '--url',
         'https://docs.example.com/mcp',
         '--header',
-        `Authorization=Bearer \${DOCS_TOKEN}`,
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: palm placeholder syntax, not a template
+        'Authorization=Bearer ${DOCS_TOKEN}',
       ],
       {
-        sh: 'grep -n DOCS_TOKEN .mcp.json .codex/config.toml .vscode/mcp.json .cursor/mcp.json .gemini/settings.json opencode.json palm.yaml',
+        palm: [
+          'install',
+          'mcp',
+          'xcodebuild',
+          '--command',
+          'npx',
+          '--arg',
+          '-y',
+          '--arg',
+          'xcodebuildmcp@latest',
+        ],
+        exit: 1,
       },
-    ],
-  },
-  {
-    name: 'b-mcp-args',
-    setup: [['init', '--target', 'claude,codex']],
-    commands: [
       [
         'install',
         'mcp',
-        'db',
-        '--yes',
-        '--',
+        'xcodebuild',
+        '--command',
         'npx',
+        '--arg',
         '-y',
-        '@acme/db-mcp',
-        '--token',
-        `\${DB_TOKEN}`,
+        '--arg',
+        'xcodebuildmcp@latest',
+        '--allow-exec',
+        '{{allow-exec}}',
       ],
-      { sh: 'cat .codex/config.toml' },
     ],
   },
   {
-    name: 'b-apm',
+    name: 'b-mcp-describe',
     setup: [
-      { sh: 'cp -R "$FIXTURES/apm-like" ~/src/standards' },
-      ['init', '--target', 'claude,copilot'],
+      ['init', '--target', 'claude,codex,cursor'],
+      [
+        'install',
+        'mcp',
+        'docs',
+        '--url',
+        'https://docs.example.com/mcp',
+        '--header',
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: palm placeholder syntax, not a template
+        'Authorization=Bearer ${DOCS_TOKEN}',
+      ],
     ],
-    commands: [
-      ['install', 'origin', '~/src/standards'],
-      ['install', 'plugin', 'my-apm-pkg', '--yes'],
-    ],
-    files: true,
+    commands: [['describe', 'mcp', 'docs']],
   },
   {
     name: 'b-adopt',
-    origins: [
-      { fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' },
-      { fixture: 'cursor-monorepo-like/pstack', dir: 'pstack', alias: 'pstack' },
-    ],
+    sources: [MATT, CURSOR_PLUGINS],
     setup: [
       {
-        sh: 'mkdir -p .claude/agents .cursor/agents .claude/skills/tdd && cp ~/src/pstack/agents/comment-sicko.md .claude/agents/ && cp ~/src/pstack/agents/comment-sicko.md .cursor/agents/ && cp ~/src/skills/skills/engineering/tdd/SKILL.md .claude/skills/tdd/',
+        sh: 'mkdir -p .claude/skills .cursor/agents && cp -R $SRC/mattpocock/skills/skills/engineering/tdd .claude/skills/ && cp $SRC/cursor/plugins/pstack/agents/comment-sicko.md .cursor/agents/ && printf "\\nAlways cite the line.\\n" >> .cursor/agents/comment-sicko.md && git add -A && git commit -qm "hand-copied agent files"',
       },
+      ['init', '--target', 'claude,cursor'],
     ],
     commands: [
-      { sh: 'find .claude .cursor -type f | sort' },
-      { palm: ['install', 'agent', 'comment-sicko'], exit: 1 },
-      ['install', 'agent', 'comment-sicko', '--force'],
-      ['install', 'skill', 'tdd@mattpocock'],
-      ['find', '.claude/agents/comment-sicko.md'],
+      ['install', 'mattpocock/skills', 'tdd'],
+      { palm: ['install', 'cursor/plugins/pstack', 'comment-sicko'], exit: 1 },
+      ['install', 'cursor/plugins/pstack', 'comment-sicko', '--force'],
+      { sh: 'git status --short' },
     ],
   },
   {
-    name: 'b-agent-bundle',
-    origins: [
-      {
-        fixture: 'claude-plugins-official-like',
-        dir: 'claude-plugins-official',
-        alias: 'official',
-      },
-    ],
-    setup: [
-      {
-        sh: `mkdir -p ~/.palm/mine/agents && cat > ~/.palm/mine/agents/sdk-reviewer.md <<'AGENT'
----
-name: sdk-reviewer
-description: Use after changes to an Agent SDK app. Reviews the code and runs the tests.
-model: sonnet
-tools: Read, Grep
-skills:
-  - sdk-helper
-mcpServers:
-  - context7
----
-
-You review Agent SDK apps. Run the tests, then report failures first.
-AGENT`,
-      },
-      ['install', 'origin', '~/.palm/mine', '--alias', 'mine'],
-      ['init', '--target', 'claude,copilot'],
-    ],
-    commands: [
-      ['install', 'agent', 'sdk-reviewer@mine'],
-      ['why', 'mcp', 'context7'],
-      ['install', 'skill', 'sdk-helper'],
-      ['uninstall', 'agent', 'sdk-reviewer'],
-      ['get'],
-    ],
-  },
-  {
-    name: 'b-marketplace',
-    setup: [
-      {
-        sh: `mkdir -p ~/src/catalog/.claude-plugin ~/src/catalog/plugins && cp -R "$FIXTURES/superpowers-like" ~/src/catalog/plugins/superpowers && cp -R "$FIXTURES/caveman-like" ~/src/catalog/plugins/caveman && cat > ~/src/catalog/.claude-plugin/marketplace.json <<'JSON'
-{
-  "name": "team-catalog",
-  "owner": { "name": "Platform team" },
-  "plugins": [
-    { "name": "superpowers", "source": "./plugins/superpowers", "description": "Core skills library" },
-    { "name": "caveman", "source": "./plugins/caveman", "description": "Talk like caveman." }
-  ]
-}
-JSON`,
-      },
-    ],
-    commands: [
-      ['install', 'origin', '~/src/catalog/.claude-plugin/marketplace.json'],
-      ['get', 'plugins', '--available'],
-    ],
-  },
-  {
-    name: 'b-plugin-consent',
-    origins: [{ fixture: 'superpowers-like', dir: 'superpowers', alias: 'superpowers' }],
+    name: 'b-plugin',
+    sources: [SUPERPOWERS],
     setup: [['init', '--target', 'claude,codex']],
     commands: [
-      { palm: ['install', 'plugin', 'superpowers'], exit: 1 },
-      ['install', 'plugin', 'superpowers', '--yes'],
+      { palm: ['install', 'obra/superpowers', 'plugin:superpowers'], exit: 1 },
+      ['install', 'obra/superpowers', 'plugin:superpowers', '--allow-exec', '{{allow-exec}}'],
+      { palm: ['remove', 'brainstorming'], exit: 1 },
+      ['remove', 'obra/superpowers', 'brainstorming', '--exclude'],
+      { sh: 'cat palm.yaml' },
     ],
     files: true,
   },
   {
-    name: 'b-plugin-remote',
-    setup: [{ sh: 'cp -R "$FIXTURES/claude-plugins-official-like" ~/src/claude-plugins-official' }],
-    commands: [['install', 'origin', '~/src/claude-plugins-official', '--alias', 'official']],
-  },
-  {
-    name: 'b-ci-errors',
-    origins: [
-      { fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' },
-      { fixture: 'cursor-monorepo-like/pstack', dir: 'pstack', alias: 'pstack' },
-      { fixture: 'superpowers-like', dir: 'superpowers', alias: 'superpowers' },
-    ],
-    setup: [['init', '--target', 'claude']],
+    name: 'b-create',
+    setup: [['init', '--target', 'claude,codex']],
     commands: [
-      { palm: ['install', 'skill', 'tdd'], exit: 1 },
-      { palm: ['install', 'plugin', 'superpowers'], exit: 1 },
-      { palm: ['install', 'skill', 'tdd', '--json'], exit: 1 },
-    ],
-  },
-  {
-    name: 'b-ci-frozen',
-    origins: [{ fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' }],
-    setup: [
-      ['init', '--target', 'claude,codex'],
-      ['install', 'skill', 'tdd@mattpocock'],
-      { sh: 'rm -rf .claude .agents' },
-    ],
-    commands: [
-      ['install', '--frozen', '--yes'],
-      { sh: "printf 'local edit\\n' >> .claude/skills/tdd/SKILL.md" },
-      { palm: ['install', '--frozen', '--yes'], exit: 1 },
-      ['audit'],
-    ],
-  },
-  {
-    name: 'b-author',
-    setup: [
-      { sh: 'cp -R "$FIXTURES/cursor-monorepo-like/pstack" ~/src/pstack' },
-      { sh: 'cp -R "$FIXTURES/hidden-unicode-like" ~/src/unicode-demo' },
-    ],
-    commands: [
-      ['install', 'origin', '~/src/pstack'],
-      ['get', '--available', '-o', 'pstack'],
-      ['install', 'origin', '~/src/unicode-demo'],
-    ],
-  },
-  {
-    name: 'b-six-check',
-    origins: [
-      {
-        fixture: 'claude-plugins-official-like',
-        dir: 'claude-plugins-official',
-        alias: 'official',
-      },
-    ],
-    setup: [
       [
-        'install',
-        'agent',
-        'agent-sdk-verifier-py',
-        '--target',
-        'claude,codex,copilot,cursor,gemini,opencode',
+        'create',
+        'skill',
+        'release-notes',
+        '--description',
+        'Write release notes from the pull requests merged since the last tag.',
       ],
+      { sh: 'cat agent-kit/skills/release-notes/SKILL.md' },
+      {
+        sh: "printf '\\n4. Group the entries by label.\\n' >> agent-kit/skills/release-notes/SKILL.md",
+      },
+      { palm: ['check'], exit: 1 },
+      ['install'],
     ],
-    commands: [['describe', 'agent', 'agent-sdk-verifier-py']],
+    files: true,
   },
   {
-    name: 'b-adopt-result',
-    origins: [
-      { fixture: 'mattpocock-like', dir: 'skills', alias: 'mattpocock' },
-      { fixture: 'cursor-monorepo-like/pstack', dir: 'pstack', alias: 'pstack' },
-    ],
-    setup: [
+    name: 'b-publish-teammate',
+    sources: [
       {
-        sh: 'mkdir -p .claude/agents .cursor/agents .claude/skills/tdd && cp ~/src/pstack/agents/comment-sicko.md .claude/agents/ && cp ~/src/pstack/agents/comment-sicko.md .cursor/agents/ && cp ~/src/skills/skills/engineering/tdd/SKILL.md .claude/skills/tdd/',
-      },
-      ['install', 'agent', 'comment-sicko', '--force'],
-      ['install', 'skill', 'tdd@mattpocock'],
-    ],
-    commands: [['find', '.cursor/agents/comment-sicko.md'], ['get']],
-  },
-  {
-    name: 'b-agent-bundle-install',
-    origins: [
-      {
-        fixture: 'claude-plugins-official-like',
-        dir: 'claude-plugins-official',
-        alias: 'official',
-      },
-    ],
-    setup: [
-      {
-        sh: `mkdir -p ~/.palm/mine/agents && cat > ~/.palm/mine/agents/sdk-reviewer.md <<'AGENT'
+        repo: 'acme/agent-kit',
+        tags: ['v1.0.0'],
+        sh: `mkdir -p skills/release-notes && cat > skills/release-notes/SKILL.md <<'SKILL'
 ---
-name: sdk-reviewer
-description: Use after changes to an Agent SDK app. Reviews the code and runs the tests.
-model: sonnet
-tools: Read, Grep
-skills:
-  - sdk-helper
-mcpServers:
-  - context7
+name: release-notes
+description: Write release notes from the pull requests merged since the last tag.
 ---
 
-You review Agent SDK apps. Run the tests, then report failures first.
-AGENT`,
+# release-notes
+
+1. List the pull requests merged since the last tag.
+2. Write one line per user-visible change.
+3. Group the lines under Added, Changed and Fixed.
+SKILL`,
       },
-      ['install', 'origin', '~/.palm/mine', '--alias', 'mine'],
-      ['init', '--target', 'claude,copilot'],
     ],
-    commands: [['install', 'agent', 'sdk-reviewer@mine']],
+    setup: [['init', '--target', 'claude,codex']],
+    commands: [['install', 'acme/agent-kit', 'release-notes'], ['get']],
+  },
+  {
+    name: 'b-six-install',
+    sources: [OFFICIAL],
+    setup: [['init', '--target', ALL_TARGETS]],
+    commands: [
+      ['install', 'anthropics/claude-plugins-official', 'agent-sdk-verifier-py', 'sdk-helper'],
+    ],
     files: true,
   },
   {
-    name: 'b-author-clean',
-    setup: [{ sh: 'cp -R "$FIXTURES/superpowers-like" ~/src/superpowers' }],
+    name: 'b-six-files',
+    sources: [OFFICIAL],
+    setup: [
+      ['init', '--target', ALL_TARGETS],
+      ['install', 'anthropics/claude-plugins-official', 'agent-sdk-verifier-py'],
+    ],
     commands: [
-      ['install', 'origin', '~/src/superpowers'],
-      ['get', '--available', '-o', 'superpowers'],
+      { sh: 'cat .claude/agents/agent-sdk-verifier-py.md' },
+      { sh: 'cat .codex/agents/agent-sdk-verifier-py.toml' },
+      { sh: 'cat .github/agents/agent-sdk-verifier-py.agent.md' },
     ],
   },
-  // End of section B.
+  {
+    name: 'b-six-skips',
+    sources: [OFFICIAL],
+    setup: [['init', '--target', ALL_TARGETS]],
+    commands: [
+      ['install', 'anthropics/claude-plugins-official', 'new-sdk-app'],
+      ['install', 'anthropics/claude-plugins-official', 'hook:agent-sdk-dev', '--dry-run'],
+    ],
+  },
+
+  // Section C: reference pages. (c-help-* and c-cli-options.json are written by
+  // scripts/cli-reference.mjs, not by these specs.)
+  {
+    name: 'c-init',
+    setup: [{ sh: "printf 'node_modules/\\n' > .gitignore && mkdir .claude .cursor" }],
+    commands: [['init'], { sh: 'cat palm.yaml .gitignore' }],
+  },
+  {
+    name: 'c-init-nested',
+    setup: [['init', '--target', 'claude'], { sh: 'mkdir -p packages/jobs' }],
+    commands: [
+      { sh: 'cd packages/jobs && palm init', exit: 2 },
+      { sh: 'cd packages/jobs && palm init --here --target claude' },
+    ],
+  },
+  {
+    name: 'c-install',
+    sources: [MATT, SUPERPOWERS],
+    setup: [['init', '--target', 'claude,codex']],
+    commands: [
+      ['install', 'mattpocock/skills', 'tdd', 'handoff'],
+      ['install', 'obra/superpowers', 'plugin:superpowers', '--dry-run'],
+      { sh: 'rm -r .claude/skills/handoff' },
+      ['install'],
+    ],
+  },
+  {
+    name: 'c-remove',
+    sources: [MATT],
+    setup: [
+      ['init', '--target', 'claude,codex'],
+      ['install', 'mattpocock/skills', 'tdd', 'grill-me'],
+      { sh: "printf 'my note\\n' >> .claude/skills/tdd/SKILL.md" },
+    ],
+    commands: [
+      ['remove', 'grill-me'],
+      ['remove', 'grill-me'],
+      { palm: ['remove', 'tdd'], exit: 1 },
+      ['remove', 'mattpocock/skills', 'tdd', '--force'],
+    ],
+  },
+  {
+    name: 'c-update',
+    sources: [MATT],
+    setup: [
+      ['init', '--target', 'claude,codex'],
+      ['install', 'mattpocock/skills', 'tdd', 'grill-me'],
+      { sh: 'git add -A && git commit -qm "Add palm setup"' },
+      {
+        sh: "cd $SRC/mattpocock/skills && printf '\\nRefactor after each green test.\\n' >> skills/engineering/tdd/SKILL.md && git commit -qam v1.3.0 && git tag v1.3.0",
+      },
+    ],
+    commands: [
+      ['update', '--dry-run'],
+      ['update', '--yes'],
+    ],
+  },
+  {
+    name: 'c-check',
+    sources: [MATT],
+    setup: [
+      ['init', '--target', 'claude,codex'],
+      ['install', 'mattpocock/skills', 'tdd'],
+      [
+        'install',
+        'mcp',
+        'docs',
+        '--url',
+        'https://docs.example.com/mcp',
+        '--header',
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: palm placeholder syntax, not a template
+        'Authorization=Bearer ${DOCS_TOKEN}',
+      ],
+      { sh: 'git add -A && git commit -qm "Add palm setup"' },
+      { sh: 'rm .agents/skills/tdd/references/mocking.md' },
+    ],
+    commands: [{ palm: ['check'], exit: 1 }, ['install'], ['check']],
+  },
+  {
+    name: 'c-check-json',
+    sources: [MATT],
+    setup: [
+      ['init', '--target', 'claude,codex'],
+      ['install', 'mattpocock/skills', 'tdd'],
+      [
+        'install',
+        'mcp',
+        'docs',
+        '--url',
+        'https://docs.example.com/mcp',
+        '--header',
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: palm placeholder syntax, not a template
+        'Authorization=Bearer ${DOCS_TOKEN}',
+      ],
+      { sh: 'git add -A && git commit -qm "Add palm setup"' },
+      { sh: 'rm .agents/skills/tdd/references/mocking.md' },
+    ],
+    commands: [{ palm: ['check', '--json'], exit: 1 }],
+  },
+  {
+    name: 'c-get',
+    sources: [MATT, OFFICIAL],
+    setup: [
+      ['init', '--target', 'claude,codex'],
+      ['install', 'mattpocock/skills', 'tdd'],
+      ['install', 'anthropics/claude-plugins-official', 'agent-sdk-verifier-py'],
+    ],
+    commands: [['get'], ['get', 'sources'], ['get', 'skills', '--files']],
+  },
+  {
+    name: 'c-describe',
+    sources: [MATT, GH_CLI],
+    setup: [
+      ['init', '--target', 'claude,codex'],
+      ['install', 'mattpocock/skills', 'tdd'],
+      { palm: ['install', 'trailofbits/skills', 'plugin:gh-cli'], exit: 1 },
+      ['install', 'trailofbits/skills', 'plugin:gh-cli', '--allow-exec', '{{allow-exec}}'],
+    ],
+    commands: [
+      ['describe', 'tdd'],
+      ['describe', 'hook:gh-cli'],
+      ['describe', '.claude/settings.json'],
+    ],
+  },
+  {
+    name: 'c-create',
+    setup: [['init', '--target', 'claude']],
+    commands: [
+      ['create', 'agent', 'reviewer', '--description', 'Review a diff for bugs before merge.'],
+      ['create', 'instruction', 'commit-style'],
+      { sh: 'find agent-kit -type f | sort' },
+      { sh: 'cat palm.yaml' },
+    ],
+  },
+  {
+    name: 'c-cache',
+    sources: [MATT],
+    setup: [
+      ['init', '--target', 'claude'],
+      ['install', 'mattpocock/skills', 'tdd'],
+    ],
+    commands: [
+      ['cache', 'clean', '--yes'],
+      { palm: ['install', '--offline'], exit: 1 },
+      ['install'],
+    ],
+  },
+  {
+    name: 'c-errors',
+    sources: [MATT],
+    setup: [['init', '--target', 'claude']],
+    commands: [
+      { palm: ['install', 'tdd'], exit: 2 },
+      { palm: ['install', 'mattpocock/skills', 'tdd-coach'], exit: 1 },
+      { palm: ['doctor'], exit: 2 },
+    ],
+  },
+  {
+    name: 'c-json',
+    sources: [MATT],
+    setup: [
+      ['init', '--target', 'claude'],
+      ['install', 'mattpocock/skills', 'tdd'],
+    ],
+    commands: [
+      ['get', 'skills', '--json'],
+      { palm: ['install', 'mattpocock/skills', 'tdd-coach', '--json'], exit: 1 },
+    ],
+  },
+  {
+    name: 'c-manifest',
+    sources: [MATT, SUPERPOWERS],
+    setup: [
+      ['init', '--target', 'claude,cursor'],
+      ['install', 'mattpocock/skills', 'tdd', 'handoff'],
+      { palm: ['install', 'obra/superpowers', 'plugin:superpowers'], exit: 1 },
+      ['install', 'obra/superpowers', 'plugin:superpowers', '--allow-exec', '{{allow-exec}}'],
+      ['remove', 'obra/superpowers', 'brainstorming', '--exclude'],
+      [
+        'install',
+        'mcp',
+        'docs',
+        '--url',
+        'https://docs.example.com/mcp',
+        '--header',
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: palm placeholder syntax, not a template
+        'Authorization=Bearer ${DOCS_TOKEN}',
+      ],
+    ],
+    commands: [{ sh: 'cat palm.yaml' }],
+  },
+  {
+    name: 'c-lock',
+    sources: [MATT, GH_CLI],
+    setup: [
+      ['init', '--target', 'claude,cursor'],
+      ['install', 'mattpocock/skills', 'tdd'],
+      { palm: ['install', 'trailofbits/skills', 'plugin:gh-cli'], exit: 1 },
+      ['install', 'trailofbits/skills', 'plugin:gh-cli', '--allow-exec', '{{allow-exec}}'],
+    ],
+    commands: [{ sh: 'cat palm.lock.yaml' }],
+  },
+  {
+    name: 'c-legacy',
+    sources: [MATT],
+    setup: [['init', '--target', 'claude']],
+    commands: [
+      ['install', 'origin', 'mattpocock/skills'],
+      { palm: ['outdated'], exit: 2 },
+      { palm: ['search', 'tdd'], exit: 2 },
+    ],
+  },
 ];

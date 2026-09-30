@@ -1,0 +1,92 @@
+---
+title: palm create
+description: Write a template skill, agent, instruction or hook into the project's in-repo source and install it, with no prompts and no editor.
+---
+
+import Capture from '../../../../components/Capture.astro';
+
+`palm create` writes a template into an in-repo source, declares that source in `palm.yaml` when needed, and installs the new entity.
+
+```sh
+palm create <kind> <name> [--in <dir>] [--description <text>]
+```
+
+Alias: `palm new`.
+
+| Command | What it does |
+| --- | --- |
+| `palm create skill release-notes` | Write `agent-kit/skills/release-notes/SKILL.md` and install it. |
+| `palm create agent reviewer --description 'Review a diff for bugs before merge.'` | Write an agent with that description. |
+| `palm create instruction commit-style` | Write `agent-kit/instructions/commit-style.md`. |
+| `palm create hook format` | Write `agent-kit/hooks/format/hooks.json` and an example script, then ask for consent. |
+| `palm create skill triage --in tools/agents` | Use another in-repo folder as the source. |
+| `palm create skill style -g` | Write into `~/.palm/kit` and install into your home directory. |
+
+<Capture name="c-create" title="~/project" />
+
+The [Publish your own source](/palm/guides/publish-your-own/) guide shows a skill from template to published repository.
+
+## Options
+
+{/* cli-reference:options create */}
+
+| Argument | Meaning |
+| --- | --- |
+| `kind` | skill, agent, instruction or hook |
+| `name` | the new entity's name |
+
+| Option | Meaning |
+| --- | --- |
+| `--in <dir>` | the in-repo source to write into (default ./agent-kit; ~/.palm/kit with -g) |
+| `--description <text>` | the description written into the template |
+
+The [global options](/palm/reference/cli/#global-options) also apply.
+
+{/* /cli-reference */}
+
+## Templates
+
+| Kind | File written |
+| --- | --- |
+| `skill` | `<dir>/skills/<name>/SKILL.md` |
+| `agent` | `<dir>/agents/<name>.md` |
+| `instruction` | `<dir>/instructions/<name>.md` |
+| `hook` | `<dir>/hooks/<name>/hooks.json`, with an example script beside it |
+
+Each template has `name` and `description` frontmatter where the kind uses it, and a short body to replace.
+`command` is not a kind. Asking for one stops with a usage error that names `palm create skill`.
+
+## Behavior
+
+1. palm writes the template into `<dir>`, `./agent-kit` by default. An existing file stops it with `E_CONFLICT`, and nothing is written.
+2. When `palm.yaml` does not declare `<dir>` yet, palm adds it and prints `+ source ./agent-kit → palm.yaml`.
+3. palm installs the entity as `palm install ./agent-kit <name>` would. A hook shows its command and script and asks for consent. Without a terminal it stops with `E_UNTRUSTED_EXEC`, and the template stays for a later `palm install`.
+
+palm asks no questions and opens no editor. Open the file yourself, and run `palm install` after each edit.
+The in-repo source is the truth, so `palm check` fails until the harness copies match it.
+
+Under `-g`, the default folder is `~/.palm/kit`, declared as `./kit` in `~/.palm/palm.yaml`.
+
+## Reads and writes
+
+| File | Writes |
+| --- | --- |
+| `<dir>/<kind folder>/<name>...` | the template |
+| `palm.yaml` | the in-repo source, on first use, and the entry |
+| `palm.lock.yaml` | the entry, with the source's tree hash |
+| harness files | the rendered entity for every target |
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | The template was written and installed. |
+| `1` | The file exists, the install failed, or a hook needs consent without a terminal. |
+| `2` | A missing or unknown kind, `command` as the kind, or an invalid name. |
+| `130` | You declined consent for a hook, or pressed Ctrl-C. |
+
+## Related
+
+- [Publish your own source](/palm/guides/publish-your-own/)
+- [Sources](/palm/concepts/sources/#in-repo-sources)
+- [palm install](/palm/reference/cli/install/)

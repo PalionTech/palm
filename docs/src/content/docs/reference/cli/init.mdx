@@ -1,62 +1,80 @@
 ---
 title: palm init
-description: Choose this project's targets, write them to palm.yaml and ignore .palm/.
+description: Write palm.yaml with the targets for this project, and the two lines palm needs in .gitignore.
 ---
 
 import Capture from '../../../../components/Capture.astro';
 
-`palm init` writes the project's targets to `palm.yaml`, so every developer installs into the same harnesses.
+`palm init` starts a project. It writes `palm.yaml` with `targets:`, and adds palm's two ignore lines to `.gitignore`.
 
 ```sh
-palm init [options]
+palm init [--target <ids>] [--here]
 ```
 
-| Command | Meaning |
+| Command | What it does |
 | --- | --- |
-| `palm init` | Pick the targets from a list, with the detected harnesses preselected. |
-| `palm init --target claude,codex` | Set the targets without a prompt. |
-| `palm init --yes` | Take the detected harnesses without a prompt. |
-| `palm init --dry-run` | Show what palm would write. |
+| `palm init` | Detect the harnesses from folders such as `.claude/` and `.cursor/`, and write them as `targets:`. |
+| `palm init --target claude,codex` | Write exactly these targets. |
+| `palm init --target claude,codex,copilot,cursor,gemini,opencode` | All six. |
+| `palm init --here` | Start a separate project in a folder that sits inside another project. |
 
-<Capture name="c-init" />
+<Capture name="c-init" title="~/project" />
 
 ## Options
 
 {/* cli-reference:options init */}
 
-No options of its own. The [global options](/palm/reference/cli/#global-options) apply.
+| Option | Meaning |
+| --- | --- |
+| `--target <ids>` | comma-separated: claude, codex, copilot, cursor, gemini, opencode |
+| `--here` | start a project here even inside another project |
+
+The [global options](/palm/reference/cli/#global-options) also apply.
 
 {/* /cli-reference */}
 
+`--target` is singular here because it sets the project's whole list.
+On `palm install`, `--targets` narrows one entry.
+
 ## Behavior
 
-### What it writes
+palm writes `targets:` to `palm.yaml` in the current folder and prints the path it wrote.
+It adds `.palm/local/` and `palm.local.yaml` to `.gitignore`, creating the file when there is none.
+Those are the only palm paths you do not commit.
 
-- `targets:` in `palm.yaml` at the project root. It replaces an existing `targets:` and keeps every other key.
-- `.palm/` as a new line in `.gitignore`, unless the file already ignores `.palm`. palm creates `.gitignore` when there is none and the project is inside a git repository. Outside a git repository it only edits an existing one.
+Running `palm init` again with another `--target` rewrites `targets:`.
+The next bare `palm install` writes files for an added target and removes the files of a dropped one.
 
-### What it asks
+`palm init` never writes outside the current folder.
+Without `--target` and with no harness folder to detect, it stops with `E_TARGET` and names `palm init --target`.
 
-Which harnesses the project uses, when you give no `--target` and no `--yes`.
-palm preselects every harness it detects in the project or in your home directory.
+## Inside another project
 
-### What it refuses
+A folder inside a project that already has a `palm.yaml` above it, in the same repository, belongs to that project.
+`palm init` there refuses and names both ways forward.
 
-- `-g`: a usage error. Set global targets with `palm config set targets claude,codex`.
-- No terminal, no `--target` and no detected harness: `E_NON_INTERACTIVE`.
-- An empty pick: a usage error.
+<Capture name="c-init-nested" title="~/project" />
+
+`--here` makes the folder a project of its own, with its own `palm.yaml`, lock and generated files.
+For one root setup with per-package placement, see [Monorepos](/palm/guides/monorepos/).
+
+## Reads and writes
+
+| File | Writes |
+| --- | --- |
+| `palm.yaml` | `targets:` |
+| `.gitignore` | `.palm/local/` and `palm.local.yaml`, once |
 
 ## Exit codes
 
 | Code | When |
 | --- | --- |
-| `0` | `palm.yaml` has its targets. |
-| `1` | No terminal and nothing detected. |
-| `2` | `-g`, an unknown target, or an empty pick. |
-| `130` | You pressed Esc at the list. |
+| `0` | `palm.yaml` was written or updated. |
+| `1` | No target given and none detected. |
+| `2` | An unknown target, or a folder inside another project without `--here`. |
 
 ## Related
 
-- [palm.yaml](/palm/reference/palm-yaml/)
 - [Targets](/palm/concepts/targets/)
-- [`palm install`](/palm/reference/cli/install/)
+- [Quick start](/palm/getting-started/quick-start/)
+- [palm.yaml reference](/palm/reference/palm-yaml/)

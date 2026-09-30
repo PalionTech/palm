@@ -21,7 +21,7 @@
 //       verbs, utilities, kinds, global-options      the CLI overview
 //       options <command> [<sub>]                    arguments and options of one command
 //       arguments <command> [<sub>]                  only the arguments of one command
-//       subcommands <command>                        the subcommands of config and cache
+//       subcommands <command>                        the subcommands of cache
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
@@ -125,7 +125,7 @@ function parseHelp(text) {
   return help;
 }
 
-/** `-o, --origin <name-or-alias>` → flags, short, long, argument. */
+/** `-s, --source <name>` → flags, short, long, argument. */
 function parseOption({ term, description }) {
   const m =
     /^(?:(-\w), )?(--[\w-]+)(?: ([<[].*[>\]]))?$/.exec(term) ?? /^(-\w)()(?: (.*))?$/.exec(term);
@@ -139,7 +139,7 @@ function parseOption({ term, description }) {
   };
 }
 
-/** `install (add, i)`, `why <kind> <name>`, `get [key]`. */
+/** `install (add, i)`, `describe (info) <name>`, `cache clean`. */
 function parseCommandTerm(term) {
   const m = /^(\S+)(?: \(([^)]*)\))?(?: (.*))?$/.exec(term);
   return {

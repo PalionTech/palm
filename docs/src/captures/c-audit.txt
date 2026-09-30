@@ -1,9 +1,0 @@
-$ palm audit
-x ./.claude/skills/bidi-override/SKILL.md (skill bidi-override@demo): 1 critical; first: U+202E RIGHT-TO-LEFT OVERRIDE at 8:24
-i 3 files scanned; 1 with hidden Unicode
-remove the hidden characters: palm audit --strip
-$ palm audit --strip
-~ ./.claude/skills/bidi-override/SKILL.md (skill bidi-override@demo): removed 1 hidden character
-i 3 files scanned; cleaned 1 file
-$ palm audit
-i 3 files scanned; no hidden Unicode

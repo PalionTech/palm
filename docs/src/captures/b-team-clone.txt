@@ -1,23 +1,25 @@
-$ palm install
-project scope → claude, codex
-status     kind   name        origin  targets       files
-─────────  ─────  ──────────  ──────  ────────────  ─────
-~ updated  skill  ci-watch    team    claude,codex  2
-~ updated  agent  ci-watcher  team    claude,codex  2
-2 updated
+$ cd ~/teammate && ls -a .claude .agents
+.agents:
+.  ..  skills
 
-i ci-watch: restored missing files
-i ci-watcher: restored missing files
-i ci-watcher: codex: .codex/agents/ci-watcher.toml: dropped extra: readonly (not supported by Codex)
-$ palm get
-kind   name        origin  version           targets       via
-─────  ──────────  ──────  ────────────────  ────────────  ───
-agent  ci-watcher  team    v1.0.0 (4179b50)  claude,codex
-skill  ci-watch    team    v1.0.0 (4179b50)  claude,codex
-$ palm outdated
-kind   name        origin  current           wanted            latest
-─────  ──────────  ──────  ────────────────  ────────────────  ────────────────
-skill  ci-watch    team    v1.0.0 (4179b50)  v1.1.0 (6b4bac7)  v1.1.0 (6b4bac7)
-agent  ci-watcher  team    v1.0.0 (4179b50)  v1.1.0 (6b4bac7)  v1.1.0 (6b4bac7)
-
-2 at an older commit than palm.yaml wants: palm update (it reinstalls those whose content changed)
+.claude:
+.  ..  agents  rules  skills
+$ cd ~/teammate && palm check
+✓ manifest and lock agree
+✓ generated files match the lock
+✓ in-repo sources match the lock
+✓ every program is trusted
+✓ every hook script exists and is executable
+✓ no secret literals in tracked files
+✓ generated files are not ignored by git
+✓ every source is declared
+✓ no path leaves the project
+✓ no hidden Unicode in generated files
+✓ no harness loads an entity twice
+✓ instruction blocks are within size limits
+no problems
+$ cd ~/teammate && palm install
+= unchanged  skill        ci-watch     acme/agent-kit v1.0.0
+= unchanged  agent        ci-watcher   acme/agent-kit v1.0.0
+= unchanged  instruction  typescript   acme/agent-kit v1.0.0
+3 unchanged. Nothing written.

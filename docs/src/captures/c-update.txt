@@ -1,14 +1,17 @@
 $ palm update --dry-run
 Update plan (project scope)
-~ updated  skill  tdd  mattpocock  v1.0.0 (4747051) → v1.1.0 (13365b4)
-
+mattpocock/skills   ^1.2   v1.2.3 (2c0db90) → v1.3.0 (9d41e7a)
+~ updated    skill   tdd
+= unchanged  skill   grill-me
 dry run: nothing written
 $ palm update --yes
 Update plan (project scope)
-~ updated  skill  tdd  mattpocock  v1.0.0 (4747051) → v1.1.0 (13365b4)
-
-project scope → claude
-status     kind   name  origin      targets  files
-─────────  ─────  ────  ──────────  ───────  ─────
-~ updated  skill  tdd   mattpocock  claude   3
-1 updated
+mattpocock/skills   ^1.2   v1.2.3 (2c0db90) → v1.3.0 (9d41e7a)
+~ updated    skill   tdd
+= unchanged  skill   grill-me
+~ updated  skill  tdd   .claude/skills/tdd/, .agents/skills/tdd/   6 files   from mattpocock/skills v1.3.0
+1 updated, 1 unchanged.
+ .agents/skills/tdd/SKILL.md | 2 ++
+ .claude/skills/tdd/SKILL.md | 2 ++
+ palm.lock.yaml              | 8 ++++----
+ 3 files changed, 8 insertions(+), 4 deletions(-)

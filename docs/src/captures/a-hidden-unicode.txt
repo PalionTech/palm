@@ -1,0 +1,4 @@
+$ palm install acme/unicode-demo bidi-override
+x skill bidi-override from acme/unicode-demo → claude: hidden Unicode U+202E (right-to-left override) in SKILL.md, line 6
+    palm refuses bidi overrides, isolates and tag characters with no override. Tell the author, or fork the source and remove the character.
+0 installed, 1 failed.

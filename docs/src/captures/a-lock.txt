@@ -1,0 +1,45 @@
+$ cat palm.lock.yaml
+# Written by palm. Commit it with palm.yaml and the files it lists.
+version: 3
+sources:
+  mattpocock/skills:
+    url: https://github.com/mattpocock/skills.git
+    ref: ^1.2
+    resolved: v1.2.3
+    sha: 2c0db9046017ad90f70ed14046665fee10b122b9
+    descriptor: marketplace
+entries:
+  - kind: skill
+    name: tdd
+    source: mattpocock/skills
+    path: skills/engineering/tdd
+    content: sha256:7f69d19eee8872271042cef4f776cc8490025eff15918e72b6141f350515b7bf
+    render:
+      claude: sha256:0cf83a0572061a7a7b929c6fc1227ea85871fcdd840e14e2e406c087e690f61a
+      codex: sha256:35b0f9aae99469e2d8e11713144988983412db4f182c5f282a3948a76e6d9496
+    files:
+      - .agents/skills/tdd/SKILL.md
+      - .agents/skills/tdd/agents/openai.yaml
+      - .agents/skills/tdd/references/mocking.md
+      - .claude/skills/tdd/SKILL.md
+      - .claude/skills/tdd/agents/openai.yaml
+      - .claude/skills/tdd/references/mocking.md
+    notes:
+      - "claude reads .claude/skills, codex reads .agents/skills: two copies"
+$ palm install
+= unchanged  skill  tdd   mattpocock/skills v1.2.3
+1 unchanged. Nothing written.
+$ palm check
+✓ manifest and lock agree
+✓ generated files match the lock
+✓ in-repo sources match the lock
+✓ every program is trusted
+✓ every hook script exists and is executable
+✓ no secret literals in tracked files
+✓ generated files are not ignored by git
+✓ every source is declared
+✓ no path leaves the project
+✓ no hidden Unicode in generated files
+✓ no harness loads an entity twice
+✓ instruction blocks are within size limits
+no problems
