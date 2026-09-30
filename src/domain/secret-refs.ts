@@ -101,3 +101,45 @@ export function requiredSecretNames(cfg: McpServerConfig): Set<string> {
       .map((s) => s.name),
   );
 }
+
+/**
+ * `docs`, `api-key` → `DOCS_API_KEY`: the parts joined as an environment variable name
+ * (upper case, every run of other characters one `_`).
+ */
+export function envVariableName(...parts: string[]): string {
+  return parts
+    .join('_')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+/**
+ * The variable a secret header of `server` reads from (DESIGN §8): `Authorization` →
+ * `DOCS_TOKEN`; another header without its `x-` prefix, named after the server unless it
+ * already is (`x-inbound-api-key` of inbound → `INBOUND_API_KEY`, `x-api-key` of docs →
+ * `DOCS_API_KEY`).
+ */
+export function headerVariable(server: string, header: string): string {
+  if (/^authorization$/i.test(header)) return envVariableName(server, 'token');
+  return serverVariable(server, header.replace(/^x-/i, ''));
+}
+
+/** `name` as a variable of `server`: `api-key` of docs → `DOCS_API_KEY`, `DOCS_URL` stays. */
+export function serverVariable(server: string, name: string): string {
+  const variable = envVariableName(name);
+  const prefix = envVariableName(server);
+  return variable === prefix || variable.startsWith(`${prefix}_`)
+    ? variable
+    : envVariableName(prefix, variable);
+}
+
+/**
+ * The variable for a secret argument `args[i]` of `server`: `--api-key=…` or `--api-key …`
+ * name it (`DOCS_API_KEY`), else `<SERVER>_SECRET`.
+ */
+export function argVariable(server: string, args: readonly string[], i: number): string {
+  const inline = /^--?([A-Za-z][A-Za-z0-9_-]*)=/.exec(args[i] ?? '')?.[1];
+  const flag = /^--?([A-Za-z][A-Za-z0-9_-]*)$/.exec(args[i - 1] ?? '')?.[1];
+  return envVariableName(server, inline ?? flag ?? 'secret');
+}

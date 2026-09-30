@@ -202,15 +202,15 @@ describe('decideSecret', () => {
       },
     ],
     [
-      'global, literal, inside a worktree with --force: warn',
+      'J26 global, literal, inside a worktree with --force: still refused',
       {
         scope: 'global',
         fromSource: false,
         requested: 'literal',
         dest: inRepoTracked,
         force: true,
-        policy: 'literal',
-        action: 'warn',
+        policy: 'env-ref',
+        action: 'refused',
       },
     ],
     [
@@ -282,7 +282,7 @@ describe('decideSecret', () => {
       git,
     );
     expect(d.reason).toBe(
-      `${linkedIntoRepo()} resolves to ${join(repo, 'cursor', 'mcp.json')}, which is inside the git worktree ${repo}; refusing to write a literal secret there (use --secrets env-ref, or --force)`,
+      `${linkedIntoRepo()} resolves to ${join(repo, 'cursor', 'mcp.json')}, which is inside the git worktree ${repo}; refusing to write a literal secret there (use --secrets env-ref and export the variable)`,
     );
   });
 });

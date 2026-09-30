@@ -23,8 +23,19 @@ export const SECRET_PREFIXES: readonly string[] = [
   '-----BEGIN',
 ];
 
-/** Key names under which a high-entropy value counts as a secret. */
-export const SECRET_KEY_RE = /(key|token|secret|password|authorization)/i;
+/**
+ * Key names under which a high-entropy value counts as a secret: one of the words key, token,
+ * secret, password, authorization or api key, as a whole word of the name (separated by `_`,
+ * `-`, `.` or the name's ends), so `API_KEY` and `x-api-key` match and `keywords` does not.
+ * Test names through `isSecretKey`, which also splits camelCase (`clientSecret`).
+ */
+export const SECRET_KEY_RE =
+  /(?<![a-z0-9])(?:api[_-]?key|key|token|secret|password|authorization)(?![a-z0-9])/i;
+
+/** True when the key name `name` says "secret" (SECRET_KEY_RE over its words, camelCase split). */
+export function isSecretKey(name: string): boolean {
+  return SECRET_KEY_RE.test(name.replace(/([a-z0-9])([A-Z])/g, '$1_$2'));
+}
 
 const PRIVATE_KEY = '-----BEGIN';
 /** Characters a prefixed token needs after its prefix (`sk-abc` is not a key). */
@@ -62,7 +73,7 @@ function inUrl(text: string): Match | undefined {
   const userinfo = USERINFO_RE.exec(text)?.[1];
   if (userinfo && isLiteral(userinfo)) return { shape: 'url-userinfo', secret: userinfo };
   for (const [, name = '', value = ''] of text.matchAll(URL_PARAM_RE)) {
-    if (SECRET_KEY_RE.test(name) && value.length >= MIN_URL_TOKEN && isLiteral(value))
+    if (isSecretKey(name) && value.length >= MIN_URL_TOKEN && isLiteral(value))
       return { shape: 'url-token', secret: value, key: name };
   }
   return undefined;
@@ -94,7 +105,7 @@ function highEntropyToken(value: string): string | undefined {
 
 function findSecret(value: string, key?: string): Match | undefined {
   const found = inText(value);
-  if (found || key === undefined || !SECRET_KEY_RE.test(key)) return found;
+  if (found || key === undefined || !isSecretKey(key)) return found;
   const token = highEntropyToken(value);
   return token ? { shape: 'high-entropy', secret: token, key } : undefined;
 }
@@ -102,7 +113,7 @@ function findSecret(value: string, key?: string): Match | undefined {
 /** `name=value` / `name: value` pairs anywhere in `text` whose name says "secret". */
 function inAssignments(text: string): Match | undefined {
   for (const [, name = '', value = ''] of text.matchAll(ASSIGNMENT_RE)) {
-    const found = SECRET_KEY_RE.test(name) ? findSecret(value, name) : undefined;
+    const found = isSecretKey(name) ? findSecret(value, name) : undefined;
     if (found) return { ...found, key: found.key ?? name };
   }
   return undefined;
@@ -116,6 +127,15 @@ function inAssignments(text: string): Match | undefined {
  */
 export function looksLikeSecret(value: string, key?: string): SecretShape | undefined {
   return findSecret(value, key)?.shape;
+}
+
+/**
+ * The secret part of `value` (the token after `Bearer`, the value of a `token=` parameter, a
+ * prefixed token inside an argument), for the one caller that replaces it by a reference in
+ * place; undefined when `value` holds no secret shape.
+ */
+export function secretPart(value: string, key?: string): string | undefined {
+  return (inAssignments(value) ?? findSecret(value, key))?.secret;
 }
 
 /** `<redacted sha256:1a2b3c4d>`: the only form a secret value takes outside this module. */

@@ -16,6 +16,7 @@ import type {
   ScriptReader,
 } from '../core/types.js';
 import { isWithin } from '../lib/fs.js';
+import { redactTypedArgs } from '../secrets/typed.js';
 import { canDiff, consentSummary, consentText, type PromptOptions, programs } from './prompt.js';
 import { execDiff, scriptsText } from './review.js';
 
@@ -73,7 +74,11 @@ function command(words: readonly string[]): string {
   return ['palm', ...words.map(shellWord)].join(' ');
 }
 
-/** The command line without `--allow-exec`, `--dry-run` and `--review`, plus the allow entries it had. */
+/**
+ * The command line without `--allow-exec`, `--dry-run` and `--review`, plus the allow entries
+ * it had. Typed values are redacted (J11): an `--env` or `--header` value becomes the reference
+ * palm writes for it, so a hint that repeats the command never echoes a secret.
+ */
 function splitArgs(args: readonly string[]): { base: string[]; allow: string[] } {
   const base: string[] = [];
   const allow: string[] = [];
@@ -83,7 +88,10 @@ function splitArgs(args: readonly string[]): { base: string[]; allow: string[] }
     else if (arg.startsWith('--allow-exec=')) allow.push(...arg.slice(13).split(','));
     else if (arg !== '--dry-run' && arg !== '--review') base.push(arg);
   }
-  return { base, allow: allow.filter((a) => a !== '' && a.toLowerCase() !== 'all') };
+  return {
+    base: redactTypedArgs(base),
+    allow: allow.filter((a) => a !== '' && a.toLowerCase() !== 'all'),
+  };
 }
 
 /**

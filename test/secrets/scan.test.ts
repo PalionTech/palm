@@ -1,9 +1,9 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
+  isSecretKey,
   looksLikeSecret,
   redact,
-  SECRET_KEY_RE,
   SECRET_PREFIXES,
   scanSecrets,
   scanText,
@@ -94,8 +94,8 @@ describe('looksLikeSecret', () => {
       ]),
     );
     for (const key of ['api_key', 'GITHUB_TOKEN', 'clientSecret', 'PASSWORD', 'Authorization'])
-      expect(SECRET_KEY_RE.test(key)).toBe(true);
-    expect(SECRET_KEY_RE.test('MODE')).toBe(false);
+      expect(isSecretKey(key)).toBe(true);
+    expect(isSecretKey('MODE')).toBe(false);
   });
 
   it('never calls a ${VAR} reference a secret, whatever the key', () => {
