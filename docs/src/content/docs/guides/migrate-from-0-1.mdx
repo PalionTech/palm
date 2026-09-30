@@ -1,0 +1,106 @@
+---
+title: Migrate from palm 0.1
+description: palm migrate turns the 0.1 palm.yaml, lockfile and ~/.palm/config.yaml into the 0.2 format, keeps every installed file, and prints what to commit.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Capture from '../../../components/Capture.astro';
+
+palm 0.2 declares sources in `palm.yaml` instead of `~/.palm/config.yaml`, writes lock version 3 and commits hook scripts.
+`palm migrate` converts a project in one command and adopts every file that already matches.
+It ships with 0.2 only and is removed in 0.3.
+
+When you finish, the project runs on 0.2, and the only changes are `palm.yaml`, the lock and `.gitignore`:
+
+<Capture name="b-migrate" title="~/project" />
+
+## Before you start
+
+- Commit the current state, so `git diff` shows exactly what the migration changed.
+- Upgrade palm with `npm install -g @paliontech/palm@latest`.
+- Keep `~/.palm/config.yaml` in place until every project is migrated. palm reads its origins once per project.
+
+## Steps
+
+<Steps>
+
+1. Preview the new `palm.yaml`.
+
+   ```sh
+   palm migrate --dry-run
+   ```
+
+   The preview goes to stdout, and nothing is written.
+
+2. Migrate.
+
+   ```sh
+   palm migrate
+   ```
+
+   If the project has hooks, palm lists the programs it copied into `.palm/assets/` and asks for consent once. Your yes goes into the new lock, so teammates are not asked again.
+
+3. Review and commit.
+
+   ```sh
+   git diff
+   git add -A
+   git commit -m "Migrate to palm 0.2"
+   palm check
+   ```
+
+</Steps>
+
+## What palm migrate converts
+
+| palm 0.1 | palm 0.2 |
+| --- | --- |
+| an origin in `~/.palm/config.yaml` | a source in `palm.yaml`, keyed `owner/repo` for GitHub, else by the alias, with its URL, root, layout and locked ref |
+| an origin alias that differs from the key | `alias:` on the source |
+| `tdd@mattpocock#v1.2.3` in a kind list | `tdd` under the source's `skills:`; the ref moves to the source |
+| entries of one source pinned to different refs | the most common ref wins, and palm names the others |
+| a plugin with uninstalled members | a `plugins:` entry with `exclude:` |
+| a `command` entry | a skill of the same name |
+| an MCP server from the MCP registry | an entry under `mcp:`, copied from the rendered `.mcp.json` or harness file |
+| an entry installed with `--target` beyond the project's set | per-entry `targets:`, with a note |
+| an entry from the `mine` origin | a warning that names the folder to copy the file into |
+| `.palm/hooks/<name>/`, ignored by git | `.palm/assets/<source>/<name>/`, committed |
+| `.palm/` in `.gitignore` | `.palm/local/` and `palm.local.yaml` |
+| lock version 1 or 2 | lock version 3 |
+
+After the conversion palm runs a bare install, which adopts every file that already matches and restores any that are missing.
+The report ends with the files to commit.
+
+## The global scope
+
+```sh
+palm migrate -g
+```
+
+Under `-g`, palm rewrites absolute paths in `~/.palm/palm.lock.yaml` as tokens, such as `<claude>/skills/tdd`, so the lock can live in a dotfiles repository.
+It lists every literal secret it finds in the harness files, with the advice to rotate it.
+It leaves `~/.palm/config.yaml` in place and reports `i ~/.palm/config.yaml is no longer read; delete it`.
+
+## Old commands
+
+The 0.1 grammar keeps working for one release as hidden aliases.
+
+| palm 0.1 | palm 0.2 |
+| --- | --- |
+| `palm install skill tdd@mattpocock` | `palm install mattpocock/skills tdd`; the alias resolves through `palm.yaml` |
+| `palm install origin mattpocock/skills` | `palm install mattpocock/skills`; palm prints the new form and runs it |
+| `palm uninstall skill tdd` | `palm remove tdd` |
+| `palm install --frozen`, `palm doctor`, `palm audit` | `palm check` |
+| `palm outdated` | `palm update --dry-run` |
+| `palm why`, `palm find` | `palm describe <name>`, `palm describe <path>` |
+| `palm search`, `palm install mcp <registry name>` | none; see [Add MCP servers](/palm/guides/mcp-servers/) |
+| `palm config get`, `palm config set` | none; the global targets live in `~/.palm/palm.yaml` |
+| `palm create` wizard, the `mine` origin | `palm create <kind> <name>` into `./agent-kit` |
+
+`palm doctor`, `audit`, `outdated`, `why`, `find`, `search` and `config` print one line naming the replacement and exit 2.
+
+## Next steps
+
+- [Why sources live in each project](/palm/explanation/why-sources/)
+- [Consent and executable content](/palm/concepts/consent/)
+- [palm migrate reference](/palm/reference/cli/migrate/)
