@@ -35,13 +35,23 @@ const resolved = new WeakMap<ScopeState, Map<string, Promise<Resolved>>>();
  * Fetches (git) or hashes (local) a source and indexes it: at the locked sha when `sha` is
  * given (bare install), else at the source's ref intent. One fetch per source and sha per run.
  */
-export async function resolveSource(
-  ctx: PalmContext,
-  deps: EngineDeps,
-  state: ScopeState,
-  ref: SourceRef,
-  opts: { sha?: string; refresh?: boolean } = {},
-): Promise<Resolved> {
+export interface ResolveJob {
+  ctx: PalmContext;
+  deps: EngineDeps;
+  state: ScopeState;
+  ref: SourceRef;
+  /** The locked commit (bare install, check); else the ref intent resolves. */
+  sha?: string;
+  /** Resolve the ref intent again (update). */
+  refresh?: boolean;
+}
+
+export async function resolveSource(job: ResolveJob): Promise<Resolved> {
+  const { ctx, deps, state, ref } = job;
+  const opts = {
+    ...(job.sha ? { sha: job.sha } : {}),
+    ...(job.refresh ? { refresh: true } : {}),
+  };
   const memo = resolved.get(state) ?? new Map<string, Promise<Resolved>>();
   resolved.set(state, memo);
   const key = `${ref.name}\0${opts.sha ?? ref.source.ref ?? ''}\0${opts.refresh ? 1 : 0}`;

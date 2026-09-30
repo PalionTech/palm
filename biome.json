@@ -77,7 +77,7 @@
       }
     },
     {
-      "includes": ["test/**"],
+      "includes": ["test/**", "docs/scripts/**"],
       "linter": {
         "rules": {
           "style": {

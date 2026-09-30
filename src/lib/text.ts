@@ -29,7 +29,7 @@ export function entropyBitsPerChar(s: string): number {
 }
 
 /** `word` for one, `word` + `s` for any other count (`secret`, `secrets`). */
-export function pluralWord(n: number, word: string): string {
+function pluralWord(n: number, word: string): string {
   return n === 1 ? word : `${word}s`;
 }
 

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Entity, ScanResult } from '../../src/core/types.js';
 import { scanSourceWith } from '../../src/index/scanner.js';
 import type { SecretScanner } from '../../src/index/secrets.js';
-import { detectSecrets, redact, scanSecrets, scanText } from '../../src/secrets/scan.js';
+import { detectSecrets, redact, scanText } from '../../src/secrets/scan.js';
 import { putFile, removeDir, tempDir } from '../support/sandbox.js';
 import { scanSource } from './helpers.js';
 

@@ -87,7 +87,13 @@ function itemOf(p: Prepared, range: { from?: string; to?: string }): UpdatePlanI
 /** The same entity rendered at the locked sha: the trusted version of its unit and scripts. */
 async function renderedBefore(run: Run, job: Job, lockSha: string): Promise<Prepared | undefined> {
   try {
-    const r = await resolveSource(run.ctx, run.deps, run.state, job.source, { sha: lockSha });
+    const r = await resolveSource({
+      ctx: run.ctx,
+      deps: run.deps,
+      state: run.state,
+      ref: job.source,
+      sha: lockSha,
+    });
     const entity = r.index.entities.find(
       (e) => e.kind === job.entity.kind && sameName(e.name, job.entity.name),
     );
@@ -141,7 +147,13 @@ async function resolveIntent(
   target: SourceRef,
 ): Promise<Resolved | undefined> {
   try {
-    return await resolveSource(run.ctx, run.deps, run.state, target, { refresh: true });
+    return await resolveSource({
+      ctx: run.ctx,
+      deps: run.deps,
+      state: run.state,
+      ref: target,
+      refresh: true,
+    });
   } catch (e) {
     plan.failures.push(failureOf({ kind: 'source', name: target.name, source: target.name }, e));
     return undefined;
@@ -260,7 +272,13 @@ async function sourceUpdate(
     state.sources = state.sources.add(ref.source);
   }
   const sha = memos.get(plan)?.shas.get(name);
-  const r = await resolveSource(run.ctx, run.deps, state, ref, sha ? { sha } : { refresh: true });
+  const r = await resolveSource({
+    ctx: run.ctx,
+    deps: run.deps,
+    state,
+    ref,
+    ...(sha ? { sha } : { refresh: true }),
+  });
   state.lock.setSource(name, lockSourceOf(state, ref, r));
   const m = manifestJobs(state, ref, r);
   run.result.failures.push(...m.failures);

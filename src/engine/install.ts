@@ -101,7 +101,7 @@ async function install(run: Run, req: InstallRequest, held: { source?: string })
       `name what to install from ${ref.name}`,
       palmCommand('install', [ref.name], scope),
     );
-  const r = await resolveSource(ctx, deps, state, ref, lockedSha(state, ref));
+  const r = await resolveSource({ ctx, deps, state, ref, ...lockedSha(state, ref) });
   const match = matchNames(r.index, req.names, !!req.all);
   const err = matchError(ref.name, r.index, match, scope);
   if (err) throw err;
@@ -151,6 +151,6 @@ export async function listSource(
   const deps = await resolveEngineDeps(depsIn);
   const state = await openScope(ctx, opts.scope, { deps, readOnly: true });
   const { ref, declared } = peekSource(ctx, state, input);
-  const r = await resolveSource(ctx, deps, state, ref, lockedSha(state, ref));
+  const r = await resolveSource({ ctx, deps, state, ref, ...lockedSha(state, ref) });
   return { source: ref, checkout: r.checkout, index: r.index, declared };
 }

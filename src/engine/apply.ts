@@ -262,7 +262,7 @@ async function record(
   entry: LockEntry,
   status: OutcomeStatus,
 ): Promise<void> {
-  const { state, ctx } = run;
+  const { state } = run;
   await replacePrevious(run, p.previous, entry);
   if (!sameEntry(p.previous, entry)) state.lock.upsert(entry);
   const rec = p.job.record;

@@ -6,7 +6,6 @@
 import { posix, relative, resolve } from 'node:path';
 import { PalmError } from '../core/errors.js';
 import { fileAtSha } from '../core/git.js';
-import { short } from '../core/hash.js';
 import type {
   AllowExec,
   ConsentOutcome,

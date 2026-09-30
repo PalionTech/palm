@@ -111,7 +111,7 @@ function normalizeExec(exec: LockExec | undefined): Record<string, unknown> | un
 }
 
 /** An entry as written: keys in order, lists sorted, empty optional lists dropped. */
-export function normalizeEntry(e: LockEntry): LockEntry {
+function normalizeEntry(e: LockEntry): LockEntry {
   const deps = e.deps
     ? [...e.deps].sort(byKindName).map((d) => ordered(d, ['kind', 'name']))
     : undefined;
@@ -132,7 +132,7 @@ export function normalizeEntry(e: LockEntry): LockEntry {
 }
 
 /** Kind (KINDS order), name (any case), source, then name: code points, so every machine sorts alike. */
-export function byKindNameSource(a: LockEntry, b: LockEntry): number {
+function byKindNameSource(a: LockEntry, b: LockEntry): number {
   return (
     KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind) ||
     compareText(a.name.toLowerCase(), b.name.toLowerCase()) ||

@@ -44,7 +44,13 @@ async function locate(run: Run, entry: LockEntry) {
   const ref = sourceRefOf(run.state, entry.source);
   if (!ref) return undefined;
   const sha = lockedSource(run.state, entry.source)?.sha;
-  const r = await resolveSource(run.ctx, run.deps, run.state, ref, sha ? { sha } : {});
+  const r = await resolveSource({
+    ctx: run.ctx,
+    deps: run.deps,
+    state: run.state,
+    ref,
+    ...(sha ? { sha } : {}),
+  });
   const entity: Entity | undefined = r.index.entities.find(
     (e) => e.kind === entry.kind && sameName(e.name, entry.name),
   );

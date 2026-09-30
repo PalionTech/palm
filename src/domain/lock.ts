@@ -37,7 +37,7 @@ interface Keyed {
   name: string;
 }
 
-/** Turns lock paths into absolute ones and back; `ScopePaths` fits. */
+/** Turns lock paths into absolute ones and back; `ScopePaths` fits. @public */
 export interface LockPaths {
   abs(lockPath: string): string;
   lockForm(abs: string): string;

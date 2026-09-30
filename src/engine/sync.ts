@@ -19,6 +19,7 @@ import type {
   PalmContext,
 } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
+import type { SourceRef } from '../domain/source.js';
 import { removeEmptyParents } from '../lib/fs.js';
 import { deepEqual } from '../lib/object.js';
 import { resolveEngineDeps } from './deps.js';
@@ -42,13 +43,10 @@ interface Desired {
   failedSources: Set<string>;
 }
 
-async function resolveDeclared(
-  run: Run,
-  ref: Parameters<typeof resolveSource>[3],
-): Promise<Resolved | undefined> {
+async function resolveDeclared(run: Run, ref: SourceRef): Promise<Resolved | undefined> {
   const { ctx, deps, state } = run;
   try {
-    const r = await resolveSource(ctx, deps, state, ref, lockedSha(state, ref));
+    const r = await resolveSource({ ctx, deps, state, ref, ...lockedSha(state, ref) });
     const fresh = lockSourceOf(state, ref, r);
     if (!deepEqual(state.lock.source(ref.name), fresh)) state.lock.setSource(ref.name, fresh);
     return r;

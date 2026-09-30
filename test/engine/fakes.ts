@@ -16,7 +16,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import semver from 'semver';
 import { vi } from 'vitest';
 import { PalmError } from '../../src/core/errors.js';
@@ -216,18 +216,6 @@ async function importOr(
 }
 
 vi.mock('../../src/core/git.js', async (orig) => gitModule(await importOr(() => orig())));
-
-function parseSourceInputFake(input: string, opts: { as?: string; cwd?: string } = {}): Source {
-  const [head = input, ref] = input.split('#');
-  if (head.startsWith('./') || head.startsWith('/')) {
-    const path = resolve(opts.cwd ?? '.', head);
-    return { name: opts.as ?? head, type: 'local', path };
-  }
-  const github = /^[\w.-]+\/[\w.-]+$/.test(head);
-  const url = github ? `https://github.com/${head}.git` : head;
-  const name = opts.as ?? (github ? head : basename(head).replace(/\.git$/, ''));
-  return { name, type: 'git', url, ...(ref ? { ref } : {}) };
-}
 
 vi.mock('../../src/targets/merged-state.js', () => ({ mergedRecordState: fakeRecordState }));
 

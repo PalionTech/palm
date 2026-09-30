@@ -69,7 +69,7 @@ export const ROOT_IGNORED_FILES: readonly string[] = [
 ];
 
 /** Scan: repository documents (lower case) that never count as entities, even inside `agents/`. */
-export const DOC_FILE_NAMES: readonly string[] = [
+const DOC_FILE_NAMES: readonly string[] = [
   'readme.md',
   'changelog.md',
   'license.md',

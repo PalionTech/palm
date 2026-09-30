@@ -27,7 +27,7 @@ export interface FakeOptions {
   argv?: string[];
 }
 
-export const PATHS = {
+const PATHS = {
   palmHome: '/home/u/.palm',
   home: '/home/u',
   projectRoot: '/work/app',

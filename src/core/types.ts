@@ -25,7 +25,7 @@ export const KINDS: readonly Kind[] = [
   'plugin',
 ] as const;
 
-/** Kinds a user can name on the command line and in palm.yaml (`plugin` selects, the rest install). */
+/** Kinds a user can name on the command line and in palm.yaml (`plugin` selects, the rest install). @public */
 export type ManifestKind = Kind;
 
 export type TargetId = 'claude' | 'codex' | 'copilot' | 'cursor' | 'gemini' | 'opencode';
@@ -68,6 +68,7 @@ export interface LayoutDescriptor {
   nameFrom?: 'frontmatter' | 'dirname';
 }
 
+/** @public How a source is fetched: a git repository, or a directory read in place. */
 export type SourceType = 'git' | 'local';
 
 /**
@@ -369,7 +370,7 @@ export interface Manifest {
   mcp?: Record<string, McpManifestEntry>;
 }
 
-/** palm.local.yaml (0.3): the same shape plus `disable`. Reserved; not read in 0.2. */
+/** palm.local.yaml (0.3): the same shape plus `disable`. Reserved; not read in 0.2. @public */
 export interface LocalManifest extends Manifest {
   disable?: string[];
 }

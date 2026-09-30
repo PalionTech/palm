@@ -57,7 +57,7 @@ suffix, e.g. `import { isRecord } from '../lib/object.js'`.
 ## text.ts
 
 - `stripBom(text: string): string` and `normalizeText(text: string): string` (BOM stripped, CRLF and CR to LF).
-- `plural(n: number, word: string): string` (`1 file`, `3 files`) and `pluralWord(n: number, word: string): string` (`file`, `files`).
+- `plural(n: number, word: string): string` (`1 file`, `3 files`).
 - `entropyBitsPerChar(s: string): number`: Shannon entropy per code point (`''` is 0); secret detection counts values above 3.5.
 
 ## names.ts
@@ -118,4 +118,3 @@ Terminal display width (string-width's rules, no dependency), for tables (`src/u
 
 - `displayWidth(text: string): number`: columns `text` takes. ANSI colour codes 0; East Asian Wide/Fullwidth characters and emoji (ZWJ sequences, skin tones, keycaps, `U+FE0F` presentation) 2; combining marks, joiners, variation selectors and other default-ignorable characters 0; everything else 1. Measured per grapheme cluster (`Intl.Segmenter`).
 - `sliceToWidth(text: string, width: number): string`: the longest prefix at most `width` columns, cut between grapheme clusters (a wide character or emoji sequence is never split).
-- `stripAnsi(text: string): string`: without ANSI colour (SGR) sequences.

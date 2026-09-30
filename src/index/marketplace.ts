@@ -64,7 +64,7 @@ export async function findMarketplaceFile(root: string): Promise<string | undefi
 }
 
 /** The directory whose relative paths a marketplace file's entries use. */
-export function marketplaceRootFor(fileAbs: string): string {
+function marketplaceRootFor(fileAbs: string): string {
   const dir = dirname(fileAbs);
   const parent = basename(dir);
   if (parent === '.claude-plugin' || parent === '.cursor-plugin' || parent === '.codex-plugin')

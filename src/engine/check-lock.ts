@@ -122,7 +122,7 @@ export async function localSources(c: CheckContext): Promise<CheckRun> {
   for (const ref of state.sources.all()) {
     if (!ref.isLocal) continue;
     const ls = state.lock.source(ref.name);
-    const r = await resolveSource(ctx, deps, state, ref).catch(() => undefined);
+    const r = await resolveSource({ ctx, deps, state, ref }).catch(() => undefined);
     if (!r || !ls?.tree || r.checkout.tree === ls.tree) continue;
     c.driftedSources.add(ref.name);
     const moved = `tree ${short(ls.tree, 7)} → ${short(r.checkout.tree ?? '', 7)}`;

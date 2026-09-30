@@ -2,7 +2,6 @@
  * Formatting shared by the consent prompt, the script viewer and the diff: sizes, modes and
  * text from a source made safe to print on a terminal.
  */
-import type { ClosureFile } from '../core/types.js';
 
 /** Code point ranges a terminal would act on or hide: C0/C1 controls, bidi, zero-width, BOM. */
 const INVISIBLE: ReadonlyArray<readonly [number, number]> = [
