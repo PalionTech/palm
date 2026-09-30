@@ -22,6 +22,7 @@ The first command lists the index and saves nothing. The second shows how palm r
 
 `detected` names the rule that matched, here `marketplace`.
 The index warnings list what the scan found and will not install, each with the reason or the command that installs it from its own repository.
+A listing shows them as one count line. `palm describe source` and `PALM_DEBUG=1` print them in full.
 
 ## Detection order
 
@@ -36,6 +37,7 @@ The first rule that matches decides how palm reads the repository.
 | 5 | Conventions | `convention` | none of the above, so palm looks for `SKILL.md`, `agents/`, `rules/`, `hooks/` and similar paths |
 
 A marketplace entry with a relative path becomes a plugin, scanned at that path.
+An entry that points back at the source itself is skipped without a warning.
 A plugin manifest picks one format and never merges two.
 The [scan rules](/palm/reference/scan-rules/) list every file name and pattern.
 
@@ -51,6 +53,9 @@ The [scan rules](/palm/reference/scan-rules/) list every file name and pattern.
 | `hidden-unicode` | A file holds invisible characters. See the [security model](/palm/explanation/security/). |
 | `unresolvable-reference` | A hook or MCP command names a script that is not in the source. palm refuses that entity. |
 | `secret-literal` | An MCP value or hook command holds something shaped like a secret. palm writes a reference instead. |
+| `not indexed` | Files shaped like agents, hooks or MCP configs sit outside the folders palm scans. The line names the `layout:` that indexes them, such as `add layout: { agents: [people/*.md] }`. |
+| `skipped (ignored name ...)` | A `SKILL.md` sits under a folder name palm ignores, such as `skills/test`. The line names the `layout:` that includes it. |
+| `matches nothing` | A glob in your `layout:` matched no file. |
 
 palm never fetches another repository on its own.
 You decide whether it becomes a source.
@@ -60,6 +65,10 @@ You decide whether it becomes a source.
 After the rules run, palm resolves every path a hook or MCP command names.
 `${CLAUDE_PLUGIN_ROOT}` and its variants, `${extensionPath}` and relative paths such as `./scripts/check.sh` are resolved against the source.
 The directory that holds the hook definition, plus every file a command names, becomes the entity's **closure**, the set of files palm copies to `.palm/assets/`.
+
+palm also reads each script once for literal paths, such as `$CLAUDE_PLUGIN_ROOT/skills/x/SKILL.md`, `../x` or `"$(dirname "$0")/../x"`.
+Files found that way join the closure, and the consent review lists them as `reads:`.
+A read palm cannot resolve prints a warning at install, because the script may fail without it.
 
 A reference that resolves to nothing, such as `$(...)`, `~/...` or a missing file, refuses the entity and prints the line.
 
@@ -74,8 +83,11 @@ palm never merges a command it could not resolve, so a clone without palm never 
 ## Folders palm skips
 
 Auto-detection skips folders that hold tests, fixtures, evals, examples, templates, docs and build output.
-It also skips install outputs, such as `.claude/skills` or `.agents/skills`, because another tool committed those copies.
+It also skips install outputs, such as `.claude/skills` or `.agents/skills`, because another tool committed those copies, and any output folder it reaches through a symlink.
 Root `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` guide the repository's own contributors, so palm skips them too.
+
+Only the top-most `SKILL.md` in a folder tree is a skill.
+Everything below a skill's folder is that skill's content, including a nested `references/x/SKILL.md`.
 
 palm includes other dot folders. `openai/skills` keeps its skills in `skills/.curated`, and palm finds them.
 
