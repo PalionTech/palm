@@ -126,6 +126,7 @@ describe('renderMcp env-ref', () => {
       },
       notes: [],
       envRefs: ['GITHUB_TOKEN'],
+      optionalRefs: [],
     });
     const http = renderMcp(
       { ...HTTP, headers: { ...HTTP.headers, 'X-Key': '${KEY}', 'X-Tmpl': 'Token ${TMPL}' } },

@@ -8,6 +8,7 @@ import type { Entity, HookSet, TargetId } from '../../src/core/types.js';
 import { convertHooks, type Relocate } from '../../src/targets/convert-hooks.js';
 import { projectRelativeCommand } from '../../src/targets/hook-equivalence.js';
 import { createTarget } from '../../src/targets/index.js';
+import { renderMcp } from '../../src/targets/mcp-config.js';
 import { cleanupTmp, fakeEnv, install, mkEntity, readJson, tmpDir, write } from './helpers.js';
 
 afterEach(cleanupTmp);
@@ -138,5 +139,46 @@ describe('O11 an equivalent hook already on disk is adopted, Copilot keeps power
       version: 1,
       hooks: { agentStop: [entry] },
     });
+  });
+});
+
+describe('Q8 an optional header reference renders in each harness’s optional form', () => {
+  const cfg = {
+    name: 'context7',
+    transport: 'http' as const,
+    url: 'https://mcp.context7.com/mcp',
+    headers: { Authorization: 'Bearer ${CONTEXT7_TOKEN:-}' },
+  };
+  const headersOf = (id: TargetId) =>
+    (renderMcp(cfg, id, 'env-ref').entry as { headers?: Record<string, string> }).headers;
+
+  it('Q8 Claude and Gemini keep ${VAR:-}; Cursor and VS Code read an unset ${env:VAR} as empty', () => {
+    expect(headersOf('claude')).toEqual({ Authorization: 'Bearer ${CONTEXT7_TOKEN:-}' });
+    expect(headersOf('gemini')).toEqual({ Authorization: 'Bearer ${CONTEXT7_TOKEN:-}' });
+    expect(headersOf('cursor')).toEqual({ Authorization: 'Bearer ${env:CONTEXT7_TOKEN}' });
+    expect(renderMcp(cfg, 'claude', 'env-ref').optionalRefs).toEqual(['CONTEXT7_TOKEN']);
+  });
+
+  it('Q8 the install note calls the variable optional; Codex says it has no optional form', async () => {
+    const root = await tmpDir();
+    const entity = mkEntity(
+      { kind: 'mcp', mcp: cfg, references: [], closure: { paths: [] } },
+      'context7',
+      '.mcp.json',
+    );
+    const src = path.join(root, 'src');
+    const c = { entity, absPath: path.join(src, '.mcp.json'), scope: 'project' as const };
+    const { rendered } = await install(createTarget('claude', fakeEnv(root)), {
+      ...c,
+      scopeRoot: root,
+      sourceRoot: src,
+    });
+    expect(rendered.notes).toContain('optional in the environment: CONTEXT7_TOKEN');
+    expect(rendered.notes.join('\n')).not.toContain('needs CONTEXT7_TOKEN');
+    const codex = renderMcp(cfg, 'codex', 'env-ref');
+    expect(codex.entry).toMatchObject({ bearer_token_env_var: 'CONTEXT7_TOKEN' });
+    expect(codex.notes).toContain(
+      'Codex has no optional form for CONTEXT7_TOKEN: export it before starting Codex',
+    );
   });
 });

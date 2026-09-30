@@ -400,6 +400,16 @@ function mcpSlot(layout: TargetLayout, key: string): { file: string; at: string 
   return { file: mcp.json, at: formatPointer([...mcp.path, key]) };
 }
 
+/**
+ * One note for every target (they dedupe): the variables the person exports, and apart from
+ * them the optional ones the server starts without (ruling Q8).
+ */
+function noteVariables(job: RenderJob, r: ReturnType<typeof renderMcp>): void {
+  const needed = r.envRefs.filter((v) => !r.optionalRefs.includes(v));
+  if (needed.length) job.note(`needs ${needed.join(', ')} in the environment`);
+  if (r.optionalRefs.length) job.note(`optional in the environment: ${r.optionalRefs.join(', ')}`);
+}
+
 async function renderMcpKind(job: RenderJob): Promise<void> {
   const def = defOf(job.entity, 'mcp');
   const { secretPolicy, secretValues, scope, assetsRoot } = job.input;
@@ -422,8 +432,7 @@ async function renderMcpKind(job: RenderJob): Promise<void> {
   const slot = mcpSlot(job.layout, key);
   const literal = secretPolicy === 'literal' && Object.keys(values).length > 0;
   job.fragment(slot.file, slot.at, r.entry, literal ? { mode: PRIVATE_MODE } : {});
-  // One note for every target (they dedupe): the variables the person exports.
-  if (r.envRefs.length) job.note(`needs ${r.envRefs.join(', ')} in the environment`);
+  noteVariables(job, r);
   if (def.mcp.transport === 'stdio') {
     const { canonical, rendered: command } = relocated;
     job.execLine({ id: 'stdio', canonical, command, file: job.lock(slot.file) });

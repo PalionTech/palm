@@ -227,7 +227,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -495,7 +495,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -1294,7 +1294,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -1556,7 +1556,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -1812,7 +1812,7 @@ prettier --write "$1"
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -2074,7 +2074,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -2351,7 +2351,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -2621,7 +2621,7 @@ Strict.
       },
     ],
     "notes": [
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -2846,7 +2846,7 @@ Strict.
     ],
     "notes": [
       "OpenCode has no default syntax: PORT is empty when unset (default "8080" dropped)",
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
@@ -3069,7 +3069,7 @@ Strict.
     ],
     "notes": [
       "OpenCode has no default syntax: PORT is empty when unset (default "8080" dropped)",
-      "needs PORT in the environment",
+      "optional in the environment: PORT",
     ],
   },
   "plugin": {
