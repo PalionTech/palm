@@ -44,20 +44,22 @@ export async function lockScope<T>(
 }
 
 /** Renders and diffs every job; a job that cannot be prepared is a failure, not an error. */
-async function prepareAll(run: Run, jobs: Job[]): Promise<Prepared[]> {
-  const out: Prepared[] = [];
+async function prepareAll(run: Run, jobs: Job[]): Promise<{ prepared: Prepared[]; failed: Job[] }> {
+  const prepared: Prepared[] = [];
+  const failed: Job[] = [];
   for (const job of jobs) {
     if (stopRequested) throw cancelled();
     try {
-      out.push(await prepareJob(run, job));
+      prepared.push(await prepareJob(run, job));
     } catch (e) {
       if (e instanceof PalmError && (e.code === 'E_CANCELLED' || e.code === 'E_NON_INTERACTIVE'))
         throw e;
       const { kind, name } = job.entity;
       run.result.failures.push(failureOf({ kind, name, source: job.source.name }, e));
+      failed.push(job);
     }
   }
-  return out;
+  return { prepared, failed };
 }
 
 /** Applies prepared jobs one by one, saving once something is on disk; stops early on a stop request. */
@@ -97,12 +99,12 @@ export async function prepareRun(
   jobs: Job[],
   plan: RunPlan = {},
 ): Promise<{ prepared: Prepared[]; held: Set<string> }> {
-  const all = await prepareAll(run, jobs);
-  const { kept, refused } = refuseConflicts(run, all, plan.leaving);
+  const { prepared, failed } = await prepareAll(run, jobs);
+  const { kept, refused } = refuseConflicts(run, prepared, plan.leaving);
   const moves = plan.moves ?? [];
   if (!plan.confirmed) await confirmMoves(run, moves, kept);
   await askForConsent(run, kept, plan.previous);
-  return holdBack(run, moves, kept, refused);
+  return holdBack(run, moves, { prepared: kept, refused, failed });
 }
 
 /** The whole pipeline: prepare, then apply. */

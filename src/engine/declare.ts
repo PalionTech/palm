@@ -203,6 +203,9 @@ function redeclare(
       'use a file:// URL for a tagged checkout',
     );
   const moved = declare(state, { ...existing.source, ref });
+  // Nothing installed moves: say so; a locked source shows its entries and asks (moves.ts).
+  if (!state.lock.source(existing.name)?.sha)
+    logMark(ctx, '~', `source ${existing.name}: ref ${existing.source.ref ?? '(none)'} → ${ref}`);
   return { ref: moved, before: existing };
 }
 

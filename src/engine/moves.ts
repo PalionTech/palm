@@ -10,7 +10,7 @@ import { PalmError } from '../core/errors.js';
 import { short } from '../core/hash.js';
 import type { InstallOutcome, LockSource, SourceCheckout } from '../core/types.js';
 import type { SourceRef } from '../domain/source.js';
-import type { Prepared, Run } from './jobs.js';
+import type { Job, Prepared, Run } from './jobs.js';
 import { failure, label, palmCommand } from './report.js';
 import { lockedSource, type ScopeState } from './scope.js';
 
@@ -126,45 +126,70 @@ export function keptProgram(run: Run, p: Prepared): InstallOutcome {
   };
 }
 
-function holdOne(run: Run, m: Move, why: { p: Prepared; kind: 'refused' | 'declined' }): void {
+/** What keeps a source from moving: an entity refused (or not renderable) or a program declined. */
+interface Blocker {
+  job: Job;
+  kind: 'refused' | 'declined';
+  p?: Prepared;
+}
+
+function holdOne(run: Run, m: Move, b: Blocker): void {
   restore(run, m);
-  const { p, kind } = why;
   const subject = { kind: 'source' as const, name: m.source, source: m.source };
-  if (kind === 'declined') {
-    run.result.outcomes.push(keptProgram(run, p));
+  const { entity } = b.job;
+  if (b.kind === 'declined' && b.p) {
+    run.result.outcomes.push(keptProgram(run, b.p));
     run.result.warnings.push(
-      `source ${m.source} stays at ${m.from}: you declined the new version of ${label(p.job.entity)}`,
+      `source ${m.source} stays at ${m.from}: you declined the new version of ${label(entity)}`,
     );
     return;
   }
-  run.result.failures.push(...p.out.refusals.filter((f) => !f.target));
-  const { entity } = p.job;
+  run.result.failures.push(...(b.p?.out.refusals ?? []).filter((f) => !f.target));
   const message = `source ${m.source} stays at ${m.from}: ${label(entity)} cannot move to ${m.to}`;
   const words = [m.source, `${entity.kind}:${entity.name}`];
   const hint = palmCommand('install', words, run.state.paths.scope, '--dry-run');
   run.result.failures.push(failure(subject, 'E_SOURCE', { message, hint }));
 }
 
+/** The first entity that keeps `m` from moving: prepared ones first, then installed ones that failed to render. */
+function blockerOf(run: Run, m: Move, seen: Seen): Blocker | undefined {
+  const refused = new Set(seen.refused);
+  for (const p of [...seen.prepared, ...seen.refused]) {
+    if (p.job.source.name !== m.source) continue;
+    const kind = blocker(p, refused);
+    if (kind) return { job: p.job, kind, p };
+  }
+  const job = seen.failed.find(
+    (j) => j.source.name === m.source && run.state.lock.find(j.entity, j.source.name),
+  );
+  return job ? { job, kind: 'refused' } : undefined;
+}
+
+/** What the steps before the writes made of a run's jobs. */
+export interface Seen {
+  prepared: Prepared[];
+  /** Entities an earlier step refused (another owner). */
+  refused: readonly Prepared[];
+  /** Jobs that could not be rendered (their failure is recorded). */
+  failed: readonly Job[];
+}
+
 /**
  * The prepared entities that may be applied: every entity of a moving source when none of
  * them blocks, none of them otherwise (the source's lock record and palm.yaml ref are put
- * back). `refused` are entities an earlier step refused. Returns what stays and the names of
- * the sources held back.
+ * back). Returns what stays and the names of the sources held back.
  */
 export function holdBack(
   run: Run,
   moves: Move[],
-  prepared: Prepared[],
-  refused: readonly Prepared[] = [],
+  seen: Seen,
 ): { prepared: Prepared[]; held: Set<string> } {
   const held = new Set<string>();
-  const refusedSet = new Set(refused);
   for (const m of moves) {
-    const mine = [...prepared, ...refused].filter((p) => p.job.source.name === m.source);
-    const p = mine.find((x) => blocker(x, refusedSet));
-    if (!p) continue;
+    const b = blockerOf(run, m, seen);
+    if (!b) continue;
     held.add(m.source);
-    holdOne(run, m, { p, kind: blocker(p, refusedSet) as 'refused' | 'declined' });
+    holdOne(run, m, b);
   }
-  return { prepared: prepared.filter((p) => !held.has(p.job.source.name)), held };
+  return { prepared: seen.prepared.filter((p) => !held.has(p.job.source.name)), held };
 }
