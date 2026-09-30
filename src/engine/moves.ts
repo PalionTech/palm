@@ -146,7 +146,7 @@ function restore(run: Run, m: Move): void {
 /** The outcome of a program whose new version the person declined: the trusted one stays (V5). */
 export function keptProgram(run: Run, p: Prepared): InstallOutcome {
   const entry = p.previous as NonNullable<Prepared['previous']>;
-  const line = previousStaysActive(entry, run.state.paths.scope);
+  const line = previousStaysActive(entry, run.state.paths.scope, p.out.unit);
   const notes = line ? [line.replace(`${entry.kind} ${entry.name}: `, '')] : [];
   return { entry, status: 'skipped', notes };
 }

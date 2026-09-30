@@ -252,7 +252,7 @@ function keepTrusted(run: Run, asking: Prepared[]): void {
   const scope = run.state.paths.scope;
   const lines = asking
     .filter((p) => p.consent === 'declined')
-    .flatMap((p) => previousStaysActive(p.previous, scope) ?? []);
+    .flatMap((p) => previousStaysActive(p.previous, scope, p.out.unit) ?? []);
   if (!lines.length) return;
   for (const line of lines) run.ctx.log.info(line);
   throw new PalmError('E_CANCELLED', 'cancelled; nothing was written');

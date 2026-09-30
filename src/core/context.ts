@@ -48,12 +48,21 @@ export function scopedPaths(ctx: PalmContext, scope: Scope): ScopePaths {
  * commands do not call it.
  */
 export async function withScopeLock<T>(paths: ScopePaths, fn: () => Promise<T>): Promise<T> {
-  const dir = dirname(paths.processLock);
-  const existed = await pathExists(dir);
+  const made = await missingDirs(dirname(paths.processLock), paths.palmDir);
   try {
     return await withLock(paths.processLock, fn);
   } finally {
-    // The lock's directory (`.palm/`) goes again when the run left nothing in it.
-    if (!existed) await rmdir(dir).catch(() => undefined);
+    // The lock's directories (`.palm/local/`, `.palm/`) go again when the run left nothing in them.
+    for (const dir of made) await rmdir(dir).catch(() => undefined);
   }
+}
+
+/** The directories from `dir` up to `top` (both included) that do not exist yet, deepest first. */
+async function missingDirs(dir: string, top: string): Promise<string[]> {
+  const out: string[] = [];
+  for (let d = dir; !(await pathExists(d)); d = dirname(d)) {
+    out.push(d);
+    if (d === top || dirname(d) === d) break;
+  }
+  return out;
 }

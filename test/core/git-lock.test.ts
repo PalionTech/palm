@@ -127,11 +127,11 @@ describe('withLock', () => {
 });
 
 describe('withScopeLock', () => {
-  it('serialises two runs on one scope through <palmDir>/lock', async () => {
+  it("serialises two runs on one scope through .palm/local/lock (E3')", async () => {
     const paths = new ScopePaths('project', sb.project, sb.palmHome, sb.env);
     const order: string[] = [];
     const first = withScopeLock(paths, async () => {
-      expect(existsSync(join(sb.project, '.palm', 'lock'))).toBe(true);
+      expect(existsSync(join(sb.project, '.palm', 'local', 'lock'))).toBe(true);
       order.push('first:start');
       await new Promise((r) => setTimeout(r, 100));
       order.push('first:end');
@@ -140,6 +140,12 @@ describe('withScopeLock', () => {
     await Promise.all([first, withScopeLock(paths, async () => void order.push('second'))]);
     expect(order).toEqual(['first:start', 'first:end', 'second']);
     expect(existsSync(paths.processLock)).toBe(false);
+  });
+
+  it("E3' a run leaves no empty .palm/local/ or .palm/ behind", async () => {
+    const paths = new ScopePaths('project', sb.project, sb.palmHome, sb.env);
+    await withScopeLock(paths, async () => undefined);
+    expect(existsSync(join(sb.project, '.palm'))).toBe(false);
   });
 });
 

@@ -112,9 +112,14 @@ async function acquireLock(file: string, opts: LockOptions): Promise<LockInfo> {
   }
 }
 
+/** Signals that end palm without `exit` handlers running (a closed terminal, `kill`). */
+const ENDING_SIGNALS: readonly NodeJS.Signals[] = ['SIGHUP', 'SIGTERM'];
+
 /**
  * Y7: the lock also goes when the process exits while holding it (a Ctrl-C at a prompt ends the
- * process before `finally` runs). Returns the function that stops watching.
+ * process before `finally` runs), and M16: when a closed terminal (SIGHUP) or `kill` (SIGTERM)
+ * ends it; the signal is then raised again, so palm ends as it would have. Returns the function
+ * that stops watching.
  */
 function releaseOnExit(file: string, mine: LockInfo): () => void {
   const release = () => {
@@ -125,8 +130,17 @@ function releaseOnExit(file: string, mine: LockInfo): () => void {
       // already gone
     }
   };
+  const onSignal = (signal: NodeJS.Signals) => {
+    release();
+    for (const s of ENDING_SIGNALS) process.removeListener(s, onSignal);
+    process.kill(process.pid, signal);
+  };
   process.once('exit', release);
-  return () => process.removeListener('exit', release);
+  for (const s of ENDING_SIGNALS) process.on(s, onSignal);
+  return () => {
+    process.removeListener('exit', release);
+    for (const s of ENDING_SIGNALS) process.removeListener(s, onSignal);
+  };
 }
 
 /** Removes `file` if it is still the lock described by `mine` (it was not taken over as stale). */

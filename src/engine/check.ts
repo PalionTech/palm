@@ -5,6 +5,7 @@
  * as passed. `ok` is false when any check fails; warnings alone keep it true.
  */
 import { existsSync } from 'node:fs';
+import type { PalmError } from '../core/errors.js';
 import type { CheckReport, CheckRun, EngineDeps, PalmContext, Scope } from '../core/types.js';
 import { TARGET_IDS } from '../core/types.js';
 import { gitToplevel } from '../lib/fs.js';
@@ -141,11 +142,13 @@ async function contextOf(ctx: PalmContext, scope: Scope, deps: EngineDeps): Prom
   const bare = !existsSync(state.paths.manifestFile);
   const run = runOf(ctx, deps, bare ? { ...state, targets: [...TARGET_IDS] } : state);
   const offline = new Set<string>();
+  const unreachable = new Map<string, PalmError>();
   return {
     run,
     git: await inRepository(state.paths.root, scope),
-    renders: await renderAll({ run, offline }),
+    renders: await renderAll({ run, offline, unreachable }),
     offline,
+    unreachable,
     drifted: new Set(),
   };
 }

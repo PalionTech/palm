@@ -12,7 +12,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { messageOf, PalmError } from '../core/errors.js';
-import { sha256 } from '../core/hash.js';
+import { contentHash } from '../core/hash.js';
 import type { Closure, ClosureFile } from '../core/types.js';
 import { isClosureExcluded, shouldSkipFile } from '../domain/ignore.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
@@ -108,7 +108,7 @@ export async function copyClosure(input: {
     path: f.rel,
     mode: f.mode,
     size: f.data.byteLength,
-    hash: sha256(f.data),
+    hash: contentHash(f.data),
   }));
 }
 

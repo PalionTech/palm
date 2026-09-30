@@ -301,9 +301,15 @@ function httpEntry(t: JsonTarget, p: HttpParts): Record<string, unknown> {
 }
 
 /** True when the server authenticates through a header (Authorization or a header secret). */
+/**
+ * A header carries the credentials when it is `Authorization`, a recorded header secret, or a
+ * `${VAR}` reference (Y1'): palm.yaml keeps the reference and not the secret record, so the
+ * snippet install and the bare install that reads palm.yaml back render alike.
+ */
 function usesHeaderAuth(cfg: McpServerConfig, headers: Record<string, string>): boolean {
   return (
     Object.keys(headers).some((h) => /^authorization$/i.test(h)) ||
+    Object.values(headers).some((v) => tokensOf(v).length > 0) ||
     (cfg.secrets ?? []).some((s) => s.in === 'header')
   );
 }

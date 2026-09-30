@@ -159,8 +159,13 @@ export class ScopePaths {
     return path.join(this.palmDir, 'assets');
   }
 
-  /** The advisory lock two palm processes on this scope serialise on: `<palmDir>/lock`. */
+  /**
+   * The advisory lock two palm processes on this scope serialise on: `.palm/local/lock` in a
+   * project (E3': inside the one ignored palm directory, so `git add -A` never stages a lock a
+   * killed palm left), `<palmHome>/lock` under -g.
+   */
   get processLock(): string {
+    if (this.scope === 'project') return path.join(this.palmDir, 'local', 'lock');
     return path.join(this.palmDir, 'lock');
   }
 

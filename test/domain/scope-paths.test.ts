@@ -35,7 +35,7 @@ describe('ScopePaths: files and directories', () => {
     expect(p.appliedFile).toBeUndefined();
     expect(p.palmDir).toBe('/proj/.palm');
     expect(p.assetsDir).toBe('/proj/.palm/assets');
-    expect(p.processLock).toBe('/proj/.palm/lock');
+    expect(p.processLock).toBe('/proj/.palm/local/lock');
     expect(p.assetRoot(kit, 'gh-cli')).toBe('.palm/assets/trailofbits__skills/gh-cli');
     expect(p.boundaries()).toEqual(['/proj']);
   });

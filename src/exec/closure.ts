@@ -8,7 +8,7 @@
  */
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { sha256 } from '../core/hash.js';
+import { contentHash } from '../core/hash.js';
 import type { Closure, ClosureFile } from '../core/types.js';
 import { isClosureExcluded, shouldSkipFile } from '../domain/ignore.js';
 import { walkFiles } from '../lib/fs.js';
@@ -24,7 +24,7 @@ async function fileOf(abs: string, rel: string): Promise<ClosureFile | undefined
     readFile(abs).catch(() => undefined),
   ]);
   if (!st?.isFile() || !data) return undefined;
-  return { path: rel, mode: gitMode(st.mode), size: data.byteLength, hash: sha256(data) };
+  return { path: rel, mode: gitMode(st.mode), size: data.byteLength, hash: contentHash(data) };
 }
 
 /** The source-relative files below one closure path (a directory swallows its files). */

@@ -9,7 +9,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toPalmError } from '../../src/core/git-call.js';
 import { GitFailure, runGit } from '../../src/core/git-exec.js';
 import { withLock } from '../../src/core/lock-file.js';
@@ -160,5 +160,24 @@ describe('Y7 the process lock', () => {
       expect(existsSync(file)).toBe(false);
     });
     expect(process.listeners('exit')).toEqual(before);
+  });
+
+  it('M16 goes on SIGHUP and SIGTERM, and the signal is raised again', async () => {
+    const file = join(root, '.palm', 'lock');
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    try {
+      const before = process.listeners('SIGTERM');
+      await withLock(file, async () => {
+        const added = process.listeners('SIGTERM').filter((l) => !before.includes(l));
+        expect(added).toHaveLength(1);
+        expect(process.listeners('SIGHUP')).toContain(added[0]);
+        (added[0] as (s: NodeJS.Signals) => void)('SIGTERM');
+        expect(existsSync(file)).toBe(false);
+        expect(kill).toHaveBeenCalledWith(process.pid, 'SIGTERM');
+      });
+      expect(process.listeners('SIGTERM')).toEqual(before);
+    } finally {
+      kill.mockRestore();
+    }
   });
 });

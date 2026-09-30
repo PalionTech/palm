@@ -3,7 +3,7 @@
  * rendered again from the cache, whether the scope is in a git repository) and the builders of
  * one check's result.
  */
-import { isPalmError } from '../core/errors.js';
+import { isPalmError, type PalmError } from '../core/errors.js';
 import type { CheckProblem, CheckRun, Entity, LockEntry, TargetId } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
 import type { Run } from './jobs.js';
@@ -25,6 +25,12 @@ export interface CheckContext {
   renders: Map<string, LockedRender | undefined>;
   /** Entries palm could not render because their commit is not cached and `--offline` is set (E13). */
   offline: Set<string>;
+  /**
+   * B3: entries palm could not render because the source could not be fetched or the cache not
+   * written (E_NETWORK, E_IO naming the path, E_SOURCE for a ref the source lacks), by lock id.
+   * `lock-disk` reports the error itself, never a difference.
+   */
+  unreachable: Map<string, PalmError>;
   /** In-repo entries whose content changed since the lock (reported once, by `local-sources`). */
   drifted: Set<string>;
 }
@@ -139,25 +145,26 @@ export function rendersFiles(e: LockEntry): boolean {
   return e.kind !== 'plugin';
 }
 
-async function renderOne(
-  c: Pick<CheckContext, 'run' | 'offline'>,
-  e: LockEntry,
-): Promise<LockedRender | undefined> {
+/** Errors that say the source could not be reached, not that the files differ (B3). */
+const UNREACHABLE: ReadonlySet<string> = new Set(['E_NETWORK', 'E_IO', 'E_SOURCE', 'E_GIT']);
+
+type RenderSink = Pick<CheckContext, 'run' | 'offline' | 'unreachable'>;
+
+async function renderOne(c: RenderSink, e: LockEntry): Promise<LockedRender | undefined> {
   const recorded = Object.keys(e.render) as TargetId[];
   const targets = [...new Set([...recorded, ...expectedTargets(c.run, e)])];
   try {
     return await renderLockedOrThrow(c.run, e, targets);
   } catch (err) {
-    if (c.run.ctx.flags.offline && isPalmError(err) && err.code === 'E_NETWORK')
-      c.offline.add(lockId(e));
+    if (!isPalmError(err)) return undefined;
+    if (c.run.ctx.flags.offline && err.code === 'E_NETWORK') c.offline.add(lockId(e));
+    else if (UNREACHABLE.has(err.code)) c.unreachable.set(lockId(e), err);
     return undefined;
   }
 }
 
 /** Renders every installed entry once, for the checks that compare the disk with the render. */
-export async function renderAll(
-  c: Pick<CheckContext, 'run' | 'offline'>,
-): Promise<Map<string, LockedRender | undefined>> {
+export async function renderAll(c: RenderSink): Promise<Map<string, LockedRender | undefined>> {
   const out = new Map<string, LockedRender | undefined>();
   for (const e of c.run.state.lock.entries)
     if (rendersFiles(e)) out.set(lockId(e), await renderOne(c, e));

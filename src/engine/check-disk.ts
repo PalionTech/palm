@@ -4,6 +4,7 @@
  * reporting a difference (E13). Nothing is written.
  */
 import { readFile } from 'node:fs/promises';
+import type { PalmError } from '../core/errors.js';
 import type { CheckProblem, CheckRun, LockEntry, Rendered, TargetId } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
 import type { RecordState } from '../domain/merged-record.js';
@@ -49,6 +50,10 @@ async function targetFiles(c: CheckContext, e: LockEntry, r: Rendered, f: Found)
   const fix = fixes(c, e);
   for (const [file, s] of await fileStates(paths, r, applied ? { applied } : {})) {
     if (s === 'missing') f.fail.push(problem(e, file, `${file} is missing`, fix.restore));
+    else if (s === 'stale')
+      f.fail.push(
+        problem(e, file, `${file} is what palm wrote before palm.lock.yaml changed`, fix.restore),
+      );
     else if (s !== 'same')
       f.fail.push(problem(e, file, `${file} differs from what palm renders`, fix.force));
   }
@@ -145,6 +150,23 @@ function withOffline(c: CheckContext, run: CheckRun, offline: number): CheckRun 
   };
 }
 
+/**
+ * B3: one failure per source palm could not fetch or cache (no network, a read-only palm home),
+ * with that error and its hint; the entries of that source are not compared, so no difference
+ * is claimed for them.
+ */
+function unreachable(c: CheckContext, entries: readonly LockEntry[], f: Found): void {
+  const bySource = new Map<string, { err: PalmError; n: number }>();
+  for (const e of entries) {
+    const err = c.unreachable.get(lockId(e));
+    if (err) bySource.set(e.source, { err, n: (bySource.get(e.source)?.n ?? 0) + 1 });
+  }
+  for (const [source, { err, n }] of bySource) {
+    const message = `source ${source} (${err.code}): ${err.message}; ${count(n, 'entity', 'entities')} not checked`;
+    f.fail.push(err.hint ? { message, fix: err.hint } : { message });
+  }
+}
+
 /** Every listed file and fragment is on disk as the render recomputed from the cache has it. */
 export async function lockDisk(c: CheckContext): Promise<CheckRun> {
   const f = found();
@@ -153,8 +175,9 @@ export async function lockDisk(c: CheckContext): Promise<CheckRun> {
   const fix = palmCommand('install', [], c.run.state.paths.scope);
   if (offline.length && offline.length === entries.length)
     return skipped('lock-disk', 'generated files', 'cache empty', fix);
+  unreachable(c, entries, f);
   for (const e of entries) {
-    if (c.offline.has(lockId(e))) continue;
+    if (c.offline.has(lockId(e)) || c.unreachable.has(lockId(e))) continue;
     if (c.drifted.has(lockId(e))) await driftedEdits(c, e, f);
     else await entryDisk(c, e, f);
   }

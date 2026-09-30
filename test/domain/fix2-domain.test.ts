@@ -1,4 +1,7 @@
 /** Domain rulings from the second persona rerun (FINDINGS-v3.md), one test per ruling id. */
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Manifest } from '../../src/domain/manifest.js';
 import { localUrlPath, lockedUrl, urlOfLocked } from '../../src/domain/source-url.js';
@@ -45,5 +48,21 @@ describe('S4 local URLs in the lock', () => {
     expect(urlOfLocked('https://example.com/kit.git', root)).toBe('https://example.com/kit.git');
     expect(localUrlPath('file:///work/remotes/kit.git')).toBe('/work/remotes/kit.git');
     expect(localUrlPath('ssh://host.example/o/r.git')).toBeUndefined();
+  });
+});
+
+describe("O19 J13' the ignore: list", () => {
+  it("O19 J13' ignore: keys read back; anything but a list of check keys is E_PARSE", async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'palm-ignore-'));
+    try {
+      const file = join(dir, 'palm.yaml');
+      await writeFile(file, 'targets: [claude]\nignore: [hidden-unicode:kit/skills/x/SKILL.md]\n');
+      expect((await Manifest.load(file)).ignore).toEqual(['hidden-unicode:kit/skills/x/SKILL.md']);
+      expect(Manifest.of({}).ignore).toEqual([]);
+      await writeFile(file, 'targets: [claude]\nignore: hidden-unicode\n');
+      await expect(Manifest.load(file)).rejects.toMatchObject({ code: 'E_PARSE' });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

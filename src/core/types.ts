@@ -384,6 +384,11 @@ export interface Manifest {
   targets?: TargetId[];
   sources?: Record<string, ManifestSource>;
   mcp?: Record<string, McpManifestEntry>;
+  /**
+   * Warnings someone reviewed and acknowledged (O19 J13'): `hidden-unicode:<source>/<path>`,
+   * `foreign-hooks:<file>#<event>`, `foreign-servers:<file>#<name>`. `check` stops repeating them.
+   */
+  ignore?: string[];
 }
 
 /** palm.local.yaml (0.3): the same shape plus `disable`. Reserved; not read in 0.2. @public */

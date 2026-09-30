@@ -178,6 +178,19 @@ function checkSource(file: string, name: string, body: unknown, scopeTargets: un
   }
 }
 
+/** `ignore:`: a list of `<check>:<what>` keys a check printed (O19 J13'). */
+function checkIgnore(file: string, raw: unknown): void {
+  if (raw === undefined || raw === null) return;
+  const keys = Array.isArray(raw) ? raw : [raw];
+  const wrong = keys.find((k) => typeof k !== 'string' || !/^[a-z-]+:\S/.test(k));
+  if (Array.isArray(raw) && wrong === undefined) return;
+  throw bad(
+    file,
+    'ignore',
+    'must be a list of the keys palm check prints (hidden-unicode:<source>/<path>, foreign-hooks:<file>#<event>, foreign-servers:<file>#<name>)',
+  );
+}
+
 function checkMcp(file: string, raw: unknown): void {
   if (raw === undefined || raw === null) return;
   if (!isRecord(raw)) throw bad(file, 'mcp', 'must be a mapping of server names');
@@ -207,5 +220,6 @@ export function checkedManifest(file: string, data: unknown): ManifestData {
       checkSource(file, name, body, data.targets);
   }
   checkMcp(file, data.mcp);
+  checkIgnore(file, data.ignore);
   return data as ManifestData;
 }

@@ -3,8 +3,7 @@
  * "Remove" and "Bare install"): under -g against the hashes in applied.yaml, in a project
  * against the render recomputed from the cache at the locked sha. A file that differs is kept.
  */
-import { readFile } from 'node:fs/promises';
-import { sha256 } from '../core/hash.js';
+import { diskContentHash } from '../core/hash.js';
 import type { Entity, LockEntry, TargetId } from '../core/types.js';
 import { sameName } from '../domain/entity-ref.js';
 import { fileStates, fragmentStates, ownedFragments } from './diff.js';
@@ -15,21 +14,13 @@ import { resolveSource } from './resolve.js';
 import { lockedSource } from './scope.js';
 import { MANIFEST_SOURCE, manifestSource, mcpConfigOf, mcpEntity, sourceRefOf } from './sources.js';
 
-async function diskHash(abs: string): Promise<string | undefined> {
-  try {
-    return sha256(await readFile(abs));
-  } catch {
-    return undefined;
-  }
-}
-
 /** Global scope: files whose disk content is not what palm last wrote on this machine. */
 async function editedAgainstApplied(run: Run, entry: LockEntry): Promise<string[]> {
   const { paths, applied } = run.state;
   const edited: string[] = [];
   for (const f of entry.files) {
     const abs = paths.abs(f);
-    const disk = await diskHash(abs);
+    const disk = await diskContentHash(abs);
     if (disk !== undefined && disk !== applied?.fileHash(abs)) edited.push(f);
   }
   return edited;

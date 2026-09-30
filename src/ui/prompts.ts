@@ -225,15 +225,39 @@ class ClackUI implements UI {
     }
   }
 
-  /** `stop()` without a message clears the spinner line, so transcripts stay clean. */
+  /**
+   * `stop()` without a message clears the spinner line, so transcripts stay clean. palm's own
+   * spinner (O13): clack's listens for SIGINT and SIGTERM itself, so a Ctrl-C during a run
+   * stopped the spinner instead of reaching palm, which then finished with exit 0 and no report.
+   */
   spinner(message: string) {
-    const s = p.spinner({ output: this.io.output });
-    s.start(message);
-    return {
-      stop: (msg?: string) => (msg === undefined ? s.clear() : s.stop(msg)),
-      message: (msg: string) => s.message(msg),
-    };
+    return lineSpinner(this.io.output ?? process.stdout, message);
   }
+}
+
+const FRAMES = ['◒', '◐', '◓', '◑'];
+const FRAME_MS = 80;
+
+/** One status line redrawn in place; it never touches process signals. */
+function lineSpinner(output: Writable, first: string) {
+  let text = first;
+  let frame = 0;
+  const draw = () => {
+    output.write(`\r\u001b[2K${FRAMES[frame % FRAMES.length]} ${text}`);
+    frame++;
+  };
+  draw();
+  const timer = setInterval(draw, FRAME_MS);
+  timer.unref();
+  return {
+    stop: (msg?: string) => {
+      clearInterval(timer);
+      output.write(`\r\u001b[2K${msg === undefined ? '' : `${msg}\n`}`);
+    },
+    message: (msg: string) => {
+      text = msg;
+    },
+  };
 }
 
 export function createClackUI(opts: PromptIO = {}): UI {

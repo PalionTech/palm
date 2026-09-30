@@ -291,6 +291,21 @@ describe('prompts', () => {
     await expect(cancel).rejects.toMatchObject({ code: 'E_CANCELLED' });
   });
 
+  it('O13 the spinner leaves SIGINT and SIGTERM to palm and clears its line', () => {
+    const output = new PassThrough();
+    let shown = '';
+    output.on('data', (c: Buffer) => {
+      shown += c.toString();
+    });
+    const before = [process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')];
+    const s = createClackUI({ input: new PassThrough(), output }).spinner('Fetching kit');
+    expect([process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')]).toEqual(before);
+    s.message('Rendering');
+    s.stop();
+    expect(shown).toContain('Fetching kit');
+    expect(shown.endsWith('\r\u001b[2K')).toBe(true);
+  });
+
   it('without a terminal every prompt, consent included, is E_NON_INTERACTIVE', async () => {
     const ui = createNonInteractiveUI();
     expect(ui.isInteractive).toBe(false);

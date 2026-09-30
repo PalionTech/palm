@@ -173,6 +173,11 @@ export class Manifest {
     return this.data.targets;
   }
 
+  /** The `ignore:` keys: warnings someone acknowledged (O19 J13'). */
+  get ignore(): readonly string[] {
+    return this.data.ignore ?? [];
+  }
+
   setTargets(targets: TargetId[]): this {
     this.data = { ...this.data, targets: [...targets] };
     return this;

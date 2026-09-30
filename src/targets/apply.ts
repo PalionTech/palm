@@ -15,6 +15,7 @@
  */
 import path from 'node:path';
 import { PalmError } from '../core/errors.js';
+import { sameContent as sameText } from '../core/hash.js';
 import type { ApplyInput, ApplyResult, LockMerged, RenderedFragment } from '../core/types.js';
 import { parseMergedRecord } from '../domain/merged-record.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
@@ -200,7 +201,7 @@ export class Applier {
     await this.assertInside(abs, f.path);
     const existing = await readOrRefuse(() => readFileOrUndefined(abs), f.path);
     const checked = { lockPath: f.path, abs, data: f.data, mode: f.mode };
-    if (existing?.equals(f.data)) return { ...checked, state: 'same' };
+    if (existing && sameText(existing, f.data)) return { ...checked, state: 'same' };
     if (!existing || this.input.force || (await this.ownsFile(f.path, abs)))
       return { ...checked, state: 'write' };
     if (sameContent(existing, f.data, f.path)) return { ...checked, state: 'write', adopted: true };

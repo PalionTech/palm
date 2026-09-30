@@ -18,10 +18,9 @@ export function acknowledgeable(p: CheckProblem, key: string): CheckProblem {
   return p;
 }
 
-/** palm.yaml's `ignore:` list (empty until the manifest carries one). */
+/** palm.yaml's `ignore:` list. */
 function acknowledged(c: CheckContext): ReadonlySet<string> {
-  const { ignore } = c.run.state.manifest as { ignore?: unknown };
-  return new Set(Array.isArray(ignore) ? ignore.filter((i) => typeof i === 'string') : []);
+  return new Set(c.run.state.manifest.ignore);
 }
 
 /** `<source>/<path in the source>` of a generated file of `e` (`kit/skills/tdd/SKILL.md`). */

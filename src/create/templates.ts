@@ -332,9 +332,20 @@ function declaredDir(ctx: PalmContext, before: ScopeState, key: string, opts: Cr
   return { dir, known: ref };
 }
 
-/** The source directory and the declared source it is, from `name@key` or `--in`. */
+/** J8': the one in-repo source the scope declares, when there is exactly one. */
+function onlyLocalSource(before: ScopeState): SourceRef | undefined {
+  const local = before.sources.all().filter((s) => s.isLocal && s.source.path);
+  return local.length === 1 ? local[0] : undefined;
+}
+
+/**
+ * The source directory and the declared source it is, from `name@key`, `--in`, else the single
+ * in-repo source the scope declares (J8'), else the scope's default directory.
+ */
 function whereTo(ctx: PalmContext, before: ScopeState, opts: CreateOptions, key?: string) {
   if (key) return declaredDir(ctx, before, key, opts);
+  const only = opts.dir ? undefined : onlyLocalSource(before);
+  if (only) return declaredDir(ctx, before, only.name, opts);
   const dir = sourceDirOf(ctx, opts);
   const known = before.sources
     .all()

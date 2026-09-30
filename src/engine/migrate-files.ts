@@ -7,6 +7,7 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { sameContent } from '../core/hash.js';
 import type { LockEntry, MigrateRemoval, TargetId } from '../core/types.js';
 import { TARGET_IDS } from '../core/types.js';
 import type { Lock } from '../domain/lock.js';
@@ -127,13 +128,13 @@ async function wouldWrite(state: ScopeState, p: Prepared): Promise<string[]> {
   return out;
 }
 
-/** True when both files exist with the same bytes. */
+/** True when both files exist with the same content (LF line ends, O1). */
 export async function sameBytes(a: string, b: string): Promise<boolean> {
   const [x, y] = await Promise.all([
     readFile(a).catch(() => undefined),
     readFile(b).catch(() => undefined),
   ]);
-  return x !== undefined && y !== undefined && x.equals(y);
+  return x !== undefined && y !== undefined && sameContent(x, y);
 }
 
 /** The copies 0.1 made that the job's folders hold and its render does not list, still as the source has them. */
