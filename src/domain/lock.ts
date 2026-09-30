@@ -147,6 +147,20 @@ export class Lock {
     return this;
   }
 
+  /** Renames a source and moves its entries to the new name (their files stay until re-rendered). */
+  renameSource(from: string, to: string): this {
+    const s = this.sourceMap.get(from);
+    if (s) {
+      this.sourceMap.delete(from);
+      this.sourceMap.set(to, s);
+    }
+    for (const e of this.entriesOf(from)) {
+      this.byKey.delete(lockId(e));
+      this.upsert({ ...e, source: to });
+    }
+    return this;
+  }
+
   /** Every entry, in insertion order (a new array). */
   get entries(): LockEntry[] {
     return [...this.byKey.values()];

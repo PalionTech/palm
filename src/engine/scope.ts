@@ -165,12 +165,33 @@ export async function findOverlaps(
   return found;
 }
 
-/** E_SOURCE for the first local source that overlaps an output directory (DESIGN §2). */
+/**
+ * A declared local source outside the project (DESIGN §3): E_SOURCE on real paths. Project scope
+ * only; normalizeSource cannot tell, since it does not know the scope (ruling 9).
+ */
+async function assertInsideProject(state: ScopeState): Promise<void> {
+  const { paths } = state;
+  if (paths.scope !== 'project') return;
+  const root = (await paths.realInside(paths.root)).real;
+  for (const ref of state.sources.all()) {
+    if (!ref.isLocal || !ref.source.path) continue;
+    const { real } = await paths.realInside(ref.source.path);
+    if (isWithin(real, root)) continue;
+    throw new PalmError(
+      'E_SOURCE',
+      `source "${ref.name}" is outside the project ${paths.root}; a local source is a directory inside it`,
+      'move the directory into the project (for example ./agent-kit) and declare that in palm.yaml',
+    );
+  }
+}
+
+/** E_SOURCE for the first local source outside the project or overlapping an output directory (DESIGN §2). */
 export async function assertNoOverlap(
   ctx: PalmContext,
   state: ScopeState,
   deps: EngineDeps,
 ): Promise<void> {
+  await assertInsideProject(state);
   const [overlap] = await findOverlaps(ctx, state, deps);
   if (overlap) throw overlapError(overlap);
 }

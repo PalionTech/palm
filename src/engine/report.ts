@@ -3,7 +3,7 @@
  * pasted (PLAN.md 4.9): the source and entity names are real, never placeholders.
  */
 import { isPalmError, messageOf, retryHint } from '../core/errors.js';
-import type { InstallFailure, Kind, Scope, TargetId } from '../core/types.js';
+import type { InstallFailure, Kind, Logger, PalmContext, Scope, TargetId } from '../core/types.js';
 
 /** What a failure is about: an entity of a source, or the source itself. */
 export interface Subject {
@@ -59,6 +59,16 @@ export function palmCommand(verb: string, words: string[], scope: Scope, extra?:
 export function installCommand(subject: Subject, scope: Scope, extra?: string): string {
   const words = subject.kind === 'source' ? [subject.source] : [subject.source, subject.name];
   return palmCommand('install', words, scope, extra);
+}
+
+/**
+ * A line with its own status mark (`~ source acme → kit (renamed)`): through the output's `mark`
+ * when the logger is the CLI's output, else as an info line.
+ */
+export function logMark(ctx: PalmContext, mark: '~' | '+' | '-', msg: string): void {
+  const log = ctx.log as Logger & { mark?: (mark: string, msg: string) => void };
+  if (typeof log.mark === 'function') log.mark(mark, msg);
+  else ctx.log.info(msg);
 }
 
 /** `kind name` for messages. */

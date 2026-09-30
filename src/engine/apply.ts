@@ -15,6 +15,7 @@ import {
   type TargetId,
 } from '../core/types.js';
 import { withDeclined, withTrust } from '../exec/trust.js';
+import { isWithin } from '../lib/fs.js';
 import { deepEqual } from '../lib/object.js';
 import { fragmentKey } from './diff.js';
 import type { Prepared, Run } from './jobs.js';
@@ -135,6 +136,31 @@ function withoutKept(rendered: Rendered, kept: string[]): Rendered {
   };
 }
 
+/**
+ * The first path of `rendered` whose real path lies inside a declared local source (a source
+ * at the scope root excepted: it is scanned with the output directories left out). palm never
+ * writes inside a source, `--force` included (DESIGN §2).
+ */
+async function insideSource(run: Run, rendered: Rendered): Promise<string | undefined> {
+  const { paths } = run.state;
+  const root = (await paths.realInside(paths.root)).real;
+  const roots = (await sourceRoots(run.state)).filter((r) => r !== root);
+  if (!roots.length) return undefined;
+  const written = [...rendered.files.map((f) => f.path), ...rendered.fragments.map((f) => f.file)];
+  for (const lockPath of written) {
+    const { real } = await paths.realInside(paths.abs(lockPath));
+    if (roots.some((r) => isWithin(real, r))) return lockPath;
+  }
+  return undefined;
+}
+
+function insideSourceFailure(run: Run, p: Prepared, id: TargetId, lockPath: string) {
+  const message = `${lockPath} is inside a declared source; palm never writes into a source`;
+  const hint =
+    'move the source to a directory of its own (for example ./agent-kit) and declare that';
+  run.result.failures.push(failure(subjectOf(p), 'E_SOURCE', { message, hint }, id));
+}
+
 async function writeTargets(run: Run, p: Prepared, failed: Set<TargetId>): Promise<void> {
   const { ctx, state } = run;
   const owned = ownedFor(run, p.previous);
@@ -142,6 +168,12 @@ async function writeTargets(run: Run, p: Prepared, failed: Set<TargetId>): Promi
     const full = p.out.renders[id];
     if (!full || failed.has(id)) continue;
     const rendered = withoutKept(full, p.decision.kept);
+    const hit = await insideSource(run, rendered);
+    if (hit) {
+      failed.add(id);
+      insideSourceFailure(run, p, id, hit);
+      continue;
+    }
     try {
       await run.deps.getTarget(id).apply({
         rendered,

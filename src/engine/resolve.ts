@@ -21,7 +21,7 @@ import type {
 import { entityId } from '../domain/entity-key.js';
 import { formatEntityRef, sameName } from '../domain/entity-ref.js';
 import { SourceRef } from '../domain/source.js';
-import { palmCommand } from './report.js';
+import { logMark, palmCommand } from './report.js';
 import type { ScopeState } from './scope.js';
 
 export interface Resolved {
@@ -180,19 +180,35 @@ async function confirmRefChange(
     throw new PalmError('E_CANCELLED', 'cancelled; palm.yaml is unchanged');
 }
 
+/**
+ * Re-declaring a known location under another `--as` name renames the source in palm.yaml and
+ * the lock (DESIGN §5); its entries follow, and a later render moves their asset paths.
+ */
+function rename(ctx: PalmContext, state: ScopeState, existing: SourceRef, to: string): SourceRef {
+  if (state.sources.byName(to))
+    throw new PalmError(
+      'E_CONFLICT',
+      `palm.yaml already declares a source named ${to}`,
+      palmCommand('install', [to], state.paths.scope),
+    );
+  const from = existing.name;
+  const moved: Source = { ...existing.source, name: to };
+  state.manifest.renameSource(from, to);
+  state.lock.renameSource(from, to);
+  state.sources = state.sources.without(from).add(moved);
+  logMark(ctx, '~', `source ${from} → ${to} (renamed)`);
+  return state.sources.byName(to) ?? SourceRef.of(moved);
+}
+
 /** Re-declaring a known source: another `#ref` moves the intent (after confirmation). */
 async function redeclare(
   ctx: PalmContext,
   state: ScopeState,
-  existing: SourceRef,
+  known: SourceRef,
   input: { ref?: string; as?: string; yes: boolean },
 ): Promise<SourceRef> {
-  if (input.as && !sameName(input.as, existing.name))
-    throw new PalmError(
-      'E_CONFLICT',
-      `${existing.describe()} is already declared as source ${existing.name}`,
-      palmCommand('install', [existing.name], state.paths.scope),
-    );
+  const renamed = input.as && !sameName(input.as, known.name);
+  const existing = renamed ? rename(ctx, state, known, input.as as string) : known;
   const { ref } = input;
   if (!ref || ref === existing.source.ref) return existing;
   if (existing.isLocal)

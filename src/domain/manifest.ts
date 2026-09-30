@@ -181,6 +181,17 @@ export class Manifest {
     return this;
   }
 
+  /** Renames a declared source in place (same position, entries and options kept). */
+  renameSource(from: string, to: string): this {
+    const key = this.keyOf(from);
+    if (key === undefined) return this;
+    const renamed = Object.entries(this.data.sources ?? {}).map(
+      ([k, body]): [string, ManifestSource] => [k === key ? to : k, body],
+    );
+    this.data = { ...this.data, sources: Object.fromEntries(renamed) };
+    return this;
+  }
+
   /** The entries of one source and kind, as objects (strings become `{ name }`). */
   entries(name: string, kind: Kind): ManifestEntryObject[] {
     const list = this.body(name)?.[manifestKey(kind)];
