@@ -347,11 +347,13 @@ function perTarget(p: Prepared, failed: Set<TargetId>): Partial<Record<TargetId,
 
 /** Writes one prepared entity whose consent (if any) is settled; returns its outcome. */
 export async function applyPrepared(run: Run, p: Prepared): Promise<InstallOutcome> {
-  run.result.warnings.push(...p.out.warnings);
-  if (p.out.refusals.some((f) => !f.target)) return refused(run, p);
-  if (p.consent === 'quiet' && p.previous)
-    return { entry: p.previous, status: 'unchanged', notes: [] };
   const unsettled = p.consent === 'ask' && !run.ctx.flags.dryRun;
+  const refusedWhole = p.out.refusals.some((f) => !f.target);
+  // The render's warnings (scan findings, secret notes) are news when something is written or
+  // refused; an unchanged sync stays quiet (K17): `settled` says them once the status is known.
+  if (refusedWhole || p.consent === 'declined' || unsettled)
+    run.result.warnings.push(...p.out.warnings);
+  if (refusedWhole) return refused(run, p);
   if (p.consent === 'declined' || unsettled) return declined(run, p);
   run.result.failures.push(...p.out.refusals);
   const failed = new Set(p.out.refusals.flatMap((f) => (f.target ? [f.target] : [])));
@@ -378,6 +380,7 @@ async function settled(
 ): Promise<InstallOutcome> {
   const status = statusOf(p, failed);
   const entry = entryFor(p, failed, created);
+  if (status !== 'unchanged') run.result.warnings.push(...p.out.warnings);
   if (status === 'failed') return { entry: p.previous ?? entry, status, notes: entry.notes ?? [] };
   const kept = p.decision.kept.length > 0;
   if (kept && (status === 'modified' || status === 'partial')) modifiedFailure(run, p);

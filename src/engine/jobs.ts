@@ -87,7 +87,7 @@ export interface Job {
   notices?: string[];
 }
 
-type ConsentState = 'none' | 'trusted' | 'ask' | 'allowed' | 'declined' | 'quiet';
+type ConsentState = 'none' | 'trusted' | 'ask' | 'allowed' | 'declined';
 
 export interface Prepared {
   job: Job;

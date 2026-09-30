@@ -120,6 +120,11 @@ portable() {
   done
 }
 
+# Commit what palm wrote: check warns on untracked outputs. Nothing to commit is fine.
+commit_all() {
+  (cd "$1" && git add -A && { git diff --cached --quiet || git commit -q -m "$2"; }) || fail "commit failed"
+}
+
 RESULTS=()
 FAILED=0
 step() {
@@ -187,7 +192,8 @@ s02_list_saves_nothing() {
   has "skill  pdf"
   run "$P1" install microsoft/apm-sample-package
   has "agent        design-reviewer"
-  has "apm.yml: 1 dependency is not installed"
+  # L15: the index notes for maintainers are one count line (details under PALM_DEBUG).
+  has "notes from indexing microsoft/apm-sample-package"
   nofile "$P1/palm.yaml"
   nofile "$P1/palm.lock.yaml"
 }
@@ -217,8 +223,10 @@ s04_all_leaves_programs_out() {
   has "install it:  palm install obra/superpowers"
   file "$P1/.claude/skills/brainstorming/SKILL.md"
   nofile "$P1/.claude/settings.json"
-  js_yaml "$P1/palm.lock.yaml" 'd.entries.some(e => e.kind === "hook" && e.declined === true)'
+  # D28: the program left out is excluded on the plugin entry in palm.yaml; the lock has no entry for it.
+  js_yaml "$P1/palm.lock.yaml" '!d.entries.some(e => e.kind === "hook" && e.source === "obra/superpowers")'
   js_yaml "$P1/palm.yaml" 'd.sources["obra/superpowers"].plugins.length === 1'
+  js_yaml "$P1/palm.yaml" 'd.sources["obra/superpowers"].plugins[0].exclude.includes("hook:superpowers")'
   # Declined stays quiet: a bare install does not ask again and changes nothing.
   run "$P1" install
   lacks "not installed"
@@ -244,9 +252,11 @@ s05_program_consent() {
   [[ "$(mode_of "$assets/persist-session-id.sh")" == 755 ]] || fail "hook script lost its mode"
   js "$P1/.claude/settings.json" 'JSON.stringify(d.hooks.SessionStart).includes(".palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh")'
   js_yaml "$P1/palm.lock.yaml" '(e => e.trust.includes(e.exec.hash))(d.entries.find(e => e.name === "gh-cli"))'
-  # Trusted: replayed silently.
+  # Trusted: replayed silently; unchanged entries are one count line (K21).
   run "$P1" install
-  has "= hook   gh-cli"
+  has " unchanged."
+  lacks "consent"
+  lacks "not installed"
 }
 
 s06_four_targets() {
@@ -314,8 +324,10 @@ s08_in_repo_source() {
   run_exit 1 "$P1" check
   has "changed since palm.lock.yaml"
   run "$P1" install
-  has "~ re-rendered"
+  has "1 re-rendered"
   contains "$P1/.claude/skills/review/SKILL.md" "Be thorough."
+  # Untracked outputs warn in check: commit what palm wrote first.
+  commit_all "$P1" "in-repo source"
   run "$P1" check
   has "no problems"
 }
@@ -348,12 +360,13 @@ s10_update() {
   js_yaml "$P1/palm.lock.yaml" 'd.sources["mattpocock/skills"].ref === "v1.2.0"'
   run "$P1" update mattpocock/skills --to ^1.2 --yes
   js_yaml "$P1/palm.yaml" 'd.sources["mattpocock/skills"].ref === "^1.2"'
+  commit_all "$P1" "update"
   run "$P1" check
   has "no problems"
 }
 
 s11_ci_clean_clone() {
-  (cd "$P1" && git add -A && git commit -q -m "palm setup") || fail "commit failed"
+  commit_all "$P1" "palm setup"
   git clone -q "$P1" "$C1"
   # A machine that never ran palm: another home, no cache.
   HOME="$SB/home2" PALM_HOME="$SB/home2/.palm"
@@ -434,6 +447,7 @@ s14_old_format() {
   run "$old" migrate
   file "$old/.claude/skills/tdd/SKILL.md"
   js_yaml "$old/palm.lock.yaml" 'd.version === 3'
+  commit_all "$old" "palm migrate"
   run "$old" check
   has "no problems"
 }
