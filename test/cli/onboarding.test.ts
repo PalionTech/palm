@@ -174,12 +174,7 @@ Nothing written. Install some:
     const skills = SKILLS.map(([n], i) =>
       outcome(skillEntry(n, 'obra/superpowers', files(n, i === 0 ? 3 : 1))),
     );
-    const hook = lockEntry({
-      kind: 'hook',
-      name: 'session-start',
-      source: 'obra/superpowers',
-      declined: true,
-    });
+    const hook = lockEntry({ kind: 'hook', name: 'session-start', source: 'obra/superpowers' });
     const lockSources = { 'obra/superpowers': { ref: '^4', resolved: 'v4.0.3', sha: 'a1b2c3d' } };
     const deps = fakeEngine({
       scopes: [
@@ -187,7 +182,7 @@ Nothing written. Install some:
         fakeScope({ root: box.project, manifestTargets: ['claude'], lockSources }),
       ],
       installFromSource: async () => ({
-        outcomes: [...skills, outcome(hook, 'skipped')],
+        outcomes: [...skills, { ...outcome(hook, 'skipped'), declined: true as const }],
         failures: [],
         warnings: [],
       }),

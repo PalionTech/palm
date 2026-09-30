@@ -40,9 +40,7 @@ export function preloadsOf(agent: Entity): Array<{ kind: 'skill' | 'mcp'; name: 
 export function installedNames(
   entries: readonly LockEntry[],
 ): (kind: Kind, name: string) => boolean {
-  const have = new Set(
-    entries.filter((e) => !e.declined).map((e) => `${e.kind}:${e.name.toLowerCase()}`),
-  );
+  const have = new Set(entries.map((e) => `${e.kind}:${e.name.toLowerCase()}`));
   return (kind, name) => have.has(`${kind}:${name.toLowerCase()}`);
 }
 
@@ -109,7 +107,7 @@ export async function missingPreloads(run: Run): Promise<PreloadGap[]> {
   const has = installedNames(entries);
   const gaps: PreloadGap[] = [];
   for (const entry of entries) {
-    if (entry.kind !== 'agent' || entry.declined) continue;
+    if (entry.kind !== 'agent') continue;
     const found = await lockedAgent(run, entry);
     const gap = found && gapOf(run, { ...found, source: entry.source }, has);
     if (gap) gaps.push(gap);

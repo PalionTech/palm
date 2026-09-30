@@ -465,8 +465,6 @@ export interface LockEntry {
   exec?: LockExec;
   /** Exec hashes a person consented to; replayed silently while `exec.hash` is among them. */
   trust?: string[];
-  /** True when a plugin's hook was declined: installed nothing, asks again only by name. */
-  declined?: boolean;
   /** Persistent notes (dropped fields, skipped targets, mapped activation). */
   notes?: string[];
   /** Only when the entry is narrowed below the scope's target set. */
@@ -796,6 +794,11 @@ export interface InstallOutcome {
   /** Per target when the status differs by target (`partial`). */
   perTarget?: Partial<Record<TargetId, OutcomeStatus>>;
   notes: string[];
+  /**
+   * A program this run did not install: declined at the consent prompt or left out by `--all`.
+   * A plugin's member is then recorded as `exclude: [kind:name]` on the plugin entry (D28).
+   */
+  declined?: true;
 }
 
 /** One thing a run could not do. The run continues; the CLI exits 1 when any exist. */

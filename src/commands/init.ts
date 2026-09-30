@@ -10,10 +10,12 @@ import { existsSync, statSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import { PalmError } from '../core/errors.js';
+import { initRefusal } from '../core/paths.js';
 import { type PalmContext, type Scope, TARGET_IDS, type TargetId } from '../core/types.js';
 import { targetOf } from '../create/engine.js';
 import type { Manifest } from '../domain/manifest.js';
 import type { App } from './app.js';
+import { importHint } from './foreign-lists.js';
 import { type Invocation, usage } from './grammar.js';
 import { palmLine } from './hints.js';
 import {
@@ -133,17 +135,39 @@ async function detected(ctx: PalmContext, app: App, scope: Scope): Promise<Targe
   return TARGET_IDS.filter((id) => chosen.includes(id));
 }
 
+/** K14 B8 C10 J4 J5: the home directory and the global directories are never a project. */
+function refuseGlobalDir(ctx: PalmContext): void {
+  const why = initRefusal(ctx.paths.cwd, ctx.paths, ctx.env);
+  if (why)
+    throw usage(
+      `${why}; your own setup is the global scope`,
+      palmLine('init', ['--target', 'claude'], 'global'),
+    );
+}
+
+/** C11: `skills-lock.json` or `apm.yml` in a project whose palm.yaml lists nothing yet. */
+async function noteForeignLists(ctx: PalmContext, app: App, manifest: Manifest): Promise<void> {
+  const listed = async () => manifest.allEntries().length + Object.keys(manifest.mcp).length > 0;
+  const lines = await importHint(ctx.paths.cwd, 'project', listed);
+  const [first, ...rest] = lines ?? [];
+  if (!first || app.out.jsonMode) return;
+  app.out.info(first);
+  for (const l of rest) app.out.hint(l);
+}
+
 export async function run(inv: Invocation, app: App): Promise<void> {
   const flags = inv.opts as InitFlags;
   const scope: Scope = flags.global ? 'global' : 'project';
   const flag = parseTargetList(flags.target ?? flags.targets);
   const ctx = await makeContext(app, flags);
   if (scope === 'project') {
+    refuseGlobalDir(ctx);
     await engine(app).openScope(ctx, 'project', { readOnly: true });
     if (!flags.here) await refuseNested(ctx, app);
   }
   const file = join(placeOf(ctx, scope).dir, 'palm.yaml');
   const manifest = await engine(app).loadManifest(file);
+  if (scope === 'project') await noteForeignLists(ctx, app, manifest);
   const current = manifest.targets;
   if (current && !flag) {
     if (app.out.jsonMode) return app.out.json({ file, targets: current, changed: false });

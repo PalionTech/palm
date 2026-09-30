@@ -111,7 +111,7 @@ export function missingTargets(c: CheckContext, e: LockEntry): TargetId[] {
 
 /** True for entries the checks that read the disk look at (not plugins, not declined). */
 export function rendersFiles(e: LockEntry): boolean {
-  return !e.declined && e.kind !== 'plugin';
+  return e.kind !== 'plugin';
 }
 
 async function renderOne(

@@ -51,6 +51,8 @@ export interface Run {
    * unless `--allow-exec` covers them (DESIGN §6 step 6).
    */
   leaveOutPrograms?: boolean;
+  /** D28: plugin members this run declined, written as the plugin's `exclude:` when the run is saved. */
+  excluded?: Array<{ source: string; plugin: string; member: EntityRef }>;
   /**
    * Set once the run changed something on disk (a target applied, a file deleted). palm.yaml and
    * the lock are then saved whatever else fails, since they must record what the disk holds;
@@ -135,9 +137,8 @@ async function diskStates(run: Run, out: RenderOutput) {
   return { files, fragments };
 }
 
-function consentOf(job: Job, previous: LockEntry | undefined, unit?: ExecUnit): ConsentState {
+function consentOf(previous: LockEntry | undefined, unit?: ExecUnit): ConsentState {
   if (!unit) return 'none';
-  if (previous?.declined) return job.explicit ? 'ask' : 'quiet';
   return needsConsent(previous, unit) ? 'ask' : 'trusted';
 }
 
@@ -161,7 +162,7 @@ export async function prepareJob(run: Run, job: Job): Promise<Prepared> {
   const check = await knownEdits(run, { previous, out, files, fragments, values });
   const decision = outcomeStatus({
     ...(check ? { edited: check.edited } : {}),
-    ...(previous && !previous.declined ? { previous } : {}),
+    ...(previous ? { previous } : {}),
     renders: out.renders,
     files,
     fragments,
@@ -175,7 +176,7 @@ export async function prepareJob(run: Run, job: Job): Promise<Prepared> {
     ...(previous ? { previous } : {}),
     out,
     decision,
-    consent: consentOf(job, previous, out.unit),
+    consent: consentOf(previous, out.unit),
     ...(unchecked ? { unchecked } : {}),
   };
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LockEntry } from '../../src/core/types.js';
-import { needsConsent, withDeclined, withTrust } from '../../src/exec/trust.js';
+import { needsConsent, withTrust } from '../../src/exec/trust.js';
 import { closureTree } from '../../src/exec/units.js';
 import { GH_ASSETS, ghCliUnit, teamHelperUnit } from './examples.js';
 
@@ -33,24 +33,14 @@ describe('needsConsent', () => {
       undefined,
       false,
     ],
-    ['declined, not asked by name', entry({ declined: true }), undefined, false],
-    ['declined, not asked by name, explicit false', entry({ declined: true }), false, false],
-    ['declined, asked by name', entry({ declined: true }), true, true],
-    [
-      'declined with this hash trusted, asked by name',
-      entry({ declined: true, trust: [unit.hash] }),
-      true,
-      false,
-    ],
-    ['asked by name and trusted', entry({ trust: [unit.hash] }), true, false],
-  ])('%s', (_label, e, explicit, expected) => {
-    expect(needsConsent(e, unit, explicit === undefined ? undefined : { explicit })).toBe(expected);
+  ])('%s', (_label, e, _explicit, expected) => {
+    expect(needsConsent(e, unit)).toBe(expected);
   });
 });
 
 describe('withTrust', () => {
   it('records readable commands, the closure and the hash, and trusts exactly that hash', () => {
-    const next = withTrust(entry({ declined: true, trust: ['sha256:old'] }), unit);
+    const next = withTrust(entry({ trust: ['sha256:old'] }), unit);
     expect(next.exec).toEqual({
       commands: [
         {
@@ -77,17 +67,5 @@ describe('withTrust', () => {
       commands: [{ id: 'stdio', command: 'node ".palm/assets/acme-kit/team-helper/server.js"' }],
       hash: mcp.hash,
     });
-  });
-});
-
-describe('withDeclined', () => {
-  it('marks the entry declined, drops its trust and keeps the rest', () => {
-    const trusted = withTrust(entry(), unit);
-    const next = withDeclined(trusted);
-    expect(next.declined).toBe(true);
-    expect('trust' in next).toBe(false);
-    expect(next.exec).toEqual(trusted.exec);
-    expect(needsConsent(next, unit)).toBe(false);
-    expect(needsConsent(next, unit, { explicit: true })).toBe(true);
   });
 });

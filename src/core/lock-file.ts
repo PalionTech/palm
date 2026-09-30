@@ -3,6 +3,7 @@
  * checkout, one writer per scope. O_EXCL create with pid and host inside, heartbeat on the
  * mtime, stale after 10 minutes or a dead pid on this host, 60 s wait.
  */
+import { readFileSync, rmSync } from 'node:fs';
 import { mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { dirname } from 'node:path';
@@ -111,6 +112,23 @@ async function acquireLock(file: string, opts: LockOptions): Promise<LockInfo> {
   }
 }
 
+/**
+ * Y7: the lock also goes when the process exits while holding it (a Ctrl-C at a prompt ends the
+ * process before `finally` runs). Returns the function that stops watching.
+ */
+function releaseOnExit(file: string, mine: LockInfo): () => void {
+  const release = () => {
+    try {
+      const now = parseLockInfo(readFileSync(file, 'utf8'));
+      if (now.pid === mine.pid && now.createdAt === mine.createdAt) rmSync(file, { force: true });
+    } catch {
+      // already gone
+    }
+  };
+  process.once('exit', release);
+  return () => process.removeListener('exit', release);
+}
+
 /** Removes `file` if it is still the lock described by `mine` (it was not taken over as stale). */
 async function releaseLock(file: string, mine: LockInfo): Promise<void> {
   const text = await readFile(file, 'utf8').catch(() => '');
@@ -130,6 +148,7 @@ export async function withLock<T>(
   opts: LockOptions = {},
 ): Promise<T> {
   const mine = await acquireLock(file, opts);
+  const unwatch = releaseOnExit(file, mine);
   const heartbeat = setInterval(() => {
     const now = new Date();
     utimes(file, now, now).catch(() => undefined);
@@ -139,6 +158,7 @@ export async function withLock<T>(
     return await fn();
   } finally {
     clearInterval(heartbeat);
+    unwatch();
     await releaseLock(file, mine);
   }
 }

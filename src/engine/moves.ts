@@ -99,7 +99,7 @@ export async function confirmMoves(run: Run, moves: Move[], prepared: Prepared[]
 /** Why a prepared entity keeps its source from moving, if it does. */
 function blocker(p: Prepared, refused: ReadonlySet<Prepared>): 'refused' | 'declined' | undefined {
   if (refused.has(p) || p.out.refusals.some((f) => !f.target)) return 'refused';
-  if (p.consent === 'declined' && p.previous && !p.previous.declined) return 'declined';
+  if (p.consent === 'declined' && p.previous) return 'declined';
   return undefined;
 }
 

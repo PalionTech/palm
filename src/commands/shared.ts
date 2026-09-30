@@ -18,6 +18,7 @@ import {
   type ScopeState,
   targetOf,
 } from '../create/engine.js';
+import { redactTypedArgs } from '../secrets/typed.js';
 import type { App } from './app.js';
 import { usage } from './grammar.js';
 
@@ -92,7 +93,7 @@ function localError(app: App, g: GlobalOptions & { targets?: string }): PalmErro
     );
   return usage(
     'palm.local.yaml arrives in palm 0.3',
-    `run it without --local: palm ${rest.join(' ')}`,
+    `run it without --local: palm ${redactTypedArgs(rest).join(' ')}`,
   );
 }
 

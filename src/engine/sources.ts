@@ -90,7 +90,7 @@ export function localDrift(
 ): Array<{ entry: LockEntry; content: string }> {
   const out: Array<{ entry: LockEntry; content: string }> = [];
   for (const entry of state.lock.entries) {
-    if (entry.declined || entry.source === MANIFEST_SOURCE) continue;
+    if (entry.source === MANIFEST_SOURCE) continue;
     if (!state.sources.byName(entry.source)?.isLocal) continue;
     const content = renders.get(lockId(entry))?.content;
     if (content !== undefined && content !== entry.content) out.push({ entry, content });

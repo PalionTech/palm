@@ -14,7 +14,8 @@ import {
   TARGET_IDS,
   type TargetId,
 } from '../core/types.js';
-import { withDeclined, withTrust } from '../exec/trust.js';
+import { Via } from '../domain/entity-key.js';
+import { withTrust } from '../exec/trust.js';
 import { isWithin } from '../lib/fs.js';
 import { deepEqual } from '../lib/object.js';
 import { fragmentKey, type TargetVerdict } from './diff.js';
@@ -396,7 +397,11 @@ function refused(run: Run, p: Prepared): InstallOutcome {
   return { entry: p.previous ?? entryFor(p, new Set()), status: 'failed', notes: [] };
 }
 
-/** A unit the person declined: nothing of it is written; a plugin's hook is recorded as declined. */
+/**
+ * A unit the person declined (or `--all` left out): nothing of it is written. A plugin's member
+ * is recorded as `exclude: [kind:name]` on the plugin entry once the run is saved (D28), so
+ * the next install leaves it out without asking; naming it installs it.
+ */
 function declined(run: Run, p: Prepared): InstallOutcome {
   const s = subjectOf(p);
   const scope = run.state.paths.scope;
@@ -406,8 +411,14 @@ function declined(run: Run, p: Prepared): InstallOutcome {
     `install it: ${installCommand({ ...s, name: `${s.kind}:${s.name}` }, scope)}`,
   ];
   // The trusted version is still merged and runs (V5): say so, and how to remove it.
-  if (p.previous && !p.previous.declined) return keptProgram(run, p);
-  const entry = withDeclined({ ...baseEntry(p), render: {}, files: [] });
-  if (p.job.via) run.state.lock.upsert(entry);
-  return { entry, status: 'skipped', notes };
+  if (p.previous) return keptProgram(run, p);
+  const entry: LockEntry = { ...baseEntry(p), render: {}, files: [] };
+  if (p.job.via) excludeLater(run, p);
+  return { entry, status: 'skipped', notes, declined: true };
+}
+
+function excludeLater(run: Run, p: Prepared): void {
+  const plugin = Via.parse(p.job.via as string).name;
+  const member = { kind: p.job.entity.kind, name: p.job.entity.name };
+  run.excluded = [...(run.excluded ?? []), { source: p.job.source.name, plugin, member }];
 }

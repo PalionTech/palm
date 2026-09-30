@@ -123,6 +123,8 @@ export async function runJobs(run: Run, jobs: Job[], plan: RunPlan = {}): Promis
  */
 export async function settle(run: Run, failed: boolean): Promise<boolean> {
   if (!run.touched && (failed || run.result.failures.length)) return false;
+  for (const x of run.excluded ?? [])
+    run.state.manifest.excludeMember(x.source, x.plugin, x.member);
   await saveScope(run.state);
   return true;
 }

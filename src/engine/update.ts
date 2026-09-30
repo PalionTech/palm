@@ -140,8 +140,6 @@ async function execChange(
 ): Promise<UpdatePlanItem['exec']> {
   const unit = p.out.unit;
   if (!unit || p.previous?.exec?.hash === unit.hash) return undefined;
-  // A program declined earlier stays out; its unit is news only when asked for by name.
-  if (p.previous?.declined) return undefined;
   const before = lockSha && p.previous ? await renderedBefore(run, p.job, lockSha) : undefined;
   memo.scripts.set(unit.key, { before: scriptsOf(before), after: scriptsOf(p) });
   return before?.out.unit ? { unit, previous: before.out.unit } : { unit };

@@ -25,7 +25,7 @@ interface Owners {
 function ownersOf(run: Run, leaving: ReadonlySet<string>): Owners {
   const out: Owners = { entities: new Map(), files: new Map() };
   for (const e of run.state.lock.entries) {
-    if (leaving.has(lockId(e)) || e.declined) continue;
+    if (leaving.has(lockId(e))) continue;
     out.entities.set(entityId(e), [...(out.entities.get(entityId(e)) ?? []), e]);
     for (const f of e.files) if (!out.files.has(f)) out.files.set(f, e);
   }

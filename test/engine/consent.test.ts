@@ -109,7 +109,7 @@ describe('consent for executables', () => {
     expect((await w.entry('hook', 'session-start'))?.trust).toEqual([hash]);
   });
 
-  it('records a declined plugin hook, installs the rest, and stays quiet on bare installs', async () => {
+  it('D28 records a declined plugin hook as exclude: on the plugin entry, installs the rest, and stays quiet on bare installs', async () => {
     const w = await makeWorld({ targets: ['claude'], interactive: true, consent: 'no' });
     const url = await kit(w);
     const r = await installFromSource(
@@ -124,11 +124,9 @@ describe('consent for executables', () => {
     expect(hook?.notes.join('\n')).toContain('palm install superpowers hook:session-start');
     expect(w.exists('.claude/skills/brainstorming/SKILL.md')).toBe(true);
     expect(w.exists('.claude/settings.json')).toBe(false);
-    expect(await w.entry('hook', 'session-start')).toMatchObject({
-      declined: true,
-      via: 'plugin:superpowers',
-      files: [],
-    });
+    expect(hook?.declined).toBe(true);
+    expect(await w.entry('hook', 'session-start')).toBeUndefined();
+    expect(await w.manifestText()).toContain('exclude: [hook:session-start]');
     w.exec.requests.length = 0;
     const lock = await w.lockText();
     const again = await syncScope(w.ctx, { scope: 'project' }, w.deps);
@@ -156,7 +154,7 @@ describe('consent for executables', () => {
     );
     expect(w.exec.requests).toHaveLength(1);
     const entry = await w.entry('hook', 'session-start');
-    expect(entry?.declined).toBeUndefined();
     expect(entry?.trust).toHaveLength(1);
+    expect(entry?.via).toBeUndefined();
   });
 });

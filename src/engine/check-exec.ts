@@ -187,7 +187,7 @@ async function scriptProblem(
 export async function hookScripts(c: CheckContext): Promise<CheckRun> {
   const f = found();
   for (const e of c.run.state.lock.entries) {
-    if (e.declined || !e.exec) continue;
+    if (!e.exec) continue;
     for (const cmd of e.exec.commands)
       for (const ref of scriptRefs(c, cmd.command)) {
         const p = await scriptProblem(c, e, cmd.id, ref);

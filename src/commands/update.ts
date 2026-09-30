@@ -12,6 +12,7 @@ import type {
   UpdateMark,
   UpdatePlan,
   UpdatePlanItem,
+  UpdatePlanSource,
 } from '../core/types.js';
 import { gitDiffStat } from '../lib/git-query.js';
 import { plural } from '../lib/text.js';
@@ -96,13 +97,19 @@ function skippedLines(items: UpdatePlanItem[]): string[][] {
   });
 }
 
+/** D4 C19: how far a pin is behind: `latest v6.4.2`, `main is 063bee9`. */
+function behindCell(s: UpdatePlanSource): string {
+  const latest = s.latest && s.latest !== s.to ? `latest ${s.latest}` : '';
+  const head = s.head ? `${s.head.branch} is ${shortHash(s.head.sha, 7)}` : '';
+  return [latest, head].filter(Boolean).join('; ');
+}
+
 function printPlan(out: Output, plan: UpdatePlan, force: boolean): void {
   out.out(`Update plan (${plan.scope} scope)`);
-  const sources = plan.sources.map((s) => {
-    const latest = s.latest && s.latest !== s.to ? `latest ${s.latest}` : '';
-    return [s.name, s.ref, arrow(s.from, s.to), latest];
-  });
+  const sources = plan.sources.map((s) => [s.name, s.ref, arrow(s.from, s.to), behindCell(s)]);
   for (const line of formatColumns(sources)) out.out(line);
+  // D11: why a source counts as a change when no entry changes.
+  for (const s of plan.sources) if (s.reason) out.mark('i', `${s.name}: ${s.reason}`);
   const listed = plan.items.filter((i) => !quiet(i) && i.mark !== 'skipped');
   const rows = [...listed.map(itemCells), ...skippedLines(plan.items)];
   const marks = [

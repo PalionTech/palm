@@ -3,10 +3,12 @@
  * "Exit codes"): 0 success, 1 failure, 2 usage, 130 cancelled. src/cli.ts only calls this and
  * exits; tests call it in process with string sinks, a fake UI and fake engine deps.
  */
+
 import { CommanderError } from 'commander';
 import { isPalmError, messageOf, type PalmError, retryHint } from '../core/errors.js';
 import type { UI } from '../core/types.js';
 import type { CliDeps } from '../create/engine.js';
+import { redactTypedArgs } from '../secrets/typed.js';
 import { createOutput, type Output, type Sink } from '../ui/output.js';
 import type { App } from './app.js';
 import { runInvocation } from './dispatch.js';
@@ -78,7 +80,9 @@ function fromCommander(e: CommanderError, args: readonly string[]): PalmError {
 
 function errorDoc(e: unknown, run: RunLine): { code: string; message: string; hint?: string } {
   if (!isPalmError(e)) return { code: 'E_INTERNAL', message: messageOf(e), hint: BUG_HINT };
-  const hint = retryHint(e, run) ?? (e.code === 'E_INTERNAL' ? BUG_HINT : undefined);
+  // J11: a repeated command line never carries a value the person typed for a secret.
+  const safe = { args: redactTypedArgs(run.args), passthrough: run.passthrough };
+  const hint = retryHint(e, safe) ?? (e.code === 'E_INTERNAL' ? BUG_HINT : undefined);
   return hint ? { code: e.code, message: e.message, hint } : { code: e.code, message: e.message };
 }
 

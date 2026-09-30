@@ -10,6 +10,7 @@ import { parseKind } from '../core/kinds.js';
 import { looksLikeSourceInput } from '../core/source-input.js';
 import type { EntityRefSpec, Kind, Scope } from '../core/types.js';
 import { isLegacyDepString, parseEntityRef } from '../domain/entity-ref.js';
+import { redactTypedArgs } from '../secrets/typed.js';
 import type { InstallWords } from './grammar.js';
 import {
   exampleLine,
@@ -247,7 +248,7 @@ export function removedFlagError(
   argv: readonly string[],
   ctx: GrammarContext = {},
 ): PalmError | undefined {
-  const kept = keptFlags(argv);
+  const kept = redactTypedArgs(keptFlags(argv));
   if (flags.from !== undefined) {
     const names = kindNames(words).map(formatName);
     const line = palmLine('install', [flags.from, ...names, ...kept]);

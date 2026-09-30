@@ -73,8 +73,7 @@ interface HookArray {
 function unrendered(c: CheckContext): Set<string> {
   const out = new Set<string>();
   for (const e of c.run.state.lock.entries)
-    if (!e.declined && !c.renders.get(lockId(e)))
-      for (const m of e.merged ?? []) out.add(`${m.file}#${m.at}`);
+    if (!c.renders.get(lockId(e))) for (const m of e.merged ?? []) out.add(`${m.file}#${m.at}`);
   return out;
 }
 

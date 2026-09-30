@@ -1,7 +1,7 @@
 /**
  * Trust bookkeeping over lock entries (DESIGN.md section 7): consent is a hash in the entry's
- * `trust`, replayed silently while the unit's hash matches; a declined plugin hook stays quiet
- * until someone asks for it by name.
+ * `trust`, replayed silently while the unit's hash matches. A declined plugin hook is no lock
+ * entry: palm.yaml excludes it on the plugin entry (D28).
  */
 import { short } from '../core/hash.js';
 import type { ExecUnit, LockEntry, LockExec, Scope } from '../core/types.js';
@@ -10,17 +10,10 @@ import { closureTree, commandAt, firstTarget } from './units.js';
 
 /**
  * True when installing `unit` needs a person's consent: there is no lock entry, the entry
- * trusts no hash, or not this one. A declined entry needs none (it installs nothing and bare
- * installs stay quiet) unless the user asked for it by name (`explicit`).
+ * trusts no hash, or not this one.
  */
-export function needsConsent(
-  entry: LockEntry | undefined,
-  unit: ExecUnit,
-  opts: { explicit?: boolean } = {},
-): boolean {
-  if (!entry) return true;
-  if (entry.declined && !opts.explicit) return false;
-  return !(entry.trust ?? []).includes(unit.hash);
+export function needsConsent(entry: LockEntry | undefined, unit: ExecUnit): boolean {
+  return !(entry?.trust ?? []).includes(unit.hash);
 }
 
 /**
@@ -43,13 +36,7 @@ export function withTrust(entry: LockEntry, unit: ExecUnit): LockEntry {
     ...entry,
     exec: lockExecOf(unit),
     trust: [unit.hash],
-    declined: undefined,
   });
-}
-
-/** `entry` marked declined: it installs nothing and holds no trust. */
-export function withDeclined(entry: LockEntry): LockEntry {
-  return withoutUndefined({ ...entry, trust: undefined, declined: true });
 }
 
 /**

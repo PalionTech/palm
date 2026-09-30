@@ -78,12 +78,12 @@ function notesOf(o: InstallOutcome, opts: RowOptions, said: Set<string>): string
 }
 
 /**
- * A program this run did not install: declined at the consent prompt (`declined: true`), or left
- * out by `--all` (skipped with an exec unit nobody trusted yet).
+ * A program this run did not install: declined at the consent prompt or left out by `--all`
+ * (`declined`), or skipped with an exec unit nobody trusted yet.
  */
 export function programLeftOut(o: InstallOutcome): boolean {
   const e = o.entry;
-  if (e.declined) return true;
+  if (o.declined) return true;
   return o.status === 'skipped' && e.exec !== undefined && !e.trust?.includes(e.exec.hash);
 }
 

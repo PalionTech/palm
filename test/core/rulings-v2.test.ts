@@ -6,11 +6,13 @@
  * project or, under -g, in home (B9, J6), and a root hook named after its source keeps a short
  * asset path (K23).
  */
+import { existsSync } from 'node:fs';
 import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { toPalmError } from '../../src/core/git-call.js';
 import { GitFailure, runGit } from '../../src/core/git-exec.js';
+import { withLock } from '../../src/core/lock-file.js';
 import { globalDirHolding, initRefusal, resolvePaths } from '../../src/core/paths.js';
 import { parseSourceInput } from '../../src/core/source-input.js';
 import { ScopePaths } from '../../src/domain/scope-paths.js';
@@ -143,5 +145,20 @@ describe('K23 asset paths', () => {
     const kit = SourceRef.of({ name: 'moved-kit', type: 'git', url: 'https://x.example/k.git' });
     expect(paths.assetRoot(kit, 'moved-kit')).toBe('.palm/assets/moved-kit');
     expect(paths.assetRoot(kit, 'fmt')).toBe('.palm/assets/moved-kit/fmt');
+  });
+});
+
+describe('Y7 the process lock', () => {
+  it('Y7 goes when the process exits while holding it (a Ctrl-C at a prompt)', async () => {
+    const file = join(root, '.palm', 'lock');
+    const before = process.listeners('exit');
+    await withLock(file, async () => {
+      expect(existsSync(file)).toBe(true);
+      const added = process.listeners('exit').filter((l) => !before.includes(l));
+      expect(added).toHaveLength(1);
+      (added[0] as () => void)();
+      expect(existsSync(file)).toBe(false);
+    });
+    expect(process.listeners('exit')).toEqual(before);
   });
 });

@@ -36,9 +36,7 @@ function declinedByName(result: InstallResult, names: readonly EntityRefSpec[]):
     names.some(
       (n) => n.name.toLowerCase() === e.name.toLowerCase() && (!n.kind || n.kind === e.kind),
     );
-  return result.outcomes.some(
-    (o) => o.entry.declined && o.status !== 'unchanged' && named(o.entry),
-  );
+  return result.outcomes.some((o) => o.declined && named(o.entry));
 }
 
 /** Y26, C28: what a dry run reports as data: `would-install`, not `installed`. */
@@ -80,7 +78,7 @@ async function summaryOptions(ctx: PalmContext, app: App, r: InstallReport) {
 
 /** 130 after a Ctrl-C or a named program declined, 1 when anything failed, else 0. */
 function exitCodeOf(app: App, result: InstallResult, r: InstallReport): number {
-  if (app.interrupted) return EXIT.cancelled;
+  if (app.interrupted || result.interrupted) return EXIT.cancelled;
   if (failureCount(result)) return EXIT.failure;
   if (r.explicit && declinedByName(result, r.explicit)) return EXIT.cancelled;
   return EXIT.ok;

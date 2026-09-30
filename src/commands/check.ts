@@ -5,10 +5,18 @@
  * then `no problems` only when nothing failed or warned. `--quiet` prints the problems alone.
  * `--json` keeps every problem. Exit 1 when a check failed; warnings alone exit 0.
  */
-import type { CheckProblem, CheckReport, CheckRun, CheckStatus } from '../core/types.js';
+import type {
+  CheckProblem,
+  CheckReport,
+  CheckRun,
+  CheckStatus,
+  PalmContext,
+  Scope,
+} from '../core/types.js';
 import type { Mark } from '../ui/format.js';
 import type { Output } from '../ui/output.js';
 import type { App } from './app.js';
+import { importHint } from './foreign-lists.js';
 import { ExitSignal, type Invocation } from './grammar.js';
 import { engine, engineDeps, type GlobalOptions, makeContext, scopeOf } from './shared.js';
 
@@ -105,11 +113,26 @@ export function printCheck(out: Output, report: CheckReport, quiet: boolean): vo
   if (clean && !quiet) out.out('no problems');
 }
 
+/** C11: `skills-lock.json` or `apm.yml` in a project whose palm.yaml lists nothing yet: one hint. */
+async function noteForeignLists(ctx: PalmContext, app: App, scope: Scope): Promise<void> {
+  if (scope !== 'project' || app.out.jsonMode) return;
+  const listed = async () => {
+    const { manifest } = await engine(app).openScope(ctx, scope, { readOnly: true });
+    return manifest.allEntries().length + Object.keys(manifest.mcp).length > 0;
+  };
+  const [first, ...rest] = (await importHint(ctx.paths.projectRoot, scope, listed)) ?? [];
+  if (!first) return;
+  app.out.info(first);
+  for (const l of rest) app.out.hint(l);
+}
+
 export async function run(inv: Invocation, app: App): Promise<void> {
   const flags = inv.opts as CheckFlags;
   const ctx = await makeContext(app, flags);
-  const report = await engine(app).checkScope(ctx, { scope: scopeOf(flags) }, engineDeps(app));
+  const scope = scopeOf(flags);
+  const report = await engine(app).checkScope(ctx, { scope }, engineDeps(app));
   if (app.out.jsonMode) app.out.json({ ok: report.ok, checks: report.checks });
   else printCheck(app.out, report, Boolean(flags.quiet));
+  await noteForeignLists(ctx, app, scope);
   if (!report.ok) throw new ExitSignal(1);
 }

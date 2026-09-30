@@ -112,6 +112,45 @@ describe('K21, B21, D13: a bare install prints what changed; notes once; skips p
   });
 });
 
+describe('D4 C19 D11 L11: the plan says how far a pin is behind and why a source counts; an interrupt exits 130', () => {
+  it('D4 C19 D11 prints latest, the default branch head and the reason', async () => {
+    const plan: UpdatePlan = {
+      scope: 'project',
+      sources: [
+        {
+          name: 'kit',
+          ref: 'v1.0.0',
+          from: 'v1.0.0 (93f5a2d)',
+          to: 'v1.0.0 (93f5a2d)',
+          latest: 'v1.2.0',
+          head: { branch: 'main', sha: '063bee9f00' },
+          reason: 'palm.yaml says ref v1.0.0, palm.lock.yaml records ^1.0 at the same commit',
+        },
+      ],
+      items: [],
+      failures: [],
+      warnings: [],
+    };
+    const deps = fakeEngine({ planUpdate: async () => plan, planChanges: () => 1 });
+    const r = await palm(sb, ['update', '--dry-run'], { deps });
+    expect(r.stdout).toContain('kit   v1.0.0   v1.0.0 (93f5a2d)   latest v1.2.0; main is 063bee9');
+    expect(r.stdout).toContain(
+      'i kit: palm.yaml says ref v1.0.0, palm.lock.yaml records ^1.0 at the same commit',
+    );
+  });
+
+  it('L11 an install the engine stopped early exits 130', async () => {
+    const deps = fakeEngine({
+      scopes: [scope()],
+      syncScope: async () => ({
+        ...result([outcome(skill('a'))]),
+        interrupted: { done: 1, total: 3 },
+      }),
+    });
+    expect((await palm(sb, ['install'], { deps })).code).toBe(130);
+  });
+});
+
 describe('L10, J10, Y6, R7: the lines under a row are commands that run', () => {
   it('L10: a kept edit names the way to keep it next to --force', async () => {
     const deps = fakeEngine({
@@ -554,10 +593,9 @@ describe('Y22, E20: a program the person named and declined exits 130', () => {
   });
 
   it('declined by name: 130; left out by --all: 0', async () => {
-    const declined = { ...hook, declined: true };
     const named = fakeEngine({
       scopes: [scope()],
-      installFromSource: async () => result([outcome(declined, 'skipped')]),
+      installFromSource: async () => result([{ ...outcome(hook, 'skipped'), declined: true }]),
     });
     expect((await palm(sb, ['install', 'acme/kit', 'hook:guard'], { deps: named })).code).toBe(130);
     const all = fakeEngine({

@@ -144,13 +144,11 @@ function footer(outcomes: InstallOutcome[], opts: SummaryOptions, failed: boolea
 
 /**
  * Whether an outcome gets a line: a plugin is a selector over its members, whose lines say it;
- * a program declined earlier stays quiet on later runs (it was reported when it was declined);
  * an unchanged entry is only counted unless the run named it.
  */
 function shown(o: InstallOutcome, named: boolean): boolean {
   if (o.entry.kind === 'plugin') return false;
-  if (o.status !== 'unchanged') return true;
-  return named && !o.entry.declined;
+  return o.status !== 'unchanged' || named;
 }
 
 /** Rows in print order: skipped entries of one source (not programs) share one row. */
@@ -188,11 +186,6 @@ export function printInstallSummary(
   printRows(out, rows, words.size > 1 || Boolean(opts.dryRun));
   printFailures(out, result.failures);
   for (const w of result.warnings) out.warn(w);
-  const quiet = (o: InstallOutcome) => o.entry.declined && o.status === 'unchanged';
-  const last = footer(
-    counted.filter((o) => !quiet(o)),
-    opts,
-    result.failures.length > 0,
-  );
+  const last = footer(counted, opts, result.failures.length > 0);
   if (last) out.out(last);
 }

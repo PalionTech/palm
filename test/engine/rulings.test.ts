@@ -30,7 +30,7 @@ const PLUGIN = {
 };
 
 describe('install <source> --all', () => {
-  it('leaves programs out without asking and records them as declined (ruling 15)', async () => {
+  it('leaves programs out without asking; a plugin member left out is excluded on the plugin (ruling 15, D28)', async () => {
     const w = await makeWorld({ targets: ['claude'], interactive: true, consent: 'yes' });
     const url = await w.remote('superpowers', { 'v1.0.0': PLUGIN });
     const r = await installFromSource(
@@ -42,7 +42,7 @@ describe('install <source> --all', () => {
     expect(r.failures).toEqual([]);
     expect(w.exec.requests).toEqual([]);
     expect(r.outcomes.find((o) => o.entry.name === 'session-start')?.status).toBe('skipped');
-    expect(await w.entry('hook', 'session-start')).toMatchObject({ declined: true });
+    expect(await w.entry('hook', 'session-start')).toBeUndefined();
     expect(w.exists('.claude/skills/brainstorming/SKILL.md')).toBe(true);
     expect(w.exists('.claude/settings.json')).toBe(false);
     const again = await syncScope(w.ctx, { scope: 'project' }, w.deps);

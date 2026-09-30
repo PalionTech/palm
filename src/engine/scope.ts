@@ -24,6 +24,7 @@ import { Manifest } from '../domain/manifest.js';
 import { ScopePaths } from '../domain/scope-paths.js';
 import type { SourceSet } from '../domain/source.js';
 import { isWithin, toPosix } from '../lib/fs.js';
+import { redactTypedArgs } from '../secrets/typed.js';
 import { ensureIgnoreLines } from './gitignore.js';
 import { detectTargets } from './targets.js';
 
@@ -59,7 +60,8 @@ const text = (v: { toJSON(): unknown }): string => JSON.stringify(v.toJSON());
 /** The command line as typed with `-g` added, or the words that say so. */
 function withGlobal(ctx: PalmContext): string {
   const argv = ctx.argv?.filter((w) => w !== '--');
-  return argv?.length ? `palm ${[...argv, '-g'].join(' ')}` : 'run the command again with -g';
+  if (!argv?.length) return 'run the command again with -g';
+  return `palm ${[...redactTypedArgs(argv), '-g'].join(' ')}`;
 }
 
 /**
