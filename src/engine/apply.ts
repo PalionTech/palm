@@ -405,6 +405,7 @@ async function settled(
   if (stray) notes.push(stray);
   const outcome: InstallOutcome = { entry, status, notes };
   if (status === 'partial') outcome.perTarget = perTarget(p, failed);
+  if (p.consent === 'allowed' && p.out.unit) outcome.trusted = p.out.unit.hash;
   return outcome;
 }
 

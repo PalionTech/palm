@@ -184,6 +184,16 @@ describe('printInstallSummary', () => {
     expect(named.stdout()).toContain('= unchanged  skill  bb   .claude/skills/bb/   1 file');
   });
 
+  it('S8 a program trusted again says so: a ~ trusted line and the count, not unchanged', () => {
+    const c = captured();
+    const hook = lockEntry({ kind: 'hook', name: 'fmt', source: 'acme', files: [] });
+    const trusted = { ...outcome(hook, 'unchanged'), trusted: `sha256:1b9e04c2${'0'.repeat(56)}` };
+    printInstallSummary(c.out, result([trusted]), { scope: 'project', targets: ['claude'] });
+    expect(c.stdout()).toContain('~ trusted hook fmt sha256:1b9e04c2');
+    expect(c.stdout()).toContain('1 trusted.');
+    expect(c.stdout()).not.toContain('unchanged');
+  });
+
   it('says what a dry run would do and writes no commit line', () => {
     const c = captured();
     printInstallSummary(c.out, result([outcome(skill('a'))]), {

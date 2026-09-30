@@ -362,9 +362,9 @@ describe('palm update', () => {
       [
         'Update plan (project scope)',
         'mattpocock/skills   ^1.2   v1.2.0 (3f2a1c9) → v1.2.3 (8be01d4)',
-        '~ updated   skill   tdd                   mattpocock/skills',
-        '+ added     skill   review (plugin:kit)   acme-kit',
-        '~ updated   hook    team-skills           acme-kit',
+        '~ updated           skill   tdd                   mattpocock/skills',
+        '+ added             skill   review (plugin:kit)   acme-kit',
+        '~ changed program   hook    team-skills           acme-kit',
         '! hook team-skills: setup.sh changed (sha256:a7cc7911… → 3e01a9f2…); d shows the diff',
         '! you changed these files since palm wrote them; palm overwrites them only with --force:',
         '    .claude/skills/tdd/SKILL.md  (skill tdd)',

@@ -811,6 +811,8 @@ export interface InstallOutcome {
    * A plugin's member is then recorded as `exclude: [kind:name]` on the plugin entry (D28).
    */
   declined?: true;
+  /** S8: the program hash this run's consent trusted (`~ trusted hook x sha256:…`). */
+  trusted?: string;
 }
 
 /** One thing a run could not do. The run continues; the CLI exits 1 when any exist. */

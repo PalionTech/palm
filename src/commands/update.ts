@@ -69,11 +69,18 @@ function downgrades(plan: UpdatePlan): Set<string> {
   return new Set(plan.sources.filter(older).map((s) => s.name));
 }
 
+/** V3' S8: a program's row says so: `changed program`, `new program`. */
+function markWord(i: UpdatePlanItem, downgraded: boolean): string {
+  if (i.exec && i.mark === 'added') return 'new program';
+  if (i.exec && i.mark === 'updated') return 'changed program';
+  return i.mark === 'updated' && downgraded ? 'downgraded' : i.mark;
+}
+
 function itemCells(i: UpdatePlanItem, down: ReadonlySet<string>): string[] {
   const name = i.via ? `${i.name} (${i.via})` : i.name;
   const moved = down.has(i.source) && i.mark === 'updated' ? 'downgrade' : '';
   const change = [arrow(i.from, i.to), i.note, moved].filter(Boolean).join('  ');
-  return [i.mark === 'updated' && moved ? 'downgraded' : i.mark, i.kind, name, i.source, change];
+  return [markWord(i, Boolean(moved)), i.kind, name, i.source, change];
 }
 
 function changedScripts(before: ExecUnit, after: ExecUnit): string[] {

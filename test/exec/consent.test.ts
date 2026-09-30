@@ -111,7 +111,7 @@ describe('consentText', () => {
       },
       PROJECT,
     );
-    expect(text.split('\n')[0]).toBe('This install adds 1 program that will run on your machine.');
+    expect(text.split('\n')[0]).toBe('This install changes 1 program that runs on your machine.');
     expect(text).toContain(
       'palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,\nso teammates and CI install it without being asked; any change asks again.',
     );

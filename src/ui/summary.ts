@@ -14,7 +14,7 @@ import {
   type OutcomeStatus,
   type TargetId,
 } from '../core/types.js';
-import { listJoin, padVisible, sourceLabel, statusWord, withKind } from './format.js';
+import { listJoin, padVisible, shortHash, sourceLabel, statusWord, withKind } from './format.js';
 import type { Output } from './output.js';
 import {
   LEFT_OUT,
@@ -225,6 +225,13 @@ function rowsOf(outcomes: InstallOutcome[], opts: SummaryOptions): Row[] {
   return rows;
 }
 
+/** S8: one `~ trusted hook x sha256:1b9e04c2` line per program this run's consent trusted. */
+function printTrusted(out: Output, outcomes: readonly InstallOutcome[]): void {
+  for (const o of outcomes)
+    if (o.trusted)
+      out.mark('~', `trusted ${o.entry.kind} ${o.entry.name} sha256:${shortHash(o.trusted, 8)}`);
+}
+
 /**
  * The status lines of an install, sync, update or removal, then its failures (stderr), then the
  * closing count. Result warnings join the collected warnings. Under `dryRun` the statuses say
@@ -241,6 +248,7 @@ export function printInstallSummary(
   const rows = rowsOf(outcomes, opts);
   const words = new Set(rows.filter((r) => r.word !== LEFT_OUT).map((r) => r.word));
   printRows(out, rows, words.size > 1 || Boolean(opts.dryRun));
+  printTrusted(out, result.outcomes);
   printFailures(out, result.failures);
   for (const w of result.warnings) out.warn(w);
   const last = footer(counted, opts, result.failures.length > 0);

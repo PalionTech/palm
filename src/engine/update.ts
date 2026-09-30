@@ -145,6 +145,17 @@ async function execChange(
   return before?.out.unit ? { unit, previous: before.out.unit } : { unit };
 }
 
+/**
+ * V3' S8: a program whose command or scripts changed is a change of its own, never
+ * `unchanged … same content` (its content hash covers only the hook's own files).
+ */
+function programItem(item: UpdatePlanItem, exec: NonNullable<UpdatePlanItem['exec']>): void {
+  item.exec = exec;
+  if (item.mark !== 'unchanged') return;
+  item.mark = 'updated';
+  delete item.note;
+}
+
 function removedItems(state: ScopeState, source: string, kept: Set<string>): UpdatePlanItem[] {
   return state.lock
     .entriesOf(source)
@@ -220,7 +231,7 @@ async function planEntries(
     const p = await prepareJob(run, job);
     const item = itemOf(p, s.row, s.moved);
     const exec = await execChange(run, memo, p, s.lockSha);
-    if (exec) item.exec = exec;
+    if (exec) programItem(item, exec);
     plan.items.push(item);
     if (s.moved) newPreloads(run, p, { index: s.r.index, ...(s.old ? { old: s.old } : {}) });
   }

@@ -226,16 +226,29 @@ function question(req: ConsentRequest): string {
   return `${ask}  [y/N/v=view scripts${canDiff(req) ? '/d=diff' : ''}]`;
 }
 
+/**
+ * V3' S8: `This update adds 1 program …`, `… changes 1 program …`, or both: a unit with a
+ * trusted previous version is a change, not an addition.
+ */
+function headline(req: ConsentRequest): string {
+  const changed = req.units.filter((u) => req.previous?.[u.key] !== undefined).length;
+  const added = req.units.length - changed;
+  const op = `This ${req.operation}`;
+  if (!changed) return `${op} adds ${programs(added)} that will run on your machine.`;
+  if (!added)
+    return `${op} changes ${programs(changed)} that ${changed === 1 ? 'runs' : 'run'} on your machine.`;
+  return `${op} adds ${programs(added)} and changes ${programs(changed)}; they run on your machine.`;
+}
+
 /** Everything the prompt shows before its question (printed as is without a terminal and in dry runs). */
 export function consentSummary(req: ConsentRequest, opts: PromptOptions): string {
-  const n = req.units.length;
   return [
-    `This ${req.operation} adds ${programs(n)} that will run on your machine.`,
+    headline(req),
     '',
     ...req.units.flatMap((u, i) => unitLines(u, i + 1, opts)),
     ...promptHooksLines(req.prompts),
     '',
-    ...closing(n, opts),
+    ...closing(req.units.length, opts),
   ].join('\n');
 }
 

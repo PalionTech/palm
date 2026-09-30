@@ -34,6 +34,8 @@ export interface RowOptions {
 
 /** The word an outcome reads with: `overwritten` under --force (Y18'), `downgraded` (Q12). */
 export function wordOf(o: InstallOutcome, opts: RowOptions): string {
+  // S8: a program whose files stayed but whose new hash this run trusted is no plain unchanged
+  if (o.trusted && o.status === 'unchanged') return opts.dryRun ? 'would trust' : 'trusted';
   if (opts.forced && o.status === 'restored')
     return opts.dryRun ? 'would overwrite' : 'overwritten';
   if (o.status === 'updated' && opts.downgraded?.(o.entry.source))

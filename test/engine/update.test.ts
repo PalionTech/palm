@@ -61,7 +61,10 @@ describe('update', () => {
       },
     ]);
     expect(plan.items.find((i) => i.name === 'tdd')?.mark).toBe('updated');
-    expect(planChanges(plan)).toBe(1);
+    // V3' S8: the hook's script changed, so the hook is a change too, never `same content`
+    expect(plan.items.find((i) => i.name === 'guard')).toMatchObject({ mark: 'updated' });
+    expect(plan.items.find((i) => i.name === 'guard')?.note).toBeUndefined();
+    expect(planChanges(plan)).toBe(2);
     expect((await w.lock()).sources.kit).toEqual(before);
     w.exec.requests.length = 0;
     const r = await applyUpdate(w.ctx, plan, { scope: 'project' }, w.deps);
