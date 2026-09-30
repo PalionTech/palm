@@ -70,20 +70,31 @@ function moved(c: CheckContext, e: LockEntry, f: Found): void {
   );
 }
 
-/** A hook's merged entry on disk found by key with another value than palm renders. */
-async function mergedDrift(c: CheckContext, e: LockEntry, f: Found): Promise<void> {
+/**
+ * A hook's merged entry on disk found by key with another value than palm renders, once per
+ * file; a file whose changed command `said` names already has its line (R14').
+ */
+async function mergedDrift(
+  c: CheckContext,
+  e: LockEntry,
+  f: Found,
+  said: ReadonlySet<string>,
+): Promise<void> {
   const out = c.renders.get(lockId(e));
   if (!out || e.kind !== 'hook') return;
   const fix = palmCommand('install', [e.source, e.name], scopeOf(c), '--force');
+  const files = new Set<string>();
   for (const r of Object.values(out.renders)) {
     if (!r) continue;
     for (const [key, s] of await fragmentStates(c.run.state.paths, r, ownedFragments(e)))
-      if (s === 'changed')
-        f.fail.push({
-          ...problem(e, `a command of hook ${e.name} on disk differs from palm.lock.yaml`, fix),
-          file: key.split('#')[0] as string,
-        });
+      if (s === 'changed') files.add(key.split('#')[0] as string);
   }
+  for (const file of files)
+    if (!said.has(`${lockId(e)}#${file}`))
+      f.fail.push({
+        ...problem(e, `a command of hook ${e.name} on disk differs from palm.lock.yaml`, fix),
+        file,
+      });
 }
 
 function hookProblem(c: CheckContext, h: HookFinding): CheckProblem {
@@ -109,13 +120,15 @@ function hookProblem(c: CheckContext, h: HookFinding): CheckProblem {
  */
 export async function execTrusted(c: CheckContext): Promise<CheckRun> {
   const f = found();
+  const changed = (await hookFindings(c)).filter((h) => h.owner);
+  const said = new Set(changed.map((h) => `${lockId(h.owner as LockEntry)}#${h.file}`));
   for (const e of c.run.state.lock.entries) {
     if (!rendersFiles(e)) continue;
     untrusted(c, e, f);
     moved(c, e, f);
-    await mergedDrift(c, e, f);
+    await mergedDrift(c, e, f, said);
   }
-  for (const h of await hookFindings(c)) if (h.owner) f.fail.push(hookProblem(c, h));
+  for (const h of changed) f.fail.push(hookProblem(c, h));
   return checkRun(
     'exec-trusted',
     {

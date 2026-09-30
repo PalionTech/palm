@@ -606,6 +606,8 @@ export interface ExecUnit {
   from?: { sha?: string; ref?: string; date?: string };
   /** MCP only: environment keys and cwd, part of the identity. */
   env?: string[];
+  /** Sofia S1: the env keys whose value is written as it is (no `${VAR}`), marked in the review. */
+  literals?: string[];
   cwd?: string;
 }
 

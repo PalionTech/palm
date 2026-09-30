@@ -139,6 +139,7 @@ describe('execUnitOf', () => {
     expect(unit.env).toEqual(['A', 'Z']);
     expect(unit.cwd).toBe('${CLAUDE_PLUGIN_ROOT}');
     expect(JSON.stringify(unit)).not.toContain('secret');
+    expect(unit.literals).toEqual(['A', 'Z']);
     expect(teamHelperUnit().env).toEqual([]);
   });
 

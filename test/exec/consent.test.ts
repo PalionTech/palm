@@ -181,6 +181,12 @@ describe('consentText', () => {
     expect(text).not.toMatch(/<(home|palm)>|\/home\/u\//);
   });
 
+  it('Sofia S1 marks an env value written as it is: KEY (literal)', () => {
+    const unit = { ...teamHelperUnit(), env: ['API_TOKEN', 'LOG_LEVEL'], literals: ['LOG_LEVEL'] };
+    const req = { operation: 'install' as const, units: [unit], prompts: [], lockFile: '' };
+    expect(consentText(req, PROJECT)).toContain('env: API_TOKEN, LOG_LEVEL (literal)');
+  });
+
   it('shows a target whose command differs beyond the project-dir idiom', () => {
     const unit = teamHelperUnit();
     const cursor = unit.rendered.cursor?.map((r) => ({ ...r, command: 'node ./elsewhere.js' }));

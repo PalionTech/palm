@@ -84,7 +84,10 @@ function hookRows(unit: ExecUnit, opts: PromptOptions): string[] {
 
 function mcpRows(unit: ExecUnit, opts: PromptOptions): string[] {
   const first = firstTarget(unit);
-  const env = unit.env?.length ? unit.env.join(', ') : 'none';
+  // Sofia S1: a value written as it is reads `KEY (literal)`
+  const literal = new Set(unit.literals ?? []);
+  const keys = (unit.env ?? []).map((k) => (literal.has(k) ? `${k} (literal)` : k));
+  const env = keys.length ? keys.join(', ') : 'none';
   const cwd = unit.cwd ? `   cwd: ${unit.cwd}` : '';
   return [
     `${ROW}stdio  ${shownText(commandAt(unit, first, 0), opts)}   env: ${visible(env)}${visible(cwd)}`,

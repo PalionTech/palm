@@ -141,6 +141,14 @@ function bytesOf(files: readonly ClosureFile[]): number {
   return files.reduce((sum, f) => sum + f.size, 0);
 }
 
+/** Sofia S1: env keys whose value holds no `${VAR}` reference (written into the file as it is). */
+function literalKeys(env: Record<string, string> | undefined): string[] {
+  return Object.entries(env ?? {})
+    .filter(([, v]) => v !== '' && !/\$\{[^}]+\}|\{env:[^}]+\}/.test(v))
+    .map(([k]) => k)
+    .sort();
+}
+
 /** The closure files a script of the entity reads rather than runs (ruling E1). */
 function readsOf(entity: Entity, files: readonly ClosureFile[]): string[] {
   const { def } = entity;
@@ -183,6 +191,8 @@ export function execUnitOf(
   if (skipped) unit.skipped = skipped;
   if (from) unit.from = from;
   if (env) unit.env = env;
+  const literals = literalKeys(mcp?.env);
+  if (literals.length) unit.literals = literals;
   if (mcp?.cwd !== undefined) unit.cwd = mcp.cwd;
   return unit;
 }

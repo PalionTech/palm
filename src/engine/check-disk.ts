@@ -70,7 +70,8 @@ async function targetFragments(
     const file = key.split('#')[0] as string;
     if (s === 'missing')
       f.fail.push(problem(e, file, `palm's entry in ${file} is missing`, fix.restore));
-    if (s === 'changed')
+    // R14': a hook's changed item is exec-trusted's one line (it names the command)
+    if (s === 'changed' && e.kind !== 'hook')
       f.fail.push(problem(e, file, `palm's entry in ${file} was changed`, fix.force));
   }
 }
