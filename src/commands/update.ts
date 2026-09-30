@@ -1,192 +1,151 @@
 /**
- * `palm update [kind] [names...]` (alias `up`): print the plan (`~ updated`, `+ added`,
- * `- removed`, `= unchanged`, `x failed`, files at risk, the hook and stdio MCP commands it
- * writes), ask y/N once (default No; `--yes` for scripts, required without a terminal), then
- * reinstall what changed. That one answer is also the executable consent for the commands
- * listed. `--dry-run` prints the plan only. `palm update origins [alias...]` refreshes origin
- * indexes.
+ * `palm update [sources…] [--to ref] [--dry-run] [--review]` (alias `up`), DESIGN.md §6
+ * "Update": print the plan (sources, entries, every new or changed program, the files you
+ * changed), ask once (default no; `--yes` without a terminal, never for programs), then apply.
+ * `--dry-run` is the outdated report; with `--strict` it exits 1 when a source is behind.
  */
-import pc from 'picocolors';
 import { PalmError } from '../core/errors.js';
-import type { Kind, PalmContext, Scope, TargetId } from '../core/types.js';
-import { DepRef } from '../domain/dep-ref.js';
-import type { UpdateMark, UpdatePlan, UpdatePlanItem, UpdateResult } from '../engine/update.js';
+import type {
+  ExecUnit,
+  PalmContext,
+  UpdateMark,
+  UpdatePlan,
+  UpdatePlanItem,
+} from '../core/types.js';
 import { plural } from '../lib/text.js';
-import {
-  type Mark,
-  type Output,
-  printFailures,
-  printInstallSummary,
-  symbol,
-} from '../ui/output.js';
+import { formatColumns, listJoin, type Mark, shortHash } from '../ui/format.js';
+import type { Output } from '../ui/output.js';
+import { printFailures } from '../ui/summary.js';
 import type { App } from './app.js';
-import type { Invocation } from './grammar.js';
-import { updateOrigins } from './origin.js';
+import { ExitSignal, type Invocation, usage } from './grammar.js';
+import { parseKind } from './ports.js';
+import { interruptible, reportInstall } from './report.js';
 import {
-  ExitSignal,
-  entityKind,
-  failureCount,
+  engine,
+  engineDeps,
   type GlobalOptions,
   makeContext,
   scopeOf,
   withSpinner,
 } from './shared.js';
 
-type Ref = { kind?: Kind; name: string };
-
-/** `palm update skills` = every directly installed skill in the scope. */
-async function directEntries(ctx: PalmContext, scope: Scope, kind: Kind): Promise<Ref[]> {
-  const { listInstalled } = await import('../engine/query.js');
-  return (await listInstalled(ctx, scope, kind))
-    .filter((e) => !e.via)
-    .map((e) => ({ kind: e.kind, name: e.name }));
+interface UpdateFlags extends GlobalOptions {
+  to?: string;
+  review?: boolean;
+  strict?: boolean;
 }
 
-const MARKS: Record<UpdateMark, Mark> = {
-  updated: 'updated',
-  added: 'added',
-  removed: 'removed',
-  unchanged: 'unchanged',
-  failed: 'error',
-  skipped: 'warning',
+const MARKS: Readonly<Record<UpdateMark, Mark>> = {
+  updated: '~',
+  added: '+',
+  removed: '-',
+  unchanged: '=',
+  failed: 'x',
+  skipped: '⊘',
 };
 
-function changeCell(i: UpdatePlanItem): string {
-  const change = i.from && i.to ? `${i.from} → ${i.to}` : (i.from ?? '');
-  if (!i.note) return change;
-  return change ? `${change}  ${pc.dim(i.note)}` : pc.dim(i.note);
+const arrow = (from?: string, to?: string) =>
+  from && to && from !== to ? `${from} → ${to}` : (to ?? from ?? '');
+
+function itemCells(i: UpdatePlanItem): string[] {
+  const name = i.via ? `${i.name} (${i.via})` : i.name;
+  const change = [arrow(i.from, i.to), i.note].filter(Boolean).join('  ');
+  return [i.mark, i.kind, name, i.source, change];
 }
 
-function planRow(i: UpdatePlanItem): string[] {
-  const name = i.via ? `${i.name} ${pc.dim(`(${i.via})`)}` : i.name;
-  return [`${symbol(MARKS[i.mark])} ${i.mark}`, i.kind, name, i.origin, changeCell(i)];
+function changedScripts(before: ExecUnit, after: ExecUnit): string[] {
+  const known = new Map(before.closure.files.map((f) => [f.path, f.hash]));
+  return after.closure.files.filter((f) => known.get(f.path) !== f.hash).map((f) => f.path);
+}
+
+/** `hook team-skills: setup.sh changed (sha256:a7cc7911… → 3e01a9f2…); d shows the diff`. */
+function execLine(i: UpdatePlanItem): string | undefined {
+  if (!i.exec) return undefined;
+  const { unit, previous } = i.exec;
+  const hash = (u: ExecUnit) => `sha256:${shortHash(u.hash, 8)}…`;
+  if (!previous)
+    return `${i.kind} ${i.name}: a new program (${hash(unit)}); palm asks before it lands`;
+  const scripts = changedScripts(previous, unit);
+  const what = scripts.length ? `${listJoin(scripts)} changed` : 'its command changed';
+  return `${i.kind} ${i.name}: ${what} (${hash(previous)} → ${shortHash(unit.hash, 8)}…); d shows the diff`;
 }
 
 function printAtRisk(out: Output, items: UpdatePlanItem[], force: boolean): void {
   const risky = items.filter((i) => i.atRisk.length);
   if (!risky.length) return;
-  out.out();
-  out.out(
-    force
-      ? `${symbol('warning')} you changed these files; --force overwrites them:`
-      : `${symbol('warning')} you changed these files since palm wrote them; palm overwrites them only with --force:`,
-  );
-  for (const i of risky)
-    for (const f of i.atRisk) out.out(`    ${f}  ${pc.dim(`(${i.kind} ${i.name})`)}`);
+  const how = force ? '--force overwrites them' : 'palm overwrites them only with --force';
+  out.mark('!', `you changed these files since palm wrote them; ${how}:`);
+  for (const i of risky) for (const f of i.atRisk) out.out(`    ${f}  (${i.kind} ${i.name})`);
 }
 
-/** The hook commands and stdio MCP servers the one confirmation also allows (executable consent). */
-function printExecutables(out: Output, runs: string[]): void {
-  if (!runs.length) return;
-  const n = runs.length;
-  const what = n === 1 ? 'a command that runs' : `${n} commands that run`;
-  out.out();
-  out.out(`${symbol('warning')} this update writes ${what} on your machine:`);
-  for (const r of runs) out.out(`    ${r}`);
-}
-
-function printPlan(out: Output, plan: UpdatePlan, runs: string[], force: boolean): void {
-  out.out(`${pc.bold('Update plan')} ${pc.dim(`(${plan.scope} scope)`)}`);
-  out.table(plan.items.map(planRow));
+function printPlan(out: Output, plan: UpdatePlan, force: boolean): void {
+  out.out(`Update plan (${plan.scope} scope)`);
+  for (const line of formatColumns(plan.sources.map((s) => [s.name, s.ref, arrow(s.from, s.to)])))
+    out.out(line);
+  const lines = formatColumns(plan.items.map(itemCells));
+  for (const [n, item] of plan.items.entries()) out.mark(MARKS[item.mark], lines[n] ?? '');
+  for (const line of plan.items.map(execLine)) if (line) out.mark('!', line);
   printAtRisk(out, plan.items, force);
-  printExecutables(out, runs);
+  printFailures(out, plan.failures);
 }
 
-function planJson(plan: UpdatePlan): UpdateResult {
-  return { plan: plan.items, outcomes: [], failures: plan.failures, warnings: plan.warnings };
-}
-
-/**
- * Ask before changing anything: y/N in a terminal, `--yes` without one. False = declined. The
- * answer also allows the commands the plan listed (the install does not ask about them again).
- */
-async function confirmed(
-  ctx: PalmContext,
-  changes: { count: number; runs: number },
-  again: string,
-): Promise<boolean> {
+async function confirmed(ctx: PalmContext, changes: number): Promise<boolean> {
   if (ctx.flags.yes) return true;
   if (!ctx.ui.isInteractive)
     throw new PalmError(
       'E_NON_INTERACTIVE',
-      'palm update changes installed files and needs a confirmation',
-      `review the plan, then run: ${again} --yes   (or ${again} --dry-run to only print it)`,
+      `palm update would apply ${plural(changes, 'change')} and there is no terminal to ask`,
+      'review it with --dry-run, then apply it',
+      { retryWith: '--yes' },
     );
-  const apply = `Apply ${plural(changes.count, 'change')}`;
-  const allow = changes.runs
-    ? ` and allow ${changes.runs === 1 ? 'that command' : 'those commands'} to run`
-    : '';
-  return ctx.ui.confirm(`${apply}${allow}?`, false);
+  return ctx.ui.confirm(`Apply ${plural(changes, 'change')}?`, false);
 }
 
-/** The command line to repeat in hints: `palm update skill tdd -g`. */
-function againCommand(inv: Invocation, scope: Scope): string {
-  const words = ['palm update', inv.resource, ...inv.names].filter(Boolean);
-  return `${words.join(' ')}${scope === 'global' ? ' -g' : ''}`;
-}
-
-async function refsOf(inv: Invocation, ctx: PalmContext, scope: Scope): Promise<Ref[] | undefined> {
-  const kind = entityKind(inv.resource, 'update');
-  const refs: Ref[] = inv.names.map((n) => ({ kind, name: DepRef.parse(n).name }));
-  if (refs.length || !kind) return refs;
-  const direct = await directEntries(ctx, scope, kind);
-  return direct.length ? direct : undefined;
-}
-
-async function applyPlan(ctx: PalmContext, app: App, plan: UpdatePlan): Promise<UpdateResult> {
-  const { applyUpdate } = await import('../engine/update.js');
-  const step = { message: 'Updating', json: app.out.jsonMode };
-  return withSpinner(ctx, step, () => applyUpdate(ctx, plan, app.deps));
-}
-
-function printApplied(out: Output, result: UpdateResult, scope: Scope): void {
-  const changed = result.outcomes.filter((o) => o.status !== 'unchanged');
-  const targets = [...new Set(changed.flatMap((o) => o.entry.targets))] as TargetId[];
-  out.out();
-  printInstallSummary(out, { ...result, outcomes: changed }, { scope, targets });
-}
-
-/** No changes, or --dry-run: the plan is all there is (exit 1 when an origin failed). */
-function endWithPlan(out: Output, plan: UpdatePlan, changes: number): void {
-  if (out.jsonMode) out.json(planJson(plan));
-  else {
-    out.hint(changes === 0 ? '\nNothing to update.' : '\ndry run: nothing written');
-    printFailures(out, plan.failures);
-  }
+/** No changes, or --dry-run: the plan is all there is. */
+function endWithPlan(app: App, plan: UpdatePlan, changes: number, strict: boolean): void {
+  const out = app.out;
   for (const w of plan.warnings) out.warn(w);
-  if (plan.failures.length) throw new ExitSignal(1);
+  if (out.jsonMode) out.json({ plan, changes, applied: false });
+  else out.hint(changes === 0 ? 'Nothing to update.' : 'dry run: nothing written.');
+  if (plan.failures.length || (strict && changes > 0)) throw new ExitSignal(1);
 }
 
-async function makePlan(ctx: PalmContext, app: App, refs: Ref[], scope: Scope) {
-  const { planUpdate } = await import('../engine/update.js');
-  const step = { message: 'Checking origins for updates', json: app.out.jsonMode };
-  return withSpinner(ctx, step, () => planUpdate(ctx, refs, { scope }, app.deps));
+function checkArgs(sources: string[], flags: UpdateFlags): void {
+  const [first = ''] = sources;
+  if (parseKind(first) && sources.length > 1)
+    throw usage('palm update moves sources, not kinds', 'palm get sources');
+  if (flags.to && sources.length !== 1)
+    throw usage(
+      '--to moves the ref of one source',
+      `palm update mattpocock/skills --to ${flags.to}`,
+    );
 }
 
 export async function run(inv: Invocation, app: App): Promise<void> {
-  if (inv.resource === 'origin') return updateOrigins(inv, app);
-  const g = inv.opts as GlobalOptions;
-  const scope = scopeOf(g);
-  const ctx = await makeContext(app, g);
-  const out = app.out;
-  const refs = await refsOf(inv, ctx, scope);
-  if (!refs) {
-    out.hint(`No ${inv.resource} entries installed in the ${scope} scope.`);
-    if (out.jsonMode) out.json({ plan: [], outcomes: [], failures: [] });
+  const flags = inv.opts as UpdateFlags;
+  const sources = inv.names.map((n) => n.name);
+  checkArgs(sources, flags);
+  const ctx = await makeContext(app, flags);
+  const api = engine(app);
+  const opts = { scope: scopeOf(flags), ...(flags.to ? { to: flags.to } : {}) };
+  const plan = await withSpinner(ctx, 'Checking sources for updates', () =>
+    api.planUpdate(ctx, sources, opts, engineDeps(app)),
+  );
+  const changes = await api.planChanges(plan);
+  if (!app.out.jsonMode) printPlan(app.out, plan, ctx.flags.force);
+  if (flags.review)
+    await app.out.page(
+      await api.reviewText(ctx, plan, await api.resolveEngineDeps(engineDeps(app))),
+    );
+  if (ctx.flags.dryRun || changes === 0)
+    return endWithPlan(app, plan, changes, Boolean(flags.strict));
+  if (!(await confirmed(ctx, changes))) {
+    if (app.out.jsonMode) app.out.json({ plan, changes, applied: false });
+    else app.out.hint('Nothing changed.');
     return;
   }
-  const plan = await makePlan(ctx, app, refs, scope);
-  const { planChanges, planExecutables } = await import('../engine/update.js');
-  const runs = planExecutables(plan);
-  if (!out.jsonMode) printPlan(out, plan, runs, ctx.flags.force);
-  const changes = planChanges(plan);
-  if (changes === 0 || ctx.flags.dryRun) return endWithPlan(out, plan, changes);
-  if (!(await confirmed(ctx, { count: changes, runs: runs.length }, againCommand(inv, scope)))) {
-    out.hint('Nothing changed.');
-    return;
-  }
-  const result = await applyPlan(ctx, app, plan);
-  if (out.jsonMode) out.json(result);
-  else printApplied(out, result, scope);
-  if (failureCount(result)) throw new ExitSignal(1);
+  const before = await api.openScope(ctx, opts.scope, { readOnly: true });
+  const result = await interruptible(app, () => api.applyUpdate(ctx, plan, opts, engineDeps(app)));
+  const after = await api.openScope(ctx, opts.scope, { readOnly: true });
+  await reportInstall(ctx, app, result, { before, after, json: { plan, ...result } });
 }

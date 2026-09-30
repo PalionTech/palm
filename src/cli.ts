@@ -10,4 +10,5 @@ function exitAfterFlush(code: number): void {
   process.stdout.write('', () => process.stderr.write('', () => process.exit(code)));
 }
 
-exitAfterFlush(await runCli(process.argv.slice(2), { version }));
+const code = await runCli(process.argv.slice(2), { version, exit: (c) => process.exit(c) });
+exitAfterFlush(code);

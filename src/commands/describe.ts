@@ -1,191 +1,175 @@
 /**
- * `palm describe <kind> <name>` (alias `info`): an entity's origin, version, dependencies and
- * installed files; `describe origin <alias>` and `describe target <id>` show those resources.
+ * `palm describe <[kind:]name or path>` (alias `info`), DESIGN.md §10: one entity (source,
+ * version, files per harness, notes, what selected it, its programs and their trust, the
+ * variables a server needs); for a path, the entity that wrote it; `describe source <s>` and
+ * `describe target <t>`.
  */
-import pc from 'picocolors';
 import { PalmError } from '../core/errors.js';
-import type {
-  Entity,
-  EntityRef,
-  Kind,
-  LockEntry,
-  OriginSpec,
-  PalmContext,
-  Scope,
-  TargetId,
+import {
+  type EntityRefSpec,
+  KINDS,
+  type Kind,
+  type PalmContext,
+  TARGET_IDS,
 } from '../core/types.js';
-import { DepRef } from '../domain/dep-ref.js';
+import {
+  type EntityInfo,
+  type ScopeState,
+  type SourceListing,
+  targetOf,
+} from '../create/engine.js';
+import { displayLockPath, shortHash } from '../ui/format.js';
 import type { Output } from '../ui/output.js';
 import type { App } from './app.js';
-import { type Invocation, usage } from './grammar.js';
-import { describeOrigin } from './origin-view.js';
-import { entityKind, type GlobalOptions, makeContext, scopeOf, shortSha } from './shared.js';
-import { describeTarget } from './targets.js';
+import { formatName, type Invocation, usage } from './grammar.js';
+import { looksLikeSourceInput, pluralize } from './ports.js';
+import { refCell, sourceView, targetViews } from './scope-view.js';
+import { engine, engineDeps, type GlobalOptions, makeContext, scopeOf } from './shared.js';
 
-interface DescribeOptions extends GlobalOptions {
-  origin?: string;
+interface DescribeFlags extends GlobalOptions {
+  source?: string;
 }
 
-interface EntityInfo {
-  entity?: Entity;
-  lock?: LockEntry;
-  deps: EntityRef[];
-  warnings: string[];
+function field(out: Output, label: string, value: string | undefined): void {
+  if (value) out.out(`  ${out.colors.dim(label.padEnd(12))}${value}`);
 }
 
-/** Best-effort attribution of an installed file to the harness that reads it (paths per DESIGN.md §2). */
-export function fileTargetLabel(file: string): TargetId | 'shared .agents' | 'other' {
-  const f = file.replace(/\\/g, '/');
-  if (/(^|\/)\.agents\/skills\//.test(f)) return 'shared .agents';
-  if (/(^|\/)\.claude(\/|\.json$)/.test(f) || /(^|\/)\.mcp\.json$/.test(f)) return 'claude';
-  if (/(^|\/)\.codex(\/|$)/.test(f) || /(^|\/)AGENTS\.md$/.test(f)) return 'codex';
-  if (/(^|\/)(\.github|\.copilot|\.vscode)\//.test(f)) return 'copilot';
-  if (/(^|\/)\.cursor\//.test(f)) return 'cursor';
-  if (/(^|\/)\.gemini\//.test(f) || /(^|\/)GEMINI\.md$/.test(f)) return 'gemini';
-  if (/(^|\/)(\.opencode|\.config\/opencode)\//.test(f) || /(^|\/)opencode\.json$/.test(f))
-    return 'opencode';
-  return 'other';
+function isPath(name: string): boolean {
+  return /[/\\]/.test(name) || name.startsWith('.') || name.startsWith('~');
 }
 
-function groupFiles(files: string[]): Map<string, string[]> {
-  const byTarget = new Map<string, string[]>();
-  for (const f of files) {
-    const label = fileTargetLabel(f);
-    byTarget.set(label, [...(byTarget.get(label) ?? []), f]);
+const setWord = (s: { name: string; set: boolean }) => `${s.name} (${s.set ? 'set' : 'not set'})`;
+
+function printFiles(out: Output, info: EntityInfo): void {
+  for (const t of TARGET_IDS) {
+    const files = info.files[t];
+    if (files?.length) field(out, t, files.map(displayLockPath).join(', '));
   }
-  return byTarget;
+  for (const m of info.entry.merged ?? [])
+    field(out, 'merged', `${displayLockPath(m.file)} ${m.at}`);
 }
 
-function row(out: Output, label: string, value: string | undefined): void {
-  if (value) out.out(`  ${pc.dim(label.padEnd(12))}${value}`);
+function printExec(out: Output, info: EntityInfo): void {
+  if (!info.exec) return;
+  for (const c of info.exec.commands) field(out, 'runs', `${c.id}  ${c.command}`);
+  const hash = `sha256:${shortHash(info.exec.hash, 8)}`;
+  const e = info.entry;
+  const allow = `palm install --allow-exec ${e.kind}:${e.name}@${e.source}=${hash}`;
+  field(out, 'trust', info.exec.trusted ? `trusted (${hash})` : `not trusted; allow it: ${allow}`);
 }
 
-function appliesTo(i: { globs?: string[]; alwaysApply: boolean }): string {
-  if (i.globs?.length) return i.globs.join(', ');
-  return i.alwaysApply ? 'always' : 'on request';
+function printEntity(out: Output, info: EntityInfo, scope: string): void {
+  const e = info.entry;
+  out.out(`${out.colors.bold(`${e.kind} ${e.name}`)}  (installed, ${scope} scope)`);
+  if (info.entity?.description) out.out(`  ${info.entity.description}`);
+  field(out, 'source', [e.source, info.source.url ?? info.source.path].filter(Boolean).join('  '));
+  field(out, 'ref', [refCell(info.source), shortHash(info.source.sha)].filter(Boolean).join('  '));
+  field(out, 'path', e.path);
+  field(out, 'version', info.entity?.version);
+  field(out, 'selected by', info.selectedBy === 'manifest' ? 'palm.yaml' : info.selectedBy);
+  field(out, 'members', e.deps?.map((d) => `${d.kind} ${d.name}`).join(', '));
+  printFiles(out, info);
+  for (const note of info.notes) field(out, 'note', note);
+  printExec(out, info);
+  field(out, 'variables', info.secrets?.map(setWord).join(', '));
 }
 
-function kindDetails(e: Entity): Array<[string, string | undefined]> {
-  switch (e.def.kind) {
-    case 'agent': {
-      const a = e.def.agent;
-      return [
-        ['model', a.model ?? 'inherit'],
-        ['tools', a.tools?.length ? a.tools.join(', ') : 'inherit'],
-      ];
-    }
-    case 'mcp': {
-      const m = e.def.mcp;
-      return [
-        ['transport', m.transport],
-        ['command', m.command ? [m.command, ...(m.args ?? [])].join(' ') : undefined],
-        ['url', m.url],
-        ['secrets', m.secrets?.map((s) => s.name).join(', ')],
-      ];
-    }
-    case 'instruction':
-      return [['applies to', appliesTo(e.def.instruction)]];
-    case 'command':
-      return [['arguments', e.def.command.argumentHint]];
-    case 'plugin':
-      return [['members', e.def.members.map((m) => `${m.kind} ${m.name}`).join(', ')]];
-    default:
-      return [];
+async function describeName(ctx: PalmContext, app: App, ref: EntityRefSpec, flags: DescribeFlags) {
+  const q = flags.source ? { ...ref, source: flags.source } : ref;
+  const scope = scopeOf(flags);
+  const info = await engine(app).describeEntity(ctx, q, { scope }, engineDeps(app));
+  if (app.out.jsonMode) return app.out.json(info);
+  printEntity(app.out, info, scope);
+}
+
+async function describePath(ctx: PalmContext, app: App, path: string, flags: DescribeFlags) {
+  const owners = await engine(app).ownerOfPath(ctx, path, { scope: scopeOf(flags) });
+  if (!owners.length) {
+    const hint = looksLikeSourceInput(path) ? `palm describe source ${path}` : 'palm get --files';
+    throw new PalmError('E_NOT_FOUND', `no installed entity wrote ${path}`, hint);
   }
+  if (app.out.jsonMode) return app.out.json(owners);
+  for (const { entry: e, match, file } of owners)
+    app.out.out(`${displayLockPath(file)}  ${match} of ${e.kind} ${e.name} from ${e.source}`);
 }
 
-/** `-o` names an origin; one removed after installing still matches its lock entries by alias. */
-async function originFilter(ctx: PalmContext, query: string | undefined, fallback?: string) {
-  if (!query) return fallback;
-  try {
-    return ctx.origins.resolveQuery(query).spec.alias;
-  } catch (e) {
-    if (!(e instanceof PalmError && e.code === 'E_NOT_FOUND')) throw e;
-    return query;
-  }
+function offers(listed: SourceListing | undefined): string {
+  if (!listed) return 'unknown (palm could not fetch it)';
+  const counts = KINDS.map(
+    (k) => [k, listed.index.entities.filter((e) => e.kind === k).length] as const,
+  );
+  const shown = counts.filter(([, n]) => n > 0).map(([k, n]) => `${n} ${pluralize(k, n)}`);
+  return shown.join(', ') || 'nothing palm can install';
 }
 
-async function originSpecOf(ctx: PalmContext, alias: string): Promise<OriginSpec | undefined> {
-  try {
-    return ctx.origins.byAlias(alias)?.spec;
-  } catch {
-    return undefined;
-  }
-}
-
-function printFiles(out: Output, lock: LockEntry): void {
-  out.out();
-  out.out(`  ${pc.dim('targets'.padEnd(12))}${lock.targets.join(', ')}`);
-  for (const [label, files] of groupFiles(lock.files.map((f) => f.path))) {
-    out.out(`  ${pc.bold(label)}`);
-    for (const f of files) out.out(`    ${f}`);
-  }
-  if (!lock.merged?.length) return;
-  out.out(`  ${pc.bold('merged into')}`);
-  for (const m of lock.merged) out.out(`    ${m.file} ${pc.dim(m.pointer)}`);
-}
-
-interface Shown {
-  kind: Kind;
-  name: string;
-  scope: Scope;
-  info: EntityInfo;
-  spec?: OriginSpec;
-}
-
-function printEntity(out: Output, s: Shown): void {
-  const { entity, lock } = s.info;
-  const status = lock ? pc.green(`installed (${s.scope})`) : pc.dim('not installed');
-  out.out(`${pc.bold(`${s.kind} ${s.name}`)}  ${status}`);
-  if (entity?.description) out.out(`  ${entity.description}`);
-  out.out();
-  row(out, 'origin', lock?.origin ?? entity?.origin);
-  row(out, 'url', lock?.url ?? s.spec?.url ?? s.spec?.path);
-  row(out, 'ref', lock?.ref ?? s.spec?.ref);
-  row(out, 'sha', shortSha(lock?.sha));
-  row(out, 'path', lock?.path ?? entity?.path);
-  row(out, 'version', entity?.version);
-  row(out, 'plugin', entity?.plugin);
-  if (entity) for (const [label, value] of kindDetails(entity)) row(out, label, value);
-  row(out, 'depends on', s.info.deps.map((d) => `${d.kind} ${d.name}`).join(', '));
-  row(out, 'via', lock?.via);
-  for (const w of s.info.warnings) out.warn(w);
-  if (lock) printFiles(out, lock);
-  else if (entity)
-    out.hint(`\ninstall with: palm install ${s.kind} ${entity.name}@${entity.origin}`);
-}
-
-async function describeEntity(ctx: PalmContext, out: Output, kind: Kind, inv: Invocation) {
-  const [nameArg, ...extra] = inv.names;
-  if (!nameArg || extra.length)
-    throw usage(`name one ${kind} to describe`, `palm describe ${kind} <name>[@origin]`);
-  const o = inv.opts as DescribeOptions;
-  const ref = DepRef.parse(nameArg);
-  const scope = scopeOf(o);
-  const origin = await originFilter(ctx, o.origin, ref.origin);
-  const { getEntityInfo } = await import('../engine/query.js');
-  const info: EntityInfo = await getEntityInfo(ctx, { kind, name: ref.name }, { origin, scope });
-  if (!info.entity && !info.lock)
+async function describeSource(ctx: PalmContext, app: App, state: ScopeState, name: string) {
+  const ref = state.sources.byName(name);
+  if (!ref)
     throw new PalmError(
       'E_NOT_FOUND',
-      `no ${kind} named "${ref.name}" in your origins or the ${scope} lockfile`,
-      `search for it: palm search ${kind} ${ref.name}`,
+      `palm.yaml declares no source "${name}"`,
+      'palm get sources',
     );
-  if (out.jsonMode) return out.json(info);
-  const spec = await originSpecOf(ctx, info.lock?.origin ?? info.entity?.origin ?? '');
-  printEntity(out, { kind, name: ref.name, scope, info, spec });
+  const view = sourceView(state, ref);
+  const api = engine(app);
+  const scope = state.paths.scope;
+  const listed = await api
+    .listSource(ctx, ref.name, { scope }, engineDeps(app))
+    .catch(() => undefined);
+  for (const w of listed?.index.warnings ?? []) app.out.warn(`${ref.name}: ${w}`);
+  const { root, layout } = ref.source;
+  const detected = listed?.index.detected ?? state.lock.source(ref.name)?.descriptor;
+  if (app.out.jsonMode)
+    return app.out.json({ ...view, root, layout, detected, offers: offers(listed) });
+  const out = app.out;
+  out.out(out.colors.bold(`source ${ref.name}`));
+  field(out, ref.isLocal ? 'path' : 'url', view.location);
+  field(out, 'alias', view.alias);
+  field(out, 'ref', view.ref);
+  field(out, ref.isLocal ? 'tree' : 'sha', shortHash(view.sha ?? view.tree));
+  field(out, 'root', root);
+  field(out, 'layout', layout ? JSON.stringify(layout) : undefined);
+  field(out, 'detected', detected);
+  field(out, 'installed', String(view.entries));
+  field(out, 'offers', offers(listed));
+}
+
+async function describeTarget(ctx: PalmContext, app: App, state: ScopeState, id: string) {
+  const view = (await targetViews(app, ctx, state)).find((t) => t.id === id.toLowerCase());
+  if (!view)
+    throw usage(
+      `"${id}" is not a target (${TARGET_IDS.join(', ')})`,
+      'palm describe target claude',
+    );
+  const target = await targetOf(app.deps ?? {}, view.id);
+  const dirs = target.outputDirs(state.paths.scope, state.paths.root, ctx.env);
+  if (app.out.jsonMode) return app.out.json({ ...view, outputDirs: dirs });
+  const out = app.out;
+  out.out(`${out.colors.bold(`target ${view.id}`)}  (${view.name})`);
+  field(out, 'active', view.active ? 'yes' : 'no (add it to targets: in palm.yaml)');
+  field(out, 'config dir', view.configDir);
+  field(out, 'writes to', dirs.map(displayLockPath).join(', '));
+}
+
+function oneName(inv: Invocation): EntityRefSpec {
+  const [first, ...rest] = inv.names;
+  if (!first) throw usage('name what to describe', 'palm get');
+  if (rest.length)
+    throw usage('palm describe shows one thing at a time', `palm describe ${formatName(first)}`);
+  return first;
 }
 
 export async function run(inv: Invocation, app: App): Promise<void> {
-  const o = inv.opts as DescribeOptions;
-  const scope = scopeOf(o);
-  if (inv.resource === 'target') {
-    const ctx = await makeContext(app, o, { interactive: false });
-    return describeTarget(ctx, app.out, { scope, names: inv.names });
+  const flags = inv.opts as DescribeFlags;
+  const first = oneName(inv);
+  const ctx = await makeContext(app, flags);
+  if (inv.resource === 'source' || inv.resource === 'target') {
+    const state = await engine(app).openScope(ctx, scopeOf(flags), { readOnly: true });
+    if (inv.resource === 'source') return describeSource(ctx, app, state, first.name);
+    return describeTarget(ctx, app, state, first.name);
   }
-  const ctx = await makeContext(app, o);
-  if (inv.resource === 'origin') return describeOrigin(ctx, app.out, inv.names);
-  const kind = entityKind(inv.resource, 'describe');
-  if (!kind) throw usage('name what to describe', 'palm describe skill <name>');
-  return describeEntity(ctx, app.out, kind, inv);
+  if (!inv.resource && !first.kind && isPath(first.name))
+    return describePath(ctx, app, first.name, flags);
+  const kind = (inv.resource as Kind | undefined) ?? first.kind;
+  return describeName(ctx, app, kind ? { kind, name: first.name } : { name: first.name }, flags);
 }
