@@ -24,8 +24,15 @@ import { mergeEnvNotes } from './env-notes.js';
 import type { Prepared, Run } from './jobs.js';
 import { keptProgram } from './moves.js';
 import { removeOrphans } from './orphans.js';
-import { protectedPaths, sourceRoots, undeploy } from './remove.js';
-import { failure, failureOf, installCommand, type Subject } from './report.js';
+import { noteRemovals, protectedPaths, sourceRoots, undeploy } from './remove.js';
+import {
+  failure,
+  failureOf,
+  installCommand,
+  label,
+  type Subject,
+  throwIfCancelled,
+} from './report.js';
 import { literalsBefore, rotationWarnings } from './rotate.js';
 import { noteWritten, persistTargets } from './scope.js';
 
@@ -209,6 +216,7 @@ async function writeTarget(
     }
     return (applied.merged ?? []).filter((m) => m.created).map(fragmentKey);
   } catch (e) {
+    throwIfCancelled(e);
     const f = failureOf(subjectOf(p), e, id);
     if (isPalmError(e) && e.code === 'E_CONFLICT')
       f.hint = installCommand(subjectOf(p), state.paths.scope, '--force');
@@ -254,12 +262,17 @@ async function replacePrevious(
   if (!stale.files.length && !stale.merged?.length) return;
   const { state, ctx } = run;
   const protect = protectedPaths(state.lock, [previous]);
+  // T1: a stale path whose real file the new render still writes (through a link) stays.
+  for (const f of entry.files)
+    if (!protect.has(f)) protect.set(f, `${label(entry)} from ${entry.source}`);
   const sources = await sourceRoots(state);
   const job = { paths: state.paths, entries: [stale], protect, dryRun: ctx.flags.dryRun, sources };
   const report = await undeploy(ctx, run.deps, job);
   if (!ctx.flags.dryRun) run.touched = true;
   run.result.failures.push(...report.failures);
   run.result.warnings.push(...report.warnings);
+  // B2: files a target palm.yaml no longer lists (or a render no longer writes) are named.
+  noteRemovals(run, report.removed, true);
 }
 
 /** ` (codex moved on)` when other targets were written while these paths were kept (R8). */

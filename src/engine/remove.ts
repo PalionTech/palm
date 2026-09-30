@@ -20,14 +20,22 @@ import {
 import { lockId, Via } from '../domain/entity-key.js';
 import type { Lock } from '../domain/lock.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
-import { isWithin } from '../lib/fs.js';
+import { type DeleteGuard, type DeleteVerdict, deleteGuard, judgeDelete } from './delete-guard.js';
 import { resolveEngineDeps } from './deps.js';
 import { fragmentKey } from './diff.js';
 import { type Run, runOf } from './jobs.js';
 import { notePreloadsLeaving } from './preloads.js';
-import { failure, failureOf, label, palmCommand, type Subject } from './report.js';
-import { lockScope, settle } from './runner.js';
-import { openScope, type ScopeState } from './scope.js';
+import {
+  failure,
+  failureOf,
+  label,
+  logMark,
+  palmCommand,
+  type Subject,
+  throwIfCancelled,
+} from './report.js';
+import { settle, withLockedScope } from './runner.js';
+import { type ScopeState, shownPath } from './scope.js';
 import { MANIFEST_SOURCE } from './sources.js';
 import { editedPaths } from './verify.js';
 
@@ -45,11 +53,13 @@ export interface UndeployJob {
   sources?: string[];
 }
 
-/** What an undeploy did not do: failures, warnings and the files it left on disk. */
+/** What an undeploy did (`removed`) and did not do: failures, warnings, the files it left. */
 export interface UndeployReport {
   failures: InstallFailure[];
   warnings: string[];
   kept: KeptFile[];
+  /** Lock paths and `file#at#key` fragments it removed, or would remove in a dry run. */
+  removed: string[];
 }
 
 /**
@@ -72,33 +82,49 @@ function subjectOf(e: LockEntry): Subject {
   return { kind: e.kind, name: e.name, source: e.source };
 }
 
+/** Each lock path of `entry` with its verdict; a path another entry lists is kept as it is. */
+async function verdicts(g: DeleteGuard, job: UndeployJob, entry: LockEntry) {
+  const out: Array<{ file: string; v: DeleteVerdict }> = [];
+  for (const file of entry.files) {
+    const owner = job.protect.get(file);
+    const v: DeleteVerdict =
+      owner === undefined
+        ? await judgeDelete(g, file)
+        : { action: 'keep', reason: 'owned', owner, real: '' };
+    out.push({ file, v });
+  }
+  return out;
+}
+
 /**
  * The entry's files palm may delete: inside the scope, outside every source, not owned by
- * another entry. The others are reported as kept (C3, K18, R5).
+ * another entry, not reached through a link into another target's output (T1). The others are
+ * reported as kept (C3, K18, R5); a linked path whose real file this entry deletes directly
+ * anyway is left out without a word.
  */
-async function deletable(job: UndeployJob, entry: LockEntry, report: UndeployReport) {
+async function deletable(
+  g: DeleteGuard,
+  job: UndeployJob,
+  entry: LockEntry,
+  report: UndeployReport,
+) {
+  const all = await verdicts(g, job, entry);
+  const going = new Set(all.flatMap(({ v }) => (v.action === 'delete' ? [v.real] : [])));
   const files: string[] = [];
-  const keep = (file: string, reason: KeptFile['reason'], owner?: string) =>
-    report.kept.push({
-      kind: entry.kind,
-      name: entry.name,
-      source: entry.source,
-      file,
-      reason,
-      ...(owner ? { owner } : {}),
-    });
-  for (const f of entry.files) {
-    const owner = job.protect.get(f);
-    if (owner !== undefined) {
-      keep(f, 'owned', owner);
-      continue;
-    }
-    const { real, inside } = await job.paths.realInside(job.paths.abs(f));
-    if (!inside) {
-      const message = `refusing to delete ${f}: it resolves to ${real}, outside the scope`;
+  for (const { file, v } of all) {
+    if (v.action === 'delete') files.push(file);
+    else if (v.action === 'outside') {
+      const message = `refusing to delete ${file}: it resolves to ${v.real}, outside the scope`;
       report.failures.push(failure(subjectOf(entry), 'E_IO', { message }));
-    } else if ((job.sources ?? []).some((s) => isWithin(real, s))) keep(f, 'source');
-    else files.push(f);
+    } else if (!going.has(v.real))
+      report.kept.push({
+        kind: entry.kind,
+        name: entry.name,
+        source: entry.source,
+        file,
+        reason: v.reason,
+        ...(v.owner ? { owner: v.owner } : {}),
+      });
   }
   return files;
 }
@@ -117,23 +143,99 @@ export async function undeploy(
   deps: EngineDeps,
   job: UndeployJob,
 ): Promise<UndeployReport> {
-  const report: UndeployReport = { failures: [], warnings: [], kept: [] };
+  const report: UndeployReport = { failures: [], warnings: [], kept: [], removed: [] };
+  const g = await deleteGuard(ctx, deps, job.paths, {
+    staying: job.protect,
+    sources: job.sources ?? [],
+  });
   for (const entry of job.entries) {
-    const files = await deletable(job, entry, report);
+    const files = await deletable(g, job, entry, report);
     const merged = (entry.merged ?? []).filter((m) => !job.protect.has(fragmentKey(m)));
     if (!files.length && !merged.length) continue;
     const view: LockEntry = { ...entry, files, merged };
+    report.removed.push(...files, ...merged.map(fragmentKey));
     for (const id of targetsOf(entry)) {
       try {
         await deps
           .getTarget(id)
           .undeploy(view, job.paths.scope, job.paths.root, job.dryRun, ctx.env);
       } catch (e) {
+        throwIfCancelled(e);
         report.failures.push(failureOf(subjectOf(entry), e, id));
       }
     }
   }
   return report;
+}
+
+/** A lock path or `file#at#key` fragment as people read it (`~/…` under -g). */
+function shownRemoval(state: ScopeState, removed: string): string {
+  const [file = removed, ...rest] = removed.split('#');
+  return [shownPath(state, file), ...rest].join('#');
+}
+
+/**
+ * Adds what an undeploy removed (or would remove) to the run's `removals` (J10', B2); with
+ * `list` a dry run also names each one (`- would remove .agents/skills/x/SKILL.md`).
+ */
+export function noteRemovals(run: Run, removed: readonly string[], list = false): void {
+  if (!removed.length) return;
+  const shown = removed.map((r) => shownRemoval(run.state, r));
+  run.result.removals = [...(run.result.removals ?? []), ...shown];
+  if (list && run.ctx.flags.dryRun)
+    for (const s of shown) logMark(run.ctx, '-', `would remove ${s}`);
+}
+
+/** The entry without what the person changed (or what palm cannot check): those stay on disk. */
+export async function withoutEdits(run: Run, e: LockEntry): Promise<LockEntry> {
+  const edited = run.ctx.flags.force ? [] : await editedPaths(run, e);
+  const keep = new Set(edited ?? [...e.files, ...(e.merged ?? []).map(fragmentKey)]);
+  const cmd = palmCommand('remove', [e.source, e.name], run.state.paths.scope, '--force');
+  for (const p of keep)
+    run.result.warnings.push(
+      edited
+        ? `kept ${p}: you changed it since palm wrote it (${cmd})`
+        : `kept ${p}: palm cannot check it against source ${e.source}`,
+    );
+  const merged = (e.merged ?? []).filter((m) => !keep.has(fragmentKey(m)));
+  return { ...e, files: e.files.filter((f) => !keep.has(f)), merged };
+}
+
+/** Withdraws the "no longer in source" failures of `entries`: they were removed instead. */
+function withdrawNotFound(run: Run, entries: readonly LockEntry[]): void {
+  const ids = new Set(entries.map((e) => lockId(e).toLowerCase()));
+  const stays = run.result.failures.filter(
+    (f) =>
+      f.code !== 'E_NOT_FOUND' ||
+      f.kind === 'source' ||
+      !ids.has(`${f.kind}:${f.name}@${f.source}`.toLowerCase()),
+  );
+  run.result.failures.splice(0, run.result.failures.length, ...stays);
+}
+
+/**
+ * R7': the entries a moving source's new commit no longer has go with the move (the person saw
+ * them as `- would remove` and confirmed): undeployed with edited files kept, dropped from the
+ * lock and palm.yaml, reported as removed.
+ */
+export async function dropWithMove(run: Run, entries: readonly LockEntry[]): Promise<void> {
+  if (!entries.length) return;
+  const { state, ctx, deps } = run;
+  const protect = protectedPaths(state.lock, entries);
+  const sources = await sourceRoots(state);
+  const views: LockEntry[] = [];
+  for (const e of entries) views.push(await withoutEdits(run, e));
+  const job = { paths: state.paths, entries: views, protect, dryRun: ctx.flags.dryRun, sources };
+  const report = await undeploy(ctx, deps, job);
+  if (!ctx.flags.dryRun) run.touched = true;
+  run.result.failures.push(...report.failures);
+  noteRemovals(run, report.removed);
+  withdrawNotFound(run, entries);
+  for (const e of entries) {
+    state.lock.remove(e);
+    if (!e.via) state.manifest.removeEntry(e.source, e.kind, e.name);
+    run.result.outcomes.push({ entry: e, status: 'removed', notes: [] });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -147,43 +249,80 @@ function sourceName(state: ScopeState, query?: string): string | undefined {
   return state.sources.byName(query)?.name ?? query;
 }
 
-function ambiguity(
-  ref: RemoveRef,
-  hits: LockEntry[],
-  scope: ScopeState['paths']['scope'],
-): PalmError {
+/** A typed name and the installed entries it answers to. */
+interface Hits {
+  ref: RemoveRef;
+  hits: LockEntry[];
+}
+
+function kindsOf(hits: readonly LockEntry[]): number {
+  return new Set(hits.map((e) => e.kind)).size;
+}
+
+/** One ambiguous name in words: two sources, or two kinds. */
+function ambiguousPart({ ref, hits }: Hits): string {
   const sources = [...new Set(hits.map((e) => e.source))];
   if (sources.length > 1)
-    return new PalmError(
-      'E_AMBIGUOUS',
-      `"${ref.name}" is installed from ${sources.length} sources: ${sources.join(', ')}`,
-      palmCommand('remove', [sources[0] as string, ref.name], scope),
-    );
-  const forms = hits.map((e) => `${e.kind}:${e.name}`);
+    return `"${ref.name}" is installed from ${sources.length} sources: ${sources.join(', ')}`;
+  return `"${ref.name}" names ${hits.length} kinds: ${hits.map((e) => `${e.kind}:${e.name}`).join(', ')}`;
+}
+
+/**
+ * O3, O7: one E_AMBIGUOUS for every ambiguous name, with one command that removes them: the
+ * source of the first one, and each name with its kind where it names two kinds.
+ */
+function ambiguity(all: Hits[], ambiguous: Hits[], scope: ScopeState['paths']['scope']): PalmError {
+  const source = (ambiguous[0] as Hits).hits[0]?.source as string;
+  const words = all.map(({ ref, hits }) => {
+    const here = hits.filter((e) => e.source === source);
+    const pick = here[0] ?? hits[0];
+    if (!pick || !ambiguous.some((a) => a.ref === ref))
+      return ref.kind ? `${ref.kind}:${ref.name}` : ref.name;
+    return kindsOf(here.length ? here : hits) > 1 ? `${pick.kind}:${pick.name}` : pick.name;
+  });
   return new PalmError(
     'E_AMBIGUOUS',
-    `"${ref.name}" names ${forms.length} kinds: ${forms.join(', ')}`,
-    palmCommand('remove', [sources[0] as string, forms[0] as string], scope),
+    ambiguous.map(ambiguousPart).join('; '),
+    palmCommand('remove', [source, ...words], scope),
   );
+}
+
+/** O3: on a terminal, which installed entry an ambiguous name means. */
+async function pickEntry(ctx: PalmContext, { ref, hits }: Hits): Promise<LockEntry> {
+  const options = hits.map((e) => ({ value: e, label: `${e.kind}:${e.name} from ${e.source}` }));
+  return ctx.ui.pick(
+    `"${ref.name}" names ${hits.length} installed entries; remove which?`,
+    options,
+  );
+}
+
+function hitsOf(state: ScopeState, ref: RemoveRef): Hits {
+  const source = sourceName(state, ref.source);
+  const hits = state.lock.select({
+    name: ref.name,
+    ...(ref.kind ? { kind: ref.kind } : {}),
+    ...(source ? { source } : {}),
+  });
+  return { ref, hits };
 }
 
 /**
  * The lock entries the refs name. An absent one is no error: the CLI says `i <name> is not
- * installed` once (K24), from what `removed` lacks.
+ * installed` once (K24), from what `removed` lacks. A name that answers to two entries is asked
+ * about on a terminal; without one, every such name is in one error (O3), before anything goes.
  */
-function select(state: ScopeState, refs: RemoveRef[]): LockEntry[] {
+async function select(
+  ctx: PalmContext,
+  state: ScopeState,
+  refs: RemoveRef[],
+): Promise<LockEntry[]> {
+  const all = refs.map((ref) => hitsOf(state, ref));
+  const ambiguous = all.filter((h) => h.hits.length > 1);
+  if (ambiguous.length && !ctx.ui.isInteractive) throw ambiguity(all, ambiguous, state.paths.scope);
   const out: LockEntry[] = [];
-  for (const ref of refs) {
-    const source = sourceName(state, ref.source);
-    const hits = state.lock.select({
-      name: ref.name,
-      ...(ref.kind ? { kind: ref.kind } : {}),
-      ...(source ? { source } : {}),
-    });
-    if (!hits.length) continue;
-    if (hits.length > 1) throw ambiguity(ref, hits, state.paths.scope);
-    else if (!out.some((e) => lockId(e) === lockId(hits[0] as LockEntry)))
-      out.push(hits[0] as LockEntry);
+  for (const h of all) {
+    const one = h.hits.length > 1 ? await pickEntry(ctx, h) : h.hits[0];
+    if (one && !out.some((e) => lockId(e) === lockId(one))) out.push(one);
   }
   return out;
 }
@@ -330,10 +469,9 @@ export async function removeEntities(
   depsIn?: Partial<EngineDeps>,
 ): Promise<RemoveResult> {
   const deps = await resolveEngineDeps(depsIn);
-  const state = await openScope(ctx, opts.scope, { deps, readOnly: true });
-  const run = runOf(ctx, deps, state);
-  return lockScope(ctx, state, async () => {
-    const picked = select(state, refs);
+  return withLockedScope(ctx, opts.scope, { deps, readOnly: true }, async (state) => {
+    const run = runOf(ctx, deps, state);
+    const picked = await select(ctx, state, refs);
     const kept: KeptFile[] = [];
     const removed = await removeRoots(run, await roots(run, picked, !!opts.exclude), kept);
     await notePreloadsLeaving(run, removed);

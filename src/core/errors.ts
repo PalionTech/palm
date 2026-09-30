@@ -90,6 +90,41 @@ export function isPalmError(e: unknown): e is PalmError {
   return e instanceof PalmError;
 }
 
+/** Node's errno codes for a write the filesystem refused, with the words people read for each. */
+const DENIED: Readonly<Record<string, string>> = {
+  EACCES: 'permission denied',
+  EPERM: 'operation not permitted',
+  EROFS: 'read-only file system',
+};
+
+/** The `code` and `path` of a Node.js system error, when it has them. */
+function systemError(e: unknown): { code?: string; path?: string } {
+  if (typeof e !== 'object' || e === null) return {};
+  const { code, path } = e as { code?: unknown; path?: unknown };
+  return {
+    ...(typeof code === 'string' ? { code } : {}),
+    ...(typeof path === 'string' ? { path } : {}),
+  };
+}
+
+/**
+ * B6: a write the filesystem refused (EACCES, EPERM, EROFS) as E_IO naming the path and the
+ * reason, never E_INTERNAL; undefined for any other error. `fallback` is the path to name when
+ * the error carries none; `hint` replaces the default (check the directory's permissions).
+ */
+export function deniedError(e: unknown, fallback: string, hint?: string): PalmError | undefined {
+  if (e instanceof PalmError) return undefined;
+  const { code, path } = systemError(e);
+  const reason = code ? DENIED[code] : undefined;
+  if (!reason) return undefined;
+  const where = path ?? fallback;
+  return new PalmError(
+    'E_IO',
+    `cannot write ${where}: ${reason} (${code})`,
+    hint ?? `check the permissions: ls -ld ${where}`,
+  );
+}
+
 /** The message of an Error, or the thrown value itself as a string. */
 export function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e);

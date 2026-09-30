@@ -11,7 +11,7 @@
  * nothing.
  */
 import { existsSync } from 'node:fs';
-import { readdir, readFile, rm } from 'node:fs/promises';
+import { readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { withScopeLock } from '../core/context.js';
 import { isPalmError, PalmError } from '../core/errors.js';
@@ -22,6 +22,8 @@ import type {
   LegacyConfig,
   LegacyManifest,
   LockEntry,
+  MigrateChanged,
+  MigrateRemoval,
   MigrateReport,
   PalmContext,
   Scope,
@@ -38,8 +40,23 @@ import {
 import { parseYaml, readYamlFile, stringifyYaml } from '../lib/yaml.js';
 import { resolveEngineDeps } from './deps.js';
 import { ensureIgnoreLines } from './gitignore.js';
+import {
+  copyReason,
+  heldBefore,
+  hookCopyReason,
+  lockNotes,
+  planned,
+  replacedFiles,
+  sameBytes,
+  sortedRemovals,
+} from './migrate-files.js';
 import { convertLegacy, type LegacyItem, type Migration } from './migrate-legacy.js';
-import { provisionalLock } from './migrate-lock.js';
+import {
+  adoptChanged,
+  type ChangedFragment,
+  type Provisional,
+  provisionalLock,
+} from './migrate-lock.js';
 import { type Plan, planMigration } from './migrate-plan.js';
 import { display, filesToCommit, shown } from './migrate-report.js';
 import { withLegacyComments } from './migrate-text.js';
@@ -136,30 +153,66 @@ async function filesBelow(dir: string): Promise<string[]> {
   return found.filter((d) => d.isFile()).map((d) => join(d.parentPath, d.name));
 }
 
-/**
- * Deletes the files below `dir` that still hold what palm 0.1 recorded (`hashes`); the others
- * are the person's and are named in a warning. Empty directories go.
- */
-async function dropCopies(plan: Plan, dir: string, hashes: Map<string, string>): Promise<void> {
-  const { state, result } = plan.run;
+/** The files below `dir` that still hold what palm 0.1 recorded (`hashes`), and the others. */
+async function copiesIn(dir: string, hashes: Map<string, string>) {
+  const out = { same: [] as string[], changed: [] as string[] };
   for (const f of await filesBelow(dir)) {
     const recorded = hashes.get(f);
-    if (recorded && recorded === (await hashPath(f).catch(() => undefined))) await rm(f);
-    else
-      result.warnings.push(
-        `kept ${display(state.paths, f)}: you changed it after palm 0.1 copied it`,
-      );
+    const same = recorded && recorded === (await hashPath(f).catch(() => undefined));
+    (same ? out.same : out.changed).push(f);
   }
-  await removeEmptyTree(dir);
+  return out;
 }
 
-/** The 0.2 lock entry of a 0.1 hook (renamed when palm 0.2 names it differently). */
-function migratedHook(plan: Plan, item: LegacyItem): LockEntry | undefined {
+/**
+ * Deletes the files below `dir` that still hold what palm 0.1 recorded (`hashes`); the others
+ * are the person's and are named in a warning. Empty directories go. Returns the deleted files.
+ */
+async function dropCopies(plan: Plan, dir: string, hashes: Map<string, string>) {
+  const { state, result } = plan.run;
+  const { same, changed } = await copiesIn(dir, hashes);
+  for (const f of same) await rm(f);
+  for (const f of changed)
+    result.warnings.push(
+      `kept ${display(state.paths, f)}: you changed it after palm 0.1 copied it`,
+    );
+  await removeEmptyTree(dir);
+  return same;
+}
+
+/** The 0.2 name of a 0.1 hook (renamed when palm 0.2 names it differently). */
+function hookName(plan: Plan, item: LegacyItem): string {
   const to = plan.renamed.find(
     (r) => r.kind === 'hook' && r.source === item.source && r.from === item.entry.name,
   )?.to;
-  const e = plan.run.state.lock.find({ kind: 'hook', name: to ?? item.entry.name }, item.source);
+  return to ?? item.entry.name;
+}
+
+/** The 0.2 lock entry of a 0.1 hook that migrated. */
+function migratedHook(plan: Plan, item: LegacyItem): LockEntry | undefined {
+  const e = plan.run.state.lock.find({ kind: 'hook', name: hookName(plan, item) }, item.source);
   return e && Object.keys(e.render).length ? e : undefined;
+}
+
+/** N15: in a dry run, the `.palm/hooks` scripts the migration would delete. */
+async function plannedHookCopies(plan: Plan, legacy: LegacyItem[]): Promise<MigrateRemoval[]> {
+  const { state } = plan.run;
+  const out: MigrateRemoval[] = [];
+  for (const item of legacy.filter((i) => i.kind === 'hook')) {
+    const name = hookName(plan, item);
+    const p = plan.prepared.find(
+      (x) =>
+        x.job.entity.kind === 'hook' &&
+        x.job.entity.name === name &&
+        x.job.source.name === item.source,
+    );
+    if (!p || !Object.keys(p.out.renders).length) continue;
+    const reason = hookCopyReason(state, { name, source: item.source, root: p.out.closure.root });
+    const dir = join(state.paths.palmDir, 'hooks', item.entry.name);
+    for (const f of (await copiesIn(dir, plan.hashes)).same)
+      out.push({ file: display(state.paths, f), reason });
+  }
+  return out;
 }
 
 /**
@@ -179,33 +232,51 @@ async function keepIgnored(paths: ScopePaths): Promise<void> {
  * (or run in place from an in-repo source). A hook that did not migrate keeps its copy, since
  * its 0.1 command still runs it.
  */
-async function dropHookDirs(plan: Plan, legacy: LegacyItem[], hashes: Map<string, string>) {
-  const { state, result, ctx } = plan.run;
+interface HookDirs {
+  moved: string[];
+  removed: MigrateRemoval[];
+}
+
+/** One migrated hook's `.palm/hooks/<name>`: its unchanged scripts go, and the report says where it runs now. */
+async function moveHookDir(plan: Plan, e: LockEntry, dir: string, out: HookDirs): Promise<void> {
+  const { state, ctx } = plan.run;
+  const shownDir = display(state.paths, dir);
+  const root = e.exec?.closure?.root;
+  const reason = hookCopyReason(state, {
+    name: e.name,
+    source: e.source,
+    ...(root ? { root } : {}),
+  });
+  for (const f of await dropCopies(plan, dir, plan.hashes))
+    out.removed.push({ file: display(state.paths, f), reason });
+  const inPlace = state.sources.byName(e.source)?.isLocal;
+  if (root && !inPlace)
+    out.moved.push(`${shownDir} → ${display(state.paths, state.paths.abs(root))}`);
+  else
+    ctx.log.info(
+      `hook ${e.name} runs in place from your repository (${e.source}); removed ${shownDir}`,
+    );
+}
+
+async function dropHookDirs(plan: Plan, legacy: LegacyItem[]): Promise<HookDirs> {
+  const { state, result } = plan.run;
   const hooksDir = join(state.paths.palmDir, 'hooks');
-  const moved: string[] = [];
+  const out: HookDirs = { moved: [], removed: [] };
   for (const item of legacy.filter((i) => i.kind === 'hook')) {
     const dir = join(hooksDir, item.entry.name);
     if (!existsSync(dir)) continue;
-    const shownDir = display(state.paths, dir);
     const e = migratedHook(plan, item);
-    if (!e) {
-      await keepIgnored(state.paths);
-      const ignored = state.paths.scope === 'project' ? ', still ignored by git' : '';
-      result.warnings.push(`kept ${shownDir}${ignored}: hook ${item.entry.name} did not migrate`);
+    if (e) {
+      await moveHookDir(plan, e, dir, out);
       continue;
     }
-    await dropCopies(plan, dir, hashes);
-    const root = e.exec?.closure?.root;
-    const inPlace = state.sources.byName(e.source)?.isLocal;
-    if (root && !inPlace)
-      moved.push(`${shownDir} → ${display(state.paths, state.paths.abs(root))}`);
-    else
-      ctx.log.info(
-        `hook ${e.name} runs in place from your repository (${e.source}); removed ${shownDir}`,
-      );
+    await keepIgnored(state.paths);
+    const ignored = state.paths.scope === 'project' ? ', still ignored by git' : '';
+    const shownDir = display(state.paths, dir);
+    result.warnings.push(`kept ${shownDir}${ignored}: hook ${item.entry.name} did not migrate`);
   }
   await removeEmptyTree(hooksDir);
-  return moved;
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +285,7 @@ async function dropHookDirs(plan: Plan, legacy: LegacyItem[], hashes: Map<string
 
 async function finish(plan: Plan, report: MigrateReport): Promise<void> {
   const { state, result } = plan.run;
-  report.failures = [...result.failures];
+  report.failures = [...report.failures, ...result.failures];
   report.warnings.push(...result.warnings);
   const commit = await filesToCommit(state);
   const all = [...new Set([...(commit ?? []), ...(report.commit ?? [])])].sort();
@@ -278,17 +349,9 @@ function baseReport(mig: Migrating, manifest: Manifest, lock: Lock): MigrateRepo
     movedAssets: [],
     exec: [],
     warnings: [...mig.m.warnings],
-    failures: [],
+    // S11: every 0.1 entry the migration could not place fails it (exit 1).
+    failures: [...mig.m.dropped],
   };
-}
-
-/** True when both files exist with the same bytes. */
-async function sameBytes(a: string, b: string): Promise<boolean> {
-  const [x, y] = await Promise.all([
-    readFile(a).catch(() => undefined),
-    readFile(b).catch(() => undefined),
-  ]);
-  return x !== undefined && y !== undefined && x.equals(y);
 }
 
 /**
@@ -322,6 +385,20 @@ function topFolders(files: readonly string[]): string[] {
   return [...new Set(files.map((f) => (f.includes('/') ? `${f.slice(0, f.indexOf('/'))}/` : f)))];
 }
 
+/** X8: the install and the stray copies it removed, as report lines; in a project, their folders to commit. */
+async function installAndRemove(mig: Migrating, plan: Plan, report: MigrateReport) {
+  const { state } = plan.run;
+  const before = heldBefore(state.lock);
+  await applyAll(plan.run, plan.prepared);
+  const stale = await dropStaleCopies(plan);
+  const shown = (f: string) => display(state.paths, state.paths.abs(f));
+  const replaced = replacedFiles(state, before, mig.m.legacy);
+  const gone = [...stale.map((f) => ({ file: shown(f), reason: copyReason(f) })), ...replaced];
+  if (gone.length && state.paths.scope === 'project')
+    report.commit = topFolders(gone.map((r) => r.file));
+  return gone;
+}
+
 /** After the consent: the files, the install, `.palm/hooks`. */
 async function apply(ctx: PalmContext, mig: Migrating, plan: Plan, report: MigrateReport) {
   const { paths, m, legacy } = mig;
@@ -329,27 +406,96 @@ async function apply(ctx: PalmContext, mig: Migrating, plan: Plan, report: Migra
   renameLines(ctx, plan);
   const gitignore = await writeScope(plan, report.manifest);
   if (gitignore) report.gitignore = gitignore.replace(/^\.gitignore: /, '');
-  await applyAll(plan.run, plan.prepared);
-  const stale = await dropStaleCopies(plan);
-  if (stale.length && paths.scope === 'project') report.commit = topFolders(stale);
+  const gone = await installAndRemove(mig, plan, report);
   await saveScope(plan.run.state);
   report.lock = stringifyYaml(plan.run.state.lock.toJSON());
-  report.movedAssets = await dropHookDirs(plan, m.legacy, plan.hashes);
+  const hooks = await dropHookDirs(plan, m.legacy);
+  report.movedAssets = hooks.moved;
+  const removed = sortedRemovals([...gone, ...hooks.removed]);
+  if (removed.length) report.removed = removed;
+  const notes = lockNotes(plan.run.state.lock);
+  if (notes.length) report.notes = notes;
   if (legacy.config) configLine(ctx, paths.scope);
 }
 
+/** N15 M11 X8: a dry run's report: the files it would write and delete, and the notes. */
+async function dryRunReport(mig: Migrating, plan: Plan, report: MigrateReport): Promise<void> {
+  const refusals = plan.prepared.flatMap((p) => p.out.refusals);
+  report.failures.push(...plan.run.result.failures, ...refusals);
+  const { written, removed, notes } = await planned(plan, mig.m.legacy);
+  const all = sortedRemovals([...removed, ...(await plannedHookCopies(plan, mig.m.legacy))]);
+  if (written.length) report.written = written;
+  if (all.length) report.removed = all;
+  if (notes.length) report.notes = notes;
+}
+
+// ---------------------------------------------------------------------------
+// V5': fragments 0.1 wrote that someone changed since
+// ---------------------------------------------------------------------------
+
+function changedRows(paths: ScopePaths, changed: readonly ChangedFragment[]): MigrateChanged[] {
+  return changed.map((c) => ({
+    kind: c.entry.kind,
+    name: c.entry.name,
+    file: display(paths, paths.abs(c.merged.file)),
+    at: c.merged.at,
+    action: 'ask' as const,
+  }));
+}
+
+/**
+ * V5': what to do with them: a dry run decides nothing, `--force` replaces them, a terminal
+ * asks; without one palm refuses before anything is written.
+ */
+async function changedAction(
+  ctx: PalmContext,
+  rows: readonly MigrateChanged[],
+): Promise<MigrateChanged['action']> {
+  if (ctx.flags.dryRun) return 'ask';
+  if (ctx.flags.force) return 'replaced';
+  const list = rows.map((r) => `${r.kind} ${r.name} in ${r.file} (${r.at})`).join(', ');
+  const it = rows.length === 1 ? 'it' : 'them';
+  if (!ctx.ui.isInteractive)
+    throw new PalmError(
+      'E_CONFLICT',
+      `${list} changed since palm 0.1 wrote ${it}; nothing was migrated`,
+      `palm migrate --force replaces ${it} with palm 0.2's render; to keep your change, run palm migrate in a terminal and answer no`,
+    );
+  const replace = await ctx.ui.confirm(
+    `${list} changed since palm 0.1 wrote ${it}; replace ${it} with palm 0.2's render?`,
+    false,
+  );
+  return replace ? 'replaced' : 'kept';
+}
+
+/** V5': the changed fragments, decided; the replaced ones join the provisional lock. */
+async function decideChanged(
+  ctx: PalmContext,
+  paths: ScopePaths,
+  prov: Provisional,
+): Promise<MigrateChanged[]> {
+  if (!prov.changed.length) return [];
+  const rows = changedRows(paths, prov.changed);
+  const action = await changedAction(ctx, rows);
+  if (action === 'replaced') adoptChanged(prov.lock, prov.changed);
+  return rows.map((r) => ({ ...r, action }));
+}
+
 async function migrate(ctx: PalmContext, mig: Migrating, deps: EngineDeps): Promise<MigrateReport> {
-  const { lock, hashes } = await provisionalLock(mig.paths, mig.m);
+  const prov = await provisionalLock(mig.paths, mig.m);
+  const changed = await decideChanged(ctx, mig.paths, prov);
+  const { lock, hashes } = prov;
   const manifest = manifestOf(mig.paths, mig.m);
   const report = baseReport(mig, manifest, lock);
-  const input = { manifest, lock, hashes, legacy: mig.m.legacy, text: report.manifest };
-  const plan = await planOrReport(ctx, { ...input, scope: mig.paths.scope }, report, deps);
+  if (changed.length) report.changed = changed;
+  const input = { manifest, lock, hashes, legacy: mig.m.legacy, sources: mig.m.sources };
+  const scope = mig.paths.scope;
+  const plan = await planOrReport(ctx, { ...input, text: report.manifest, scope }, report, deps);
   if (!plan) return report;
   report.manifest = withLegacyComments(plan.run.state.manifest.text(), mig.legacy.text, mig.m);
   report.exec = consented(plan);
   if (ctx.flags.dryRun) {
-    const refusals = plan.prepared.flatMap((p) => p.out.refusals);
-    report.failures.push(...plan.run.result.failures, ...refusals);
+    await dryRunReport(mig, plan, report);
     return report;
   }
   await apply(ctx, mig, plan, report);
@@ -367,16 +513,19 @@ export async function migrateScope(
   // The scope guards come before the 0.1 files are read (the home directory is never a project).
   assertScope(ctx, opts.scope);
   const paths = ScopePaths.of(ctx, opts.scope);
-  const legacy = await readLegacy(paths);
-  const m = convertLegacy({
-    manifest: legacy.manifest,
-    ...(legacy.lock ? { lock: legacy.lock } : {}),
-    ...(legacy.config ? { config: legacy.config } : {}),
-    scope: opts.scope,
-    root: baseDir(paths),
-    palmHome: shown(paths, paths.palmHome),
-  });
   const c = opts.dryRun ? { ...ctx, flags: { ...ctx.flags, dryRun: true } } : ctx;
-  const run = () => migrate(c, { paths, legacy, m }, deps);
+  // B1: the 0.1 files are read holding the process lock, like palm.yaml and the lock.
+  const run = async () => {
+    const legacy = await readLegacy(paths);
+    const m = convertLegacy({
+      manifest: legacy.manifest,
+      ...(legacy.lock ? { lock: legacy.lock } : {}),
+      ...(legacy.config ? { config: legacy.config } : {}),
+      scope: opts.scope,
+      root: baseDir(paths),
+      palmHome: shown(paths, paths.palmHome),
+    });
+    return migrate(c, { paths, legacy, m }, deps);
+  };
   return opts.dryRun ? run() : withScopeLock(paths, run);
 }

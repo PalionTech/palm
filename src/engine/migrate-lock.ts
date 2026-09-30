@@ -14,9 +14,10 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, sep } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { hashPath } from '../core/hash.js';
-import type { LegacyLockEntry, LockEntry, LockMerged } from '../core/types.js';
+import type { Kind, LegacyLockEntry, LockEntry, LockMerged } from '../core/types.js';
 import { fragmentId, fragmentKey, Lock } from '../domain/lock.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
+import { lockedUrl } from '../domain/source-url.js';
 import { parseJson } from '../lib/json.js';
 import { parsePointer } from '../lib/json-pointer.js';
 import { deepEqual, isRecord } from '../lib/object.js';
@@ -27,6 +28,8 @@ import { kindOf, type LegacyItem, type Migration } from './migrate-legacy.js';
 export interface Provisional {
   lock: Lock;
   hashes: Map<string, string>;
+  /** V5': fragments 0.1 wrote that someone changed since (not in the lock). */
+  changed: ChangedFragment[];
 }
 
 // ---------------------------------------------------------------------------
@@ -146,34 +149,82 @@ function isItem(pointer: string): boolean {
   return /^\/hooks\/[^/]+$/.test(pointer) || pointer === '/instructions';
 }
 
-async function holds(abs: string, m: { pointer: string; value: unknown }): Promise<boolean> {
+/** What a 0.1 fragment's place holds now: `held` as recorded, `changed` to `value`, or `gone`. */
+type FragmentNow = { state: 'held' } | { state: 'changed'; value: unknown } | { state: 'gone' };
+
+/** The document of a JSON or TOML file, or undefined when it is missing or does not parse. */
+async function docOf(abs: string): Promise<{ text: string; doc?: unknown } | undefined> {
   const text = await readFile(abs, 'utf8').catch(() => undefined);
-  if (text === undefined) return false;
-  if (m.pointer.startsWith('block:'))
-    return typeof m.value === 'string' && text.includes(m.value.trim());
+  if (text === undefined) return undefined;
   try {
-    const doc = abs.endsWith('.toml') ? parseToml(text) : parseJson(text, { tolerant: true });
-    const at = valueAt(doc, parsePointer(m.pointer));
-    return isItem(m.pointer) && Array.isArray(at)
-      ? at.some((x) => matchesRecorded(x, m.value))
-      : matchesRecorded(at, m.value);
+    return {
+      text,
+      doc: abs.endsWith('.toml') ? parseToml(text) : parseJson(text, { tolerant: true }),
+    };
   } catch {
-    return false;
+    return { text };
   }
 }
 
-async function mergedOf(paths: ScopePaths, item: LegacyItem): Promise<LockMerged[]> {
+/**
+ * V5': the array item 0.1 wrote for `name` that someone changed: it still runs palm 0.1's copy
+ * under `.palm/hooks/<name>/`, but no longer equals the recorded value.
+ */
+function changedItem(items: unknown[], name: string): unknown {
+  const marker = `.palm/hooks/${name}/`;
+  return items.find((x) => JSON.stringify(x).includes(marker));
+}
+
+async function fragmentNow(
+  abs: string,
+  m: { pointer: string; value: unknown },
+  name: string,
+): Promise<FragmentNow> {
+  const file = await docOf(abs);
+  if (!file) return { state: 'gone' };
+  if (m.pointer.startsWith('block:'))
+    return typeof m.value === 'string' && file.text.includes(m.value.trim())
+      ? { state: 'held' }
+      : { state: 'gone' };
+  if (file.doc === undefined) return { state: 'gone' };
+  const at = valueAt(file.doc, parsePointer(m.pointer));
+  if (isItem(m.pointer) && Array.isArray(at)) {
+    if (at.some((x) => matchesRecorded(x, m.value))) return { state: 'held' };
+    const changed = changedItem(at, name);
+    return changed === undefined ? { state: 'gone' } : { state: 'changed', value: changed };
+  }
+  if (at === undefined) return { state: 'gone' };
+  return matchesRecorded(at, m.value) ? { state: 'held' } : { state: 'changed', value: at };
+}
+
+/** V5': a fragment palm 0.1 wrote that someone changed since; adopted only when the person agrees. */
+export interface ChangedFragment {
+  entry: { kind: Kind; name: string; source: string };
+  /** The fragment as the lock would own it, keyed by what the file holds now. */
+  merged: LockMerged;
+}
+
+async function mergedOf(
+  paths: ScopePaths,
+  item: LegacyItem,
+  changed: ChangedFragment[],
+): Promise<LockMerged[]> {
   const out: LockMerged[] = [];
+  const who = { kind: item.kind, name: item.entry.name };
   for (const [n, m] of (item.entry.merged ?? []).entries()) {
     const abs = absOf(paths, m.file);
     const file = lockFormOf(paths, abs);
-    if (!file || !(await holds(abs, m))) continue;
-    out.push({
+    const now = file ? await fragmentNow(abs, m, item.entry.name) : { state: 'gone' as const };
+    if (!file || now.state === 'gone') continue;
+    const value = now.state === 'held' ? m.value : now.value;
+    const merged = {
       file,
       at: m.pointer,
-      key: fragmentKey(m.pointer, m.value),
-      id: fragmentId({ kind: item.kind, name: item.entry.name }, n),
-    });
+      key: fragmentKey(m.pointer, value),
+      id: fragmentId(who, n),
+    };
+    if (now.state === 'held') out.push(merged);
+    else changed.push({ entry: { ...who, source: item.source }, merged });
   }
   return out;
 }
@@ -181,8 +232,9 @@ async function mergedOf(paths: ScopePaths, item: LegacyItem): Promise<LockMerged
 async function provisional(
   paths: ScopePaths,
   item: LegacyItem,
-  hashes: Map<string, string>,
+  found: Pick<Provisional, 'hashes' | 'changed'>,
 ): Promise<LockEntry> {
+  const { hashes } = found;
   const e: LegacyLockEntry = item.entry;
   const files: string[] = [];
   for (const f of e.files ?? []) {
@@ -200,7 +252,7 @@ async function provisional(
     render: {},
     files: [...new Set(files)].sort(),
   };
-  const merged = await mergedOf(paths, item);
+  const merged = await mergedOf(paths, item, found.changed);
   if (merged.length) entry.merged = merged;
   if (item.via) entry.via = item.via;
   if (item.kind === 'plugin' && e.deps?.length)
@@ -214,13 +266,25 @@ async function provisional(
  */
 export async function provisionalLock(paths: ScopePaths, m: Migration): Promise<Provisional> {
   const lock = new Lock();
-  const hashes = new Map<string, string>();
+  const found: Omit<Provisional, 'lock'> = { hashes: new Map(), changed: [] };
   for (const s of m.sources) {
     const ls = { ...s.lock };
     const path = s.source.path ? lockFormOf(paths, s.source.path) : undefined;
     if (path) ls.path = path;
+    if (ls.url) ls.url = lockedUrl(ls.url, paths.root);
     lock.setSource(s.source.name, ls);
   }
-  for (const item of m.legacy) lock.upsert(await provisional(paths, item, hashes));
-  return { lock, hashes };
+  for (const item of m.legacy) lock.upsert(await provisional(paths, item, found));
+  return { lock, ...found };
+}
+
+/**
+ * V5': the changed fragments the person let palm replace, added to their entries, so the first
+ * install renders over them like over anything else 0.1 wrote.
+ */
+export function adoptChanged(lock: Lock, changed: readonly ChangedFragment[]): void {
+  for (const c of changed) {
+    const e = lock.find(c.entry, c.entry.source);
+    if (e) lock.upsert({ ...e, merged: [...(e.merged ?? []), c.merged] });
+  }
 }

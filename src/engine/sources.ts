@@ -14,6 +14,7 @@ import type {
 } from '../core/types.js';
 import { lockId } from '../domain/entity-key.js';
 import { SourceRef } from '../domain/source.js';
+import { urlOfLocked } from '../domain/source-url.js';
 import { lockedSource, type ScopeState } from './scope.js';
 
 /** The source name of hand-declared MCP servers in the lock. */
@@ -22,7 +23,7 @@ export const MANIFEST_SOURCE = 'manifest';
 /** A Source rebuilt from the lock alone (DESIGN §4: url, root, sha, layout suffice). */
 function sourceFromLock(state: ScopeState, name: string, ls: LockSource): Source {
   const src: Source = { name, type: ls.url ? 'git' : 'local' };
-  if (ls.url) src.url = ls.url;
+  if (ls.url) src.url = urlOfLocked(ls.url, state.paths.root);
   if (ls.root) src.root = ls.root;
   if (ls.ref) src.ref = ls.ref;
   if (ls.path !== undefined) src.path = state.paths.abs(ls.path);

@@ -8,9 +8,9 @@
  * dropped are deleted unless edited, and a dry run names them (J7). The lock is written only
  * when something in it changed, so a clean clone with committed outputs writes nothing.
  */
-import { readFile, rm } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
-import { sha256 } from '../core/hash.js';
+import { diskContentHash } from '../core/hash.js';
 import type {
   EngineDeps,
   InstallOptions,
@@ -25,19 +25,19 @@ import type { SourceRef } from '../domain/source.js';
 import { removeEmptyParents } from '../lib/fs.js';
 import { deepEqual } from '../lib/object.js';
 import { ensureRef, reportRefs } from './declare.js';
+import { type DeleteGuard, deleteGuard, judgeDelete } from './delete-guard.js';
 import { resolveEngineDeps } from './deps.js';
 import { fragmentKey } from './diff.js';
 import { dedupeJobs, manifestJobs } from './entries.js';
 import { manifestMcpJob } from './install-mcp.js';
 import { type Job, type Run, runOf } from './jobs.js';
 import { type Move, moveOf } from './moves.js';
-import { protectedPaths, sourceRoots, undeploy } from './remove.js';
-import { failureOf, logMark, palmCommand } from './report.js';
-import { lockSourceOf, pinOf, type Resolved, resolveSource, rethrowCancel } from './resolve.js';
-import { applyAll, lockScope, prepareRun, settle } from './runner.js';
-import { openScope, type ScopeState, shownPath } from './scope.js';
+import { noteRemovals, protectedPaths, sourceRoots, undeploy, withoutEdits } from './remove.js';
+import { failureOf, logMark, throwIfCancelled } from './report.js';
+import { lockSourceOf, pinOf, type Resolved, resolveSource } from './resolve.js';
+import { applyRun, prepareRun, settle, withLockedScope } from './runner.js';
+import { type ScopeState, shownPath } from './scope.js';
 import { refuseLocal } from './targets.js';
-import { editedPaths } from './verify.js';
 
 interface Desired {
   jobs: Job[];
@@ -65,7 +65,7 @@ async function resolveDeclared(
     if (!deepEqual(state.lock.source(ref.name), fresh)) state.lock.setSource(ref.name, fresh);
     return r;
   } catch (e) {
-    rethrowCancel(e);
+    throwIfCancelled(e);
     run.result.failures.push(
       failureOf({ kind: 'source', name: declared.name, source: declared.name }, e),
     );
@@ -112,21 +112,6 @@ function goneEntries(run: Run, d: Desired): LockEntry[] {
   );
 }
 
-/** The entry without what the person changed (or what palm cannot check): those stay on disk. */
-async function withoutEdits(run: Run, e: LockEntry): Promise<LockEntry> {
-  const edited = run.ctx.flags.force ? [] : await editedPaths(run, e);
-  const keep = new Set(edited ?? [...e.files, ...(e.merged ?? []).map(fragmentKey)]);
-  const cmd = palmCommand('remove', [e.source, e.name], run.state.paths.scope, '--force');
-  for (const p of keep)
-    run.result.warnings.push(
-      edited
-        ? `kept ${p}: you changed it since palm wrote it (${cmd})`
-        : `kept ${p}: palm cannot check it against source ${e.source}`,
-    );
-  const merged = (e.merged ?? []).filter((m) => !keep.has(fragmentKey(m)));
-  return { ...e, files: e.files.filter((f) => !keep.has(f)), merged };
-}
-
 /** In L, not in E: undeploy by the lock (edited files kept) and drop from the lock. */
 async function dropRemoved(run: Run, gone: LockEntry[]): Promise<void> {
   const { state, ctx, deps } = run;
@@ -143,20 +128,13 @@ async function dropRemoved(run: Run, gone: LockEntry[]): Promise<void> {
     });
     if (!ctx.flags.dryRun) run.touched = true;
     run.result.failures.push(...report.failures);
+    noteRemovals(run, report.removed);
     state.lock.remove(e);
     run.result.outcomes.push({ entry: e, status: 'removed', notes: [] });
   }
   for (const name of Object.keys(state.lock.sources))
     if (!state.lock.entriesOf(name).length && !state.manifest.hasSource(name))
       state.lock.removeSource(name);
-}
-
-async function diskHash(abs: string): Promise<string | undefined> {
-  try {
-    return sha256(await readFile(abs));
-  } catch {
-    return undefined;
-  }
 }
 
 /** One level below the boundary that holds `abs` (`~/.claude/skills`): pruning stops there. */
@@ -166,9 +144,17 @@ function pruneStop(run: Run, abs: string): string | undefined {
   return b && first ? join(b, first) : undefined;
 }
 
-/** Under -g: a file applied.yaml records that no lock entry lists any more (a pulled removal). */
-async function dropUnappliedFile(run: Run, file: { path: string; hash: string }): Promise<void> {
-  const disk = await diskHash(file.path);
+/**
+ * Under -g: a file applied.yaml records that no lock entry lists any more (a pulled removal).
+ * Its real path decides (T1): a file another entry still writes, one inside a source or one
+ * reached through a link into another target's output stays.
+ */
+async function dropUnappliedFile(
+  run: Run,
+  g: DeleteGuard,
+  file: { path: string; hash: string },
+): Promise<void> {
+  const disk = await diskContentHash(file.path);
   if (disk === undefined) return;
   const shown = shownPath(run.state, run.state.paths.lockForm(file.path));
   if (disk !== file.hash && !run.ctx.flags.force) {
@@ -177,8 +163,9 @@ async function dropUnappliedFile(run: Run, file: { path: string; hash: string })
     );
     return;
   }
-  const { inside } = await run.state.paths.realInside(file.path);
-  if (!inside) return;
+  const lockPath = run.state.paths.lockForm(file.path);
+  if ((await judgeDelete(g, lockPath)).action !== 'delete') return;
+  noteRemovals(run, [lockPath]);
   if (run.ctx.flags.dryRun) {
     logMark(run.ctx, '-', `would remove ${shown}: palm.lock.yaml no longer lists it`);
     return;
@@ -232,7 +219,7 @@ export async function pendingRemovals(
   const owned = new Set(state.lock.entries.flatMap((e) => e.files.map((f) => state.paths.abs(f))));
   const files: string[] = [];
   for (const f of state.applied.record.files)
-    if (!owned.has(f.path) && (await diskHash(f.path)) !== undefined)
+    if (!owned.has(f.path) && (await diskContentHash(f.path)) !== undefined)
       files.push(state.paths.lockForm(f.path));
   const fragments = unappliedFragments(state).flatMap((e) => e.merged ?? []);
   return { files: files.sort(), fragments };
@@ -242,8 +229,14 @@ async function dropUnapplied(run: Run): Promise<void> {
   const { state, ctx, deps } = run;
   if (!state.applied) return;
   const owned = new Set(state.lock.entries.flatMap((e) => e.files.map((f) => state.paths.abs(f))));
-  for (const file of state.applied.record.files)
-    if (!owned.has(file.path)) await dropUnappliedFile(run, file);
+  const pulled = state.applied.record.files.filter((f) => !owned.has(f.path));
+  const g = pulled.length
+    ? await deleteGuard(ctx, deps, state.paths, {
+        staying: protectedPaths(state.lock, []),
+        sources: await sourceRoots(state),
+      })
+    : undefined;
+  for (const file of pulled) if (g) await dropUnappliedFile(run, g, file);
   const entries = unappliedFragments(state);
   if (!entries.length) return;
   if (ctx.flags.dryRun)
@@ -261,6 +254,7 @@ async function dropUnapplied(run: Run): Promise<void> {
   });
   if (!ctx.flags.dryRun) run.touched = true;
   run.result.failures.push(...report.failures);
+  noteRemovals(run, report.removed);
 }
 
 /** DESIGN §6 "Bare install". */
@@ -271,18 +265,17 @@ export async function syncScope(
 ): Promise<InstallResult> {
   refuseLocal(opts);
   const deps = await resolveEngineDeps(depsIn);
-  const state = await openScope(ctx, opts.scope, { deps });
-  const run = runOf(ctx, deps, state);
-  return lockScope(ctx, state, async () => {
+  return withLockedScope(ctx, opts.scope, { deps }, async (state) => {
+    const run = runOf(ctx, deps, state);
     let failed = true;
     try {
       const d = await desired(run);
       const gone = goneEntries(run, d);
       const leaving = new Set(gone.map(lockId));
-      const { prepared } = await prepareRun(run, d.jobs, { moves: d.moves, leaving });
+      const ready = await prepareRun(run, d.jobs, { moves: d.moves, leaving });
       await dropRemoved(run, gone);
       await dropUnapplied(run);
-      await applyAll(run, prepared);
+      await applyRun(run, ready);
       failed = false;
     } finally {
       if (await settle(run, failed)) reportRefs(ctx, state);

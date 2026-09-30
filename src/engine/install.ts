@@ -3,9 +3,11 @@
  * without names (list, save nothing) and `palm install mcp` (hand-declared servers, DESIGN §9).
  */
 import { PalmError } from '../core/errors.js';
+import { defaultBranch } from '../core/git.js';
 import type {
   EngineDeps,
   Entity,
+  EntityRefSpec,
   InstallOptions,
   InstallRequest,
   InstallResult,
@@ -15,24 +17,18 @@ import type {
   SourceCheckout,
   SourceIndex,
 } from '../core/types.js';
-import type { SourceRef } from '../domain/source.js';
+import { lockId } from '../domain/entity-key.js';
+import { SourceRef } from '../domain/source.js';
 import { type Declared, declareSource, ensureRef, peekSource, reportRefs } from './declare.js';
 import { resolveEngineDeps } from './deps.js';
 import { dedupeJobs, manifestJobs, requestJobs } from './entries.js';
 import { type Job, type Run, runOf } from './jobs.js';
+import { askKinds, matchError, matchNames, type NameMatch, requestedRefs } from './match.js';
 import { type Move, moveOf } from './moves.js';
 import { gapOf, installedNames, preloadLine } from './preloads.js';
 import { palmCommand } from './report.js';
-import {
-  lockSourceOf,
-  matchError,
-  matchNames,
-  type NameMatch,
-  pinOf,
-  type Resolved,
-  resolveSource,
-} from './resolve.js';
-import { lockScope, runJobs, settle } from './runner.js';
+import { lockSourceOf, pinOf, type Resolved, resolveSource } from './resolve.js';
+import { runJobs, settle, withLockedScope } from './runner.js';
 import { assertNoOverlap, openScope, type ScopeState } from './scope.js';
 import { refuseLocal, requestTargets } from './targets.js';
 
@@ -126,6 +122,86 @@ async function sourceOf(run: Run, req: InstallRequest, held: Held) {
   return { decl, ref: refd.ref, pin: refd.pin ?? pinOf(state, refd.ref) };
 }
 
+/** What matching needs: the source, its resolved index, the request and the source as typed. */
+interface Matching {
+  ref: SourceRef;
+  r: Resolved;
+  req: InstallRequest;
+  paste: string;
+}
+
+function shownSpec(spec: EntityRefSpec): string {
+  return spec.kind ? `${spec.kind}:${spec.name}` : spec.name;
+}
+
+/** `kit#main` for `kit` (a typed `#ref` replaced), the names, then the rest of the pasted words. */
+function atBranch(paste: string, branch: string, names: string[]): string[] {
+  const [head = '', ...rest] = paste.split(' ');
+  return [`${head.replace(/#.*$/, '')}#${branch}`, ...names, ...rest];
+}
+
+/**
+ * T11: a name the source lacks at its ref (the latest tag) that its default branch has: the
+ * error says so and the hint installs from the branch. Undefined when the branch has no such
+ * name, or cannot be read.
+ */
+async function branchHint(run: Run, m: Matching, match: NameMatch): Promise<PalmError | undefined> {
+  const [missing] = match.missing;
+  const url = m.ref.source.url;
+  if (!missing || !m.ref.isGit || !url) return undefined;
+  const branch = await defaultBranch(url).catch(() => undefined);
+  if (!branch || branch === m.ref.source.ref || branch === m.r.checkout.ref) return undefined;
+  const { ctx, deps, state } = run;
+  const at = SourceRef.of({ ...m.ref.source, ref: branch });
+  const other = await resolveSource({ ctx, deps, state, ref: at, refresh: true }).catch(
+    () => undefined,
+  );
+  if (!other || matchNames(other.index, [missing], false).missing.length) return undefined;
+  const version = m.r.checkout.ref ?? m.ref.source.ref ?? 'its ref';
+  const words = atBranch(m.paste, branch, m.req.names.map(shownSpec));
+  return new PalmError(
+    'E_NOT_FOUND',
+    `"${shownSpec(missing)}" is not in source ${m.ref.name} at ${version}; its default branch ${branch} has it`,
+    palmCommand('install', words, state.paths.scope),
+  );
+}
+
+/**
+ * The names matched against the index with every which-kind question answered on a terminal
+ * (O4, M10) before anything is written (V7'); a name the source lacks or one still ambiguous
+ * throws. The result records what the names resolved to (Q4).
+ */
+async function matched(run: Run, m: Matching): Promise<NameMatch> {
+  const all = !!m.req.all;
+  const first = matchNames(m.r.index, m.req.names, all);
+  const match = await askKinds(run.ctx, m.r.index, first, all);
+  const err = matchError(m.paste, m.r.index, match, run.state.paths.scope);
+  if (err?.code === 'E_NOT_FOUND') throw (await branchHint(run, m, match)) ?? err;
+  if (err) throw err;
+  if (m.req.names.length) run.result.requested = requestedRefs(match);
+  return match;
+}
+
+/**
+ * Q6: `--all` that left every entity out because each is a program nobody allowed declares
+ * nothing (no source, no plugin entry, no `exclude:`) and names the programs to install by name.
+ */
+function onlyPrograms(run: Run, had: ReadonlySet<string>, paste: string): void {
+  const { outcomes } = run.result;
+  const programs = outcomes.filter((o) => o.declined);
+  const others = outcomes.filter((o) => !o.declined && o.entry.kind !== 'plugin');
+  if (!programs.length || others.length || run.touched) return;
+  run.excluded = [];
+  for (const { entry } of outcomes) {
+    if (had.has(lockId(entry))) continue;
+    run.state.lock.remove(entry);
+    run.state.manifest.removeEntry(entry.source, entry.kind, entry.name);
+  }
+  const names = programs.map((o) => `${o.entry.kind}:${o.entry.name}`);
+  const line = palmCommand('install', [paste, ...names], run.state.paths.scope);
+  run.ctx.log.info(`Nothing installed; the source offers only programs: ${line}`);
+}
+
 async function install(run: Run, req: InstallRequest, held: Held): Promise<void> {
   const { ctx, deps, state } = run;
   const scope = state.paths.scope;
@@ -138,9 +214,7 @@ async function install(run: Run, req: InstallRequest, held: Held): Promise<void>
       palmCommand('install', [decl.paste], scope),
     );
   const r = await resolveSource({ ctx, deps, state, ref, ...pin });
-  const match = matchNames(r.index, req.names, !!req.all);
-  const err = matchError(decl.paste, r.index, match, scope);
-  if (err) throw err;
+  const match = await matched(run, { ref, r, req, paste: decl.paste });
   notePreloads(run, ref, match, r.index);
   const targets = requestTargets(state, req.targets);
   const jobs = requestedJobs(run, ref, r, { ...req, ...(targets ? { targets } : {}), match });
@@ -148,7 +222,9 @@ async function install(run: Run, req: InstallRequest, held: Held): Promise<void>
   state.lock.setSource(ref.name, lockSourceOf(state, ref, r));
   if (req.all) run.leaveOutPrograms = true;
   const all = dedupeJobs([...jobs, ...movedJobs(run, ref, r, move)]);
+  const had = new Set(state.lock.entries.map(lockId));
   await runJobs(run, all, move ? { moves: [move] } : {});
+  if (req.all) onlyPrograms(run, had, decl.paste);
 }
 
 /**
@@ -167,9 +243,8 @@ export async function installFromSource(
 ): Promise<InstallResult> {
   refuseLocal(opts);
   const deps = await resolveEngineDeps(depsIn);
-  const state = await openScope(ctx, opts.scope, { deps });
-  const run = runOf(ctx, deps, state);
-  return lockScope(ctx, state, async () => {
+  return withLockedScope(ctx, opts.scope, { deps }, async (state) => {
+    const run = runOf(ctx, deps, state);
     const held: Held = {};
     let failed = true;
     try {

@@ -17,8 +17,8 @@ import { sameName } from '../domain/entity-ref.js';
 import type { SourceRef } from '../domain/source.js';
 import type { Job, Prepared, Run } from './jobs.js';
 import { gapOf, installedNames, preloadLine, preloadsOf } from './preloads.js';
-import { palmCommand } from './report.js';
-import { type Resolved, rethrowCancel } from './resolve.js';
+import { palmCommand, throwIfCancelled } from './report.js';
+import type { Resolved } from './resolve.js';
 
 /**
  * For a tag or sha pin: the newest release tag when the pin is below it, and the default
@@ -42,7 +42,7 @@ export async function describePin(
     const sha = branch ? refs.headShas[branch] : undefined;
     if (branch && sha && sha !== r.checkout.sha) row.head = { branch, sha };
   } catch (e) {
-    rethrowCancel(e);
+    throwIfCancelled(e);
   }
 }
 

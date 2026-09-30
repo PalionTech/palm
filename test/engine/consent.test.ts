@@ -155,6 +155,10 @@ describe('consent for executables', () => {
     expect(w.exec.requests).toHaveLength(1);
     const entry = await w.entry('hook', 'session-start');
     expect(entry?.trust).toHaveLength(1);
-    expect(entry?.via).toBeUndefined();
+    // R13' Q5: it installs as the plugin's member again, and leaves the plugin's exclude list.
+    expect(entry?.via).toBe('plugin:superpowers');
+    expect(await w.manifest()).toMatchObject({
+      sources: { superpowers: { plugins: ['superpowers'] } },
+    });
   });
 });

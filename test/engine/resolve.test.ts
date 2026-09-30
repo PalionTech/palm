@@ -3,7 +3,7 @@ import './fakes.js';
 import { describe, expect, it } from 'vitest';
 import type { Entity, SourceIndex } from '../../src/core/types.js';
 import { installFromSource } from '../../src/engine/install.js';
-import { closestName, matchNames } from '../../src/engine/resolve.js';
+import { closestName, matchNames } from '../../src/engine/match.js';
 import { makeWorld } from './world.js';
 
 function skill(name: string, plugin?: string): Entity {

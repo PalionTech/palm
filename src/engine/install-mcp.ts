@@ -20,8 +20,8 @@ import { isSafeName } from '../lib/names.js';
 import { referenceTyped, type TypedReference, typedLine, typedValues } from '../secrets/typed.js';
 import { resolveEngineDeps } from './deps.js';
 import { type Job, jobPolicy, type Run, runOf } from './jobs.js';
-import { lockScope, runJobs, settle } from './runner.js';
-import { openScope, type ScopeState } from './scope.js';
+import { runJobs, settle, withLockedScope } from './runner.js';
+import type { ScopeState } from './scope.js';
 import { manifestSource, mcpConfigOf, mcpEntity, mcpManifestEntry } from './sources.js';
 import { activeTargets, narrowedTargets, refuseLocal, requestTargets } from './targets.js';
 
@@ -80,7 +80,8 @@ function jobOf(run: Run, req: McpRequest, recorded?: 'literal'): Job {
   });
   const { ref, checkout } = manifestSource(state);
   const job: Job = {
-    entity: mcpEntity(cfg),
+    // Y1': rendered from its palm.yaml form, as a bare install renders it, so both write alike.
+    entity: mcpEntity(mcpConfigOf(cfg.name, mcpManifestEntry(cfg))),
     source: ref,
     checkout,
     targets,
@@ -126,9 +127,8 @@ export async function installMcp(
 ): Promise<InstallResult> {
   refuseLocal(opts);
   const deps = await resolveEngineDeps(depsIn);
-  const state = await openScope(ctx, opts.scope, { deps });
-  const run = runOf(ctx, deps, state);
-  return lockScope(ctx, state, async () => {
+  return withLockedScope(ctx, opts.scope, { deps }, async (state) => {
+    const run = runOf(ctx, deps, state);
     assertNew(ctx, state, reqs, !!opts.force);
     requestTargets(state);
     let failed = true;

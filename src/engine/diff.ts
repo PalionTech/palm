@@ -6,7 +6,7 @@
  * differs from the lock is an upgrade, never "your edits".
  */
 import { readFile, stat } from 'node:fs/promises';
-import { sha256 } from '../core/hash.js';
+import { contentHash, sameContent } from '../core/hash.js';
 import {
   type LockEntry,
   type OutcomeStatus,
@@ -53,8 +53,7 @@ export async function fileStates(
     const abs = paths.abs(f.path);
     const disk = await readDisk(abs);
     if (!disk) out.set(f.path, 'missing');
-    else if (Buffer.from(f.data).equals(disk.data) && sameMode(disk.mode, f.mode))
-      out.set(f.path, 'same');
+    else if (sameContent(f.data, disk.data) && sameMode(disk.mode, f.mode)) out.set(f.path, 'same');
     else out.set(f.path, differing(opts.applied?.fileHash(abs), disk.data, !!opts.applied));
   }
   return out;
@@ -63,7 +62,7 @@ export async function fileStates(
 function differing(appliedHash: string | undefined, data: Buffer, global: boolean): FileState {
   if (!global) return 'modified';
   if (appliedHash === undefined) return 'foreign';
-  return sha256(data) === appliedHash ? 'stale' : 'modified';
+  return contentHash(data) === appliedHash ? 'stale' : 'modified';
 }
 
 /** `file#at#key`: how a fragment is keyed in states, `owned` lists and the lock (`ownedPaths`). */

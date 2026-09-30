@@ -43,6 +43,9 @@ suffix, e.g. `import { isRecord } from '../lib/object.js'`.
 ## digest.ts
 
 - `sha256(data: string | Uint8Array): string` (`sha256:<hex>`) and `short(hash: string, n = 8): string` (`sha256:a7cc7911…` → `a7cc7911`). core/hash re-exports both.
+- `isBinary(data: Uint8Array): boolean`: a NUL byte in the first 8 KB (git's heuristic).
+- `lfText(data: Uint8Array): Uint8Array`: text with each CRLF pair turned into LF in one pass (git's `eol=lf`); binary content, lone CRs and content without CRLF come back as they are.
+- `contentHash(data: Uint8Array): string` (`sha256(lfText(data))`) and `sameContent(a, b): boolean`: how palm hashes and compares a file's content, so a clean filter or `core.autocrlf` never reads as a change. core/hash re-exports them with `diskContentHash(abs)` (undefined when unreadable).
 
 ## git-query.ts
 

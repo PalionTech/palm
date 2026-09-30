@@ -9,15 +9,16 @@
  * after, the result says how far it got (`interrupted`) and the CLI exits 130 after printing
  * it (L11). palm never listens for signals itself; the CLI owns them.
  */
-import { withScopeLock } from '../core/context.js';
+import { scopedPaths, withScopeLock } from '../core/context.js';
 import { PalmError } from '../core/errors.js';
-import type { ExecUnit, PalmContext } from '../core/types.js';
+import type { EngineDeps, ExecUnit, LockEntry, PalmContext, Scope } from '../core/types.js';
 import { applyPrepared } from './apply.js';
 import { askForConsent, type Job, type Prepared, prepareJob, type Run } from './jobs.js';
-import { confirmMoves, holdBack, type Move } from './moves.js';
+import { confirmMoves, holdBack, type Move, missingAtMoves } from './moves.js';
 import { refuseConflicts } from './owners.js';
+import { dropWithMove } from './remove.js';
 import { failureOf } from './report.js';
-import { type ScopeState, saveScope } from './scope.js';
+import { assertScope, openScope, type ScopeState, saveScope } from './scope.js';
 
 let stopRequested = false;
 
@@ -30,14 +31,23 @@ function cancelled(): PalmError {
   return new PalmError('E_CANCELLED', 'cancelled; nothing was written');
 }
 
-/** Runs `fn` holding the scope's process lock (DESIGN §2); a dry run takes none. A stop request ends with the run. */
-export async function lockScope<T>(
+/**
+ * Opens the scope and runs `fn` holding its process lock (DESIGN §2, B1): the lock is taken
+ * before palm.yaml and the lock file are read and held until `fn` saved them, so a second palm
+ * started at the same time waits and then reads what the first one wrote. The scope guards run
+ * first (a refused scope leaves no lock behind); a dry run takes none. A stop request ends with
+ * the run.
+ */
+export async function withLockedScope<T>(
   ctx: PalmContext,
-  state: ScopeState,
-  fn: () => Promise<T>,
+  scope: Scope,
+  open: { deps: EngineDeps; readOnly?: boolean },
+  fn: (state: ScopeState) => Promise<T>,
 ): Promise<T> {
+  assertScope(ctx, scope);
+  const body = async () => fn(await openScope(ctx, scope, open));
   try {
-    return ctx.flags.dryRun ? await fn() : await withScopeLock(state.paths, fn);
+    return ctx.flags.dryRun ? await body() : await withScopeLock(scopedPaths(ctx, scope), body);
   } finally {
     stopRequested = false;
   }
@@ -65,18 +75,36 @@ export async function prepareAll(
   return { prepared, failed };
 }
 
-/** Applies prepared jobs one by one, saving once something is on disk; stops early on a stop request. */
+function isCancel(e: unknown): boolean {
+  return e instanceof PalmError && e.code === 'E_CANCELLED';
+}
+
+/** The run stopped before entity `done` of `total`: the result says how far it got (L11). */
+function stoppedAt(run: Run, done: number, total: number): void {
+  run.result.interrupted = { done, total };
+  run.result.warnings.push(
+    `cancelled after ${done} of ${total}; palm.lock.yaml records what was installed`,
+  );
+}
+
+/**
+ * Applies prepared jobs one by one, saving once something is on disk; stops early on a stop
+ * request. A cancel raised inside an entity (a program palm ran died of the same Ctrl-C) after
+ * something was written ends the run the same way, so the report is printed (O13 J4').
+ */
 export async function applyAll(run: Run, prepared: Prepared[]): Promise<void> {
   for (const [i, p] of prepared.entries()) {
     if (stopRequested) {
       if (!run.touched) throw cancelled();
-      run.result.interrupted = { done: i, total: prepared.length };
-      run.result.warnings.push(
-        `cancelled after ${i} of ${prepared.length}; palm.lock.yaml records what was installed`,
-      );
-      return;
+      return stoppedAt(run, i, prepared.length);
     }
-    run.result.outcomes.push(await applyPrepared(run, p));
+    try {
+      run.result.outcomes.push(await applyPrepared(run, p));
+    } catch (e) {
+      if (!isCancel(e) || !run.touched) throw e;
+      await saveScope(run.state);
+      return stoppedAt(run, i, prepared.length);
+    }
     if (run.touched) await saveScope(run.state);
   }
 }
@@ -101,19 +129,32 @@ export async function prepareRun(
   run: Run,
   jobs: Job[],
   plan: RunPlan = {},
-): Promise<{ prepared: Prepared[]; held: Set<string> }> {
+): Promise<{ prepared: Prepared[]; held: Set<string>; missing: LockEntry[] }> {
   const { prepared, failed } = await prepareAll(run, jobs);
   const { kept, refused } = refuseConflicts(run, prepared, plan.leaving);
   const moves = plan.moves ?? [];
-  if (!plan.confirmed) await confirmMoves(run, moves, kept);
+  const missing = missingAtMoves(run, moves, jobs, plan.leaving);
+  if (!plan.confirmed) await confirmMoves(run, moves, kept, missing);
   await askForConsent(run, kept, plan.previous);
-  return holdBack(run, moves, { prepared: kept, refused, failed });
+  const ready = holdBack(run, moves, { prepared: kept, refused, failed });
+  return { ...ready, missing: missing.filter((e) => !ready.held.has(e.source)) };
+}
+
+/**
+ * The write phase of a prepared run: the entries a moving source no longer has go with the
+ * move (R7'), then every prepared entity is applied.
+ */
+export async function applyRun(
+  run: Run,
+  ready: { prepared: Prepared[]; missing: readonly LockEntry[] },
+): Promise<void> {
+  await dropWithMove(run, ready.missing);
+  await applyAll(run, ready.prepared);
 }
 
 /** The whole pipeline: prepare, then apply. */
 export async function runJobs(run: Run, jobs: Job[], plan: RunPlan = {}): Promise<void> {
-  const { prepared } = await prepareRun(run, jobs, plan);
-  await applyAll(run, prepared);
+  await applyRun(run, await prepareRun(run, jobs, plan));
 }
 
 /**

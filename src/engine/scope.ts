@@ -5,11 +5,16 @@
  * changed since it was opened or last saved.
  */
 import { realpathSync } from 'node:fs';
-import { readdir, readFile, readlink, stat } from 'node:fs/promises';
+import { readdir, readlink, stat } from 'node:fs/promises';
 import { dirname, relative } from 'node:path';
 import { PalmError } from '../core/errors.js';
-import { sha256 } from '../core/hash.js';
-import { globalDirHolding, isHomeAsProject, worktreeRoot } from '../core/paths.js';
+import { contentHash, diskContentHash } from '../core/hash.js';
+import {
+  globalDirHolding,
+  globalManifestInside,
+  isHomeAsProject,
+  worktreeRoot,
+} from '../core/paths.js';
 import type {
   EngineDeps,
   LockSource,
@@ -23,6 +28,7 @@ import { Lock } from '../domain/lock.js';
 import { Manifest } from '../domain/manifest.js';
 import { ScopePaths } from '../domain/scope-paths.js';
 import type { SourceSet } from '../domain/source.js';
+import { localUrlPath } from '../domain/source-url.js';
 import { isWithin, toPosix } from '../lib/fs.js';
 import { redactTypedArgs } from '../secrets/typed.js';
 import { ensureIgnoreLines } from './gitignore.js';
@@ -67,7 +73,8 @@ function withGlobal(ctx: PalmContext): string {
 /**
  * The scope guards (DESIGN §2): project scope is never the home directory without a palm.yaml,
  * never inside palm home (or the directory the global palm.yaml really lives in) and never
- * inside a harness's global directory (J4, J5); the fix is `-g`.
+ * inside a harness's global directory (J4, J5), nor a directory holding the global palm.yaml
+ * (J7', a dotfiles repository); the fix is `-g`.
  */
 export function assertScope(ctx: PalmContext, scope: Scope): void {
   if (scope !== 'project') return;
@@ -87,6 +94,13 @@ export function assertScope(ctx: PalmContext, scope: Scope): void {
         withGlobal(ctx),
       );
   }
+  const manifest = globalManifestInside(projectRoot, ctx.paths);
+  if (manifest)
+    throw new PalmError(
+      'E_USAGE',
+      `${projectRoot} holds the global palm.yaml (${manifest}), not a project; your own setup takes -g`,
+      withGlobal(ctx),
+    );
 }
 
 /** Where palm.yaml sits, for E_PARSE messages. */
@@ -97,7 +111,8 @@ function manifestLabel(scope: Scope): string {
 /**
  * Opens a scope (DESIGN §6 step 1): the home-as-project guard, palm.yaml and the lock (old
  * formats are E_USAGE naming `palm migrate`), the target set (palm.yaml, else detection when
- * `deps` is given; never saved here) and, unless `readOnly`, the overlap rule (E_SOURCE).
+ * `deps` is given; never saved here) and, unless `readOnly`, the overlap rule and the rule for
+ * `file://` sources outside the project (S4), both E_SOURCE.
  */
 export async function openScope(
   ctx: PalmContext,
@@ -133,6 +148,7 @@ export async function openScope(
   });
   if (opts.deps && !opts.readOnly) {
     await assertNoOverlap(ctx, state, opts.deps);
+    await assertNoOutsideUrl(ctx, state);
     await noteOutputLinks(ctx, state, opts.deps);
   }
   return state;
@@ -298,6 +314,39 @@ async function assertInsideProject(state: ScopeState): Promise<void> {
   }
 }
 
+/** True when this run's command line names `url` (with or without `#ref`). */
+function typedThisRun(ctx: PalmContext, url: string): boolean {
+  return (ctx.argv ?? []).some((w) => w === url || w.startsWith(`${url}#`));
+}
+
+/**
+ * S4: in a project, a `file://` URL (or an absolute path) outside the repository that only
+ * palm.yaml names is refused like a `../` source: a committed palm.yaml must not make palm read
+ * a private repository on this machine. Typed on this run's command line, it is the person's
+ * own choice and goes through.
+ */
+async function assertNoOutsideUrl(ctx: PalmContext, state: ScopeState): Promise<void> {
+  const { paths } = state;
+  if (paths.scope !== 'project') return;
+  const top = worktreeRoot(paths.root) ?? paths.root;
+  const root = (await paths.realInside(top)).real;
+  for (const ref of state.sources.all()) {
+    const url = ref.isLocal ? undefined : ref.source.url;
+    const dir = url ? localUrlPath(url) : undefined;
+    if (!url || !dir || typedThisRun(ctx, url)) continue;
+    if (isWithin((await paths.realInside(dir)).real, root)) continue;
+    const names = state.manifest
+      .allEntries()
+      .filter((e) => e.source === ref.name)
+      .map((e) => e.entry.name);
+    throw new PalmError(
+      'E_SOURCE',
+      `source "${ref.name}" is ${url}, outside the project ${top}; palm.yaml names only sources inside it or remote URLs`,
+      `to install from it on purpose, type its URL: ${['palm install', url, ...names].join(' ')}`,
+    );
+  }
+}
+
 /** E_SOURCE for the first local source outside the project or overlapping an output directory (DESIGN §2). */
 export async function assertNoOverlap(
   ctx: PalmContext,
@@ -345,15 +394,7 @@ export function lockedSource(state: ScopeState, name: string): LockSource | unde
 /** Records the files a target wrote this run, for applied.yaml (global scope). */
 export function noteWritten(state: ScopeState, rendered: Rendered): void {
   const { written } = snapshotOf(state);
-  for (const f of rendered.files) written.set(state.paths.abs(f.path), sha256(f.data));
-}
-
-async function diskHash(abs: string): Promise<string | undefined> {
-  try {
-    return sha256(await readFile(abs));
-  } catch {
-    return undefined;
-  }
+  for (const f of rendered.files) written.set(state.paths.abs(f.path), contentHash(f.data));
 }
 
 /** applied.yaml for the current lock: this run's hashes, else the previous record, else the disk. */
@@ -365,7 +406,8 @@ async function rewriteApplied(state: ScopeState, snap: Snapshot): Promise<void> 
   for (const entry of lock.entries)
     for (const p of entry.files) {
       const abs = paths.abs(p);
-      const h = snap.written.get(abs) ?? state.applied?.fileHash(abs) ?? (await diskHash(abs));
+      const h =
+        snap.written.get(abs) ?? state.applied?.fileHash(abs) ?? (await diskContentHash(abs));
       if (h) hashes.set(abs, h);
     }
   const applied = Applied.fromLock(lock, paths, hashes);

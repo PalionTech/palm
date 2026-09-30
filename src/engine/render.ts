@@ -8,7 +8,7 @@
 import { join, posix } from 'node:path';
 import { retryCommand } from '../core/errors.js';
 import { commitDate } from '../core/git.js';
-import { hashPath, sha256 } from '../core/hash.js';
+import { contentHash, hashPath, lfText, sha256 } from '../core/hash.js';
 import type {
   Closure,
   ClosureFile,
@@ -31,7 +31,14 @@ import { inPlaceClosure } from '../exec/closure.js';
 import { withScriptReads } from '../exec/reads.js';
 import { canonicalJson } from '../lib/json.js';
 import { redactTypedArgs } from '../secrets/typed.js';
-import { failure, failureOf, installCommand, label, type Subject } from './report.js';
+import {
+  failure,
+  failureOf,
+  installCommand,
+  label,
+  type Subject,
+  throwIfCancelled,
+} from './report.js';
 import { localPathOf, type ScopeState } from './scope.js';
 import { referencedLine, referenceSecrets } from './source-secrets.js';
 import { MANIFEST_SOURCE } from './sources.js';
@@ -254,14 +261,25 @@ async function secretPass(
   return run.deps.getTarget(id).render(renderInput(run, 'env-ref'));
 }
 
+/**
+ * O1: text files are written with LF line ends (git's convention), so a repository whose clean
+ * filter normalises them (`* text=auto eol=lf`) never sees palm's output drift. Binary files
+ * are untouched; the render hash is computed over LF text either way (`renderHashOf`).
+ */
+function withLfText(rendered: Rendered): Rendered {
+  const files = rendered.files.map((f) => ({ ...f, data: lfText(f.data) }));
+  return { ...rendered, files };
+}
+
 async function renderTargets(run: RenderRun, out: RenderOutput): Promise<void> {
   if (run.job.entity.kind === 'plugin') return;
   for (const id of run.job.targets) {
     try {
       const first = await run.deps.getTarget(id).render(renderInput(run, run.job.policy));
       const rendered = await secretPass(run, id, first, out);
-      if (rendered) out.renders[id] = rendered;
+      if (rendered) out.renders[id] = withLfText(rendered);
     } catch (e) {
+      throwIfCancelled(e);
       out.refusals.push(failureOf(run.subject, e, id));
     }
   }
@@ -297,7 +315,7 @@ function copiedClosure(renders: Partial<Record<TargetId, Rendered>>, root: strin
         path: rel,
         mode: f.mode ?? 0o644,
         size: f.data.byteLength,
-        hash: sha256(f.data),
+        hash: contentHash(f.data),
       });
     }
   const sorted = [...files.values()].sort((a, b) => (a.path < b.path ? -1 : 1));

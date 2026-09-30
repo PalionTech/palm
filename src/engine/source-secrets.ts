@@ -1,6 +1,7 @@
 /**
  * A literal secret found in a source (DESIGN §8, ruling 5): the index redacted it to
- * `<redacted sha256:8>`; before rendering, each redaction becomes an environment reference
+ * `<redacted sha256:8>`; before rendering, each redaction (and a high-entropy value under any
+ * env key or header of a source, S1) becomes an environment reference
  * `${NAME}`, so the entity installs, no literal is ever written, and the summary names the
  * variable to export. `--force` never brings the literal back (palm never had it).
  */
@@ -13,6 +14,8 @@ import {
   headerVariable,
 } from '../domain/secret-refs.js';
 import { isRecord } from '../lib/object.js';
+import { secretPart } from '../secrets/scan.js';
+import { MANIFEST_SOURCE } from './sources.js';
 
 const REDACTED = /<redacted sha256:[0-9a-f]{8}>/g;
 
@@ -26,8 +29,20 @@ function hasRedaction(value: string): boolean {
   return value.search(REDACTED) >= 0;
 }
 
+/**
+ * Sofia S1: the high-entropy part of a value a source ships under an env key or a header, whatever
+ * the key is called (`CREDENTIALS`, `X-Session`); undefined for references, words, URLs and
+ * "fill me in" text. The scanner's own rule, asked as if the key said "token".
+ */
+function shippedLiteral(value: string): string | undefined {
+  return secretPart(value, 'token');
+}
+
 class Referencer {
   readonly found: ReferencedSecret[] = [];
+
+  /** `fromSource`: high-entropy literals in env and header values are referenced too (S1). */
+  constructor(private readonly fromSource: boolean) {}
 
   /** `value` with each redaction replaced by `${variable}`. */
   replace(value: string, where: string, variable: string): string {
@@ -36,9 +51,18 @@ class Referencer {
     return value.replace(REDACTED, `\${${variable}}`);
   }
 
+  /** `replace`, and a source's high-entropy literal replaced by `${variable}` as well (S1). */
+  private replaceValue(value: string, where: string, variable: string): string {
+    const next = this.replace(value, where, variable);
+    const literal = this.fromSource && next === value ? shippedLiteral(value) : undefined;
+    if (!literal) return next;
+    this.found.push({ where, variable });
+    return value.split(literal).join(`\${${variable}}`);
+  }
+
   map(values: Record<string, string>, where: string, name: (key: string) => string) {
     return Object.fromEntries(
-      Object.entries(values).map(([k, v]) => [k, this.replace(v, `${where}.${k}`, name(k))]),
+      Object.entries(values).map(([k, v]) => [k, this.replaceValue(v, `${where}.${k}`, name(k))]),
     );
   }
 }
@@ -78,7 +102,7 @@ function referenceJson(value: unknown, where: string, variable: string, r: Refer
  * redactions comes back as it is.
  */
 export function referenceSecrets(entity: Entity): { entity: Entity; replaced: ReferencedSecret[] } {
-  const r = new Referencer();
+  const r = new Referencer(entity.source !== MANIFEST_SOURCE);
   const { def } = entity;
   let next: Entity['def'] = def;
   if (def.kind === 'mcp') next = { ...def, mcp: referenceMcp(def.mcp, r) };

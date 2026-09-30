@@ -4,7 +4,8 @@
  * core/source-input; domain keeps it so `normalizeSource` can validate manifest URLs.
  */
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PalmError } from '../core/errors.js';
 
 /** scp-like git address `user@host:path` (groups: user, host, path). */
@@ -129,4 +130,33 @@ export function validateSourceUrl(url: string, where = 'source'): { warning?: st
   return scheme === 'http' || scheme === 'git'
     ? { warning: `${where} ${url} uses an unencrypted transport (${scheme}://)` }
     : {};
+}
+
+/** The directory a `file://` URL or an absolute-path URL names; undefined for any other URL. */
+export function localUrlPath(url: string): string | undefined {
+  if (/^file:\/\//i.test(url)) {
+    try {
+      return fileURLToPath(url);
+    } catch {
+      return undefined;
+    }
+  }
+  return isAbsolute(url) ? url : undefined;
+}
+
+/**
+ * S4: a URL as the lock records it. A local one (`file:///…`, an absolute path) becomes
+ * `file:<path relative to root>` (posix), so the lock names no absolute path of one machine;
+ * any other URL is unchanged.
+ */
+export function lockedUrl(url: string, root: string): string {
+  const path = localUrlPath(url);
+  if (path === undefined) return url;
+  return `file:${relative(root, path).split(sep).join('/') || '.'}`;
+}
+
+/** The URL a lock's `file:<relative>` record stands for (`file:///…` against `root`); others as they are. */
+export function urlOfLocked(url: string, root: string): string {
+  const m = /^file:(?!\/\/)(.*)$/i.exec(url);
+  return m ? pathToFileURL(resolve(root, m[1] || '.')).href : url;
 }

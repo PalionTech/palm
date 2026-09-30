@@ -1,8 +1,9 @@
 /** Where palm runs: the home, palm home and project root of one invocation (DESIGN.md section 2). */
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { homeOf, LOCK_FILE, MANIFEST_FILE, palmHomeOf, ScopePaths } from '../domain/scope-paths.js';
-import { isWithin } from '../lib/fs.js';
+import { isWithin, toPosix } from '../lib/fs.js';
+import { PalmError } from './errors.js';
 import { type PalmPaths, TARGET_IDS } from './types.js';
 
 function realOrSelf(p: string): string {
@@ -55,7 +56,28 @@ function projectRootOf(cwd: string, palmHome: string): string {
   }
 }
 
+/** True when `name` holds a value in `env` (an empty value is unset). */
+function isSet(env: NodeJS.ProcessEnv, name: string): boolean {
+  return (env[name] ?? '') !== '';
+}
+
+/**
+ * B4: palm needs to know whose home it writes to. With neither HOME (USERPROFILE on Windows) nor
+ * PALM_HOME set it refuses before anything is read or written, rather than guessing the account
+ * home and leaving a cache there.
+ */
+export function assertHomeSet(env: NodeJS.ProcessEnv): void {
+  if (['HOME', 'USERPROFILE', 'PALM_HOME'].some((name) => isSet(env, name))) return;
+  throw new PalmError(
+    'E_USAGE',
+    'HOME is not set; set HOME or PALM_HOME',
+    'export HOME=~ and run palm again',
+  );
+}
+
+/** Where this invocation runs; E_USAGE when neither HOME nor PALM_HOME is set (B4). */
 export function resolvePaths(cwd: string, env: NodeJS.ProcessEnv): PalmPaths {
+  assertHomeSet(env);
   const home = homeOf(env);
   const palmHome = palmHomeOf(env, home);
   const absCwd = resolve(cwd);
@@ -106,6 +128,24 @@ export function globalDirHolding(
     (g) => isWithin(lexical, resolve(g.dir)) || isWithin(real, realOrSelf(g.dir)),
   );
   return hit?.what;
+}
+
+/**
+ * J7': the global palm.yaml (its real file) when it lies inside `dir`: a dotfiles repository
+ * that keeps `palm/palm.yaml` and links `~/.palm/palm.yaml` to it, or sets PALM_HOME below it.
+ * Such a directory is the global setup's home, not a project. The home directory itself is left
+ * to the home rules (`isHomeAsProject`). Returns its path relative to `dir` (`palm/palm.yaml`);
+ * undefined when the global palm.yaml is elsewhere.
+ */
+export function globalManifestInside(dir: string, paths: PalmPaths): string | undefined {
+  const manifest = join(paths.palmHome, MANIFEST_FILE);
+  const realDir = realOrSelf(dir);
+  if (!existsSync(manifest) || realDir === realOrSelf(paths.home)) return undefined;
+  const real = realOrSelf(manifest);
+  if (isWithin(real, realDir)) return toPosix(relative(realDir, real));
+  return isWithin(resolve(manifest), resolve(dir))
+    ? toPosix(relative(resolve(dir), resolve(manifest)))
+    : undefined;
 }
 
 /**

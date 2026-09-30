@@ -6,28 +6,29 @@
 import { createHash, type Hash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { HASH_SKIP, matchesSkip } from '../domain/ignore.js';
-import { sha256 } from '../lib/digest.js';
+import { contentHash, lfText, sha256 } from '../lib/digest.js';
 import { isWithin, walkFiles } from '../lib/fs.js';
 import { canonicalJson } from '../lib/json.js';
 import { PalmError } from './errors.js';
 import type { ClosureFile } from './types.js';
 
-export { sha256, short } from '../lib/digest.js';
-
-/** Text is a file without a NUL byte in its first 8 KB (git's heuristic). */
-const TEXT_SNIFF_BYTES = 8192;
-
-/**
- * `bytes` with CRLF line ends turned into LF when it is text, so a `core.autocrlf` checkout
- * hashes like an LF one. Binary content and lone CRs are left alone.
- */
-function normalizeEol(bytes: Buffer): Buffer {
-  if (!bytes.includes('\r\n') || bytes.subarray(0, TEXT_SNIFF_BYTES).includes(0)) return bytes;
-  return Buffer.from(bytes.toString('latin1').replaceAll('\r\n', '\n'), 'latin1');
-}
+export { contentHash, lfText, sameContent, sha256, short } from '../lib/digest.js';
 
 async function hashFile(h: Hash, abs: string): Promise<void> {
-  h.update(normalizeEol(await readFile(abs)));
+  h.update(lfText(await readFile(abs)));
+}
+
+/**
+ * The content hash of the file at `abs` as palm compares it with a render or a record (O1): text
+ * with LF line ends, so a checkout whose clean filter or `core.autocrlf` changed them agrees.
+ * Undefined when the file cannot be read.
+ */
+export async function diskContentHash(abs: string): Promise<string | undefined> {
+  try {
+    return contentHash(await readFile(abs));
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -97,7 +98,7 @@ export async function treeHash(
   });
   const files: ClosureFile[] = [];
   for (const f of [...walked.files].sort((a, b) => (a.rel < b.rel ? -1 : Number(a.rel > b.rel)))) {
-    const hash = sha256(normalizeEol(await readFile(f.abs)));
+    const hash = contentHash(await readFile(f.abs));
     files.push({ path: f.rel, mode: treeMode(f.mode), size: f.size, hash });
   }
   const lines = files.map((f) => `${f.path}\0${f.mode.toString(8)}\0${f.hash}`);

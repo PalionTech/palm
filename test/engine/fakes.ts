@@ -194,6 +194,7 @@ export function gitModule(real: Record<string, unknown>) {
     fetchSource: fetchSourceFake,
     resolveRef: resolveRefFake,
     isSemverRange: isSemverRangeFake,
+    defaultBranch: async (url: string) => remoteOf(url).head ?? 'main',
     listRemoteRefs: async (url: string) => {
       const r = remoteOf(url);
       return { tags: tags(r), heads: [r.head ?? 'main'], headShas: {}, tagShas: r.refs };

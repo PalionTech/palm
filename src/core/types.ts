@@ -825,6 +825,18 @@ export interface InstallResult {
    * the lock records those, and the CLI exits 130 after printing the result (K16, L11).
    */
   interrupted?: { done: number; total: number };
+  /**
+   * The files (and `file#at#key` fragments) this run removed, or would remove in a dry run, as
+   * people read them (`~/…` under -g): what `--json` shows (J10'), including the files of a
+   * target palm.yaml no longer lists (B2).
+   */
+  removals?: string[];
+  /**
+   * Install with names: what the typed names resolved to, each with its kind, after any
+   * which-kind question (O4, Q4). A plugin's member the person declined is not among them, so
+   * declining it is no named decline.
+   */
+  requested?: EntityRef[];
 }
 
 /** A file `remove` left on disk, and why (C3, K18, R5). */
@@ -935,6 +947,49 @@ export interface MigrateReport {
    * `git status` lists it (untracked output folders as `dir/`), to commit together.
    */
   commit?: string[];
+  /**
+   * X8 B7 J5' Y4': every file the migration deleted (in a dry run: would delete), in path
+   * order, with why. Printed one line each: `- removed <file>: <reason>` (`- would remove` in a
+   * dry run).
+   */
+  removed?: MigrateRemoval[];
+  /**
+   * N15 M11: in a dry run, the files the install would write or change (as people type them), in
+   * path order. Printed one line each: `~ would write <file>`.
+   */
+  written?: string[];
+  /**
+   * X8: the notes palm 0.2 keeps on the migrated entries (a harness skipped, a variable a server
+   * needs), one line each as `<kind> <name>: <note>`. Printed with `i`.
+   */
+  notes?: string[];
+  /** V5': fragments palm 0.1 wrote that someone changed since, and what palm did with each. */
+  changed?: MigrateChanged[];
+}
+
+/** A file `palm migrate` deleted (or, in a dry run, would delete). */
+export interface MigrateRemoval {
+  /** Project-relative, or `~/…` under -g. */
+  file: string;
+  /** Why, in plain words: `palm 0.1 copied it; palm 0.2 writes agents/openai.yaml only into .agents/skills`. */
+  reason: string;
+}
+
+/**
+ * V5': a fragment palm 0.1 wrote (a hook command, a server block) that differs from what 0.1
+ * recorded. `replaced`: the person agreed (or `--force`), palm 0.2's render replaced it;
+ * `kept`: the person declined, it stays as they changed it (check reports it as foreign);
+ * `ask`: a dry run, nothing decided. Printed `! <kind> <name>: <file> (<at>) changed since palm
+ * 0.1 wrote it; <replaced with palm 0.2's render | kept as you changed it | palm migrate asks>`.
+ */
+export interface MigrateChanged {
+  kind: Kind;
+  name: string;
+  /** Project-relative, or `~/…` under -g. */
+  file: string;
+  /** The JSON pointer or block the fragment sits at (`/hooks/Stop`). */
+  at: string;
+  action: 'replaced' | 'kept' | 'ask';
 }
 
 // ---------------------------------------------------------------------------

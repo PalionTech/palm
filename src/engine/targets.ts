@@ -72,3 +72,45 @@ export function requestTargets(state: ScopeState, requested?: TargetId[]): Targe
     );
   return requested?.length ? requested : undefined;
 }
+
+/** A target the lock rendered entries for that the scope's targets no longer list (B2). */
+export interface DroppedTarget {
+  target: TargetId;
+  /** Lock paths and `file#at#key` fragments that `palm install` will remove for it. */
+  files: string[];
+  /** How many lock entries were rendered for it. */
+  entries: number;
+}
+
+function insideAny(lockPath: string, dirs: readonly string[]): boolean {
+  return dirs.some((d) => lockPath === d || lockPath.startsWith(`${d}/`));
+}
+
+/**
+ * B2: the targets palm.yaml dropped (`targets: [claude, codex]` → `[claude]`) with what the next
+ * `palm install` removes for each: the lock paths and fragments inside that target's output
+ * directories that no remaining target's directories hold. `check` reports them; nothing is
+ * written.
+ */
+export function droppedTargets(
+  ctx: PalmContext,
+  deps: EngineDeps,
+  state: ScopeState,
+): DroppedTarget[] {
+  const { scope, root } = state.paths;
+  const dirsOf = (t: TargetId) => deps.getTarget(t).outputDirs(scope, root, ctx.env);
+  const staying = state.targets.flatMap(dirsOf);
+  const out: DroppedTarget[] = [];
+  for (const target of TARGET_IDS.filter((t) => !state.targets.includes(t))) {
+    const entries = state.lock.entries.filter((e) => target in e.render);
+    if (!entries.length) continue;
+    const own = dirsOf(target);
+    const goes = (p: string) => insideAny(p, own) && !insideAny(p, staying);
+    const files = entries.flatMap((e) => [
+      ...e.files.filter(goes),
+      ...(e.merged ?? []).filter((m) => goes(m.file)).map((m) => `${m.file}#${m.at}#${m.key}`),
+    ]);
+    out.push({ target, files: [...new Set(files)].sort(), entries: entries.length });
+  }
+  return out;
+}
