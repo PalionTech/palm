@@ -24,7 +24,14 @@ import type { App } from './app.js';
 import { ExitSignal, type Invocation, interpretRemove, usage } from './grammar.js';
 import { formatName, nearest, palmLine, pasteLine, typedOptions } from './hints.js';
 import { grammarContext } from './known.js';
-import { engine, engineDeps, type GlobalOptions, makeContext, scopeOf } from './shared.js';
+import {
+  engine,
+  engineDeps,
+  type GlobalOptions,
+  makeContext,
+  otherScope,
+  scopeOf,
+} from './shared.js';
 
 interface RemoveFlags extends GlobalOptions {
   exclude?: boolean;
@@ -103,14 +110,6 @@ function withFlags(f: InstallFailure, flags: RemoveFlags, job: RemoveJob): Insta
 interface RemoveJob {
   state: ScopeState;
   refs: RemoveRef[];
-}
-
-/** The other scope's lock, to say where an absent name is installed; undefined when it cannot open. */
-async function otherScope(ctx: PalmContext, app: App, scope: Scope) {
-  const other: Scope = scope === 'global' ? 'project' : 'global';
-  return engine(app)
-    .openScope(ctx, other, { readOnly: true })
-    .catch(() => undefined);
 }
 
 /**

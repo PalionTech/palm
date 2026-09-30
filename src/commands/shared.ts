@@ -100,7 +100,9 @@ function localError(app: App, g: GlobalOptions & { targets?: string }): PalmErro
 async function flagsOf(app: App, g: GlobalOptions): Promise<PalmFlags> {
   if (g.local) throw localError(app, g);
   const secrets = secretPolicy(g.secrets);
-  const allowExec = g.allowExec === undefined ? [] : await engine(app).parseAllowExec(g.allowExec);
+  // K-manifest: a server palm.yaml declares is keyed `@palm.yaml`; the lock still says manifest
+  const typed = g.allowExec?.replaceAll('@palm.yaml=', '@manifest=');
+  const allowExec = typed === undefined ? [] : await engine(app).parseAllowExec(typed);
   return {
     yes: Boolean(g.yes),
     dryRun: Boolean(g.dryRun),
@@ -132,6 +134,37 @@ export async function makeContext(app: App, g: GlobalOptions): Promise<CliContex
   const ctx = await createContext({ cwd: app.cwd ?? process.cwd(), env, ui, log: app.out, flags });
   const tail = app.passthrough.length ? ['--', ...app.passthrough] : [];
   return Object.assign(ctx, { argv: [...app.argv, ...tail] });
+}
+
+/** The other scope's state (read only), to say where a name is installed; undefined when it cannot open. */
+export async function otherScope(ctx: PalmContext, app: App, scope: Scope) {
+  const other: Scope = scope === 'global' ? 'project' : 'global';
+  return engine(app)
+    .openScope(ctx, other, { readOnly: true })
+    .catch(() => undefined);
+}
+
+/**
+ * Q16: `it is installed in the global scope: palm <verb> <words> -g` when the other scope holds
+ * one of `names`, else undefined (remove, get and describe say it the same way).
+ */
+export async function otherScopeHint(
+  ctx: PalmContext,
+  app: App,
+  scope: Scope,
+  line: { verb: string; words: string[]; names: ReadonlyArray<{ kind?: string; name: string }> },
+): Promise<string | undefined> {
+  const other = await otherScope(ctx, app, scope);
+  const lower = (s: string) => s.toLowerCase();
+  const hit = line.names.some((n) =>
+    other?.lock.entries.some(
+      (e) => lower(e.name) === lower(n.name) && (!n.kind || n.kind === e.kind),
+    ),
+  );
+  if (!hit || !other) return undefined;
+  const flip = other.paths.scope;
+  const cmd = `palm ${[line.verb, ...line.words].join(' ')}${flip === 'global' ? ' -g' : ''}`;
+  return `it is installed in the ${flip} scope: ${cmd}`;
 }
 
 /** `abs` relative to `root` with forward slashes, or undefined when it lies outside. */

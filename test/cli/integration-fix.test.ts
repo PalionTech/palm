@@ -53,7 +53,7 @@ describe('C11 another tool’s list in a project without entries', () => {
       'i skills-lock.json and apm.yml found: palm 0.3 imports them; until then install each entry by name';
     expect(init.stdout).toContain(hint);
     expect(init.stdout).toContain(
-      'from skills-lock.json, for example: palm install vercel/skills find-skills',
+      'from skills-lock.json at the current branch (the locked commit needs palm 0.3), for example: palm install vercel/skills find-skills',
     );
     expect(init.stdout).toContain(
       'from apm.yml, for example: palm install acme/standards#v1.0.0 --all',

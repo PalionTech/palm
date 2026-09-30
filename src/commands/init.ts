@@ -130,14 +130,20 @@ async function detected(ctx: PalmContext, app: App, scope: Scope): Promise<Targe
   return TARGET_IDS.filter((id) => chosen.includes(id));
 }
 
-/** K14 B8 C10 J4 J5: the home directory and the global directories are never a project. */
-function refuseGlobalDir(ctx: PalmContext): void {
+/**
+ * K14 B8 C10 J4 J5: the home directory and the global directories are never a project. J6': the
+ * hint keeps the typed `--target`, else names the harness whose directory this is.
+ */
+function refuseGlobalDir(ctx: PalmContext, typed: TargetId[] | undefined): void {
   const why = initRefusal(ctx.paths.cwd, ctx.paths, ctx.env);
-  if (why)
-    throw usage(
-      `${why}; your own setup is the global scope`,
-      palmLine('init', ['--target', 'claude'], 'global'),
-    );
+  if (!why) return;
+  const inside = /global (\w+) directory/.exec(why)?.[1] ?? '';
+  const harness = (TARGET_IDS as readonly string[]).includes(inside) ? inside : 'claude';
+  const targets = typed?.join(',') ?? harness;
+  throw usage(
+    `${why}; your own setup is the global scope`,
+    palmLine('init', ['--target', targets], 'global'),
+  );
 }
 
 /** C11: `skills-lock.json` or `apm.yml` in a project whose palm.yaml lists nothing yet. */
@@ -156,7 +162,7 @@ export async function run(inv: Invocation, app: App): Promise<void> {
   const flag = parseTargetList(flags.target ?? flags.targets);
   const ctx = await makeContext(app, flags);
   if (scope === 'project') {
-    refuseGlobalDir(ctx);
+    refuseGlobalDir(ctx, flag);
     await engine(app).openScope(ctx, 'project', { readOnly: true });
     if (!flags.here) await refuseNested(ctx, app);
   }
