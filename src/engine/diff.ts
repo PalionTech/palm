@@ -8,7 +8,6 @@
 import { readFile, stat } from 'node:fs/promises';
 import { sha256 } from '../core/hash.js';
 import {
-  type EngineDeps,
   type LockEntry,
   type OutcomeStatus,
   type Rendered,
@@ -72,19 +71,35 @@ export function fragmentKey(f: { file: string; at: string; key: string }): strin
   return `${f.file}#${f.at}#${f.key}`;
 }
 
-async function recordState(paths: ScopePaths, f: RenderedFragment): Promise<RecordState> {
+async function recordState(
+  paths: ScopePaths,
+  f: RenderedFragment,
+  owned: boolean,
+): Promise<RecordState> {
   const { mergedRecordState } = await import('../targets/merged-state.js');
-  return mergedRecordState(parseMergedRecord({ ...f, file: paths.abs(f.file) }));
+  return mergedRecordState(parseMergedRecord({ ...f, file: paths.abs(f.file) }), owned);
 }
 
-/** Each fragment of the render on disk: `held` (found by key, same value), `changed` or `missing`. */
+/** The fragment keys the lock lists for `entry` (the `owned` of `fragmentStates`). */
+export function ownedFragments(entry: Pick<LockEntry, 'merged'> | undefined): Set<string> {
+  return new Set((entry?.merged ?? []).map(fragmentKey));
+}
+
+/**
+ * Each fragment of the render on disk: `held` (found by key, same value), `changed` or
+ * `missing`. `owned` are the fragment keys the lock lists for the entry: such a hook item whose
+ * command was changed on disk is found by its matcher and is `changed`, never missing (D3).
+ */
 export async function fragmentStates(
   paths: ScopePaths,
   rendered: Rendered,
-  _deps?: EngineDeps,
+  owned: ReadonlySet<string> = new Set(),
 ): Promise<Map<string, RecordState>> {
   const out = new Map<string, RecordState>();
-  for (const f of rendered.fragments) out.set(fragmentKey(f), await recordState(paths, f));
+  for (const f of rendered.fragments) {
+    const key = fragmentKey(f);
+    out.set(key, await recordState(paths, f, owned.has(key)));
+  }
   return out;
 }
 

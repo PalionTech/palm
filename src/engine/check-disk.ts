@@ -17,7 +17,7 @@ import {
   rendersFiles,
   skipped,
 } from './check-kit.js';
-import { fileStates, fragmentStates } from './diff.js';
+import { fileStates, fragmentStates, ownedFragments } from './diff.js';
 import { palmCommand } from './report.js';
 
 const MAX_TEXT_BYTES = 1024 * 1024;
@@ -58,7 +58,7 @@ async function targetFragments(
   f: Found,
 ): Promise<void> {
   const fix = fixes(c, e);
-  for (const [key, s] of await fragmentStates(c.run.state.paths, r)) {
+  for (const [key, s] of await fragmentStates(c.run.state.paths, r, ownedFragments(e))) {
     const file = key.split('#')[0] as string;
     if (s === 'missing')
       f.fail.push(problem(e, file, `palm's entry in ${file} is missing`, fix.restore));

@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { sha256 } from '../core/hash.js';
 import type { Entity, LockEntry, TargetId } from '../core/types.js';
 import { sameName } from '../domain/entity-ref.js';
-import { fileStates, fragmentStates } from './diff.js';
+import { fileStates, fragmentStates, ownedFragments } from './diff.js';
 import { recordedPolicy } from './entries.js';
 import type { Run } from './jobs.js';
 import { type RenderOutput, renderEntity } from './render.js';
@@ -110,7 +110,7 @@ async function editedAgainstRender(run: Run, entry: LockEntry): Promise<string[]
     const r = out.renders[id];
     if (!r || r.hash !== entry.render[id]) return undefined;
     for (const [p, s] of await fileStates(run.state.paths, r)) if (s === 'modified') edited.push(p);
-    for (const [k, s] of await fragmentStates(run.state.paths, r))
+    for (const [k, s] of await fragmentStates(run.state.paths, r, ownedFragments(entry)))
       if (s === 'changed') edited.push(k);
   }
   return [...new Set(edited)];

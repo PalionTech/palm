@@ -112,9 +112,10 @@ async function readOrRefuse<T>(read: () => Promise<T>, shown: string): Promise<T
 function mergeFragment(
   text: string | undefined,
   frag: RenderedFragment & { abs: string },
-  onConflict: OnConflict,
+  how: { onConflict: OnConflict; owned: boolean },
 ): string | undefined {
   const rec = parseMergedRecord({ ...frag, file: frag.abs });
+  const { onConflict, owned } = how;
   const common = { file: frag.abs, onConflict, displayFile: frag.file };
   switch (rec.type) {
     case 'md-block':
@@ -126,7 +127,13 @@ function mergeFragment(
         value: rec.value as Record<string, unknown>,
       });
     case 'json-item':
-      return appendItemText(text, { ...common, path: rec.path, key: rec.key, value: rec.value });
+      return appendItemText(text, {
+        ...common,
+        path: rec.path,
+        key: rec.key,
+        value: rec.value,
+        owned,
+      });
     case 'json-key':
       return setKeyText(text, { ...common, path: rec.path, value: rec.value });
   }
@@ -188,9 +195,12 @@ export class Applier {
     });
   }
 
+  private ownsFragment(frag: RenderedFragment): boolean {
+    return this.owned.has(`${frag.file}#${frag.at}#${frag.key}`);
+  }
+
   private onConflict(frag: RenderedFragment): OnConflict {
-    const owned = this.owned.has(`${frag.file}#${frag.at}#${frag.key}`);
-    return this.input.force || owned ? 'overwrite' : 'error';
+    return this.input.force || this.ownsFragment(frag) ? 'overwrite' : 'error';
   }
 
   /** The shared file `file` with each of its fragments merged in (and the modes it gets). */
@@ -208,7 +218,8 @@ export class Applier {
     for (const frag of frags) {
       for (const [k, v] of Object.entries(frag.ensure ?? {}))
         apply(ensureKeyText(text, { file: abs, path: [k], value: v }));
-      apply(mergeFragment(text, { ...frag, abs }, this.onConflict(frag)));
+      const how = { onConflict: this.onConflict(frag), owned: this.ownsFragment(frag) };
+      apply(mergeFragment(text, { ...frag, abs }, how));
     }
     const mode = frags.find((f) => f.mode !== undefined)?.mode;
     const createMode = frags.find((f) => f.createMode !== undefined)?.createMode;

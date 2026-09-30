@@ -33,6 +33,12 @@ export interface JsonEdit {
   path: readonly string[];
   /** `appendItemText`: the fragment key the item is found by (default: the value's own key). */
   key?: string;
+  /**
+   * `appendItemText`: palm wrote this item before (the lock lists it). When no item has its key,
+   * the one item of the array with its matcher is palm's, changed on disk (D3): it is replaced
+   * in place, never appended beside.
+   */
+  owned?: boolean;
   value: unknown;
   onConflict?: 'overwrite' | 'error';
   displayFile?: string;
@@ -119,6 +125,22 @@ function indexByKey(arr: readonly unknown[], segs: readonly string[], key: strin
   return arr.findIndex((item) => fragmentKey(at, item) === key);
 }
 
+function matcherOf(item: unknown): string | undefined {
+  if (!isRecord(item)) return undefined;
+  return typeof item.matcher === 'string' ? item.matcher : '';
+}
+
+/**
+ * D3: the hook item palm wrote whose command was changed on disk, found by its matcher: the one
+ * item of the array with the same matcher as `value` (-1 when none, or when several could be).
+ */
+function tamperedIndex(arr: readonly unknown[], value: unknown): number {
+  const matcher = matcherOf(value);
+  if (matcher === undefined) return -1;
+  const hits = arr.flatMap((item, i) => (matcherOf(item) === matcher ? [i] : []));
+  return hits.length === 1 ? (hits[0] as number) : -1;
+}
+
 function conflict(edit: JsonEdit, what: string): PalmError {
   return new PalmError(
     'E_CONFLICT',
@@ -139,7 +161,8 @@ export function appendItemText(text: string | undefined, edit: JsonEdit): string
   const doc = parseJsonObject(text, edit.file);
   const arr = walkCreate(doc, edit.path, true, edit.file) as unknown[];
   const key = edit.key ?? fragmentKey(formatPointer(edit.path), edit.value);
-  const idx = indexByKey(arr, edit.path, key);
+  const found = indexByKey(arr, edit.path, key);
+  const idx = found < 0 && edit.owned ? tamperedIndex(arr, edit.value) : found;
   if (idx < 0) arr.push(structuredClone(edit.value));
   else if (deepEqual(arr[idx], edit.value)) return undefined;
   else if (edit.onConflict === 'error')
@@ -184,21 +207,28 @@ export function ensureKeyText(text: string | undefined, edit: JsonEdit): string 
   return stringifyJson(doc);
 }
 
-/** What `rec` finds in `doc`: the item found by key, or the key's value. */
-function foundValue(doc: Record<string, unknown>, rec: JsonRecord): unknown {
+/** What `rec` finds in `doc`: the item found by key (or, `owned`, by matcher: D3), or the key's value. */
+function foundValue(doc: Record<string, unknown>, rec: JsonRecord, owned = false): unknown {
   const node = getAt(doc, rec.path);
   if (rec.type === 'json-key') return node;
   if (!Array.isArray(node)) return undefined;
-  const idx = indexByKey(node, rec.path, rec.key);
+  const found = indexByKey(node, rec.path, rec.key);
+  const idx = found < 0 && owned ? tamperedIndex(node, rec.value) : found;
   return idx < 0 ? undefined : node[idx];
 }
 
 /**
  * Whether `text` holds the fragment `rec` names: `missing` when no item has its key (or the key
  * is absent), `held` when what is there matches the rendered value (`${VAR}` matching any
- * text), `changed` otherwise. A file that no longer parses counts as changed.
+ * text), `changed` otherwise. A hook item palm wrote before (`owned`) whose command was changed
+ * on disk is found by its matcher and is `changed` (D3). A file that no longer parses counts as
+ * changed.
  */
-export function jsonRecordState(text: string | undefined, rec: JsonRecord): RecordState {
+export function jsonRecordState(
+  text: string | undefined,
+  rec: JsonRecord,
+  owned = false,
+): RecordState {
   if (text === undefined) return 'missing';
   let doc: Record<string, unknown>;
   try {
@@ -206,7 +236,7 @@ export function jsonRecordState(text: string | undefined, rec: JsonRecord): Reco
   } catch {
     return 'changed';
   }
-  const found = foundValue(doc, rec);
+  const found = foundValue(doc, rec, owned);
   if (found === undefined) return 'missing';
   return matchesRendered(found, rec.value) ? 'held' : 'changed';
 }

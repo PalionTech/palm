@@ -32,6 +32,7 @@ import {
   fragmentStates,
   type OutcomeDecision,
   outcomeStatus,
+  ownedFragments,
 } from './diff.js';
 import { knownEdits, type Unchecked } from './edits.js';
 import { type RenderOutput, renderEntity } from './render.js';
@@ -125,14 +126,15 @@ async function secretValues(
   return Object.keys(r.values).length ? r.values : undefined;
 }
 
-async function diskStates(run: Run, out: RenderOutput) {
+async function diskStates(run: Run, out: RenderOutput, previous?: LockEntry) {
   const { paths, applied } = run.state;
   const files = new Map<string, FileState>();
   const fragments = new Map<string, RecordState>();
+  const owned = ownedFragments(previous);
   for (const r of Object.values(out.renders)) {
     if (!r) continue;
     for (const [k, v] of await fileStates(paths, r, applied ? { applied } : {})) files.set(k, v);
-    for (const [k, v] of await fragmentStates(paths, r, run.deps)) fragments.set(k, v);
+    for (const [k, v] of await fragmentStates(paths, r, owned)) fragments.set(k, v);
   }
   return { files, fragments };
 }
@@ -158,7 +160,7 @@ export async function prepareJob(run: Run, job: Job): Promise<Prepared> {
   });
   const subject = { kind: job.entity.kind, name: job.entity.name, source: job.source.name };
   await refuseOversizedBlocks(run, subject, out);
-  const { files, fragments } = await diskStates(run, out);
+  const { files, fragments } = await diskStates(run, out, previous);
   const check = await knownEdits(run, { previous, out, files, fragments, values });
   const decision = outcomeStatus({
     ...(check ? { edited: check.edited } : {}),

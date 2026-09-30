@@ -14,9 +14,10 @@ import { tomlRecordState, tomlRecordValue } from './toml-merge.js';
 /**
  * The state of one fragment (`rec.file` absolute), found by its key: `held` when what is there
  * matches what palm would write (`${VAR}` matching any text), `changed` when the key holds
- * something else, `missing` when the key is absent.
+ * something else, `missing` when the key is absent. `owned`: palm wrote it before, so a hook
+ * item whose command changed is found by its matcher (D3).
  */
-export async function mergedRecordState(rec: MergedRecord): Promise<RecordState> {
+export async function mergedRecordState(rec: MergedRecord, owned = false): Promise<RecordState> {
   const text = await readTextOrUndefined(rec.file);
   switch (rec.type) {
     case 'md-block':
@@ -25,7 +26,7 @@ export async function mergedRecordState(rec: MergedRecord): Promise<RecordState>
       return tomlRecordState(text, rec);
     case 'json-item':
     case 'json-key':
-      return jsonRecordState(text, rec);
+      return jsonRecordState(text, rec, owned);
   }
 }
 

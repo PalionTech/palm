@@ -20,7 +20,7 @@ import {
   found,
   rendersFiles,
 } from './check-kit.js';
-import { fragmentStates } from './diff.js';
+import { fragmentStates, ownedFragments } from './diff.js';
 import { palmCommand } from './report.js';
 
 function scopeOf(c: CheckContext) {
@@ -76,7 +76,7 @@ async function mergedDrift(c: CheckContext, e: LockEntry, f: Found): Promise<voi
   const fix = palmCommand('install', [e.source, e.name], scopeOf(c), '--force');
   for (const r of Object.values(out.renders)) {
     if (!r) continue;
-    for (const [key, s] of await fragmentStates(c.run.state.paths, r))
+    for (const [key, s] of await fragmentStates(c.run.state.paths, r, ownedFragments(e)))
       if (s === 'changed')
         f.fail.push({
           ...problem(e, `a command of hook ${e.name} on disk differs from palm.lock.yaml`, fix),
