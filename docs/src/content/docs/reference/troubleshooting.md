@@ -170,7 +170,9 @@ Export it before you start the harness. It is a warning, so `palm check` still e
 - An agent's `skills:` and `mcpServers:` are not installed with it. palm prints the command for them.
 - Remote marketplace entries are not fetched. palm prints the command that declares each as a source.
 - palm rewrites a JSON file it merges into with two-space indentation. Minimal edits are planned for 0.3.
-- Per-person additions (`palm.local.yaml`) and per-package placement (`at:`) arrive in palm 0.3.
+- Per-person additions and disables (`palm.local.yaml`) and per-package placement (`at:`) arrive in palm 0.3. Until then, install a personal skill with `-g`, and switch off a team skill for yourself in the harness's own settings, such as `.claude/settings.local.json`.
+- `--review` shows diffs of scripts only. A changed skill or agent is marked in the update plan, and you read its text in the pull request. Text diffs arrive in palm 0.3.
+- `palm get` does not show how much context an entity costs. Load cost arrives in palm 0.3.
 - palm 0.2 does not run on native Windows. Run it inside WSL, as [Installation](/palm/getting-started/install/#run-palm-inside-wsl) shows. Contributors who only use the harnesses need no palm.
 
 ## Report a bug
