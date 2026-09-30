@@ -32,7 +32,7 @@ import {
   type Resolved,
   resolveSource,
 } from './resolve.js';
-import { lockScope, runJobs, settle } from './runner.js';
+import { runJobs, settle, withLockedScope } from './runner.js';
 import { assertNoOverlap, openScope, type ScopeState } from './scope.js';
 import { refuseLocal, requestTargets } from './targets.js';
 
@@ -167,9 +167,8 @@ export async function installFromSource(
 ): Promise<InstallResult> {
   refuseLocal(opts);
   const deps = await resolveEngineDeps(depsIn);
-  const state = await openScope(ctx, opts.scope, { deps });
-  const run = runOf(ctx, deps, state);
-  return lockScope(ctx, state, async () => {
+  return withLockedScope(ctx, opts.scope, { deps }, async (state) => {
+    const run = runOf(ctx, deps, state);
     const held: Held = {};
     let failed = true;
     try {

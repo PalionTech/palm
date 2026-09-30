@@ -20,14 +20,14 @@ import {
 import { lockId, Via } from '../domain/entity-key.js';
 import type { Lock } from '../domain/lock.js';
 import type { ScopePaths } from '../domain/scope-paths.js';
-import { isWithin } from '../lib/fs.js';
+import { type DeleteGuard, type DeleteVerdict, deleteGuard, judgeDelete } from './delete-guard.js';
 import { resolveEngineDeps } from './deps.js';
 import { fragmentKey } from './diff.js';
 import { type Run, runOf } from './jobs.js';
 import { notePreloadsLeaving } from './preloads.js';
 import { failure, failureOf, label, palmCommand, type Subject } from './report.js';
-import { lockScope, settle } from './runner.js';
-import { openScope, type ScopeState } from './scope.js';
+import { settle, withLockedScope } from './runner.js';
+import type { ScopeState } from './scope.js';
 import { MANIFEST_SOURCE } from './sources.js';
 import { editedPaths } from './verify.js';
 
@@ -72,33 +72,49 @@ function subjectOf(e: LockEntry): Subject {
   return { kind: e.kind, name: e.name, source: e.source };
 }
 
+/** Each lock path of `entry` with its verdict; a path another entry lists is kept as it is. */
+async function verdicts(g: DeleteGuard, job: UndeployJob, entry: LockEntry) {
+  const out: Array<{ file: string; v: DeleteVerdict }> = [];
+  for (const file of entry.files) {
+    const owner = job.protect.get(file);
+    const v: DeleteVerdict =
+      owner === undefined
+        ? await judgeDelete(g, file)
+        : { action: 'keep', reason: 'owned', owner, real: '' };
+    out.push({ file, v });
+  }
+  return out;
+}
+
 /**
  * The entry's files palm may delete: inside the scope, outside every source, not owned by
- * another entry. The others are reported as kept (C3, K18, R5).
+ * another entry, not reached through a link into another target's output (T1). The others are
+ * reported as kept (C3, K18, R5); a linked path whose real file this entry deletes directly
+ * anyway is left out without a word.
  */
-async function deletable(job: UndeployJob, entry: LockEntry, report: UndeployReport) {
+async function deletable(
+  g: DeleteGuard,
+  job: UndeployJob,
+  entry: LockEntry,
+  report: UndeployReport,
+) {
+  const all = await verdicts(g, job, entry);
+  const going = new Set(all.flatMap(({ v }) => (v.action === 'delete' ? [v.real] : [])));
   const files: string[] = [];
-  const keep = (file: string, reason: KeptFile['reason'], owner?: string) =>
-    report.kept.push({
-      kind: entry.kind,
-      name: entry.name,
-      source: entry.source,
-      file,
-      reason,
-      ...(owner ? { owner } : {}),
-    });
-  for (const f of entry.files) {
-    const owner = job.protect.get(f);
-    if (owner !== undefined) {
-      keep(f, 'owned', owner);
-      continue;
-    }
-    const { real, inside } = await job.paths.realInside(job.paths.abs(f));
-    if (!inside) {
-      const message = `refusing to delete ${f}: it resolves to ${real}, outside the scope`;
+  for (const { file, v } of all) {
+    if (v.action === 'delete') files.push(file);
+    else if (v.action === 'outside') {
+      const message = `refusing to delete ${file}: it resolves to ${v.real}, outside the scope`;
       report.failures.push(failure(subjectOf(entry), 'E_IO', { message }));
-    } else if ((job.sources ?? []).some((s) => isWithin(real, s))) keep(f, 'source');
-    else files.push(f);
+    } else if (!going.has(v.real))
+      report.kept.push({
+        kind: entry.kind,
+        name: entry.name,
+        source: entry.source,
+        file,
+        reason: v.reason,
+        ...(v.owner ? { owner: v.owner } : {}),
+      });
   }
   return files;
 }
@@ -118,8 +134,12 @@ export async function undeploy(
   job: UndeployJob,
 ): Promise<UndeployReport> {
   const report: UndeployReport = { failures: [], warnings: [], kept: [] };
+  const g = await deleteGuard(ctx, deps, job.paths, {
+    staying: job.protect,
+    sources: job.sources ?? [],
+  });
   for (const entry of job.entries) {
-    const files = await deletable(job, entry, report);
+    const files = await deletable(g, job, entry, report);
     const merged = (entry.merged ?? []).filter((m) => !job.protect.has(fragmentKey(m)));
     if (!files.length && !merged.length) continue;
     const view: LockEntry = { ...entry, files, merged };
@@ -330,9 +350,8 @@ export async function removeEntities(
   depsIn?: Partial<EngineDeps>,
 ): Promise<RemoveResult> {
   const deps = await resolveEngineDeps(depsIn);
-  const state = await openScope(ctx, opts.scope, { deps, readOnly: true });
-  const run = runOf(ctx, deps, state);
-  return lockScope(ctx, state, async () => {
+  return withLockedScope(ctx, opts.scope, { deps, readOnly: true }, async (state) => {
+    const run = runOf(ctx, deps, state);
     const picked = select(state, refs);
     const kept: KeptFile[] = [];
     const removed = await removeRoots(run, await roots(run, picked, !!opts.exclude), kept);

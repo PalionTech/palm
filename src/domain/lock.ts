@@ -11,7 +11,7 @@ import type {
   LockSource,
   Rendered,
 } from '../core/types.js';
-import { sha256 } from '../lib/digest.js';
+import { contentHash, sha256 } from '../lib/digest.js';
 import { writeFileAtomic } from '../lib/fs.js';
 import { canonicalJson } from '../lib/json.js';
 import { isRecord } from '../lib/object.js';
@@ -53,12 +53,14 @@ export interface RemovalPlan {
 
 /**
  * The render hash (DESIGN.md section 4): sha256 over the sorted list of (lock path, mode,
- * sha256 of content) of the files a target writes plus (file, at, key, canonical JSON of the
- * value) of the fragments it merges. A function of the render alone, so every machine agrees.
+ * sha256 of content, text with LF line ends: O1) of the files a target writes plus (file, at,
+ * key, canonical JSON of the value) of the fragments it merges. A function of the render alone,
+ * so every machine agrees, whatever a checkout's clean filter did to line ends.
  */
 export function renderHashOf(rendered: Pick<Rendered, 'files' | 'fragments'>): string {
   const files = rendered.files.map(
-    (f) => `f\0${f.path}\0${f.mode === undefined ? '' : f.mode.toString(8)}\0${sha256(f.data)}`,
+    (f) =>
+      `f\0${f.path}\0${f.mode === undefined ? '' : f.mode.toString(8)}\0${contentHash(f.data)}`,
   );
   const fragments = rendered.fragments.map(
     (g) => `m\0${g.file}\0${g.at}\0${g.key}\0${canonicalJson(g.value)}`,

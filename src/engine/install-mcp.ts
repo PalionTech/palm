@@ -20,8 +20,8 @@ import { isSafeName } from '../lib/names.js';
 import { referenceTyped, type TypedReference, typedLine, typedValues } from '../secrets/typed.js';
 import { resolveEngineDeps } from './deps.js';
 import { type Job, jobPolicy, type Run, runOf } from './jobs.js';
-import { lockScope, runJobs, settle } from './runner.js';
-import { openScope, type ScopeState } from './scope.js';
+import { runJobs, settle, withLockedScope } from './runner.js';
+import type { ScopeState } from './scope.js';
 import { manifestSource, mcpConfigOf, mcpEntity, mcpManifestEntry } from './sources.js';
 import { activeTargets, narrowedTargets, refuseLocal, requestTargets } from './targets.js';
 
@@ -126,9 +126,8 @@ export async function installMcp(
 ): Promise<InstallResult> {
   refuseLocal(opts);
   const deps = await resolveEngineDeps(depsIn);
-  const state = await openScope(ctx, opts.scope, { deps });
-  const run = runOf(ctx, deps, state);
-  return lockScope(ctx, state, async () => {
+  return withLockedScope(ctx, opts.scope, { deps }, async (state) => {
+    const run = runOf(ctx, deps, state);
     assertNew(ctx, state, reqs, !!opts.force);
     requestTargets(state);
     let failed = true;

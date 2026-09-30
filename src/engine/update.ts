@@ -32,7 +32,7 @@ import { type Move, moveOf, versionLabel } from './moves.js';
 import { protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failureOf, palmCommand } from './report.js';
 import { lockSourceOf, type Resolved, resolveSource, rethrowCancel } from './resolve.js';
-import { applyAll, lockScope, prepareRun, settle } from './runner.js';
+import { applyAll, prepareRun, settle, withLockedScope } from './runner.js';
 import { openScope, type ScopeState } from './scope.js';
 import { describePin, newPreloads, newPrograms, refOnlyReason } from './update-notes.js';
 
@@ -376,9 +376,8 @@ export async function applyUpdate(
   depsIn?: Partial<EngineDeps>,
 ): Promise<InstallResult> {
   const deps = await resolveEngineDeps(depsIn);
-  const state = await openScope(ctx, opts.scope, { deps });
-  const run = runOf(ctx, deps, state, 'update');
-  return lockScope(ctx, state, async () => {
+  return withLockedScope(ctx, opts.scope, { deps }, async (state) => {
+    const run = runOf(ctx, deps, state, 'update');
     let failed = true;
     try {
       const updates: SourceUpdate[] = [];

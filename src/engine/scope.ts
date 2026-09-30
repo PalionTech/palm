@@ -5,10 +5,10 @@
  * changed since it was opened or last saved.
  */
 import { realpathSync } from 'node:fs';
-import { readdir, readFile, readlink, stat } from 'node:fs/promises';
+import { readdir, readlink, stat } from 'node:fs/promises';
 import { dirname, relative } from 'node:path';
 import { PalmError } from '../core/errors.js';
-import { sha256 } from '../core/hash.js';
+import { contentHash, diskContentHash } from '../core/hash.js';
 import { globalDirHolding, isHomeAsProject, worktreeRoot } from '../core/paths.js';
 import type {
   EngineDeps,
@@ -345,15 +345,7 @@ export function lockedSource(state: ScopeState, name: string): LockSource | unde
 /** Records the files a target wrote this run, for applied.yaml (global scope). */
 export function noteWritten(state: ScopeState, rendered: Rendered): void {
   const { written } = snapshotOf(state);
-  for (const f of rendered.files) written.set(state.paths.abs(f.path), sha256(f.data));
-}
-
-async function diskHash(abs: string): Promise<string | undefined> {
-  try {
-    return sha256(await readFile(abs));
-  } catch {
-    return undefined;
-  }
+  for (const f of rendered.files) written.set(state.paths.abs(f.path), contentHash(f.data));
 }
 
 /** applied.yaml for the current lock: this run's hashes, else the previous record, else the disk. */
@@ -365,7 +357,8 @@ async function rewriteApplied(state: ScopeState, snap: Snapshot): Promise<void> 
   for (const entry of lock.entries)
     for (const p of entry.files) {
       const abs = paths.abs(p);
-      const h = snap.written.get(abs) ?? state.applied?.fileHash(abs) ?? (await diskHash(abs));
+      const h =
+        snap.written.get(abs) ?? state.applied?.fileHash(abs) ?? (await diskContentHash(abs));
       if (h) hashes.set(abs, h);
     }
   const applied = Applied.fromLock(lock, paths, hashes);

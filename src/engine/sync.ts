@@ -8,9 +8,9 @@
  * dropped are deleted unless edited, and a dry run names them (J7). The lock is written only
  * when something in it changed, so a clean clone with committed outputs writes nothing.
  */
-import { readFile, rm } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
-import { sha256 } from '../core/hash.js';
+import { diskContentHash } from '../core/hash.js';
 import type {
   EngineDeps,
   InstallOptions,
@@ -25,6 +25,7 @@ import type { SourceRef } from '../domain/source.js';
 import { removeEmptyParents } from '../lib/fs.js';
 import { deepEqual } from '../lib/object.js';
 import { ensureRef, reportRefs } from './declare.js';
+import { type DeleteGuard, deleteGuard, judgeDelete } from './delete-guard.js';
 import { resolveEngineDeps } from './deps.js';
 import { fragmentKey } from './diff.js';
 import { dedupeJobs, manifestJobs } from './entries.js';
@@ -34,8 +35,8 @@ import { type Move, moveOf } from './moves.js';
 import { protectedPaths, sourceRoots, undeploy } from './remove.js';
 import { failureOf, logMark, palmCommand } from './report.js';
 import { lockSourceOf, pinOf, type Resolved, resolveSource, rethrowCancel } from './resolve.js';
-import { applyAll, lockScope, prepareRun, settle } from './runner.js';
-import { openScope, type ScopeState, shownPath } from './scope.js';
+import { applyAll, prepareRun, settle, withLockedScope } from './runner.js';
+import { type ScopeState, shownPath } from './scope.js';
 import { refuseLocal } from './targets.js';
 import { editedPaths } from './verify.js';
 
@@ -151,14 +152,6 @@ async function dropRemoved(run: Run, gone: LockEntry[]): Promise<void> {
       state.lock.removeSource(name);
 }
 
-async function diskHash(abs: string): Promise<string | undefined> {
-  try {
-    return sha256(await readFile(abs));
-  } catch {
-    return undefined;
-  }
-}
-
 /** One level below the boundary that holds `abs` (`~/.claude/skills`): pruning stops there. */
 function pruneStop(run: Run, abs: string): string | undefined {
   const b = run.state.paths.boundaries().find((d) => !relative(d, abs).startsWith('..'));
@@ -166,9 +159,17 @@ function pruneStop(run: Run, abs: string): string | undefined {
   return b && first ? join(b, first) : undefined;
 }
 
-/** Under -g: a file applied.yaml records that no lock entry lists any more (a pulled removal). */
-async function dropUnappliedFile(run: Run, file: { path: string; hash: string }): Promise<void> {
-  const disk = await diskHash(file.path);
+/**
+ * Under -g: a file applied.yaml records that no lock entry lists any more (a pulled removal).
+ * Its real path decides (T1): a file another entry still writes, one inside a source or one
+ * reached through a link into another target's output stays.
+ */
+async function dropUnappliedFile(
+  run: Run,
+  g: DeleteGuard,
+  file: { path: string; hash: string },
+): Promise<void> {
+  const disk = await diskContentHash(file.path);
   if (disk === undefined) return;
   const shown = shownPath(run.state, run.state.paths.lockForm(file.path));
   if (disk !== file.hash && !run.ctx.flags.force) {
@@ -177,8 +178,7 @@ async function dropUnappliedFile(run: Run, file: { path: string; hash: string })
     );
     return;
   }
-  const { inside } = await run.state.paths.realInside(file.path);
-  if (!inside) return;
+  if ((await judgeDelete(g, run.state.paths.lockForm(file.path))).action !== 'delete') return;
   if (run.ctx.flags.dryRun) {
     logMark(run.ctx, '-', `would remove ${shown}: palm.lock.yaml no longer lists it`);
     return;
@@ -232,7 +232,7 @@ export async function pendingRemovals(
   const owned = new Set(state.lock.entries.flatMap((e) => e.files.map((f) => state.paths.abs(f))));
   const files: string[] = [];
   for (const f of state.applied.record.files)
-    if (!owned.has(f.path) && (await diskHash(f.path)) !== undefined)
+    if (!owned.has(f.path) && (await diskContentHash(f.path)) !== undefined)
       files.push(state.paths.lockForm(f.path));
   const fragments = unappliedFragments(state).flatMap((e) => e.merged ?? []);
   return { files: files.sort(), fragments };
@@ -242,8 +242,14 @@ async function dropUnapplied(run: Run): Promise<void> {
   const { state, ctx, deps } = run;
   if (!state.applied) return;
   const owned = new Set(state.lock.entries.flatMap((e) => e.files.map((f) => state.paths.abs(f))));
-  for (const file of state.applied.record.files)
-    if (!owned.has(file.path)) await dropUnappliedFile(run, file);
+  const pulled = state.applied.record.files.filter((f) => !owned.has(f.path));
+  const g = pulled.length
+    ? await deleteGuard(ctx, deps, state.paths, {
+        staying: protectedPaths(state.lock, []),
+        sources: await sourceRoots(state),
+      })
+    : undefined;
+  for (const file of pulled) if (g) await dropUnappliedFile(run, g, file);
   const entries = unappliedFragments(state);
   if (!entries.length) return;
   if (ctx.flags.dryRun)
@@ -271,9 +277,8 @@ export async function syncScope(
 ): Promise<InstallResult> {
   refuseLocal(opts);
   const deps = await resolveEngineDeps(depsIn);
-  const state = await openScope(ctx, opts.scope, { deps });
-  const run = runOf(ctx, deps, state);
-  return lockScope(ctx, state, async () => {
+  return withLockedScope(ctx, opts.scope, { deps }, async (state) => {
+    const run = runOf(ctx, deps, state);
     let failed = true;
     try {
       const d = await desired(run);

@@ -1,0 +1,133 @@
+/**
+ * Data-safety rulings from the second persona rerun (FINDINGS-v3.md), end to end through the
+ * built CLI with real git: LF renders and hashes under `* text=auto eol=lf` (O1), no delete
+ * through a per-skill symlink into another target's output (T1), and two installs started
+ * together keep both entries (B1).
+ */
+import { lstat, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { git, Machine } from '../cli/world.js';
+
+let m: Machine;
+
+beforeEach(async () => {
+  m = await Machine.create();
+});
+
+afterEach(async () => {
+  await m.dispose();
+});
+
+const CRLF_SKILL =
+  '---\r\nname: crlf\r\ndescription: A skill written on Windows\r\n---\r\n\r\nLine one.\r\nLine two.\r\n';
+
+async function commitAll(dir: string): Promise<void> {
+  await git(dir, 'add', '-A');
+  await git(dir, 'commit', '-qm', 'palm');
+}
+
+describe('O1 LF-normalised text renders and hashes', () => {
+  it('O1 a CRLF source under `* text=auto eol=lf` stays clean in a fresh clone', async () => {
+    const url = await m.source('win', { 'v1.0.0': { 'skills/crlf/SKILL.md': CRLF_SKILL } });
+    const p = await m.project('app');
+    await writeFile(join(p, '.gitattributes'), '* text=auto eol=lf\n');
+    const first = await m.palm(p, 'install', url, 'crlf');
+    expect(first.code, first.all).toBe(0);
+    const written = await readFile(join(p, '.claude/skills/crlf/SKILL.md'), 'utf8');
+    expect(written).not.toContain('\r');
+    expect(written).toContain('Line one.\nLine two.\n');
+    await commitAll(p);
+    expect(await git(p, 'status', '--porcelain')).toBe('');
+
+    const clone = join(m.root, 'clone');
+    await git(m.root, 'clone', '-q', p, clone);
+    const check = await m.palm(clone, 'check');
+    expect(check.code, check.all).toBe(0);
+    const bare = await m.palm(clone, 'install');
+    expect(bare.code, bare.all).toBe(0);
+    expect(bare.all).not.toMatch(/modified|changed since palm wrote/);
+    expect(await git(clone, 'status', '--porcelain')).toBe('');
+
+    const forced = await m.palm(p, 'install', url, 'crlf', '--force');
+    expect(forced.code, forced.all).toBe(0);
+    expect(await git(p, 'status', '--porcelain')).toBe('');
+  });
+
+  it('O1 a CRLF working copy of an LF render is the same file (core.autocrlf)', async () => {
+    const skill = '---\nname: lf\ndescription: An LF skill\n---\n\nLine one.\nLine two.\n';
+    const url = await m.source('lf', { 'v1.0.0': { 'skills/lf/SKILL.md': skill } });
+    const p = await m.project('app');
+    const first = await m.palm(p, 'install', url, 'lf');
+    expect(first.code, first.all).toBe(0);
+    const file = join(p, '.claude/skills/lf/SKILL.md');
+    await writeFile(file, (await readFile(file, 'utf8')).replaceAll('\n', '\r\n'));
+    const check = await m.palm(p, 'check');
+    expect(check.code, check.all).toBe(0);
+    const bare = await m.palm(p, 'install');
+    expect(bare.code, bare.all).toBe(0);
+    expect(bare.all).not.toMatch(/modified|changed since palm wrote/);
+  });
+});
+
+describe('T1 no delete through a link into another target', () => {
+  const KIT = {
+    'skills/fmt/SKILL.md': '---\nname: fmt\ndescription: Formats code\n---\n\nFormat it.\n',
+    'skills/fmt/agents/openai.yaml': 'interface:\n  display_name: Fmt\n',
+  };
+
+  it('T1 per-skill symlinks: install --force and narrowing targets keep the Codex-only file', async () => {
+    const url = await m.source('kit', { 'v1.0.0': KIT });
+    const p = await m.project('app', ['.claude', '.codex']);
+    await writeFile(join(p, 'palm.yaml'), 'targets: [claude, codex]\n');
+    const first = await m.palm(p, 'install', url, 'fmt');
+    expect(first.code, first.all).toBe(0);
+    const codexOnly = join(p, '.agents/skills/fmt/agents/openai.yaml');
+    const codexText = await readFile(codexOnly, 'utf8');
+
+    await rm(join(p, '.claude/skills/fmt'), { recursive: true });
+    await symlink('../../.agents/skills/fmt', join(p, '.claude/skills/fmt'));
+    const forced = await m.palm(p, 'install', url, 'fmt', '--force');
+    expect(forced.code, forced.all).toBe(0);
+    expect(await readFile(codexOnly, 'utf8')).toBe(codexText);
+    expect((await lstat(join(p, '.claude/skills/fmt'))).isSymbolicLink()).toBe(true);
+
+    const check = await m.palm(p, 'check');
+    expect(check.all).toContain('no stray file in a folder palm owns');
+    expect(check.all).not.toContain('does not list');
+
+    const yaml = await readFile(join(p, 'palm.yaml'), 'utf8');
+    await writeFile(
+      join(p, 'palm.yaml'),
+      yaml.replace('targets: [claude, codex]', 'targets: [codex]'),
+    );
+    const narrowed = await m.palm(p, 'install');
+    expect(narrowed.code, narrowed.all).toBe(0);
+    expect(await readFile(codexOnly, 'utf8')).toBe(codexText);
+    expect(await readFile(join(p, '.agents/skills/fmt/SKILL.md'), 'utf8')).toContain('Format it.');
+  });
+});
+
+describe('B1 two installs started together', () => {
+  it('B1 the second process waits for the first; neither entry is lost', async () => {
+    const skills: Record<string, string> = {};
+    const names = ['alpha', 'bravo', 'charlie', 'delta'];
+    for (const n of names)
+      skills[`skills/${n}/SKILL.md`] = `---\nname: ${n}\ndescription: Skill ${n}\n---\n\n${n}\n`;
+    const url = await m.source('many', { 'v1.0.0': skills });
+    const p = await m.project('app');
+    const seed = await m.palm(p, 'install', url, 'alpha');
+    expect(seed.code, seed.all).toBe(0);
+    const runs = await Promise.all(names.slice(1).map((n) => m.palm(p, 'install', 'many', n)));
+    for (const r of runs) expect(r.code, r.all).toBe(0);
+    const manifest = await readFile(join(p, 'palm.yaml'), 'utf8');
+    const lock = await readFile(join(p, 'palm.lock.yaml'), 'utf8');
+    for (const n of names) {
+      expect(lock).toContain(`name: ${n}`);
+      expect(await readFile(join(p, `.claude/skills/${n}/SKILL.md`), 'utf8')).toContain(n);
+    }
+    expect(manifest).toContain('many');
+    const check = await m.palm(p, 'check');
+    expect(check.code, check.all).toBe(0);
+  });
+});

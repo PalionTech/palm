@@ -367,16 +367,19 @@ export async function migrateScope(
   // The scope guards come before the 0.1 files are read (the home directory is never a project).
   assertScope(ctx, opts.scope);
   const paths = ScopePaths.of(ctx, opts.scope);
-  const legacy = await readLegacy(paths);
-  const m = convertLegacy({
-    manifest: legacy.manifest,
-    ...(legacy.lock ? { lock: legacy.lock } : {}),
-    ...(legacy.config ? { config: legacy.config } : {}),
-    scope: opts.scope,
-    root: baseDir(paths),
-    palmHome: shown(paths, paths.palmHome),
-  });
   const c = opts.dryRun ? { ...ctx, flags: { ...ctx.flags, dryRun: true } } : ctx;
-  const run = () => migrate(c, { paths, legacy, m }, deps);
+  // B1: the 0.1 files are read holding the process lock, like palm.yaml and the lock.
+  const run = async () => {
+    const legacy = await readLegacy(paths);
+    const m = convertLegacy({
+      manifest: legacy.manifest,
+      ...(legacy.lock ? { lock: legacy.lock } : {}),
+      ...(legacy.config ? { config: legacy.config } : {}),
+      scope: opts.scope,
+      root: baseDir(paths),
+      palmHome: shown(paths, paths.palmHome),
+    });
+    return migrate(c, { paths, legacy, m }, deps);
+  };
   return opts.dryRun ? run() : withScopeLock(paths, run);
 }

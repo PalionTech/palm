@@ -9,15 +9,15 @@
  * after, the result says how far it got (`interrupted`) and the CLI exits 130 after printing
  * it (L11). palm never listens for signals itself; the CLI owns them.
  */
-import { withScopeLock } from '../core/context.js';
+import { scopedPaths, withScopeLock } from '../core/context.js';
 import { PalmError } from '../core/errors.js';
-import type { ExecUnit, PalmContext } from '../core/types.js';
+import type { EngineDeps, ExecUnit, PalmContext, Scope } from '../core/types.js';
 import { applyPrepared } from './apply.js';
 import { askForConsent, type Job, type Prepared, prepareJob, type Run } from './jobs.js';
 import { confirmMoves, holdBack, type Move } from './moves.js';
 import { refuseConflicts } from './owners.js';
 import { failureOf } from './report.js';
-import { type ScopeState, saveScope } from './scope.js';
+import { assertScope, openScope, type ScopeState, saveScope } from './scope.js';
 
 let stopRequested = false;
 
@@ -30,14 +30,23 @@ function cancelled(): PalmError {
   return new PalmError('E_CANCELLED', 'cancelled; nothing was written');
 }
 
-/** Runs `fn` holding the scope's process lock (DESIGN §2); a dry run takes none. A stop request ends with the run. */
-export async function lockScope<T>(
+/**
+ * Opens the scope and runs `fn` holding its process lock (DESIGN §2, B1): the lock is taken
+ * before palm.yaml and the lock file are read and held until `fn` saved them, so a second palm
+ * started at the same time waits and then reads what the first one wrote. The scope guards run
+ * first (a refused scope leaves no lock behind); a dry run takes none. A stop request ends with
+ * the run.
+ */
+export async function withLockedScope<T>(
   ctx: PalmContext,
-  state: ScopeState,
-  fn: () => Promise<T>,
+  scope: Scope,
+  open: { deps: EngineDeps; readOnly?: boolean },
+  fn: (state: ScopeState) => Promise<T>,
 ): Promise<T> {
+  assertScope(ctx, scope);
+  const body = async () => fn(await openScope(ctx, scope, open));
   try {
-    return ctx.flags.dryRun ? await fn() : await withScopeLock(state.paths, fn);
+    return ctx.flags.dryRun ? await body() : await withScopeLock(scopedPaths(ctx, scope), body);
   } finally {
     stopRequested = false;
   }

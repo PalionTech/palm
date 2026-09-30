@@ -25,7 +25,7 @@ import type { Prepared, Run } from './jobs.js';
 import { keptProgram } from './moves.js';
 import { removeOrphans } from './orphans.js';
 import { protectedPaths, sourceRoots, undeploy } from './remove.js';
-import { failure, failureOf, installCommand, type Subject } from './report.js';
+import { failure, failureOf, installCommand, label, type Subject } from './report.js';
 import { literalsBefore, rotationWarnings } from './rotate.js';
 import { noteWritten, persistTargets } from './scope.js';
 
@@ -254,6 +254,9 @@ async function replacePrevious(
   if (!stale.files.length && !stale.merged?.length) return;
   const { state, ctx } = run;
   const protect = protectedPaths(state.lock, [previous]);
+  // T1: a stale path whose real file the new render still writes (through a link) stays.
+  for (const f of entry.files)
+    if (!protect.has(f)) protect.set(f, `${label(entry)} from ${entry.source}`);
   const sources = await sourceRoots(state);
   const job = { paths: state.paths, entries: [stale], protect, dryRun: ctx.flags.dryRun, sources };
   const report = await undeploy(ctx, run.deps, job);
