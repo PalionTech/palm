@@ -66,6 +66,7 @@ npm install -g @paliontech/palm@latest
 
 palm does not check for updates and never updates itself.
 A newer palm may render an entity differently. The next `palm install` then reports it as `~ re-rendered`, and `palm check` fails until you commit the result.
+For that reason, pin the exact version in CI, such as `npm install -g @paliontech/palm@0.2.0`, and upgrade it in a pull request of its own.
 
 ### From palm 0.1
 
@@ -97,7 +98,7 @@ palm keeps its own state in `~/.palm`.
 | `palm.yaml`, `palm.lock.yaml` | The global scope's manifest and lock. You may keep these in a dotfiles repository. |
 | `applied.yaml` | What the global scope wrote on this machine, with real paths. |
 | `assets/` | Scripts that global hooks and MCP servers run. |
-| `kit/` | The in-repo source `palm create -g` writes to. |
+| `kit/` | The in-repo source `palm create -g` writes to. You may keep it in a dotfiles repository too. |
 | `cache/` | Checkouts and indexes. Safe to delete. |
 
 Delete `~/.palm` to remove that state.

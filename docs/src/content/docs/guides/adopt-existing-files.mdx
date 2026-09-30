@@ -20,7 +20,7 @@ The session ran against palm's test fixtures, which mirror `mattpocock/skills` a
 
 - Commit your current files, so `git diff` shows what palm changes.
 - Know or find the repository each copy came from.
-- Set the targets with `palm init`. It detects them from the folders you already have.
+- Set the targets with `palm init`. It detects them from the folders you already have, and prints the evidence for each.
 
 ## Steps
 
@@ -47,7 +47,8 @@ The session ran against palm's test fixtures, which mirror `mattpocock/skills` a
    palm install mattpocock/skills tdd
    ```
 
-   A copy that is byte for byte what palm would write is adopted. palm records it in the lock and writes nothing.
+   A copy that matches what palm would write is adopted. palm records it in the lock and writes nothing.
+   The comparison reads the frontmatter as data and ignores trailing whitespace, so a copy that differs only in quoting or line ends still matches.
 
 3. Look at each file palm refuses.
 
@@ -56,7 +57,7 @@ The session ran against palm's test fixtures, which mirror `mattpocock/skills` a
    ```
 
    palm never overwrites a file it did not write. The error names the file and the command that replaces it.
-   Compare your copy with the source. If your change matters, keep it in your own source (step 5).
+   Compare your copy with the source. If your change matters, keep it in your own source (step 5), as the hint also says.
 
 4. Replace the rest with `--force`.
 
@@ -87,8 +88,12 @@ The session ran against palm's test fixtures, which mirror `mattpocock/skills` a
 Commit first, so you can bring an edit back with git.
 :::
 
-MCP servers work the same way.
-A server you wrote into `.mcp.json` by hand blocks `palm install mcp <name>` until you pass `--force`, and palm keeps every other server in the file.
+MCP servers and hooks work the same way.
+A server or hook entry you wrote by hand that matches palm's is adopted, never added a second time.
+One that differs blocks the install until you pass `--force`, and palm keeps every other entry in the file.
+
+A project with a `skills-lock.json` or an `apm.yml` gets one hint from `palm init` and `palm check`: palm 0.3 imports those files.
+Until then, install each entry by name as above.
 
 ## Check the result
 

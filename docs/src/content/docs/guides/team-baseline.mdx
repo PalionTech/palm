@@ -45,7 +45,7 @@ When you finish, a teammate's fresh clone passes `palm check` without a single p
 Nothing palm-specific. `git clone` delivers the files, and the harnesses read them.
 
 palm is only needed to change the setup, and to prove it in CI.
-A bare `palm install` on the clone reports every entry as unchanged and writes nothing.
+A bare `palm install` on the clone counts every entry as unchanged and writes nothing.
 If a hook is part of the baseline, the lock already holds the team's consent, so the clone installs it silently. [Consent](/palm/concepts/consent/) explains the hash that makes this safe.
 
 ## Take an update
@@ -59,7 +59,11 @@ One person moves the project to it and opens a pull request.
 `--yes` applies it without a prompt, and palm prints the diff stat.
 The pull request shows the new skill text and the moved commit in the lock, and review decides.
 
+The plan lists every entry of a source whose commit moves, including those whose files stay the same, so review sees each re-pin.
+For a source pinned to an exact tag, the plan prints the latest tag, so a pin never hides a newer release.
+
 A changed or new hook is never covered by `--yes`. It needs a fresh consent, shown with `d` as a diff against what the team trusted.
+A hook or MCP server that a plugin starts to ship appears as `i new program available`, and nothing installs it until someone names it.
 
 To leave the range, move it explicitly.
 

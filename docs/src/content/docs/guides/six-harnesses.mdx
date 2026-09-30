@@ -50,10 +50,10 @@ The sessions on this page ran against palm's fixture that mirrors `anthropics/cl
 
    | Harness | File | What palm changes |
    | --- | --- | --- |
-   | Claude Code | `.claude/agents/<name>.md` | nothing: this is the source format |
+   | Claude Code | `.claude/agents/<name>.md` | nothing for a Claude Code agent; from another format, keys Claude Code does not define are dropped with a note |
    | Codex | `.codex/agents/<name>.toml` | TOML with `name`, `description` and `developer_instructions` |
    | GitHub Copilot | `.github/agents/<name>.agent.md` | Copilot tool names such as `read` and `execute`, MCP servers as `context7/*` |
-   | Cursor | `.cursor/agents/<name>.md` | the tool list maps to `readonly` |
+   | Cursor | `.cursor/agents/<name>.md` | `readonly: true` only when no tool in the list writes files or runs commands |
    | Gemini CLI | `.gemini/agents/<name>.md` | strict frontmatter with `kind: local` and Gemini tool names |
    | OpenCode | `.opencode/agents/<name>.md` | `mode: subagent` and a `permission` map that denies what the tool list leaves out |
 
@@ -67,6 +67,7 @@ The sessions on this page ran against palm's fixture that mirrors `anthropics/cl
    <Capture name="b-six-skips" title="~/project" />
 
    The command file installs as a skill everywhere, with a note about `$ARGUMENTS`.
+   A harness without skill commands loses the `/new-sdk-app` call, and the note says so too.
    The hook lands in five harnesses. OpenCode has no declarative hooks, so palm skips it there and says so.
 
 </Steps>
@@ -76,7 +77,10 @@ These are the combinations palm skips.
 | Kind | Harness | Scope | Why |
 | --- | --- | --- | --- |
 | hook | OpenCode | both | OpenCode hooks are JavaScript plugins |
+| hook with a matcher that has arguments, such as `Bash(git commit*)` | GitHub Copilot | both | Copilot matchers cannot hold arguments |
 | instruction | Cursor | global | Cursor keeps user rules in its settings |
+
+An on-request or manual rule is not skipped in Claude Code and OpenCode, but installs always-on there until 0.3, with a notice per rule.
 
 `palm describe target <target>` prints where each kind goes for one harness, skips included.
 
@@ -89,7 +93,8 @@ palm describe target opencode
 Several harnesses read the same files, and palm keeps each entity loaded once per harness.
 With `claude` and `cursor`, a skill lives only in `.claude/skills`, because Cursor reads it there.
 Codex reads instructions from `AGENTS.md`, which Cursor, OpenCode and Copilot also read.
-palm 0.2 still writes Cursor's own `.cursor/rules` file too, and `palm check` warns about the double load. palm 0.3 records one carrier per harness and drops the second copy.
+palm 0.2 still writes Cursor's own `.cursor/rules` file too, and `palm check` warns about that double load. palm 0.3 records one carrier per harness and drops the second copy.
+The skill copies palm chose above never warn, because `palm check` uses the same facts as the install.
 
 ## Check the result
 

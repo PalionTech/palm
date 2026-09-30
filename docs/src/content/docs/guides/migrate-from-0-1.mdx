@@ -10,27 +10,28 @@ palm 0.2 declares sources in `palm.yaml` instead of `~/.palm/config.yaml`, write
 `palm migrate` converts a project in one command and adopts every file that already matches.
 It ships with 0.2 only and is removed in 0.3.
 
-When you finish, the project runs on 0.2, and the only changes are `palm.yaml`, the lock and `.gitignore`:
+When you finish, the project runs on 0.2, `palm check` passes, and palm has listed every file it changed:
 
 <Capture name="b-migrate" title="~/project" />
 
 ## Before you start
 
 - Commit the current state, so `git diff` shows exactly what the migration changed.
-- Upgrade palm with `npm install -g @paliontech/palm@latest`.
+- Upgrade palm with `npm install -g @paliontech/palm@0.2`. palm 0.3 no longer has `palm migrate`.
 - Keep `~/.palm/config.yaml` in place until every project is migrated. palm reads its repository list once per project.
 
 ## Steps
 
 <Steps>
 
-1. Preview the new `palm.yaml`.
+1. Preview the migration.
 
    ```sh
    palm migrate --dry-run
    ```
 
-   The preview goes to stdout, and nothing is written.
+   palm prints the new `palm.yaml`, the files it would change and the programs that need your consent. Nothing is written.
+   Add `--review` to page every script those programs run.
 
 2. Migrate.
 
@@ -38,16 +39,24 @@ When you finish, the project runs on 0.2, and the only changes are `palm.yaml`, 
    palm migrate
    ```
 
-   If the project has hooks, palm lists the programs it copied into `.palm/assets/` and asks for consent once. Your yes goes into the new lock, so teammates are not asked again.
+   palm validates everything and asks for consent before it writes a single file.
+   If the project has hooks or stdio MCP servers, it shows each one and asks once. Your yes goes into the new lock, so teammates are not asked again.
+   Without a terminal it stops before any write and prints a `review:` and a `then:` line. The `then:` line is the same command with `--allow-exec`.
 
-3. Review and commit.
+3. Read the check.
+
+   `palm migrate` ends by running `palm check` and prints its result.
+   It exits 1 when the check fails, so a migration never reports success over a broken setup.
+
+4. Commit what palm lists.
 
    ```sh
-   git diff
+   git status
    git add -A
    git commit -m "Migrate to palm 0.2"
-   palm check
    ```
+
+   The report names every file it changed, and every output folder palm 0.1 left out of git that you now commit.
 
 </Steps>
 
@@ -56,6 +65,7 @@ When you finish, the project runs on 0.2, and the only changes are `palm.yaml`, 
 | palm 0.1 | palm 0.2 |
 | --- | --- |
 | a repository registered in `~/.palm/config.yaml` | a source in `palm.yaml`, keyed `owner/repo` for GitHub, else by the alias, with its URL, root, layout and locked ref |
+| a local origin with a `path` and a `root` | an in-repo source at `./<path>/<root>` |
 | a registration alias that differs from the key | `alias:` on the source |
 | `tdd@mattpocock#v1.2.3` in a kind list | `tdd` under the source's `skills:`; the ref moves to the source |
 | entries of one source pinned to different refs | the most common ref wins, and palm names the others |
@@ -63,13 +73,18 @@ When you finish, the project runs on 0.2, and the only changes are `palm.yaml`, 
 | a `command` entry | a skill of the same name |
 | an MCP server from the MCP registry | an entry under `mcp:`, copied from the rendered `.mcp.json` or harness file |
 | an entry installed with `--target` beyond the project's set | per-entry `targets:`, with a note |
-| an entry from `~/.palm/mine` | a warning that names the folder to copy the file into |
-| `.palm/hooks/<name>/`, ignored by git | `.palm/assets/<source>/<name>/`, committed |
+| an entry from `~/.palm/mine` | a warning that names the folder to copy the file into, `./agent-kit` or, under `-g`, `~/.palm/kit` |
+| a hook named after its 0.1 origin | the 0.2 name, matched by source and entity path, with its trust carried over; palm prints the rename |
+| `.palm/hooks/<name>/`, ignored by git | `.palm/assets/<source>/<name>/`, committed; `.palm/hooks/` is removed after the move |
+| a hook from an in-repo source | no copy: it runs in place from your repository, and palm says so |
 | `.palm/` in `.gitignore` | `.palm/local/` and `palm.local.yaml` |
+| comments in `palm.yaml` | kept above the nearest key that survives, or under `# from palm 0.1:` at the end |
 | lock version 1 or 2 | lock version 3 |
 
 After the conversion palm runs a bare install, which adopts every file that already matches and restores any that are missing.
-The report ends with the files to commit.
+It never deletes or unlinks a harness file.
+An MCP server or hook palm 0.1 merged into `.mcp.json` or `.cursor/mcp.json` is adopted by its key, your own entries stay, and a symlinked file stays a link.
+The report ends with the check result and the files to commit.
 
 ## The global scope
 
@@ -78,19 +93,23 @@ palm migrate -g
 ```
 
 Under `-g`, palm rewrites absolute paths in `~/.palm/palm.lock.yaml` as tokens, such as `<claude>/skills/tdd`, so the lock can live in a dotfiles repository.
+A path written under another machine's home also becomes a token when it matches a harness home layout.
+palm writes through a symlinked `~/.palm/palm.yaml` or harness config and keeps the link.
 It lists every literal secret it finds in the harness files, with the advice to rotate it.
-It leaves `~/.palm/config.yaml` in place and reports `i ~/.palm/config.yaml is no longer read; delete it`.
+It leaves `~/.palm/config.yaml` in place and says you can delete it once every project is migrated.
+In project scope it says nothing about that file, because other projects may still need it.
 
-## Old commands
+## Old commands and flags
 
 The 0.1 grammar keeps working for one release as hidden aliases.
 
 | palm 0.1 | palm 0.2 |
 | --- | --- |
-| `palm install skill tdd@mattpocock` | `palm install mattpocock/skills tdd`; the alias resolves through `palm.yaml` |
-| `palm install origin mattpocock/skills` | `palm install mattpocock/skills`; palm prints the new form and runs it |
+| `palm install skill tdd@mattpocock` | `palm install mattpocock/skills tdd`; the alias resolves against the declared sources by repository name |
+| `palm install skill tdd@mattpocock#v1.2.0` | `palm install mattpocock/skills#v1.2.0 tdd` |
+| `palm install origin mattpocock/skills` | `palm install mattpocock/skills`; palm prints the new form, one line per repository, and runs it |
 | `palm uninstall skill tdd` | `palm remove tdd` |
-| `palm install --frozen`, `palm doctor`, `palm audit` | `palm check` |
+| `palm doctor`, `palm audit` | `palm check` |
 | `palm outdated` | `palm update --dry-run` |
 | `palm why`, `palm find` | `palm describe <name>`, `palm describe <path>` |
 | `palm search`, `palm install mcp <registry name>` | none; see [Add MCP servers](/palm/guides/mcp-servers/) |
@@ -98,6 +117,17 @@ The 0.1 grammar keeps working for one release as hidden aliases.
 | `palm create` wizard, `~/.palm/mine` | `palm create <kind> <name>` into `./agent-kit` |
 
 `palm doctor`, `audit`, `outdated`, `why`, `find`, `search` and `config` print one line naming the replacement and exit 2.
+
+Removed flags print their replacement too.
+
+| palm 0.1 flag | palm 0.2 |
+| --- | --- |
+| `palm install --frozen` | `palm check`; the old flag prints it and runs it |
+| `--from <repo>#<ref> <names>` | `palm install <repo>#<ref> <names>` |
+| `--ref <ref>` | `#<ref>` after the source, such as `palm install mattpocock/skills#v1.2.3 tdd` |
+| `--project` | nothing: project scope is the default |
+| `--alias <name>` | `--as <name>` |
+| `--target` on `palm install` | `--targets`; both spellings work on `palm install` and `palm init` |
 
 ## Next steps
 

@@ -39,7 +39,8 @@ When you finish, a teammate in another project installs your skill from its tag:
    | `instruction` | `agent-kit/instructions/<name>.md` |
    | `hook` | `agent-kit/hooks/<name>/hooks.json` with an example script |
 
-   `--in <dir>` picks another folder. A file that already exists stops with `E_CONFLICT`.
+   `--in <dir>` picks another folder, and a `layout:` on that source decides where the template goes.
+   A file that already exists, or a name the source or another source already has, stops with `E_CONFLICT` before palm writes anything.
 
 2. Write the skill, and let palm follow.
 
@@ -56,7 +57,7 @@ When you finish, a teammate in another project installs your skill from its tag:
    | --- | --- |
    | skills | `skills/<name>/SKILL.md` with `name` and `description` frontmatter |
    | agents | `agents/<name>.md` with `name` and `description` frontmatter |
-   | instructions | `instructions/<name>.md`, `rules/<name>.mdc` or `<name>.instructions.md` |
+   | instructions | `instructions/<name>.md`, `rules/<name>.md`, `rules/<name>.mdc` or `<name>.instructions.md` |
    | hooks | `hooks/hooks.json`, with scripts next to it referenced as `${CLAUDE_PLUGIN_ROOT}/hooks/<file>` |
    | MCP servers | `.mcp.json` with `mcpServers` |
    | a version | a semver tag, or `metadata.version` in the frontmatter |
@@ -104,8 +105,12 @@ Each project then runs `palm update acme/agent-kit`, reviews the plan and commit
 
 - A hook command that names a script the repository does not have. Keep scripts inside the repository and reference them relative to the hook file or `${CLAUDE_PLUGIN_ROOT}`.
 - Hidden Unicode such as bidi overrides or tag characters, in any file of an entity.
-- A literal secret in an MCP config or hook command. Write `${NAME}` instead.
+- A literal secret in an MCP config or hook command. Write `${NAME}` instead. A skill that carries one in any of its files is refused.
+- A skill folder above 200 files or 5 MB, unless the person installing passes `--force`. A root `SKILL.md` makes the whole repository the skill, so keep skills in `skills/<name>/`.
 - A symlink that leaves the repository.
+
+palm also warns when a hook script reads a file it cannot resolve.
+Refer to such a file by a literal path, such as `"$(dirname "$0")/../skills/x/SKILL.md"`, so palm copies it with the script.
 
 ## Next steps
 
