@@ -10,7 +10,7 @@ import { isWithin, removeEmptyParents, walkFiles } from '../lib/fs.js';
 import type { ScopeState } from './scope.js';
 
 /** The folders palm owns whole for an entry: a skill's folder per harness, a closure copy. */
-export function ownedDirs(state: ScopeState, e: LockEntry): string[] {
+function ownedDirs(state: ScopeState, e: LockEntry): string[] {
   const dirs = new Set<string>();
   const segment = `/${e.name}/`;
   if (e.kind === 'skill')

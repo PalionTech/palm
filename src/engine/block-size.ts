@@ -72,14 +72,15 @@ async function sizeAfter(run: Run, f: RenderedFragment): Promise<number | undefi
   return Buffer.byteLength(next);
 }
 
-function refusal(run: Run, subject: Subject, id: TargetId, message: string, fix: string) {
+function refusal(
+  run: Run,
+  subject: Subject,
+  id: TargetId,
+  problem: { message: string; fix: string },
+) {
   const again = installCommand(subject, run.state.paths.scope, '--force');
-  return failure(
-    subject,
-    'E_TARGET',
-    { message, hint: `${fix}; or write it anyway: ${again}` },
-    id,
-  );
+  const hint = `${problem.fix}; or write it anyway: ${again}`;
+  return failure(subject, 'E_TARGET', { message: problem.message, hint }, id);
 }
 
 /**
@@ -101,7 +102,7 @@ export async function refuseOversizedBlocks(
       const problem = bytes === undefined ? undefined : blockSizeProblem(f.file, bytes);
       if (!problem) continue;
       if (problem.level === 'fail' && !run.ctx.flags.force) {
-        refused.push(refusal(run, subject, id, problem.message, problem.fix));
+        refused.push(refusal(run, subject, id, problem));
         delete out.renders[id];
       } else out.warnings.push(`${problem.message}; ${problem.fix}`);
     }
