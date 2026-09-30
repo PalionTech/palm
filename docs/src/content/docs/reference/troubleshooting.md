@@ -158,7 +158,7 @@ Export it before you start the harness. It is a warning, so `palm check` still e
 - Remote marketplace entries are not fetched. palm prints the command that declares each as a source.
 - palm rewrites a JSON file it merges into with two-space indentation. Minimal edits are planned for 0.3.
 - Per-person additions (`palm.local.yaml`) and per-package placement (`at:`) arrive in palm 0.3.
-- Windows is not supported.
+- palm 0.2 does not run on native Windows. Run it inside WSL, as [Installation](/palm/getting-started/install/#on-windows) shows. Contributors who only use the harnesses need no palm.
 
 ## Report a bug
 

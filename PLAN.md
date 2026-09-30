@@ -619,11 +619,23 @@ version, next to the pinned CI install the docs show (D18); minimal JSON edits t
 merged file's formatting instead of printing it anew (J13); a generated-file marker, with
 `.gitattributes` `linguist-generated` help and a header where the format allows (E10).
 
+Candidates for 0.3 from the second 0.2 rerun: an opt-in restore mode for gitignored outputs
+(a repository that ignores `.claude/` on purpose gets its files from a bare install), taken
+up only with new evidence beyond one maintainer, since committed outputs stay the rule of
+section 4.2 and check prints the exact re-include lines until then (O2); prose diffs for
+changed skills and agents in `--review`, where 0.2 marks them `~ changed` so the reviewer
+reads the pull request's diff (V1'); `palm create <kind> <name> --from-installed`, which
+copies an installed entity you edited into your own source under a new name (O17); a
+publisher-side `exclude` in a marketplace entry (T16); per-target hook overrides in the
+hook mapping table (O11). The personal layer (`palm.local.yaml`, per-person disable of a
+team entry) and the context cost in `get` stay on the 0.3 list above.
+
 1.0, verified. Every placement row and hook mapping row carries the harness version it
 was tested against, with an end-to-end job that runs the real CLIs for all six targets;
 Gemini and OpenCode leave the unverified tier or are dropped; the docs are rewritten
 around the eight verbs; the persona study is rerun with a target of at least fifteen yes
-or leaning-yes verdicts and no S1 finding.
+or leaning-yes verdicts and no S1 finding. Native Windows stays on the list: 0.2 and 0.3
+run on macOS and Linux, and Windows maintainers run palm inside WSL (O18).
 
 ## 8. Migration from 0.1.0
 

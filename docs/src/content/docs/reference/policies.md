@@ -13,7 +13,7 @@ palm check --offline
 | Topic | Policy |
 | --- | --- |
 | Versions | Semantic versioning, still on 0.x; pin an exact version in CI |
-| Platforms | macOS and Linux; Windows unsupported |
+| Platforms | macOS and Linux; on Windows, inside WSL |
 | Runtime | Node 22 or later, and git |
 | Telemetry | None, and no update check |
 | Network | git to the sources you declare, nothing else |
@@ -31,8 +31,8 @@ A `palm:` key in `palm.yaml` that names the minimum version is planned for 0.3.
 | Release | Focus |
 | --- | --- |
 | 0.2 | Sources in `palm.yaml`, lock version 3, committed generated files, `palm check`, hash-pinned consent, `palm migrate` |
-| 0.3 | The personal `palm.local.yaml`, placement with `at:`, one carrier per harness, activation mapping, the hook mapping table, `palm migrate` removed |
-| 1.0 | Every placement and hook mapping tested against the real CLIs of all six harnesses |
+| 0.3 | The personal `palm.local.yaml` and per-person disable, placement with `at:`, one carrier per harness, activation mapping, the hook mapping table, text diffs in `--review`, load cost in `palm get`, `palm migrate` removed |
+| 1.0 | Every placement and hook mapping tested against the real CLIs of all six harnesses; native Windows considered |
 
 ## File formats
 
@@ -50,7 +50,8 @@ The old command grammar works for one release as hidden aliases, and removed com
 | --- | --- |
 | macOS | Supported |
 | Linux | Supported |
-| Windows | Not supported. Paths use the platform's joiner, so a contributor can add it. |
+| Windows, inside WSL | Supported: WSL runs Linux. Keep the repository in the WSL file system. |
+| Windows, native | Not supported in 0.2. It stays on the list for 1.0. Paths use the platform's joiner, so a contributor can add it. |
 
 ## Network
 
