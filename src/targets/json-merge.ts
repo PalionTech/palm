@@ -1,29 +1,30 @@
 /**
- * Merge/unmerge single values into shared JSON config files (settings.json,
- * hooks.json, .mcp.json, mcp.json, ~/.claude.json).
+ * Merge/unmerge single values into shared JSON config files (settings.json, hooks.json,
+ * .mcp.json, mcp.json, ~/.claude.json, opencode.json), keyed by (path, key).
  *
- * - Missing file → `{}`. JSONC comments and trailing commas are tolerated on read;
- *   the file is written back as plain JSON with 2-space indent (comments are lost).
- * - Merges are pure text transforms (`appendItemText`, `setKeyText`, `ensureKeyText`):
- *   current text in, next text out (undefined when unchanged). Deploys plan with them and let
- *   the Writer (plan.ts) write, atomically, and on failure restore the file. The planner
- *   records a `json-item` (the path names the array, `value` is the item) or a `json-key`
- *   (the path names the key itself, `/mcpServers/<name>`).
- * - `unmergeJsonFile` removes a recorded fragment in place (undeploy).
+ * - Missing file → `{}`. JSONC comments and trailing commas are tolerated on read; the file is
+ *   written back as plain JSON with 2-space indent (comments are lost).
+ * - Merges are pure text transforms (`appendItemText`, `setKeyText`, `ensureKeyText`): current
+ *   text in, next text out (undefined when unchanged). The Applier (apply.ts) writes the result
+ *   atomically and restores the file on failure.
+ * - An array item is found by its fragment key (`fragmentKey(at, item)`: the identity fields of
+ *   a hook entry, the string of an OpenCode instruction), an object key by its name. An item
+ *   found by key with a different value is "changed", not "missing", so an edited hook is
+ *   reported as modified and is never appended twice.
+ * - `unmergeJsonFile` removes a fragment by (path, key) in place (undeploy).
  */
 
 import { messageOf, PalmError } from '../core/errors.js';
-import type {
-  JsonItemRecord,
-  JsonKeyRecord,
-  JsonRecord,
-  RecordState,
-} from '../domain/merged-record.js';
+import { fragmentKey } from '../domain/lock.js';
+import type { MergedRecord, RecordState } from '../domain/merged-record.js';
 import { parseJson, stringifyJson } from '../lib/json.js';
 import { formatPointer } from '../lib/json-pointer.js';
 import { deepEqual, isRecord } from '../lib/object.js';
 import { atomicWrite, readTextOrUndefined, removeFileIfExists } from './fs-utils.js';
-import { containsAll } from './recorded.js';
+import { equivalentHookIndex } from './hook-equivalence.js';
+import { matchesRendered } from './placeholder-match.js';
+
+type JsonRecord = Extract<MergedRecord, { type: 'json-item' | 'json-key' }>;
 
 /** One edit of a JSON file, for the pure text transforms. */
 export interface JsonEdit {
@@ -31,9 +32,22 @@ export interface JsonEdit {
   file: string;
   /** Array path (`appendItemText`) or key path, last segment = the key (`setKeyText`, `ensureKeyText`). */
   path: readonly string[];
+  /** `appendItemText`: the fragment key the item is found by (default: the value's own key). */
+  key?: string;
+  /**
+   * `appendItemText`: palm wrote this item before (the lock lists it). When no item has its key,
+   * the one item of the array with its matcher is palm's, changed on disk (D3): it is replaced
+   * in place, never appended beside.
+   */
+  owned?: boolean;
   value: unknown;
   onConflict?: 'overwrite' | 'error';
   displayFile?: string;
+  /**
+   * `appendItemText`: called when no item has the key but one is an equivalent hook (O11): that
+   * item is adopted (replaced by the value in place), never appended beside.
+   */
+  onAdopt?: () => void;
 }
 
 /** Parse a JSON object file's text (JSONC tolerated); `{}` when empty. */
@@ -111,14 +125,67 @@ function walkCreate(
   return node;
 }
 
-/** `text` with `edit.value` appended to the array at `edit.path`; undefined when a deep-equal item is there. */
+/** Index of the item of `arr` (the array at `segs`) whose fragment key is `key`; -1 when none. */
+function indexByKey(arr: readonly unknown[], segs: readonly string[], key: string): number {
+  const at = formatPointer(segs);
+  return arr.findIndex((item) => fragmentKey(at, item) === key);
+}
+
+function matcherOf(item: unknown): string | undefined {
+  if (!isRecord(item)) return undefined;
+  return typeof item.matcher === 'string' ? item.matcher : '';
+}
+
+/**
+ * D3: the hook item palm wrote whose command was changed on disk, found by its matcher: the one
+ * item of the array with the same matcher as `value` (-1 when none, or when several could be).
+ */
+function tamperedIndex(arr: readonly unknown[], value: unknown): number {
+  const matcher = matcherOf(value);
+  if (matcher === undefined) return -1;
+  const hits = arr.flatMap((item, i) => (matcherOf(item) === matcher ? [i] : []));
+  return hits.length === 1 ? (hits[0] as number) : -1;
+}
+
+function conflict(edit: JsonEdit, what: string): PalmError {
+  return new PalmError(
+    'E_CONFLICT',
+    `refusing to overwrite ${edit.displayFile ?? edit.file} (${what} already exists with different content)`,
+    'to overwrite it, run',
+    { retryWith: '--force' },
+  );
+}
+
+/** `arr` with `edit.value` adopting its equivalent hook (O11), or appended when none is. */
+function appendOrAdopt(arr: unknown[], edit: JsonEdit): void {
+  const same = equivalentHookIndex(arr, edit.value);
+  if (same < 0) {
+    arr.push(structuredClone(edit.value));
+    return;
+  }
+  arr[same] = structuredClone(edit.value);
+  edit.onAdopt?.();
+}
+
+/**
+ * `text` with `edit.value` in the array at `edit.path`, found by its key: appended when no item
+ * has the key (an equivalent hook is adopted in its place, O11), undefined when the item with
+ * the key deep-equals the value, replaced in place when it differs (or E_CONFLICT with
+ * `onConflict: 'error'`).
+ */
 export function appendItemText(text: string | undefined, edit: JsonEdit): string | undefined {
   if (edit.path.length === 0)
     throw new PalmError('E_INTERNAL', `cannot append to the root of ${edit.file}`);
   const doc = parseJsonObject(text, edit.file);
   const arr = walkCreate(doc, edit.path, true, edit.file) as unknown[];
-  if (arr.some((x) => deepEqual(x, edit.value))) return undefined;
-  arr.push(structuredClone(edit.value));
+  const key = edit.key ?? fragmentKey(formatPointer(edit.path), edit.value);
+  const found = indexByKey(arr, edit.path, key);
+  const idx = found < 0 && edit.owned ? tamperedIndex(arr, edit.value) : found;
+  if (idx < 0) appendOrAdopt(arr, edit);
+  else if (deepEqual(arr[idx], edit.value)) return undefined;
+  else if (edit.onConflict === 'error')
+    throw conflict(edit, `an entry of ${formatPointer(edit.path)}`);
+  else arr[idx] = structuredClone(edit.value);
   return stringifyJson(doc);
 }
 
@@ -143,14 +210,8 @@ export function setKeyText(text: string | undefined, edit: JsonEdit): string | u
   const { obj, key } = keyParent(doc, edit);
   const current = obj[key];
   if (deepEqual(current, edit.value)) return undefined;
-  if (current !== undefined && edit.onConflict === 'error') {
-    throw new PalmError(
-      'E_CONFLICT',
-      `refusing to overwrite ${edit.displayFile ?? edit.file} (${formatPointer(edit.path)} already exists with different content)`,
-      'to overwrite it, run',
-      { retryWith: '--force' },
-    );
-  }
+  if (current !== undefined && edit.onConflict === 'error')
+    throw conflict(edit, formatPointer(edit.path));
   obj[key] = structuredClone(edit.value);
   return stringifyJson(doc);
 }
@@ -164,12 +225,28 @@ export function ensureKeyText(text: string | undefined, edit: JsonEdit): string 
   return stringifyJson(doc);
 }
 
+/** What `rec` finds in `doc`: the item found by key (or, `owned`, by matcher: D3), or the key's value. */
+function foundValue(doc: Record<string, unknown>, rec: JsonRecord, owned = false): unknown {
+  const node = getAt(doc, rec.path);
+  if (rec.type === 'json-key') return node;
+  if (!Array.isArray(node)) return undefined;
+  const found = indexByKey(node, rec.path, rec.key);
+  const idx = found < 0 && owned ? tamperedIndex(node, rec.value) : found;
+  return idx < 0 ? undefined : node[idx];
+}
+
 /**
- * Whether `text` still holds what `rec` inserted: an equal item in the array (`json-item`), or
- * the key with everything palm wrote (`json-key`; keys the user added are fine, placeholders
- * match redacted secrets). A file that no longer parses counts as changed.
+ * Whether `text` holds the fragment `rec` names: `missing` when no item has its key (or the key
+ * is absent), `held` when what is there matches the rendered value (`${VAR}` matching any
+ * text), `changed` otherwise. A hook item palm wrote before (`owned`) whose command was changed
+ * on disk is found by its matcher and is `changed` (D3). A file that no longer parses counts as
+ * changed.
  */
-export function jsonRecordState(text: string | undefined, rec: JsonRecord): RecordState {
+export function jsonRecordState(
+  text: string | undefined,
+  rec: JsonRecord,
+  owned = false,
+): RecordState {
   if (text === undefined) return 'missing';
   let doc: Record<string, unknown>;
   try {
@@ -177,20 +254,26 @@ export function jsonRecordState(text: string | undefined, rec: JsonRecord): Reco
   } catch {
     return 'changed';
   }
-  const node = getAt(doc, rec.path);
-  if (rec.type === 'json-item')
-    return Array.isArray(node) && node.some((x) => deepEqual(x, rec.value)) ? 'held' : 'missing';
-  if (node === undefined) return 'missing';
-  return containsAll(node, rec.value) ? 'held' : 'changed';
+  const found = foundValue(doc, rec, owned);
+  if (found === undefined) return 'missing';
+  return matchesRendered(found, rec.value) ? 'held' : 'changed';
+}
+
+/** What `text` holds for the fragment `rec` names; undefined when missing or unparseable. */
+export function jsonRecordValue(text: string | undefined, rec: JsonRecord): unknown {
+  if (text === undefined) return undefined;
+  try {
+    return foundValue(parseJsonObject(text, rec.file), rec);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
- * Remove what `record` inserted. `json-item` → the first deep-equal item of the array is
- * removed. `json-key` → the key is deleted when its current value still contains everything
- * palm wrote (keys the user added are tolerated; values the user changed are kept).
- * Containers left empty by the removal (`"SessionStart": []`, `"hooks": {}`,
- * `"mcpServers": {}`) are pruned, and a file that ends up as `{}` is deleted.
- * Missing file/path is a no-op.
+ * Remove the fragment `record` names, by key: the array item with its key (`json-item`) or the
+ * object key (`json-key`). Containers left empty by the removal (`"SessionStart": []`,
+ * `"hooks": {}`, `"mcpServers": {}`) are pruned, and a file that ends up as `{}` is deleted.
+ * A missing file, path or key is a no-op.
  */
 export async function unmergeJsonFile(file: string, record: JsonRecord): Promise<void> {
   const text = await readTextOrUndefined(file);
@@ -206,24 +289,22 @@ export async function unmergeJsonFile(file: string, record: JsonRecord): Promise
   await atomicWrite(file, stringifyJson(doc));
 }
 
-/** Remove the recorded item from its array; the array path when something was removed. */
-function removeItem(doc: Record<string, unknown>, record: JsonItemRecord): string[] | undefined {
+/** Remove the item with the record's key from its array; the array path when removed. */
+function removeItem(doc: Record<string, unknown>, record: JsonRecord): string[] | undefined {
   const node = getAt(doc, record.path);
   if (!Array.isArray(node)) return undefined;
-  const idx = node.findIndex((item) => deepEqual(item, record.value));
+  const idx = indexByKey(node, record.path, record.key);
   if (idx < 0) return undefined;
   node.splice(idx, 1);
   return record.path;
 }
 
-/** Delete the recorded key if it still holds palm's value; the parent path when deleted. */
-function removeKey(doc: Record<string, unknown>, record: JsonKeyRecord): string[] | undefined {
+/** Delete the recorded key; the parent path when deleted. */
+function removeKey(doc: Record<string, unknown>, record: JsonRecord): string[] | undefined {
   const parentPath = record.path.slice(0, -1);
   const parent = getAt(doc, parentPath);
   const key = record.path.at(-1);
-  if (key === undefined || !isRecord(parent)) return undefined;
-  const node = parent[key];
-  if (node === undefined || !containsAll(node, record.value)) return undefined;
+  if (key === undefined || !isRecord(parent) || parent[key] === undefined) return undefined;
   delete parent[key];
   return parentPath;
 }

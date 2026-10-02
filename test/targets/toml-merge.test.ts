@@ -1,16 +1,19 @@
 import path from 'node:path';
 import { parse } from 'smol-toml';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type TomlTableRecord, toStored } from '../../src/domain/merged-record.js';
+import type { MergedRecord } from '../../src/domain/merged-record.js';
 import {
   mergeTableText,
   parseTomlHeader,
   type TomlEdit,
+  tomlRecordState,
   unmergeTomlTable,
 } from '../../src/targets/toml-merge.js';
 import { applyText, cleanupTmp, exists, read, tmpDir, write } from './helpers.js';
 
 afterEach(cleanupTmp);
+
+type TomlTableRecord = Extract<MergedRecord, { type: 'toml-table' }>;
 
 const ORIGINAL = `# my codex config
 model = "gpt-6-astra" # favourite
@@ -22,7 +25,7 @@ command = "mine" # keep me
 model = "gpt-5.6-luna"
 `;
 
-/** Plan-and-write a table the way a deploy does; the record the planner stores. */
+/** Merge a table the way an apply does; the record its fragment names. */
 async function mergeTable(
   file: string,
   path: string[],
@@ -30,7 +33,7 @@ async function mergeTable(
   opts: Partial<TomlEdit> = {},
 ): Promise<TomlTableRecord> {
   await applyText(file, (text) => mergeTableText(text, { ...opts, file, path, value }));
-  return { type: 'toml-table', file, path, value };
+  return { type: 'toml-table', file, path, id: 'palm:mcp:x:0', key: path.at(-1) ?? '', value };
 }
 
 describe('mergeTableText', () => {
@@ -39,7 +42,7 @@ describe('mergeTableText', () => {
     await write(file, ORIGINAL);
     const value = { command: 'npx', args: ['-y', 'fs'], env: { A: 'b' } };
     const rec = await mergeTable(file, ['mcp_servers', 'fs'], value);
-    expect(toStored(rec)).toEqual({ file, pointer: '/mcp_servers/fs', value });
+    expect(rec.key).toBe('fs');
     const text = await read(file);
     expect(text).toBe(
       `${ORIGINAL}\n[mcp_servers.fs]\ncommand = "npx"\nargs = [ "-y", "fs" ]\n\n[mcp_servers.fs.env]\nA = "b"\n`,
@@ -109,12 +112,31 @@ describe('mergeTableText', () => {
 });
 
 describe('unmergeTomlTable', () => {
-  it('leaves a table whose palm-written values were edited', async () => {
+  it('removes the table by its path even when edited (the engine decides before undeploy)', async () => {
     const file = path.join(await tmpDir(), 'config.toml');
     const rec = await mergeTable(file, ['mcp_servers', 'x'], { command: 'c' });
-    await write(file, '[mcp_servers.x]\ncommand = "edited"\n');
+    await write(file, 'model = "m"\n\n[mcp_servers.x]\ncommand = "edited"\n');
     await unmergeTomlTable(file, rec);
-    expect(await read(file)).toBe('[mcp_servers.x]\ncommand = "edited"\n');
+    expect(await read(file)).toBe('model = "m"\n');
+  });
+});
+
+describe('tomlRecordState', () => {
+  it('held, changed (placeholders match any text), missing', () => {
+    const rec: TomlTableRecord = {
+      type: 'toml-table',
+      file: 'config.toml',
+      path: ['mcp_servers', 'x'],
+      id: 'palm:mcp:x:0',
+      key: 'x',
+      value: { command: 'c', env: { T: '${T}' } },
+    };
+    expect(tomlRecordState('[mcp_servers.x]\ncommand = "c"\nenv = { T = "abc" }\n', rec)).toBe(
+      'held',
+    );
+    expect(tomlRecordState('[mcp_servers.x]\ncommand = "d"\n', rec)).toBe('changed');
+    expect(tomlRecordState('model = "m"\n', rec)).toBe('missing');
+    expect(tomlRecordState('[broken', rec)).toBe('changed');
   });
 });
 

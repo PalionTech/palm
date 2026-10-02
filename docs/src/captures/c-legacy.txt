@@ -1,0 +1,17 @@
+$ palm install origin mattpocock/skills
+i palm install origin is now: palm install mattpocock/skills
+i 1 note from indexing mattpocock/skills (see: palm describe source mattpocock/skills)
+mattpocock/skills  v1.2.3 (2c0db90)   1 plugin, 5 skills
+  plugin  mattpocock-skills   3 skills
+  skill   tdd                 Test-driven development with red-green-refactor.
+  skill   grill-me            Interview the user relentlessly about a plan.
+  skill   handoff             Write a handoff note for the next session.
+  skill   old-thing           An old skill kept for reference.
+  skill   git-guardrails      Block dangerous git commands.
+Nothing written. Install some:
+    palm install mattpocock/skills tdd grill-me
+    palm install mattpocock/skills --all
+$ palm outdated
+x palm outdated is now: palm update --dry-run
+$ palm search tdd
+x palm search is gone; find a repository (https://github.com/search?q=tdd+SKILL.md&type=code), then list it, for example: palm install mattpocock/skills; an MCP server comes from its README: pbpaste | palm install mcp --snippet -

@@ -210,10 +210,26 @@ function seconds(ms: number): string {
   return ms >= 1000 ? `${Math.round(ms / 1000)} s` : `${ms} ms`;
 }
 
+/**
+ * True when git ended because the person pressed Ctrl-C: the terminal sends SIGINT to the whole
+ * foreground group, so the child dies of it (or exits 130) while palm stops.
+ */
+function interrupted(err: { signal?: unknown; exitCode?: unknown }): boolean {
+  return err.signal === 'SIGINT' || err.exitCode === 130;
+}
+
 function failure(e: unknown, args: readonly string[], call: GitCall, timeout: number): Error {
   if (isEnoent(e))
     return new PalmError('E_GIT', 'git is not installed or not on PATH', 'Install git and retry.');
-  const err = e as { stderr?: unknown; shortMessage?: string; message: string; timedOut?: boolean };
+  const err = e as {
+    stderr?: unknown;
+    shortMessage?: string;
+    message: string;
+    timedOut?: boolean;
+    signal?: unknown;
+    exitCode?: unknown;
+  };
+  if (interrupted(err)) return new PalmError('E_CANCELLED', 'cancelled; nothing was written');
   const sub = args.find((a) => !a.startsWith('-')) ?? args[0];
   const network = Boolean(call.network);
   if (err.timedOut) {

@@ -1,0 +1,25 @@
+$ palm install superpowers
+x "superpowers" is not a repository. palm installs from git repositories:
+    palm install <owner/repo> [names...]      for example  palm install obra/superpowers
+  Not sure which repository? https://github.com/search?q=superpowers+SKILL.md&type=code
+$ palm install obra/superpowers
+obra/superpowers  v4.0.3 (083545e)   1 plugin, 3 skills, 1 hook
+  plugin  superpowers               3 skills, 1 hook   (also hook superpowers: name it plugin:superpowers)
+  skill   brainstorming             Use before any creative work: explore intent, requirements and design.
+  skill   test-driven-development   Use when implementing any feature or bugfix, before writing implement…
+  skill   writing-skills            Use when creating or editing skills.
+  hook    superpowers               claude: SessionStart -> hooks/run-hook.cmd session-start   (a program; asks before installing)   (also plugin superpowers: name it hook:superpowers)
+Nothing written. Install some:
+    palm install obra/superpowers brainstorming test-driven-development
+    palm install obra/superpowers --all
+$ palm install obra/superpowers --all
+i .gitignore: added .palm/local/ and palm.local.yaml
+i ref ^4.0 saved to palm.yaml (latest tag v4.0.3); edit ref: to track main
+targets: claude   (detected from .claude/; change targets: in palm.yaml)
++ skill  brainstorming             .claude/skills/brainstorming/   1 file
++ skill  test-driven-development   .claude/skills/test-driven-development/   3 files
++ skill  writing-skills            .claude/skills/writing-skills/   2 files
+! hook   superpowers               runs a program on your machine; not installed
+    see it:      palm install obra/superpowers hook:superpowers --dry-run
+    install it:  palm install obra/superpowers hook:superpowers
+3 installed. Commit palm.yaml, palm.lock.yaml and .claude/ together.

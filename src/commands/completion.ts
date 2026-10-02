@@ -1,12 +1,14 @@
 /**
  * `palm completion bash|zsh|fish`: static completion scripts generated from the commander
- * tree (verbs, aliases, utilities, flags per command) and the kind words of each verb.
+ * tree (verbs, aliases, utilities, flags per command) and the words each verb takes first.
  */
 import type { Command, Option } from 'commander';
-import { resourceWords } from '../core/kinds.js';
+import { PalmError } from '../core/errors.js';
+import { type Resource, resourceWords } from '../core/kinds.js';
 import { KINDS, TARGET_IDS } from '../core/types.js';
+import { CREATABLE } from '../create/templates.js';
 import type { App } from './app.js';
-import { type Invocation, usage, VERBS } from './grammar.js';
+import { type Invocation, usage } from './grammar.js';
 
 export const SHELLS = ['bash', 'zsh', 'fish'] as const;
 export type Shell = (typeof SHELLS)[number];
@@ -39,13 +41,28 @@ function optionModel(o: Option): OptionModel {
   };
 }
 
+const NOUNS: readonly Resource[] = [...KINDS, 'source', 'target'];
+
+const nounWords = (resources: readonly Resource[]) => [
+  ...new Set(resources.flatMap((r) => resourceWords(r))),
+];
+
+/** The words each command takes first: kind nouns, `mcp`, template kinds, shells, subcommands. */
 function firstWords(cmd: Command): string[] {
-  const verb = VERBS.find((v) => v.name === cmd.name());
-  if (verb) return [...new Set(verb.resources.flatMap((r) => resourceWords(r)))];
-  if (cmd.name() === 'completion') return [...SHELLS];
-  // utilities whose first argument is a kind (`outdated`, `why`, `audit`)
-  if (cmd.registeredArguments[0]?.name() === 'kind') return KINDS.flatMap((k) => resourceWords(k));
-  return cmd.commands.map((c) => c.name());
+  switch (cmd.name()) {
+    case 'get':
+      return nounWords([...NOUNS, 'all']);
+    case 'describe':
+      return nounWords(NOUNS);
+    case 'install':
+      return ['mcp'];
+    case 'create':
+      return [...CREATABLE];
+    case 'completion':
+      return [...SHELLS];
+    default:
+      return cmd.commands.map((c) => c.name());
+  }
 }
 
 /** The visible command tree as data (hidden aliases and `help` are left out). */
@@ -87,7 +104,7 @@ _palm() {
   local global="${flagsOf(m.global).join(' ')}"
   local takes_value=" ${valueFlags(m).join(' ')} "
   case "$prev" in
-    -t|--target) COMPREPLY=($(compgen -W "${TARGET_IDS.join(' ')}" -- "$cur")); return ;;
+    --target|--targets) COMPREPLY=($(compgen -W "${TARGET_IDS.join(' ')}" -- "$cur")); return ;;
   esac
   for ((i = 1; i < COMP_CWORD; i++)); do
     local w="\${COMP_WORDS[i]}"
@@ -145,7 +162,7 @@ _palm() {
     else (( argc++ ))
     fi
   done
-  if [[ \${words[CURRENT-1]} == (-t|--target) ]]; then compadd -- ${TARGET_IDS.join(' ')}; return; fi
+  if [[ \${words[CURRENT-1]} == (--target|--targets) ]]; then compadd -- ${TARGET_IDS.join(' ')}; return; fi
   if [[ -z $cmd ]]; then
     if [[ $PREFIX == -* ]]; then compadd -- $global; else _describe -t commands 'palm command' commands; fi
     return
@@ -166,7 +183,8 @@ function fishOption(o: OptionModel, condition?: string): string {
   if (condition) parts.push(`-n ${quote(condition)}`);
   for (const f of o.flags) parts.push(f.startsWith('--') ? `-l ${f.slice(2)}` : `-s ${f.slice(1)}`);
   if (o.takesValue) parts.push('-r');
-  if (o.flags.includes('--target')) parts.push(`-a ${quote(TARGET_IDS.join(' '))}`);
+  if (o.flags.includes('--target') || o.flags.includes('--targets'))
+    parts.push(`-a ${quote(TARGET_IDS.join(' '))}`);
   parts.push(`-d ${quote(o.description)}`);
   return parts.join(' ');
 }
@@ -201,10 +219,10 @@ export function completionScript(program: Command, shell: Shell): string {
 }
 
 export async function run(inv: Invocation, app: App): Promise<void> {
-  const [shell, ...extra] = inv.names;
-  if (!shell || extra.length || !(SHELLS as readonly string[]).includes(shell))
-    throw usage(`palm completion takes one of: ${SHELLS.join(', ')}`, 'palm completion bash');
-  if (!app.program) throw new Error('the command tree is not available');
+  const shell = inv.names[0]?.name ?? '';
+  if (!(SHELLS as readonly string[]).includes(shell))
+    throw usage(`completion takes bash, zsh or fish, not "${shell}"`, 'palm completion bash');
+  if (!app.program) throw new PalmError('E_INTERNAL', 'the command tree is not available');
   const script = completionScript(app.program, shell as Shell);
   if (app.out.jsonMode) app.out.json({ shell, script });
   else app.out.out(script.trimEnd());

@@ -1,0 +1,31 @@
+$ palm install mcp docs --url https://docs.example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
++ mcp  docs   .mcp.json, .codex/config.toml +1   merged   (needs DOCS_TOKEN in the environment)
+1 installed. Commit palm.yaml, palm.lock.yaml, .mcp.json, .codex/ and .cursor/ together.
+$ palm install mcp xcodebuild --command npx --arg -y --arg xcodebuildmcp@latest
+This install adds 1 program that will run on your machine.
+
+  1. mcp xcodebuild  from palm.yaml
+     stdio  npx -y xcodebuildmcp@latest   env: none
+     targets: claude (.mcp.json), codex (.codex/config.toml), cursor (.cursor/mcp.json)
+     ! unpinned: npx resolves xcodebuildmcp@latest at run time; pin an exact version to review what runs
+
+palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
+so teammates and CI install it without being asked; any change asks again.
+x 1 program needs your consent and there is no terminal
+  review:  palm install mcp xcodebuild --command npx --arg=-y --arg xcodebuildmcp@latest --dry-run --review
+  then:    palm install mcp xcodebuild --command npx --arg=-y --arg xcodebuildmcp@latest --allow-exec mcp:xcodebuild@palm.yaml=sha256:53d801a8a7170e99fe4a273d9c75ddfab7aa62030e36f9f8fbb72d355d21d46f
+$ palm install mcp xcodebuild --command npx --arg -y --arg xcodebuildmcp@latest --allow-exec mcp:xcodebuild@palm.yaml=sha256:53d801a8a7170e99fe4a273d9c75ddfab7aa62030e36f9f8fbb72d355d21d46f
+This install adds 1 program that will run on your machine.
+
+  1. mcp xcodebuild  from palm.yaml
+     stdio  npx -y xcodebuildmcp@latest   env: none
+     targets: claude (.mcp.json), codex (.codex/config.toml), cursor (.cursor/mcp.json)
+     ! unpinned: npx resolves xcodebuildmcp@latest at run time; pin an exact version to review what runs
+
+palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
+so teammates and CI install it without being asked; any change asks again.
+
+allowed by --allow-exec: mcp:xcodebuild@palm.yaml (sha256:53d801a8)
++ mcp  xcodebuild   .mcp.json, .codex/config.toml +1   merged
+~ trusted mcp xcodebuild sha256:53d801a8
+1 installed.

@@ -1,184 +1,125 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALWAYS_SKIP_DIRS,
+  CLOSURE_NEVER,
   COPY_SKIP,
-  DOC_FILE_NAMES,
   HASH_SKIP,
-  HOOK_ASSET_SKIP_FILE,
-  HOOK_ASSET_SKIP_TOP,
   INSTALL_OUTPUT_DIRS,
+  isClosureExcluded,
   isDocFile,
   isScanIgnoredRel,
+  isTreeExcluded,
   matchesSkip,
-  ROOT_IGNORED_FILES,
+  PLUGIN_ROOT_TOKENS,
+  PROJECT_DIR_TOKENS,
   SCAN_IGNORE_DIRS,
   shouldSkipDir,
   shouldSkipFile,
 } from '../../src/domain/ignore.js';
 
-/** The lists as they stood in each consumer before they moved here (wave 2D). */
-const FORMER = {
-  /** src/index/ignore.ts IGNORED_DIR_NAMES */
-  scanDirs: [
-    'node_modules',
-    '.git',
-    'test',
-    'tests',
-    'fixture',
-    'fixtures',
-    'eval',
-    'evals',
-    'example',
-    'examples',
-    'template',
-    'templates',
-    'docs',
-    'website',
-    'dist',
-    'build',
-  ],
-  /** src/index/ignore.ts minimalIgnoreGlobs */
-  minimalScanDirs: ['.git', 'node_modules'],
-  /** src/index/ignore.ts INSTALL_OUTPUT_DIRS */
-  installOutputs: [
-    '.agents/skills',
-    '.claude/skills',
-    '.claude/agents',
-    '.claude/commands',
-    '.claude/rules',
-    '.github/skills',
-    '.github/agents',
-    '.github/instructions',
-    '.github/prompts',
-    '.github/hooks',
-    '.cursor/rules',
-    '.cursor/agents',
-    '.cursor/commands',
-    '.codex/agents',
-    '.codex/prompts',
-    '.vscode',
-  ],
-  /** src/index/ignore.ts ROOT_IGNORED_FILES */
-  rootFiles: [
-    'AGENTS.md',
-    'CLAUDE.md',
-    'GEMINI.md',
-    '.mcp.json.example',
-    '.cursor/mcp.json',
-    '.cursor/hooks.json',
-  ],
-  /** src/index/util.ts DOC_NAMES */
-  docNames: [
-    'readme.md',
-    'changelog.md',
-    'license.md',
-    'contributing.md',
-    'code_of_conduct.md',
-    'security.md',
-    'agents.md',
-    'claude.md',
-    'gemini.md',
-  ],
-  /** src/targets/fs-utils.ts ALWAYS_SKIP plus its `*.zip` check */
-  copy: ['.git', 'node_modules', '.DS_Store', '*.zip'],
-  /** src/core/hash.ts (`.git` only) */
-  hash: ['.git'],
-  /** src/targets/base.ts HOOK_ASSET_SKIP_TOP */
-  hookTop: [
-    '.github',
-    '.gitlab',
-    '.vscode',
-    '.idea',
-    'docs',
-    'doc',
-    'website',
-    'site',
-    'test',
-    'tests',
-    '__tests__',
-    'spec',
-    'fixtures',
-    'examples',
-    'example',
-    'evals',
-    'assets',
-    'media',
-    'images',
-    'screenshots',
-  ],
-};
-
-describe('consolidated skip lists are supersets of every former list', () => {
-  it.each([
-    ['SCAN_IGNORE_DIRS', SCAN_IGNORE_DIRS, FORMER.scanDirs],
-    ['ALWAYS_SKIP_DIRS', ALWAYS_SKIP_DIRS, FORMER.minimalScanDirs],
-    ['INSTALL_OUTPUT_DIRS', INSTALL_OUTPUT_DIRS, FORMER.installOutputs],
-    ['ROOT_IGNORED_FILES', ROOT_IGNORED_FILES, FORMER.rootFiles],
-    ['DOC_FILE_NAMES', DOC_FILE_NAMES, FORMER.docNames],
-    ['COPY_SKIP', COPY_SKIP, FORMER.copy],
-    ['HASH_SKIP', HASH_SKIP, FORMER.hash],
-    ['HOOK_ASSET_SKIP_TOP', HOOK_ASSET_SKIP_TOP, FORMER.hookTop],
-  ])('%s', (_name, now, before) => {
-    expect(now).toEqual(expect.arrayContaining(before));
-  });
-
-  it('only the hash list grew: it now equals the copy list (hash what is deployed)', () => {
-    const grown = (now: readonly string[], before: string[]) =>
-      now.filter((x) => !before.includes(x));
-    expect(grown(SCAN_IGNORE_DIRS, FORMER.scanDirs)).toEqual([]);
-    expect(grown(ALWAYS_SKIP_DIRS, FORMER.minimalScanDirs)).toEqual([]);
-    expect(grown(COPY_SKIP, FORMER.copy)).toEqual([]);
-    expect(grown(HOOK_ASSET_SKIP_TOP, FORMER.hookTop)).toEqual([]);
-    expect(grown(HASH_SKIP, FORMER.hash)).toEqual(['node_modules', '.DS_Store', '*.zip']);
+describe('skip lists', () => {
+  it('hash exactly what a copy deploys; every walk skips VCS and dependency dirs', () => {
     expect(HASH_SKIP).toEqual(COPY_SKIP);
-  });
-
-  it('the walk-level lists share the VCS/dependency dirs', () => {
     for (const d of ALWAYS_SKIP_DIRS) {
       expect(SCAN_IGNORE_DIRS).toContain(d);
       expect(COPY_SKIP).toContain(d);
     }
   });
+
+  it('the scan ignores the DESIGN rule 0 install outputs and .palm', () => {
+    for (const d of [
+      '.agents/skills',
+      '.claude/skills',
+      '.github/skills',
+      '.github/agents',
+      '.github/instructions',
+      '.github/prompts',
+      '.cursor/rules',
+      '.palm',
+    ])
+      expect(INSTALL_OUTPUT_DIRS).toContain(d);
+    expect(isScanIgnoredRel('.palm/assets/k/h/SKILL.md')).toBe(true);
+    expect(isScanIgnoredRel('plugins/x/.claude/skills/y')).toBe(true);
+    expect(isScanIgnoredRel('skills/tests/SKILL.md')).toBe(true);
+    expect(isScanIgnoredRel('skills/tdd/SKILL.md')).toBe(false);
+  });
+
+  it('predicates: exact names, *.ext suffixes and prefix* in any case', () => {
+    expect(matchesSkip(COPY_SKIP, 'Bundle.ZIP')).toBe(true);
+    expect(matchesSkip(COPY_SKIP, '.git')).toBe(true);
+    expect(matchesSkip(COPY_SKIP, '.GIT')).toBe(false);
+    expect(shouldSkipDir('templates')).toBe(true);
+    expect(shouldSkipFile('templates')).toBe(false);
+    expect(isDocFile('README.md')).toBe(true);
+  });
 });
 
-describe('predicates', () => {
-  it('matchesSkip: exact names, and *.ext suffixes in any case', () => {
-    expect(matchesSkip(COPY_SKIP, '.git')).toBe(true);
-    expect(matchesSkip(COPY_SKIP, 'bundle.zip')).toBe(true);
-    expect(matchesSkip(COPY_SKIP, 'BUNDLE.ZIP')).toBe(true);
-    expect(matchesSkip(COPY_SKIP, 'zip')).toBe(false);
-    expect(matchesSkip(COPY_SKIP, '.GIT')).toBe(false);
-    expect(matchesSkip(COPY_SKIP, 'SKILL.md')).toBe(false);
+describe('isClosureExcluded', () => {
+  it('never copies skills, root documents, manifests, .git* or node_modules, at any depth', () => {
+    expect(CLOSURE_NEVER).toContain('SKILL.md');
+    for (const rel of [
+      'hooks/SKILL.md',
+      'AGENTS.md',
+      'scripts/CLAUDE.md',
+      '.claude-plugin/plugin.json',
+      '.cursor-plugin/x.sh',
+      'marketplace.json',
+      'hooks/.gitignore',
+      'node_modules/a/b.js',
+      '.git/config',
+    ])
+      expect(isClosureExcluded(rel), rel).toBe(true);
+    for (const rel of ['hooks/run.sh', 'scripts/x.py', 'workflows/a.yaml', 'hooks/plugin.json.bak'])
+      expect(isClosureExcluded(rel), rel).toBe(false);
+  });
+});
+
+describe('isTreeExcluded', () => {
+  it('leaves out copy litter, outputs and root repository files, never entity content', () => {
+    for (const rel of [
+      '.git',
+      'a/node_modules/x',
+      'x.zip',
+      '.palm/lock',
+      '.claude/skills/t/SKILL.md',
+      'AGENTS.md',
+    ])
+      expect(isTreeExcluded(rel), rel).toBe(true);
+    for (const rel of [
+      'skills/tdd/templates/x.md',
+      'skills/tdd/SKILL.md',
+      'docs/AGENTS.md',
+      'tests/x',
+    ])
+      expect(isTreeExcluded(rel), rel).toBe(false);
+  });
+});
+
+describe('relocation tokens', () => {
+  const all = (re: RegExp, text: string) => [...text.matchAll(re)].map((m) => m[0]);
+
+  it('PLUGIN_ROOT_TOKENS matches every plugin-root form', () => {
+    const text =
+      '${CLAUDE_PLUGIN_ROOT}/a $CLAUDE_PLUGIN_ROOT/b ${CLAUDE_PLUGIN_ROOT:-.}/c ${CLAUDE_PLUGIN_ROOT-x}/d ${CURSOR_PLUGIN_ROOT}/e ${PLUGIN_ROOT}/f ${extensionPath}/g $CLAUDE_PLUGIN_ROOTS ${HOME}';
+    expect(all(PLUGIN_ROOT_TOKENS, text)).toEqual([
+      '${CLAUDE_PLUGIN_ROOT}',
+      '$CLAUDE_PLUGIN_ROOT',
+      '${CLAUDE_PLUGIN_ROOT:-.}',
+      '${CLAUDE_PLUGIN_ROOT-x}',
+      '${CURSOR_PLUGIN_ROOT}',
+      '${PLUGIN_ROOT}',
+      '${extensionPath}',
+    ]);
   });
 
-  it('shouldSkipDir is the scan rule, shouldSkipFile the copy/hash rule', () => {
-    expect(shouldSkipDir('fixtures')).toBe(true);
-    expect(shouldSkipDir('node_modules')).toBe(true);
-    expect(shouldSkipDir('skills')).toBe(false);
-    for (const name of ['.git', 'node_modules', '.DS_Store', 'x.zip']) {
-      expect(shouldSkipFile(name)).toBe(true);
-    }
-    expect(shouldSkipFile('fixtures')).toBe(false);
-    expect(shouldSkipFile('run.sh')).toBe(false);
-  });
-
-  it('isDocFile ignores case', () => {
-    expect(isDocFile('README.md')).toBe(true);
-    expect(isDocFile('Claude.md')).toBe(true);
-    expect(isDocFile('reviewer.md')).toBe(false);
-  });
-
-  it('isScanIgnoredRel: an ignored segment anywhere, or a path under an install output', () => {
-    expect(isScanIgnoredRel('a/tests/b.md')).toBe(true);
-    expect(isScanIgnoredRel('pkg/.claude/skills/x')).toBe(true);
-    expect(isScanIgnoredRel('.vscode')).toBe(true);
-    expect(isScanIgnoredRel('.claude/skillset/x')).toBe(false);
-    expect(isScanIgnoredRel('skills/testing/SKILL.md')).toBe(false);
-  });
-
-  it('HOOK_ASSET_SKIP_FILE matches repository documents only', () => {
-    expect(HOOK_ASSET_SKIP_FILE.test('README.md')).toBe(true);
-    expect(HOOK_ASSET_SKIP_FILE.test('release-notes.txt')).toBe(true);
-    expect(HOOK_ASSET_SKIP_FILE.test('run.sh')).toBe(false);
+  it('PROJECT_DIR_TOKENS matches the project-dir variables', () => {
+    const text =
+      '"$CLAUDE_PROJECT_DIR"/a ${CLAUDE_PROJECT_DIR}/b $CURSOR_PROJECT_DIR/c $GEMINI_PROJECT_DIR/d $PROJECT_DIR';
+    expect(all(PROJECT_DIR_TOKENS, text)).toEqual([
+      '$CLAUDE_PROJECT_DIR',
+      '${CLAUDE_PROJECT_DIR}',
+      '$CURSOR_PROJECT_DIR',
+      '$GEMINI_PROJECT_DIR',
+    ]);
   });
 });

@@ -1,0 +1,3086 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`golden render: claude @ global > pins the bytes of every kind 1`] = `
+{
+  "agent": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<claude>/agents/demo.md",
+        "text": "---
+name: demo
+description: Demo agent
+model: sonnet
+tools: Read, Bash, mcp__gh__search
+skills:
+  - demo
+mcpServers:
+  - gh
+---
+
+Be helpful.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+  "command-as-skill": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<claude>/skills/review/SKILL.md",
+        "text": "---
+name: review
+description: Review the diff
+argument-hint: "[files]"
+---
+
+Review $ARGUMENTS
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+  "hook": {
+    "exec": [
+      {
+        "canonical": ""\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh"",
+        "command": "CLAUDE_PLUGIN_ROOT="$HOME"/.palm/assets/acme__kit/fmt/plugins/fmt "$HOME/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+        "event": "PostToolUse",
+        "file": "<claude>/settings.json",
+        "id": "PostToolUse//Edit|Write",
+        "matcher": "Edit|Write",
+      },
+      {
+        "canonical": "echo hi",
+        "command": "echo hi",
+        "event": "SessionStart",
+        "file": "<claude>/settings.json",
+        "id": "SessionStart//-",
+      },
+    ],
+    "files": [
+      {
+        "mode": "755",
+        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh",
+        "text": "#!/bin/sh
+prettier --write "$1"
+",
+      },
+      {
+        "mode": "644",
+        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
+        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
+      },
+      {
+        "mode": "644",
+        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/lib/util.sh",
+        "text": "x=1
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/hooks/PostToolUse",
+        "createMode": 384,
+        "file": "<claude>/settings.json",
+        "id": "palm:hook:fmt:0",
+        "key": "sha256:ef6f6c6a",
+        "value": {
+          "hooks": [
+            {
+              "command": "CLAUDE_PLUGIN_ROOT="$HOME"/.palm/assets/acme__kit/fmt/plugins/fmt "$HOME/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+              "timeout": 30,
+              "type": "command",
+            },
+          ],
+          "matcher": "Edit|Write",
+        },
+      },
+      {
+        "at": "/hooks/SessionStart",
+        "createMode": 384,
+        "file": "<claude>/settings.json",
+        "id": "palm:hook:fmt:1",
+        "key": "sha256:dd93af0e",
+        "value": {
+          "hooks": [
+            {
+              "command": "echo hi",
+              "type": "command",
+            },
+          ],
+        },
+      },
+    ],
+    "notes": [],
+  },
+  "instruction": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<claude>/rules/demo.md",
+        "text": "---
+paths:
+  - "src/**"
+---
+
+Strict.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+  "mcp http": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/docs",
+        "createMode": 384,
+        "file": "<home>/.claude.json",
+        "id": "palm:mcp:docs:0",
+        "key": "docs",
+        "value": {
+          "headers": {
+            "Authorization": "Bearer \${DOCS_TOKEN}",
+          },
+          "type": "http",
+          "url": "https://example.com/mcp",
+        },
+      },
+    ],
+    "notes": [
+      "needs DOCS_TOKEN in the environment",
+    ],
+  },
+  "mcp stdio": {
+    "exec": [
+      {
+        "canonical": "npx -y gh-mcp",
+        "command": "npx -y gh-mcp",
+        "file": "<home>/.claude.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/gh",
+        "createMode": 384,
+        "file": "<home>/.claude.json",
+        "id": "palm:mcp:gh:0",
+        "key": "gh",
+        "value": {
+          "args": [
+            "-y",
+            "gh-mcp",
+          ],
+          "command": "npx",
+          "env": {
+            "GH_TOKEN": "\${GH_TOKEN}",
+          },
+          "type": "stdio",
+        },
+      },
+    ],
+    "notes": [
+      "needs GH_TOKEN in the environment",
+    ],
+  },
+  "mcp with a script": {
+    "exec": [
+      {
+        "canonical": "node \${CLAUDE_PLUGIN_ROOT}/server/index.js --port \${PORT:-8080}",
+        "command": "node \${HOME}/.palm/assets/acme__kit/local/plugins/fmt/server/index.js --port \${PORT:-8080}",
+        "file": "<home>/.claude.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [
+      {
+        "mode": "644",
+        "path": "<palm>/assets/acme__kit/local/plugins/fmt/server/index.js",
+        "text": "console.log(1)
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/mcpServers/local",
+        "createMode": 384,
+        "file": "<home>/.claude.json",
+        "id": "palm:mcp:local:0",
+        "key": "local",
+        "value": {
+          "args": [
+            "\${HOME}/.palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+            "--port",
+            "\${PORT:-8080}",
+          ],
+          "command": "node",
+          "type": "stdio",
+        },
+      },
+    ],
+    "notes": [
+      "optional in the environment: PORT",
+    ],
+  },
+  "plugin": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "plugin fmt: members are installed individually",
+    ],
+    "skipped": true,
+  },
+  "skill": {
+    "exec": [],
+    "files": [
+      {
+        "mode": "644",
+        "path": "<claude>/skills/demo/SKILL.md",
+        "text": "---
+name: demo
+description: Demo skill
+---
+
+Do the demo.
+",
+      },
+      {
+        "mode": "644",
+        "path": "<claude>/skills/demo/references/notes.md",
+        "text": "# Notes
+",
+      },
+      {
+        "mode": "755",
+        "path": "<claude>/skills/demo/scripts/run.sh",
+        "text": "#!/bin/sh
+echo demo
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+}
+`;
+
+exports[`golden render: claude @ project > pins the bytes of every kind 1`] = `
+{
+  "agent": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".claude/agents/demo.md",
+        "text": "---
+name: demo
+description: Demo agent
+model: sonnet
+tools: Read, Bash, mcp__gh__search
+skills:
+  - demo
+mcpServers:
+  - gh
+---
+
+Be helpful.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+  "command-as-skill": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".claude/skills/review/SKILL.md",
+        "text": "---
+name: review
+description: Review the diff
+argument-hint: "[files]"
+---
+
+Review $ARGUMENTS
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+  "hook": {
+    "exec": [
+      {
+        "canonical": ""\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh"",
+        "command": "CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/acme__kit/fmt/plugins/fmt "$CLAUDE_PROJECT_DIR/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+        "event": "PostToolUse",
+        "file": ".claude/settings.json",
+        "id": "PostToolUse//Edit|Write",
+        "matcher": "Edit|Write",
+      },
+      {
+        "canonical": "echo hi",
+        "command": "echo hi",
+        "event": "SessionStart",
+        "file": ".claude/settings.json",
+        "id": "SessionStart//-",
+      },
+    ],
+    "files": [
+      {
+        "mode": "755",
+        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh",
+        "text": "#!/bin/sh
+prettier --write "$1"
+",
+      },
+      {
+        "mode": "644",
+        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
+        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
+      },
+      {
+        "mode": "644",
+        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/lib/util.sh",
+        "text": "x=1
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/hooks/PostToolUse",
+        "file": ".claude/settings.json",
+        "id": "palm:hook:fmt:0",
+        "key": "sha256:4de679c9",
+        "value": {
+          "hooks": [
+            {
+              "command": "CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/acme__kit/fmt/plugins/fmt "$CLAUDE_PROJECT_DIR/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+              "timeout": 30,
+              "type": "command",
+            },
+          ],
+          "matcher": "Edit|Write",
+        },
+      },
+      {
+        "at": "/hooks/SessionStart",
+        "file": ".claude/settings.json",
+        "id": "palm:hook:fmt:1",
+        "key": "sha256:dd93af0e",
+        "value": {
+          "hooks": [
+            {
+              "command": "echo hi",
+              "type": "command",
+            },
+          ],
+        },
+      },
+    ],
+    "notes": [],
+  },
+  "instruction": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".claude/rules/demo.md",
+        "text": "---
+paths:
+  - "src/**"
+---
+
+Strict.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+  "mcp http": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/docs",
+        "file": ".mcp.json",
+        "id": "palm:mcp:docs:0",
+        "key": "docs",
+        "value": {
+          "headers": {
+            "Authorization": "Bearer \${DOCS_TOKEN}",
+          },
+          "type": "http",
+          "url": "https://example.com/mcp",
+        },
+      },
+    ],
+    "notes": [
+      "needs DOCS_TOKEN in the environment",
+    ],
+  },
+  "mcp stdio": {
+    "exec": [
+      {
+        "canonical": "npx -y gh-mcp",
+        "command": "npx -y gh-mcp",
+        "file": ".mcp.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/gh",
+        "file": ".mcp.json",
+        "id": "palm:mcp:gh:0",
+        "key": "gh",
+        "value": {
+          "args": [
+            "-y",
+            "gh-mcp",
+          ],
+          "command": "npx",
+          "env": {
+            "GH_TOKEN": "\${GH_TOKEN}",
+          },
+          "type": "stdio",
+        },
+      },
+    ],
+    "notes": [
+      "needs GH_TOKEN in the environment",
+    ],
+  },
+  "mcp with a script": {
+    "exec": [
+      {
+        "canonical": "node \${CLAUDE_PLUGIN_ROOT}/server/index.js --port \${PORT:-8080}",
+        "command": "node .palm/assets/acme__kit/local/plugins/fmt/server/index.js --port \${PORT:-8080}",
+        "file": ".mcp.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [
+      {
+        "mode": "644",
+        "path": ".palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+        "text": "console.log(1)
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/mcpServers/local",
+        "file": ".mcp.json",
+        "id": "palm:mcp:local:0",
+        "key": "local",
+        "value": {
+          "args": [
+            ".palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+            "--port",
+            "\${PORT:-8080}",
+          ],
+          "command": "node",
+          "type": "stdio",
+        },
+      },
+    ],
+    "notes": [
+      "optional in the environment: PORT",
+    ],
+  },
+  "plugin": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "plugin fmt: members are installed individually",
+    ],
+    "skipped": true,
+  },
+  "skill": {
+    "exec": [],
+    "files": [
+      {
+        "mode": "644",
+        "path": ".claude/skills/demo/SKILL.md",
+        "text": "---
+name: demo
+description: Demo skill
+---
+
+Do the demo.
+",
+      },
+      {
+        "mode": "644",
+        "path": ".claude/skills/demo/references/notes.md",
+        "text": "# Notes
+",
+      },
+      {
+        "mode": "755",
+        "path": ".claude/skills/demo/scripts/run.sh",
+        "text": "#!/bin/sh
+echo demo
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+}
+`;
+
+exports[`golden render: codex @ global > pins the bytes of every kind 1`] = `
+{
+  "agent": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<codex>/agents/demo.toml",
+        "text": "name = "demo"
+description = "Demo agent"
+developer_instructions = """
+Be helpful.
+"""
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "<codex>/agents/demo.toml: dropped model (sonnet), tools, skills, mcpServers (not supported by Codex)",
+    ],
+  },
+  "command-as-skill": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<agents>/skills/review/SKILL.md",
+        "text": "---
+name: review
+description: Review the diff
+---
+
+Review $ARGUMENTS
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "skill review (from a command): Codex does not expand $ARGUMENTS in skills; the text stays as written",
+    ],
+  },
+  "hook": {
+    "exec": [
+      {
+        "canonical": ""\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh"",
+        "command": "CLAUDE_PLUGIN_ROOT="$HOME"/.palm/assets/acme__kit/fmt/plugins/fmt "$HOME/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+        "event": "PostToolUse",
+        "file": "<codex>/hooks.json",
+        "id": "PostToolUse//Edit|Write",
+        "matcher": "Edit|Write",
+      },
+      {
+        "canonical": "echo hi",
+        "command": "echo hi",
+        "event": "SessionStart",
+        "file": "<codex>/hooks.json",
+        "id": "SessionStart//-",
+      },
+    ],
+    "files": [
+      {
+        "mode": "755",
+        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh",
+        "text": "#!/bin/sh
+prettier --write "$1"
+",
+      },
+      {
+        "mode": "644",
+        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
+        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
+      },
+      {
+        "mode": "644",
+        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/lib/util.sh",
+        "text": "x=1
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/hooks/PostToolUse",
+        "createMode": 384,
+        "file": "<codex>/hooks.json",
+        "id": "palm:hook:fmt:0",
+        "key": "sha256:ef6f6c6a",
+        "value": {
+          "hooks": [
+            {
+              "command": "CLAUDE_PLUGIN_ROOT="$HOME"/.palm/assets/acme__kit/fmt/plugins/fmt "$HOME/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+              "timeout": 30,
+              "type": "command",
+            },
+          ],
+          "matcher": "Edit|Write",
+        },
+      },
+      {
+        "at": "/hooks/SessionStart",
+        "createMode": 384,
+        "file": "<codex>/hooks.json",
+        "id": "palm:hook:fmt:1",
+        "key": "sha256:dd93af0e",
+        "value": {
+          "hooks": [
+            {
+              "command": "echo hi",
+              "type": "command",
+            },
+          ],
+        },
+      },
+    ],
+    "notes": [],
+  },
+  "instruction": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "block:instruction:demo",
+        "file": "<codex>/AGENTS.md",
+        "id": "palm:instruction:demo:0",
+        "key": "instruction:demo",
+        "value": "Applies to: src/**
+
+Strict.
+",
+      },
+    ],
+    "notes": [],
+  },
+  "mcp http": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcp_servers/docs",
+        "createMode": 384,
+        "file": "<codex>/config.toml",
+        "id": "palm:mcp:docs:0",
+        "key": "docs",
+        "value": {
+          "bearer_token_env_var": "DOCS_TOKEN",
+          "url": "https://example.com/mcp",
+        },
+      },
+    ],
+    "notes": [
+      "needs DOCS_TOKEN in the environment",
+    ],
+  },
+  "mcp stdio": {
+    "exec": [
+      {
+        "canonical": "npx -y gh-mcp",
+        "command": "npx -y gh-mcp",
+        "file": "<codex>/config.toml",
+        "id": "stdio",
+      },
+    ],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcp_servers/gh",
+        "createMode": 384,
+        "file": "<codex>/config.toml",
+        "id": "palm:mcp:gh:0",
+        "key": "gh",
+        "value": {
+          "args": [
+            "-y",
+            "gh-mcp",
+          ],
+          "command": "npx",
+          "env_vars": [
+            "GH_TOKEN",
+          ],
+        },
+      },
+    ],
+    "notes": [
+      "needs GH_TOKEN in the environment",
+    ],
+  },
+  "mcp with a script": {
+    "exec": [
+      {
+        "canonical": "node \${CLAUDE_PLUGIN_ROOT}/server/index.js --port \${PORT:-8080}",
+        "command": "node <ROOT>/.palm/assets/acme__kit/local/plugins/fmt/server/index.js --port \${PORT:-8080}",
+        "file": "<codex>/config.toml",
+        "id": "stdio",
+      },
+    ],
+    "files": [
+      {
+        "mode": "644",
+        "path": "<palm>/assets/acme__kit/local/plugins/fmt/server/index.js",
+        "text": "console.log(1)
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/mcp_servers/local",
+        "createMode": 384,
+        "file": "<codex>/config.toml",
+        "id": "palm:mcp:local:0",
+        "key": "local",
+        "value": {
+          "args": [
+            "<ROOT>/.palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+            "--port",
+            "\${PORT:-8080}",
+          ],
+          "command": "node",
+        },
+      },
+    ],
+    "notes": [
+      "Codex does not expand environment variables in args: \${PORT} is passed literally (to substitute it: palm install mcp local --secrets literal)",
+      "needs PORT in the environment",
+    ],
+  },
+  "plugin": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "plugin fmt: members are installed individually",
+    ],
+    "skipped": true,
+  },
+  "skill": {
+    "exec": [],
+    "files": [
+      {
+        "mode": "644",
+        "path": "<agents>/skills/demo/SKILL.md",
+        "text": "---
+name: demo
+description: Demo skill
+---
+
+Do the demo.
+",
+      },
+      {
+        "mode": "644",
+        "path": "<agents>/skills/demo/references/notes.md",
+        "text": "# Notes
+",
+      },
+      {
+        "mode": "755",
+        "path": "<agents>/skills/demo/scripts/run.sh",
+        "text": "#!/bin/sh
+echo demo
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+}
+`;
+
+exports[`golden render: codex @ project > pins the bytes of every kind 1`] = `
+{
+  "agent": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".codex/agents/demo.toml",
+        "text": "name = "demo"
+description = "Demo agent"
+developer_instructions = """
+Be helpful.
+"""
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      ".codex/agents/demo.toml: dropped model (sonnet), tools, skills, mcpServers (not supported by Codex)",
+    ],
+  },
+  "command-as-skill": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".agents/skills/review/SKILL.md",
+        "text": "---
+name: review
+description: Review the diff
+---
+
+Review $ARGUMENTS
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "skill review (from a command): Codex does not expand $ARGUMENTS in skills; the text stays as written",
+    ],
+  },
+  "hook": {
+    "exec": [
+      {
+        "canonical": ""\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh"",
+        "command": "CLAUDE_PLUGIN_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"/.palm/assets/acme__kit/fmt/plugins/fmt "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+        "event": "PostToolUse",
+        "file": ".codex/hooks.json",
+        "id": "PostToolUse//Edit|Write",
+        "matcher": "Edit|Write",
+      },
+      {
+        "canonical": "echo hi",
+        "command": "echo hi",
+        "event": "SessionStart",
+        "file": ".codex/hooks.json",
+        "id": "SessionStart//-",
+      },
+    ],
+    "files": [
+      {
+        "mode": "755",
+        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh",
+        "text": "#!/bin/sh
+prettier --write "$1"
+",
+      },
+      {
+        "mode": "644",
+        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/hooks.json",
+        "text": "{"description":"format on edit","hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\\"\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh\\"","timeout":30}]}],"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}",
+      },
+      {
+        "mode": "644",
+        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/lib/util.sh",
+        "text": "x=1
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/hooks/PostToolUse",
+        "file": ".codex/hooks.json",
+        "id": "palm:hook:fmt:0",
+        "key": "sha256:c5c03f30",
+        "value": {
+          "hooks": [
+            {
+              "command": "CLAUDE_PLUGIN_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"/.palm/assets/acme__kit/fmt/plugins/fmt "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+              "timeout": 30,
+              "type": "command",
+            },
+          ],
+          "matcher": "Edit|Write",
+        },
+      },
+      {
+        "at": "/hooks/SessionStart",
+        "file": ".codex/hooks.json",
+        "id": "palm:hook:fmt:1",
+        "key": "sha256:dd93af0e",
+        "value": {
+          "hooks": [
+            {
+              "command": "echo hi",
+              "type": "command",
+            },
+          ],
+        },
+      },
+    ],
+    "notes": [],
+  },
+  "instruction": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "block:instruction:demo",
+        "file": "AGENTS.md",
+        "id": "palm:instruction:demo:0",
+        "key": "instruction:demo",
+        "value": "Applies to: src/**
+
+Strict.
+",
+      },
+    ],
+    "notes": [],
+  },
+  "mcp http": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcp_servers/docs",
+        "file": ".codex/config.toml",
+        "id": "palm:mcp:docs:0",
+        "key": "docs",
+        "value": {
+          "bearer_token_env_var": "DOCS_TOKEN",
+          "url": "https://example.com/mcp",
+        },
+      },
+    ],
+    "notes": [
+      "needs DOCS_TOKEN in the environment",
+    ],
+  },
+  "mcp stdio": {
+    "exec": [
+      {
+        "canonical": "npx -y gh-mcp",
+        "command": "npx -y gh-mcp",
+        "file": ".codex/config.toml",
+        "id": "stdio",
+      },
+    ],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcp_servers/gh",
+        "file": ".codex/config.toml",
+        "id": "palm:mcp:gh:0",
+        "key": "gh",
+        "value": {
+          "args": [
+            "-y",
+            "gh-mcp",
+          ],
+          "command": "npx",
+          "env_vars": [
+            "GH_TOKEN",
+          ],
+        },
+      },
+    ],
+    "notes": [
+      "needs GH_TOKEN in the environment",
+    ],
+  },
+  "mcp with a script": {
+    "exec": [
+      {
+        "canonical": "node \${CLAUDE_PLUGIN_ROOT}/server/index.js --port \${PORT:-8080}",
+        "command": "node .palm/assets/acme__kit/local/plugins/fmt/server/index.js --port \${PORT:-8080}",
+        "file": ".codex/config.toml",
+        "id": "stdio",
+      },
+    ],
+    "files": [
+      {
+        "mode": "644",
+        "path": ".palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+        "text": "console.log(1)
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/mcp_servers/local",
+        "file": ".codex/config.toml",
+        "id": "palm:mcp:local:0",
+        "key": "local",
+        "value": {
+          "args": [
+            ".palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+            "--port",
+            "\${PORT:-8080}",
+          ],
+          "command": "node",
+        },
+      },
+    ],
+    "notes": [
+      "Codex does not expand environment variables in args: \${PORT} is passed literally (to substitute it: palm install mcp local --secrets literal)",
+      "needs PORT in the environment",
+    ],
+  },
+  "plugin": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "plugin fmt: members are installed individually",
+    ],
+    "skipped": true,
+  },
+  "skill": {
+    "exec": [],
+    "files": [
+      {
+        "mode": "644",
+        "path": ".agents/skills/demo/SKILL.md",
+        "text": "---
+name: demo
+description: Demo skill
+---
+
+Do the demo.
+",
+      },
+      {
+        "mode": "644",
+        "path": ".agents/skills/demo/references/notes.md",
+        "text": "# Notes
+",
+      },
+      {
+        "mode": "755",
+        "path": ".agents/skills/demo/scripts/run.sh",
+        "text": "#!/bin/sh
+echo demo
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+}
+`;
+
+exports[`golden render: copilot @ global > pins the bytes of every kind 1`] = `
+{
+  "agent": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<copilot>/agents/demo.agent.md",
+        "text": "---
+name: demo
+description: Demo agent
+tools:
+  - read
+  - execute
+  - gh/search
+  - gh/*
+---
+
+Be helpful.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "<copilot>/agents/demo.agent.md: dropped model (sonnet), mcpServers, skills (not supported by GitHub Copilot)",
+    ],
+  },
+  "command-as-skill": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<agents>/skills/review/SKILL.md",
+        "text": "---
+name: review
+description: Review the diff
+---
+
+Review $ARGUMENTS
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "skill review (from a command): GitHub Copilot does not expand $ARGUMENTS in skills; the text stays as written",
+    ],
+  },
+  "hook": {
+    "exec": [
+      {
+        "canonical": ""\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh"",
+        "command": "CLAUDE_PLUGIN_ROOT="$HOME"/.palm/assets/acme__kit/fmt/plugins/fmt "$HOME/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+        "event": "PostToolUse",
+        "file": "<copilot>/hooks/fmt.json",
+        "id": "PostToolUse//Edit|Write",
+        "matcher": "Edit|Write",
+      },
+      {
+        "canonical": "echo hi",
+        "command": "echo hi",
+        "event": "SessionStart",
+        "file": "<copilot>/hooks/fmt.json",
+        "id": "SessionStart//-",
+      },
+    ],
+    "files": [
+      {
+        "path": "<copilot>/hooks/fmt.json",
+        "text": "{
+  "version": 1,
+  "hooks": {
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "CLAUDE_PLUGIN_ROOT=\\"$HOME\\"/.palm/assets/acme__kit/fmt/plugins/fmt \\"$HOME/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh\\"",
+        "timeoutSec": 30,
+        "matcher": "edit|create"
+      }
+    ],
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "echo hi"
+      }
+    ]
+  }
+}
+",
+      },
+      {
+        "mode": "755",
+        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh",
+        "text": "#!/bin/sh
+prettier --write "$1"
+",
+      },
+      {
+        "mode": "644",
+        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/lib/util.sh",
+        "text": "x=1
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+  "instruction": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<copilot>/instructions/demo.instructions.md",
+        "text": "---
+applyTo: "src/**"
+---
+
+Strict.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+  "mcp http": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/docs",
+        "createMode": 384,
+        "file": "<copilot>/mcp-config.json",
+        "id": "palm:mcp:docs:0",
+        "key": "docs",
+        "value": {
+          "headers": {
+            "Authorization": "Bearer \${DOCS_TOKEN}",
+          },
+          "tools": [
+            "*",
+          ],
+          "type": "http",
+          "url": "https://example.com/mcp",
+        },
+      },
+    ],
+    "notes": [
+      "needs DOCS_TOKEN in the environment",
+    ],
+  },
+  "mcp stdio": {
+    "exec": [
+      {
+        "canonical": "npx -y gh-mcp",
+        "command": "npx -y gh-mcp",
+        "file": "<copilot>/mcp-config.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/gh",
+        "createMode": 384,
+        "file": "<copilot>/mcp-config.json",
+        "id": "palm:mcp:gh:0",
+        "key": "gh",
+        "value": {
+          "args": [
+            "-y",
+            "gh-mcp",
+          ],
+          "command": "npx",
+          "env": {
+            "GH_TOKEN": "\${GH_TOKEN}",
+          },
+          "tools": [
+            "*",
+          ],
+          "type": "local",
+        },
+      },
+    ],
+    "notes": [
+      "needs GH_TOKEN in the environment",
+    ],
+  },
+  "mcp with a script": {
+    "exec": [
+      {
+        "canonical": "node \${CLAUDE_PLUGIN_ROOT}/server/index.js --port \${PORT:-8080}",
+        "command": "node \${HOME}/.palm/assets/acme__kit/local/plugins/fmt/server/index.js --port \${PORT:-8080}",
+        "file": "<copilot>/mcp-config.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [
+      {
+        "mode": "644",
+        "path": "<palm>/assets/acme__kit/local/plugins/fmt/server/index.js",
+        "text": "console.log(1)
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/mcpServers/local",
+        "createMode": 384,
+        "file": "<copilot>/mcp-config.json",
+        "id": "palm:mcp:local:0",
+        "key": "local",
+        "value": {
+          "args": [
+            "\${HOME}/.palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+            "--port",
+            "\${PORT}",
+          ],
+          "command": "node",
+          "tools": [
+            "*",
+          ],
+          "type": "local",
+        },
+      },
+    ],
+    "notes": [
+      "optional in the environment: PORT",
+    ],
+  },
+  "plugin": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "plugin fmt: members are installed individually",
+    ],
+    "skipped": true,
+  },
+  "skill": {
+    "exec": [],
+    "files": [
+      {
+        "mode": "644",
+        "path": "<agents>/skills/demo/SKILL.md",
+        "text": "---
+name: demo
+description: Demo skill
+---
+
+Do the demo.
+",
+      },
+      {
+        "mode": "644",
+        "path": "<agents>/skills/demo/references/notes.md",
+        "text": "# Notes
+",
+      },
+      {
+        "mode": "755",
+        "path": "<agents>/skills/demo/scripts/run.sh",
+        "text": "#!/bin/sh
+echo demo
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+}
+`;
+
+exports[`golden render: copilot @ project > pins the bytes of every kind 1`] = `
+{
+  "agent": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".github/agents/demo.agent.md",
+        "text": "---
+name: demo
+description: Demo agent
+tools:
+  - read
+  - execute
+  - gh/search
+  - gh/*
+---
+
+Be helpful.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      ".github/agents/demo.agent.md: dropped model (sonnet), mcpServers, skills (not supported by GitHub Copilot)",
+    ],
+  },
+  "command-as-skill": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".agents/skills/review/SKILL.md",
+        "text": "---
+name: review
+description: Review the diff
+---
+
+Review $ARGUMENTS
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "skill review (from a command): GitHub Copilot does not expand $ARGUMENTS in skills; the text stays as written",
+    ],
+  },
+  "hook": {
+    "exec": [
+      {
+        "canonical": ""\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh"",
+        "command": "CLAUDE_PLUGIN_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"/.palm/assets/acme__kit/fmt/plugins/fmt "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+        "event": "PostToolUse",
+        "file": ".github/hooks/fmt.json",
+        "id": "PostToolUse//Edit|Write",
+        "matcher": "Edit|Write",
+      },
+      {
+        "canonical": "echo hi",
+        "command": "echo hi",
+        "event": "SessionStart",
+        "file": ".github/hooks/fmt.json",
+        "id": "SessionStart//-",
+      },
+    ],
+    "files": [
+      {
+        "path": ".github/hooks/fmt.json",
+        "text": "{
+  "version": 1,
+  "hooks": {
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "CLAUDE_PLUGIN_ROOT=\\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\\"/.palm/assets/acme__kit/fmt/plugins/fmt \\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh\\"",
+        "timeoutSec": 30,
+        "matcher": "edit|create"
+      }
+    ],
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "echo hi"
+      }
+    ]
+  }
+}
+",
+      },
+      {
+        "mode": "755",
+        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh",
+        "text": "#!/bin/sh
+prettier --write "$1"
+",
+      },
+      {
+        "mode": "644",
+        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/lib/util.sh",
+        "text": "x=1
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+  "instruction": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".github/instructions/demo.instructions.md",
+        "text": "---
+applyTo: "src/**"
+---
+
+Strict.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+  "mcp http": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/servers/docs",
+        "file": ".vscode/mcp.json",
+        "id": "palm:mcp:docs:0",
+        "key": "docs",
+        "value": {
+          "headers": {
+            "Authorization": "Bearer \${env:DOCS_TOKEN}",
+          },
+          "type": "http",
+          "url": "https://example.com/mcp",
+        },
+      },
+    ],
+    "notes": [
+      "needs DOCS_TOKEN in the environment",
+    ],
+  },
+  "mcp stdio": {
+    "exec": [
+      {
+        "canonical": "npx -y gh-mcp",
+        "command": "npx -y gh-mcp",
+        "file": ".vscode/mcp.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/servers/gh",
+        "file": ".vscode/mcp.json",
+        "id": "palm:mcp:gh:0",
+        "key": "gh",
+        "value": {
+          "args": [
+            "-y",
+            "gh-mcp",
+          ],
+          "command": "npx",
+          "env": {
+            "GH_TOKEN": "\${env:GH_TOKEN}",
+          },
+          "type": "stdio",
+        },
+      },
+    ],
+    "notes": [
+      "needs GH_TOKEN in the environment",
+    ],
+  },
+  "mcp with a script": {
+    "exec": [
+      {
+        "canonical": "node \${CLAUDE_PLUGIN_ROOT}/server/index.js --port \${PORT:-8080}",
+        "command": "node .palm/assets/acme__kit/local/plugins/fmt/server/index.js --port \${PORT:-8080}",
+        "file": ".vscode/mcp.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [
+      {
+        "mode": "644",
+        "path": ".palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+        "text": "console.log(1)
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/servers/local",
+        "file": ".vscode/mcp.json",
+        "id": "palm:mcp:local:0",
+        "key": "local",
+        "value": {
+          "args": [
+            ".palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+            "--port",
+            "\${env:PORT}",
+          ],
+          "command": "node",
+          "type": "stdio",
+        },
+      },
+    ],
+    "notes": [
+      "optional in the environment: PORT",
+    ],
+  },
+  "plugin": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "plugin fmt: members are installed individually",
+    ],
+    "skipped": true,
+  },
+  "skill": {
+    "exec": [],
+    "files": [
+      {
+        "mode": "644",
+        "path": ".agents/skills/demo/SKILL.md",
+        "text": "---
+name: demo
+description: Demo skill
+---
+
+Do the demo.
+",
+      },
+      {
+        "mode": "644",
+        "path": ".agents/skills/demo/references/notes.md",
+        "text": "# Notes
+",
+      },
+      {
+        "mode": "755",
+        "path": ".agents/skills/demo/scripts/run.sh",
+        "text": "#!/bin/sh
+echo demo
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+}
+`;
+
+exports[`golden render: cursor @ global > pins the bytes of every kind 1`] = `
+{
+  "agent": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<cursor>/agents/demo.md",
+        "text": "---
+name: demo
+description: Demo agent
+---
+
+Be helpful.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "<cursor>/agents/demo.md: dropped model (sonnet), tools, skills, mcpServers (not supported by Cursor)",
+    ],
+  },
+  "command-as-skill": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<agents>/skills/review/SKILL.md",
+        "text": "---
+name: review
+description: Review the diff
+argument-hint: "[files]"
+---
+
+Review $ARGUMENTS
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "cursor reads .agents/skills",
+    ],
+  },
+  "hook": {
+    "exec": [
+      {
+        "canonical": ""\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh"",
+        "command": "CURSOR_PLUGIN_ROOT="$HOME"/.palm/assets/acme__kit/fmt/plugins/fmt CLAUDE_PLUGIN_ROOT="$HOME"/.palm/assets/acme__kit/fmt/plugins/fmt "$HOME/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+        "event": "PostToolUse",
+        "file": "<cursor>/hooks.json",
+        "id": "PostToolUse//Edit|Write",
+        "matcher": "Edit|Write",
+      },
+      {
+        "canonical": "echo hi",
+        "command": "echo hi",
+        "event": "SessionStart",
+        "file": "<cursor>/hooks.json",
+        "id": "SessionStart//-",
+      },
+    ],
+    "files": [
+      {
+        "mode": "755",
+        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh",
+        "text": "#!/bin/sh
+prettier --write "$1"
+",
+      },
+      {
+        "mode": "644",
+        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/lib/util.sh",
+        "text": "x=1
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/hooks/postToolUse",
+        "createMode": 384,
+        "ensure": {
+          "version": 1,
+        },
+        "file": "<cursor>/hooks.json",
+        "id": "palm:hook:fmt:0",
+        "key": "sha256:dd451797",
+        "value": {
+          "command": "CURSOR_PLUGIN_ROOT="$HOME"/.palm/assets/acme__kit/fmt/plugins/fmt CLAUDE_PLUGIN_ROOT="$HOME"/.palm/assets/acme__kit/fmt/plugins/fmt "$HOME/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+          "matcher": "Write",
+          "timeout": 30,
+        },
+      },
+      {
+        "at": "/hooks/sessionStart",
+        "createMode": 384,
+        "ensure": {
+          "version": 1,
+        },
+        "file": "<cursor>/hooks.json",
+        "id": "palm:hook:fmt:1",
+        "key": "sha256:dd93af0e",
+        "value": {
+          "command": "echo hi",
+        },
+      },
+    ],
+    "notes": [],
+  },
+  "instruction": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "Cursor keeps user rules in Cursor Settings, not in files; instruction demo skipped at global scope (install it in a project for .cursor/rules)",
+    ],
+    "skipped": true,
+  },
+  "mcp http": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/docs",
+        "createMode": 384,
+        "file": "<cursor>/mcp.json",
+        "id": "palm:mcp:docs:0",
+        "key": "docs",
+        "value": {
+          "headers": {
+            "Authorization": "Bearer \${env:DOCS_TOKEN}",
+          },
+          "url": "https://example.com/mcp",
+        },
+      },
+    ],
+    "notes": [
+      "needs DOCS_TOKEN in the environment",
+    ],
+  },
+  "mcp stdio": {
+    "exec": [
+      {
+        "canonical": "npx -y gh-mcp",
+        "command": "npx -y gh-mcp",
+        "file": "<cursor>/mcp.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/gh",
+        "createMode": 384,
+        "file": "<cursor>/mcp.json",
+        "id": "palm:mcp:gh:0",
+        "key": "gh",
+        "value": {
+          "args": [
+            "-y",
+            "gh-mcp",
+          ],
+          "command": "npx",
+          "env": {
+            "GH_TOKEN": "\${env:GH_TOKEN}",
+          },
+        },
+      },
+    ],
+    "notes": [
+      "needs GH_TOKEN in the environment",
+    ],
+  },
+  "mcp with a script": {
+    "exec": [
+      {
+        "canonical": "node \${CLAUDE_PLUGIN_ROOT}/server/index.js --port \${PORT:-8080}",
+        "command": "node \${userHome}/.palm/assets/acme__kit/local/plugins/fmt/server/index.js --port \${PORT:-8080}",
+        "file": "<cursor>/mcp.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [
+      {
+        "mode": "644",
+        "path": "<palm>/assets/acme__kit/local/plugins/fmt/server/index.js",
+        "text": "console.log(1)
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/mcpServers/local",
+        "createMode": 384,
+        "file": "<cursor>/mcp.json",
+        "id": "palm:mcp:local:0",
+        "key": "local",
+        "value": {
+          "args": [
+            "\${userHome}/.palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+            "--port",
+            "\${env:PORT}",
+          ],
+          "command": "node",
+        },
+      },
+    ],
+    "notes": [
+      "optional in the environment: PORT",
+    ],
+  },
+  "plugin": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "plugin fmt: members are installed individually",
+    ],
+    "skipped": true,
+  },
+  "skill": {
+    "exec": [],
+    "files": [
+      {
+        "mode": "644",
+        "path": "<agents>/skills/demo/SKILL.md",
+        "text": "---
+name: demo
+description: Demo skill
+---
+
+Do the demo.
+",
+      },
+      {
+        "mode": "644",
+        "path": "<agents>/skills/demo/references/notes.md",
+        "text": "# Notes
+",
+      },
+      {
+        "mode": "755",
+        "path": "<agents>/skills/demo/scripts/run.sh",
+        "text": "#!/bin/sh
+echo demo
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "cursor reads .agents/skills",
+    ],
+  },
+}
+`;
+
+exports[`golden render: cursor @ project > pins the bytes of every kind 1`] = `
+{
+  "agent": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".cursor/agents/demo.md",
+        "text": "---
+name: demo
+description: Demo agent
+---
+
+Be helpful.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      ".cursor/agents/demo.md: dropped model (sonnet), tools, skills, mcpServers (not supported by Cursor)",
+    ],
+  },
+  "command-as-skill": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".agents/skills/review/SKILL.md",
+        "text": "---
+name: review
+description: Review the diff
+argument-hint: "[files]"
+---
+
+Review $ARGUMENTS
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "cursor reads .agents/skills",
+    ],
+  },
+  "hook": {
+    "exec": [
+      {
+        "canonical": ""\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh"",
+        "command": "CURSOR_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/acme__kit/fmt/plugins/fmt CLAUDE_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/acme__kit/fmt/plugins/fmt "$CURSOR_PROJECT_DIR/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+        "event": "PostToolUse",
+        "file": ".cursor/hooks.json",
+        "id": "PostToolUse//Edit|Write",
+        "matcher": "Edit|Write",
+      },
+      {
+        "canonical": "echo hi",
+        "command": "echo hi",
+        "event": "SessionStart",
+        "file": ".cursor/hooks.json",
+        "id": "SessionStart//-",
+      },
+    ],
+    "files": [
+      {
+        "mode": "755",
+        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh",
+        "text": "#!/bin/sh
+prettier --write "$1"
+",
+      },
+      {
+        "mode": "644",
+        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/lib/util.sh",
+        "text": "x=1
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/hooks/postToolUse",
+        "ensure": {
+          "version": 1,
+        },
+        "file": ".cursor/hooks.json",
+        "id": "palm:hook:fmt:0",
+        "key": "sha256:fc6d8e34",
+        "value": {
+          "command": "CURSOR_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/acme__kit/fmt/plugins/fmt CLAUDE_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/acme__kit/fmt/plugins/fmt "$CURSOR_PROJECT_DIR/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+          "matcher": "Write",
+          "timeout": 30,
+        },
+      },
+      {
+        "at": "/hooks/sessionStart",
+        "ensure": {
+          "version": 1,
+        },
+        "file": ".cursor/hooks.json",
+        "id": "palm:hook:fmt:1",
+        "key": "sha256:dd93af0e",
+        "value": {
+          "command": "echo hi",
+        },
+      },
+    ],
+    "notes": [],
+  },
+  "instruction": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".cursor/rules/demo.mdc",
+        "text": "---
+description:
+globs: src/**
+alwaysApply: false
+---
+
+Strict.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+  "mcp http": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/docs",
+        "file": ".cursor/mcp.json",
+        "id": "palm:mcp:docs:0",
+        "key": "docs",
+        "value": {
+          "headers": {
+            "Authorization": "Bearer \${env:DOCS_TOKEN}",
+          },
+          "url": "https://example.com/mcp",
+        },
+      },
+    ],
+    "notes": [
+      "needs DOCS_TOKEN in the environment",
+    ],
+  },
+  "mcp stdio": {
+    "exec": [
+      {
+        "canonical": "npx -y gh-mcp",
+        "command": "npx -y gh-mcp",
+        "file": ".cursor/mcp.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/gh",
+        "file": ".cursor/mcp.json",
+        "id": "palm:mcp:gh:0",
+        "key": "gh",
+        "value": {
+          "args": [
+            "-y",
+            "gh-mcp",
+          ],
+          "command": "npx",
+          "env": {
+            "GH_TOKEN": "\${env:GH_TOKEN}",
+          },
+        },
+      },
+    ],
+    "notes": [
+      "needs GH_TOKEN in the environment",
+    ],
+  },
+  "mcp with a script": {
+    "exec": [
+      {
+        "canonical": "node \${CLAUDE_PLUGIN_ROOT}/server/index.js --port \${PORT:-8080}",
+        "command": "node .palm/assets/acme__kit/local/plugins/fmt/server/index.js --port \${PORT:-8080}",
+        "file": ".cursor/mcp.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [
+      {
+        "mode": "644",
+        "path": ".palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+        "text": "console.log(1)
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/mcpServers/local",
+        "file": ".cursor/mcp.json",
+        "id": "palm:mcp:local:0",
+        "key": "local",
+        "value": {
+          "args": [
+            ".palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+            "--port",
+            "\${env:PORT}",
+          ],
+          "command": "node",
+        },
+      },
+    ],
+    "notes": [
+      "optional in the environment: PORT",
+    ],
+  },
+  "plugin": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "plugin fmt: members are installed individually",
+    ],
+    "skipped": true,
+  },
+  "skill": {
+    "exec": [],
+    "files": [
+      {
+        "mode": "644",
+        "path": ".agents/skills/demo/SKILL.md",
+        "text": "---
+name: demo
+description: Demo skill
+---
+
+Do the demo.
+",
+      },
+      {
+        "mode": "644",
+        "path": ".agents/skills/demo/references/notes.md",
+        "text": "# Notes
+",
+      },
+      {
+        "mode": "755",
+        "path": ".agents/skills/demo/scripts/run.sh",
+        "text": "#!/bin/sh
+echo demo
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "cursor reads .agents/skills",
+    ],
+  },
+}
+`;
+
+exports[`golden render: gemini @ global > pins the bytes of every kind 1`] = `
+{
+  "agent": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<gemini>/agents/demo.md",
+        "text": "---
+name: demo
+description: Demo agent
+kind: local
+tools:
+  - read_file
+  - run_shell_command
+  - mcp_gh_search
+  - activate_skill
+  - mcp_gh_*
+---
+
+Be helpful.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "<gemini>/agents/demo.md: dropped model (sonnet), skills (not supported by Gemini CLI)",
+    ],
+  },
+  "command-as-skill": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<agents>/skills/review/SKILL.md",
+        "text": "---
+name: review
+description: Review the diff
+---
+
+Review $ARGUMENTS
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "skill review (from a command): Gemini CLI does not expand $ARGUMENTS in skills; the text stays as written",
+    ],
+  },
+  "hook": {
+    "exec": [
+      {
+        "canonical": ""\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh"",
+        "command": "CLAUDE_PLUGIN_ROOT="$HOME"/.palm/assets/acme__kit/fmt/plugins/fmt "$HOME/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+        "event": "PostToolUse",
+        "file": "<gemini>/settings.json",
+        "id": "PostToolUse//Edit|Write",
+        "matcher": "Edit|Write",
+      },
+      {
+        "canonical": "echo hi",
+        "command": "echo hi",
+        "event": "SessionStart",
+        "file": "<gemini>/settings.json",
+        "id": "SessionStart//-",
+      },
+    ],
+    "files": [
+      {
+        "mode": "755",
+        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh",
+        "text": "#!/bin/sh
+prettier --write "$1"
+",
+      },
+      {
+        "mode": "644",
+        "path": "<palm>/assets/acme__kit/fmt/plugins/fmt/hooks/lib/util.sh",
+        "text": "x=1
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/hooks/AfterTool",
+        "createMode": 384,
+        "file": "<gemini>/settings.json",
+        "id": "palm:hook:fmt:0",
+        "key": "sha256:ae364636",
+        "value": {
+          "hooks": [
+            {
+              "command": "CLAUDE_PLUGIN_ROOT="$HOME"/.palm/assets/acme__kit/fmt/plugins/fmt "$HOME/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+              "timeout": 30000,
+              "type": "command",
+            },
+          ],
+          "matcher": "replace|write_file",
+        },
+      },
+      {
+        "at": "/hooks/SessionStart",
+        "createMode": 384,
+        "file": "<gemini>/settings.json",
+        "id": "palm:hook:fmt:1",
+        "key": "sha256:dd93af0e",
+        "value": {
+          "hooks": [
+            {
+              "command": "echo hi",
+              "type": "command",
+            },
+          ],
+        },
+      },
+    ],
+    "notes": [],
+  },
+  "instruction": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "block:instruction:demo",
+        "file": "<gemini>/GEMINI.md",
+        "id": "palm:instruction:demo:0",
+        "key": "instruction:demo",
+        "value": "Applies to: src/**
+
+Strict.
+",
+      },
+    ],
+    "notes": [],
+  },
+  "mcp http": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/docs",
+        "createMode": 384,
+        "file": "<gemini>/settings.json",
+        "id": "palm:mcp:docs:0",
+        "key": "docs",
+        "value": {
+          "headers": {
+            "Authorization": "Bearer \${DOCS_TOKEN}",
+          },
+          "type": "http",
+          "url": "https://example.com/mcp",
+        },
+      },
+    ],
+    "notes": [
+      "needs DOCS_TOKEN in the environment",
+    ],
+  },
+  "mcp stdio": {
+    "exec": [
+      {
+        "canonical": "npx -y gh-mcp",
+        "command": "npx -y gh-mcp",
+        "file": "<gemini>/settings.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/gh",
+        "createMode": 384,
+        "file": "<gemini>/settings.json",
+        "id": "palm:mcp:gh:0",
+        "key": "gh",
+        "value": {
+          "args": [
+            "-y",
+            "gh-mcp",
+          ],
+          "command": "npx",
+          "env": {
+            "GH_TOKEN": "\${GH_TOKEN}",
+          },
+        },
+      },
+    ],
+    "notes": [
+      "needs GH_TOKEN in the environment",
+    ],
+  },
+  "mcp with a script": {
+    "exec": [
+      {
+        "canonical": "node \${CLAUDE_PLUGIN_ROOT}/server/index.js --port \${PORT:-8080}",
+        "command": "node \${HOME}/.palm/assets/acme__kit/local/plugins/fmt/server/index.js --port \${PORT:-8080}",
+        "file": "<gemini>/settings.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [
+      {
+        "mode": "644",
+        "path": "<palm>/assets/acme__kit/local/plugins/fmt/server/index.js",
+        "text": "console.log(1)
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/mcpServers/local",
+        "createMode": 384,
+        "file": "<gemini>/settings.json",
+        "id": "palm:mcp:local:0",
+        "key": "local",
+        "value": {
+          "args": [
+            "\${HOME}/.palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+            "--port",
+            "\${PORT:-8080}",
+          ],
+          "command": "node",
+        },
+      },
+    ],
+    "notes": [
+      "optional in the environment: PORT",
+    ],
+  },
+  "plugin": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "plugin fmt: members are installed individually",
+    ],
+    "skipped": true,
+  },
+  "skill": {
+    "exec": [],
+    "files": [
+      {
+        "mode": "644",
+        "path": "<agents>/skills/demo/SKILL.md",
+        "text": "---
+name: demo
+description: Demo skill
+---
+
+Do the demo.
+",
+      },
+      {
+        "mode": "644",
+        "path": "<agents>/skills/demo/references/notes.md",
+        "text": "# Notes
+",
+      },
+      {
+        "mode": "755",
+        "path": "<agents>/skills/demo/scripts/run.sh",
+        "text": "#!/bin/sh
+echo demo
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+}
+`;
+
+exports[`golden render: gemini @ project > pins the bytes of every kind 1`] = `
+{
+  "agent": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".gemini/agents/demo.md",
+        "text": "---
+name: demo
+description: Demo agent
+kind: local
+tools:
+  - read_file
+  - run_shell_command
+  - mcp_gh_search
+  - activate_skill
+  - mcp_gh_*
+---
+
+Be helpful.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      ".gemini/agents/demo.md: dropped model (sonnet), skills (not supported by Gemini CLI)",
+    ],
+  },
+  "command-as-skill": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".agents/skills/review/SKILL.md",
+        "text": "---
+name: review
+description: Review the diff
+---
+
+Review $ARGUMENTS
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "skill review (from a command): Gemini CLI does not expand $ARGUMENTS in skills; the text stays as written",
+    ],
+  },
+  "hook": {
+    "exec": [
+      {
+        "canonical": ""\${CLAUDE_PLUGIN_ROOT}/hooks/format.sh"",
+        "command": "CLAUDE_PLUGIN_ROOT="$GEMINI_PROJECT_DIR"/.palm/assets/acme__kit/fmt/plugins/fmt "$GEMINI_PROJECT_DIR/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+        "event": "PostToolUse",
+        "file": ".gemini/settings.json",
+        "id": "PostToolUse//Edit|Write",
+        "matcher": "Edit|Write",
+      },
+      {
+        "canonical": "echo hi",
+        "command": "echo hi",
+        "event": "SessionStart",
+        "file": ".gemini/settings.json",
+        "id": "SessionStart//-",
+      },
+    ],
+    "files": [
+      {
+        "mode": "755",
+        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh",
+        "text": "#!/bin/sh
+prettier --write "$1"
+",
+      },
+      {
+        "mode": "644",
+        "path": ".palm/assets/acme__kit/fmt/plugins/fmt/hooks/lib/util.sh",
+        "text": "x=1
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/hooks/AfterTool",
+        "file": ".gemini/settings.json",
+        "id": "palm:hook:fmt:0",
+        "key": "sha256:cb530ec1",
+        "value": {
+          "hooks": [
+            {
+              "command": "CLAUDE_PLUGIN_ROOT="$GEMINI_PROJECT_DIR"/.palm/assets/acme__kit/fmt/plugins/fmt "$GEMINI_PROJECT_DIR/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh"",
+              "timeout": 30000,
+              "type": "command",
+            },
+          ],
+          "matcher": "replace|write_file",
+        },
+      },
+      {
+        "at": "/hooks/SessionStart",
+        "file": ".gemini/settings.json",
+        "id": "palm:hook:fmt:1",
+        "key": "sha256:dd93af0e",
+        "value": {
+          "hooks": [
+            {
+              "command": "echo hi",
+              "type": "command",
+            },
+          ],
+        },
+      },
+    ],
+    "notes": [],
+  },
+  "instruction": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "block:instruction:demo",
+        "file": "GEMINI.md",
+        "id": "palm:instruction:demo:0",
+        "key": "instruction:demo",
+        "value": "Applies to: src/**
+
+Strict.
+",
+      },
+    ],
+    "notes": [],
+  },
+  "mcp http": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/docs",
+        "file": ".gemini/settings.json",
+        "id": "palm:mcp:docs:0",
+        "key": "docs",
+        "value": {
+          "headers": {
+            "Authorization": "Bearer \${DOCS_TOKEN}",
+          },
+          "type": "http",
+          "url": "https://example.com/mcp",
+        },
+      },
+    ],
+    "notes": [
+      "needs DOCS_TOKEN in the environment",
+    ],
+  },
+  "mcp stdio": {
+    "exec": [
+      {
+        "canonical": "npx -y gh-mcp",
+        "command": "npx -y gh-mcp",
+        "file": ".gemini/settings.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcpServers/gh",
+        "file": ".gemini/settings.json",
+        "id": "palm:mcp:gh:0",
+        "key": "gh",
+        "value": {
+          "args": [
+            "-y",
+            "gh-mcp",
+          ],
+          "command": "npx",
+          "env": {
+            "GH_TOKEN": "\${GH_TOKEN}",
+          },
+        },
+      },
+    ],
+    "notes": [
+      "needs GH_TOKEN in the environment",
+    ],
+  },
+  "mcp with a script": {
+    "exec": [
+      {
+        "canonical": "node \${CLAUDE_PLUGIN_ROOT}/server/index.js --port \${PORT:-8080}",
+        "command": "node .palm/assets/acme__kit/local/plugins/fmt/server/index.js --port \${PORT:-8080}",
+        "file": ".gemini/settings.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [
+      {
+        "mode": "644",
+        "path": ".palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+        "text": "console.log(1)
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/mcpServers/local",
+        "file": ".gemini/settings.json",
+        "id": "palm:mcp:local:0",
+        "key": "local",
+        "value": {
+          "args": [
+            ".palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+            "--port",
+            "\${PORT:-8080}",
+          ],
+          "command": "node",
+        },
+      },
+    ],
+    "notes": [
+      "optional in the environment: PORT",
+    ],
+  },
+  "plugin": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "plugin fmt: members are installed individually",
+    ],
+    "skipped": true,
+  },
+  "skill": {
+    "exec": [],
+    "files": [
+      {
+        "mode": "644",
+        "path": ".agents/skills/demo/SKILL.md",
+        "text": "---
+name: demo
+description: Demo skill
+---
+
+Do the demo.
+",
+      },
+      {
+        "mode": "644",
+        "path": ".agents/skills/demo/references/notes.md",
+        "text": "# Notes
+",
+      },
+      {
+        "mode": "755",
+        "path": ".agents/skills/demo/scripts/run.sh",
+        "text": "#!/bin/sh
+echo demo
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [],
+  },
+}
+`;
+
+exports[`golden render: opencode @ global > pins the bytes of every kind 1`] = `
+{
+  "agent": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<opencode>/agents/demo.md",
+        "text": "---
+description: Demo agent
+mode: subagent
+permission:
+  "*": deny
+  read: allow
+  bash: allow
+  gh_search: allow
+  gh_*: allow
+  skill:
+    demo: allow
+---
+
+Be helpful.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "<opencode>/agents/demo.md: dropped model (sonnet), skills (not supported by OpenCode)",
+    ],
+  },
+  "command-as-skill": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<agents>/skills/review/SKILL.md",
+        "text": "---
+name: review
+description: Review the diff
+---
+
+Review $ARGUMENTS
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "opencode reads .agents/skills",
+      "skill review (from a command): OpenCode does not expand $ARGUMENTS in skills; the text stays as written",
+    ],
+  },
+  "hook": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "OpenCode hooks are JS plugins; hook fmt not installed",
+    ],
+    "skipped": true,
+  },
+  "instruction": {
+    "exec": [],
+    "files": [
+      {
+        "path": "<opencode>/instructions/demo.md",
+        "text": "Applies to: src/**
+
+Strict.
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/instructions",
+        "createMode": 384,
+        "file": "<opencode>/opencode.json",
+        "id": "palm:instruction:demo:0",
+        "key": "sha256:a4001b60",
+        "value": "~/.config/opencode/instructions/demo.md",
+      },
+    ],
+    "notes": [],
+  },
+  "mcp http": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcp/docs",
+        "createMode": 384,
+        "file": "<opencode>/opencode.json",
+        "id": "palm:mcp:docs:0",
+        "key": "docs",
+        "value": {
+          "enabled": true,
+          "headers": {
+            "Authorization": "Bearer {env:DOCS_TOKEN}",
+          },
+          "oauth": false,
+          "type": "remote",
+          "url": "https://example.com/mcp",
+        },
+      },
+    ],
+    "notes": [
+      "needs DOCS_TOKEN in the environment",
+    ],
+  },
+  "mcp stdio": {
+    "exec": [
+      {
+        "canonical": "npx -y gh-mcp",
+        "command": "npx -y gh-mcp",
+        "file": "<opencode>/opencode.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcp/gh",
+        "createMode": 384,
+        "file": "<opencode>/opencode.json",
+        "id": "palm:mcp:gh:0",
+        "key": "gh",
+        "value": {
+          "command": [
+            "npx",
+            "-y",
+            "gh-mcp",
+          ],
+          "enabled": true,
+          "environment": {
+            "GH_TOKEN": "{env:GH_TOKEN}",
+          },
+          "type": "local",
+        },
+      },
+    ],
+    "notes": [
+      "needs GH_TOKEN in the environment",
+    ],
+  },
+  "mcp with a script": {
+    "exec": [
+      {
+        "canonical": "node \${CLAUDE_PLUGIN_ROOT}/server/index.js --port \${PORT:-8080}",
+        "command": "node {env:HOME}/.palm/assets/acme__kit/local/plugins/fmt/server/index.js --port \${PORT:-8080}",
+        "file": "<opencode>/opencode.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [
+      {
+        "mode": "644",
+        "path": "<palm>/assets/acme__kit/local/plugins/fmt/server/index.js",
+        "text": "console.log(1)
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/mcp/local",
+        "createMode": 384,
+        "file": "<opencode>/opencode.json",
+        "id": "palm:mcp:local:0",
+        "key": "local",
+        "value": {
+          "command": [
+            "node",
+            "{env:HOME}/.palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+            "--port",
+            "{env:PORT}",
+          ],
+          "enabled": true,
+          "type": "local",
+        },
+      },
+    ],
+    "notes": [
+      "OpenCode has no default syntax: PORT is empty when unset (default "8080" dropped)",
+      "optional in the environment: PORT",
+    ],
+  },
+  "plugin": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "plugin fmt: members are installed individually",
+    ],
+    "skipped": true,
+  },
+  "skill": {
+    "exec": [],
+    "files": [
+      {
+        "mode": "644",
+        "path": "<agents>/skills/demo/SKILL.md",
+        "text": "---
+name: demo
+description: Demo skill
+---
+
+Do the demo.
+",
+      },
+      {
+        "mode": "644",
+        "path": "<agents>/skills/demo/references/notes.md",
+        "text": "# Notes
+",
+      },
+      {
+        "mode": "755",
+        "path": "<agents>/skills/demo/scripts/run.sh",
+        "text": "#!/bin/sh
+echo demo
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "opencode reads .agents/skills",
+    ],
+  },
+}
+`;
+
+exports[`golden render: opencode @ project > pins the bytes of every kind 1`] = `
+{
+  "agent": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".opencode/agents/demo.md",
+        "text": "---
+description: Demo agent
+mode: subagent
+permission:
+  "*": deny
+  read: allow
+  bash: allow
+  gh_search: allow
+  gh_*: allow
+  skill:
+    demo: allow
+---
+
+Be helpful.
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      ".opencode/agents/demo.md: dropped model (sonnet), skills (not supported by OpenCode)",
+    ],
+  },
+  "command-as-skill": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".agents/skills/review/SKILL.md",
+        "text": "---
+name: review
+description: Review the diff
+---
+
+Review $ARGUMENTS
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "opencode reads .agents/skills",
+      "skill review (from a command): OpenCode does not expand $ARGUMENTS in skills; the text stays as written",
+    ],
+  },
+  "hook": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "OpenCode hooks are JS plugins; hook fmt not installed",
+    ],
+    "skipped": true,
+  },
+  "instruction": {
+    "exec": [],
+    "files": [
+      {
+        "path": ".opencode/instructions/demo.md",
+        "text": "Applies to: src/**
+
+Strict.
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/instructions",
+        "file": "opencode.json",
+        "id": "palm:instruction:demo:0",
+        "key": "sha256:0bc66ffb",
+        "value": ".opencode/instructions/demo.md",
+      },
+    ],
+    "notes": [],
+  },
+  "mcp http": {
+    "exec": [],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcp/docs",
+        "file": "opencode.json",
+        "id": "palm:mcp:docs:0",
+        "key": "docs",
+        "value": {
+          "enabled": true,
+          "headers": {
+            "Authorization": "Bearer {env:DOCS_TOKEN}",
+          },
+          "oauth": false,
+          "type": "remote",
+          "url": "https://example.com/mcp",
+        },
+      },
+    ],
+    "notes": [
+      "needs DOCS_TOKEN in the environment",
+    ],
+  },
+  "mcp stdio": {
+    "exec": [
+      {
+        "canonical": "npx -y gh-mcp",
+        "command": "npx -y gh-mcp",
+        "file": "opencode.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [],
+    "fragments": [
+      {
+        "at": "/mcp/gh",
+        "file": "opencode.json",
+        "id": "palm:mcp:gh:0",
+        "key": "gh",
+        "value": {
+          "command": [
+            "npx",
+            "-y",
+            "gh-mcp",
+          ],
+          "enabled": true,
+          "environment": {
+            "GH_TOKEN": "{env:GH_TOKEN}",
+          },
+          "type": "local",
+        },
+      },
+    ],
+    "notes": [
+      "needs GH_TOKEN in the environment",
+    ],
+  },
+  "mcp with a script": {
+    "exec": [
+      {
+        "canonical": "node \${CLAUDE_PLUGIN_ROOT}/server/index.js --port \${PORT:-8080}",
+        "command": "node .palm/assets/acme__kit/local/plugins/fmt/server/index.js --port \${PORT:-8080}",
+        "file": "opencode.json",
+        "id": "stdio",
+      },
+    ],
+    "files": [
+      {
+        "mode": "644",
+        "path": ".palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+        "text": "console.log(1)
+",
+      },
+    ],
+    "fragments": [
+      {
+        "at": "/mcp/local",
+        "file": "opencode.json",
+        "id": "palm:mcp:local:0",
+        "key": "local",
+        "value": {
+          "command": [
+            "node",
+            ".palm/assets/acme__kit/local/plugins/fmt/server/index.js",
+            "--port",
+            "{env:PORT}",
+          ],
+          "enabled": true,
+          "type": "local",
+        },
+      },
+    ],
+    "notes": [
+      "OpenCode has no default syntax: PORT is empty when unset (default "8080" dropped)",
+      "optional in the environment: PORT",
+    ],
+  },
+  "plugin": {
+    "exec": [],
+    "files": [],
+    "fragments": [],
+    "notes": [
+      "plugin fmt: members are installed individually",
+    ],
+    "skipped": true,
+  },
+  "skill": {
+    "exec": [],
+    "files": [
+      {
+        "mode": "644",
+        "path": ".agents/skills/demo/SKILL.md",
+        "text": "---
+name: demo
+description: Demo skill
+---
+
+Do the demo.
+",
+      },
+      {
+        "mode": "644",
+        "path": ".agents/skills/demo/references/notes.md",
+        "text": "# Notes
+",
+      },
+      {
+        "mode": "755",
+        "path": ".agents/skills/demo/scripts/run.sh",
+        "text": "#!/bin/sh
+echo demo
+",
+      },
+    ],
+    "fragments": [],
+    "notes": [
+      "opencode reads .agents/skills",
+    ],
+  },
+}
+`;

@@ -53,7 +53,6 @@ const MARKDOWN_KNOWN_KEYS = new Set([
   'disallowed-tools',
   'skills',
   'mcpServers',
-  'instructions',
   'color',
 ]);
 
@@ -90,7 +89,6 @@ export function parseAgentFileDetailed(absPath: string, text: string): ParsedAge
     disallowedTools: asList(data.disallowedTools ?? data['disallowed-tools']),
     skills: asList(data.skills),
     mcpServers: mcpServers?.length ? mcpServers : undefined,
-    instructions: asList(data.instructions),
     color: asString(data.color),
     body: split.body,
     extra: Object.keys(extra).length > 0 ? extra : undefined,

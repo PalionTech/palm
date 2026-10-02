@@ -1,21 +1,20 @@
 $ palm update --dry-run
 Update plan (project scope)
-~ updated    skill  ci-watch    team  v1.0.0 (4179b50) → v1.1.0 (6b4bac7)
-= unchanged  agent  ci-watcher  team  v1.0.0 (4179b50)
-
-dry run: nothing written
+acme/agent-kit   ^1.0   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
+~ updated   skill   ci-watch   acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
+= 2 re-pinned (same content)
+dry run: nothing written.
 $ palm update --yes
 Update plan (project scope)
-~ updated    skill  ci-watch    team  v1.0.0 (4179b50) → v1.1.0 (6b4bac7)
-= unchanged  agent  ci-watcher  team  v1.0.0 (4179b50)
-
-project scope → claude, codex
-status     kind   name      origin  targets       files
-─────────  ─────  ────────  ──────  ────────────  ─────
-~ updated  skill  ci-watch  team    claude,codex  2
-1 updated
-$ palm get
-kind   name        origin  version           targets       via
-─────  ──────────  ──────  ────────────────  ────────────  ───
-agent  ci-watcher  team    v1.0.0 (4179b50)  claude,codex
-skill  ci-watch    team    v1.1.0 (6b4bac7)  claude,codex
+acme/agent-kit   ^1.0   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
+~ updated   skill   ci-watch   acme/agent-kit   v1.0.0 (0fc9803) → v1.1.0 (edcbf2e)
+= 2 re-pinned (same content)
+~ skill  ci-watch   .agents/skills/ci-watch/, .claude/skills/ci-watch/   2 files   (claude gets its own copy in .claude/skills)
+1 updated, 2 unchanged.
+ M .agents/skills/ci-watch/SKILL.md
+ M .claude/skills/ci-watch/SKILL.md
+ M palm.lock.yaml
+$ git status --short
+ M .agents/skills/ci-watch/SKILL.md
+ M .claude/skills/ci-watch/SKILL.md
+ M palm.lock.yaml

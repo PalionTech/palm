@@ -1,33 +1,51 @@
-$ palm install plugin superpowers --target claude,codex --dry-run
-i This install adds a command that runs on your machine:
-i   hook superpowers (claude): SessionStart → "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start
-project scope → claude, codex
-status           kind    name                                          origin       targets       files
-───────────────  ──────  ────────────────────────────────────────────  ───────────  ────────────  ──────────────
-+ would install  plugin  superpowers                                   superpowers  claude,codex  0
-+ would install  skill   brainstorming (plugin:superpowers)            superpowers  claude,codex  2
-+ would install  skill   test-driven-development (plugin:superpowers)  superpowers  claude,codex  6
-+ would install  skill   writing-skills (plugin:superpowers)           superpowers  claude,codex  4
-+ would install  hook    superpowers (plugin:superpowers)              superpowers  claude,codex  16 (+2 merged)
-5 would install
+$ palm install trailofbits/skills plugin:gh-cli
+This install adds 1 program that will run on your machine.
 
-i superpowers: claude: hook scripts copied to .palm/hooks/superpowers
-i superpowers: codex: hook scripts copied to .palm/hooks/superpowers
-i superpowers: hooks run shell commands on your machine; review ~/src/superpowers/hooks/hooks.json
+  1. hook gh-cli  from trailofbits/skills  (commit 924ffa8, v2.1.0, 2026-09-28)
+     SessionStart          CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh
+       cursor: CURSOR_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli CLAUDE_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh
+     PreToolUse  Bash      CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh
+       cursor: CURSOR_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli CLAUDE_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh
+     targets: claude (.claude/settings.json), cursor (.cursor/hooks.json)
+     scripts: 3 files, 438 B  ->  .palm/assets/trailofbits__skills/gh-cli/  (committed with your repo)
+       plugins/gh-cli/hooks/persist-session-id.sh     755   50 B  sha256:1033f868
+       plugins/gh-cli/hooks/intercept-github-curl.sh  755   98 B  sha256:6d5d4536
+       ... 1 more  (--review shows every script)
 
-dry run: no harness files, lockfile or manifest were changed (origins were fetched into the palm cache as needed)
-$ palm install plugin superpowers --target claude,codex --yes
-i saved targets claude, codex to palm.yaml
-project scope → claude, codex
-status       kind    name                                          origin       targets       files
-───────────  ──────  ────────────────────────────────────────────  ───────────  ────────────  ──────────────
-+ installed  plugin  superpowers                                   superpowers  claude,codex  0
-+ installed  skill   brainstorming (plugin:superpowers)            superpowers  claude,codex  2
-+ installed  skill   test-driven-development (plugin:superpowers)  superpowers  claude,codex  6
-+ installed  skill   writing-skills (plugin:superpowers)           superpowers  claude,codex  4
-+ installed  hook    superpowers (plugin:superpowers)              superpowers  claude,codex  16 (+2 merged)
-5 installed
+palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
+so teammates and CI install it without being asked; any change asks again.
+x 1 program needs your consent and there is no terminal
+  review:  palm install trailofbits/skills plugin:gh-cli --dry-run --review
+  then:    palm install trailofbits/skills plugin:gh-cli --allow-exec hook:gh-cli@trailofbits/skills=sha256:23759d85ebda016f23c6343d5a49064f98ce3f65bd1d68616ad0a2541ae18adb
+$ palm install trailofbits/skills plugin:gh-cli --allow-exec hook:gh-cli@trailofbits/skills=sha256:23759d85ebda016f23c6343d5a49064f98ce3f65bd1d68616ad0a2541ae18adb
+This install adds 1 program that will run on your machine.
 
-i superpowers: claude: hook scripts copied to .palm/hooks/superpowers
-i superpowers: codex: hook scripts copied to .palm/hooks/superpowers
-i superpowers: hooks run shell commands on your machine; review ~/src/superpowers/hooks/hooks.json
+  1. hook gh-cli  from trailofbits/skills  (commit 924ffa8, v2.1.0, 2026-09-28)
+     SessionStart          CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh
+       cursor: CURSOR_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli CLAUDE_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh
+     PreToolUse  Bash      CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh
+       cursor: CURSOR_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli CLAUDE_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh
+     targets: claude (.claude/settings.json), cursor (.cursor/hooks.json)
+     scripts: 3 files, 438 B  ->  .palm/assets/trailofbits__skills/gh-cli/  (committed with your repo)
+       plugins/gh-cli/hooks/persist-session-id.sh     755   50 B  sha256:1033f868
+       plugins/gh-cli/hooks/intercept-github-curl.sh  755   98 B  sha256:6d5d4536
+       ... 1 more  (--review shows every script)
+
+palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
+so teammates and CI install it without being asked; any change asks again.
+
+allowed by --allow-exec: hook:gh-cli@trailofbits/skills (sha256:23759d85)
+i ref ^2.1 saved to palm.yaml (latest tag v2.1.0); edit ref: to track main
++ hook  gh-cli   .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/, .claude/settings.json +1   3 files +4 merged   from trailofbits/skills v2.1.0
+~ trusted hook gh-cli sha256:23759d85
+1 installed. Commit palm.yaml, palm.lock.yaml, .palm/, .claude/ and .cursor/ together.
+$ grep -n -A 8 'exec:' palm.lock.yaml
+27:    exec:
+28-      commands:
+29-        - {id: PreToolUse//Bash, command: CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh}
+30-        - {id: SessionStart//-, command: CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh}
+31-      closure: {root: .palm/assets/trailofbits__skills/gh-cli, files: 3, tree: sha256:208bc9feb334e591e9ed4f6f9a86c72cb790b6d0af6abc71d8ade7e52a7d7262}
+32-      hash: sha256:23759d85ebda016f23c6343d5a49064f98ce3f65bd1d68616ad0a2541ae18adb
+33-    trust: [sha256:23759d85ebda016f23c6343d5a49064f98ce3f65bd1d68616ad0a2541ae18adb]
+34-  - kind: plugin
+35-    name: gh-cli

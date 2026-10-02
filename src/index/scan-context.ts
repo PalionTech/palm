@@ -1,23 +1,25 @@
 /**
- * State shared by the scan passes of one origin: the file index, cached reads, the entity
+ * State shared by the scan passes of one source: the file index, cached reads, the entity
  * registry and the warnings list. Rule modules receive it; nothing outside src/index sees it.
  */
 
 import { readFile, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { messageOf } from '../core/errors.js';
-import type { Entity, LayoutDescriptor, OriginSpec } from '../core/types.js';
+import type { Entity, LayoutDescriptor, Source } from '../core/types.js';
 import { isScanIgnoredRel } from '../domain/ignore.js';
 import { parseJson } from '../lib/json.js';
 import { EntityRegistry } from './entity-registry.js';
 import { buildFileIndex, type FileIndex } from './files.js';
 import { globIndex } from './glob.js';
 import { defaultIgnoreGlobs, minimalIgnoreGlobs } from './ignore.js';
+import { lockOwnedPaths } from './lock-owned.js';
 import type { PluginManifestFormat } from './plugin-manifest.js';
 import type { ParsedSkill } from './skills.js';
-import { joinRel, normRel, versionFromTag } from './util.js';
+import type { SourceFile } from './source-files.js';
+import { baseOf, joinRel, normRel, toSlug, versionFromTag } from './util.js';
 
-/** fast-glob `deep` for the origin listing (files up to 9 directories below the root). */
+/** fast-glob `deep` for the source listing (files up to 9 directories below the root). */
 const LIST_DEEP = 10;
 
 /** The plugin an entity is indexed for; its version is the fallback for members without one. */
@@ -31,8 +33,11 @@ export interface PluginContext {
 
 export class ScanContext {
   readonly rootAbs: string;
-  readonly spec: OriginSpec;
-  readonly alias: string;
+  readonly source: Source;
+  /** The source's name (the manifest key), recorded on every entity. */
+  readonly sourceName: string;
+  /** Slug for a nameless plugin or hook set at the root: the last segment of the source name. */
+  readonly fallbackName: string;
   readonly layout: LayoutDescriptor | undefined;
   readonly tagVersion: string | undefined;
   readonly warnings: string[] = [];
@@ -41,18 +46,22 @@ export class ScanContext {
   readonly skillCache = new Map<string, Promise<ParsedSkill | null>>();
   /** Source files of an entity beyond `entity.path` (hook files merged into one set). */
   readonly extraSources = new WeakMap<Entity, string[]>();
+  /** The files an entity deploys (`ownFiles`), walked once for both post-scan passes. */
+  readonly ownFiles = new WeakMap<Entity, Promise<SourceFile[]>>();
   descriptorMode = false;
   private index: FileIndex | undefined;
   private readonly textCache = new Map<string, Promise<string | undefined>>();
   /** Ignored directories already brought into the index by `ensureIndexed`. */
   private readonly indexedRoots = new Set<string>();
+  private owned: Promise<ReadonlySet<string>> | undefined;
 
-  constructor(root: string, spec: OriginSpec) {
+  constructor(root: string, source: Source) {
     this.rootAbs = resolve(root);
-    this.spec = spec;
-    this.alias = spec.alias;
-    this.layout = spec.layout;
-    this.tagVersion = versionFromTag(spec.ref);
+    this.source = source;
+    this.sourceName = source.name;
+    this.fallbackName = toSlug(baseOf(normRel(source.name)), baseOf(this.rootAbs));
+    this.layout = source.layout;
+    this.tagVersion = versionFromTag(source.ref);
     this.registry = new EntityRegistry(this.warnings, (rel) => this.files.realPathOf(rel));
   }
 
@@ -61,7 +70,7 @@ export class ScanContext {
     return this.index;
   }
 
-  /** Walk the origin once (descriptor scans keep test/example directories). */
+  /** Walk the source once (descriptor scans keep test/example directories). */
   async buildIndex(descriptorMode: boolean): Promise<void> {
     this.descriptorMode = descriptorMode;
     const exclude = this.layout?.exclude ?? [];
@@ -109,7 +118,7 @@ export class ScanContext {
     return { cwd: join(this.rootAbs, cwdRel), dot: true, ignore };
   }
 
-  /** Glob relative to a plugin root over the index; results are origin-relative and sorted. */
+  /** Glob relative to a plugin root over the index; results are source-relative and sorted. */
   async globIn(baseRel: string, pattern: string): Promise<string[]> {
     const ignore = this.descriptorMode ? minimalIgnoreGlobs() : defaultIgnoreGlobs();
     const matches = await globIndex(this.files, normRel(pattern) || '*', {
@@ -119,6 +128,12 @@ export class ScanContext {
       suppressErrors: true,
     });
     return matches.map((m) => joinRel(baseRel, m)).sort();
+  }
+
+  /** Files palm's own lock owns inside the source, read once (ruling R18'). */
+  lockOwned(): Promise<ReadonlySet<string>> {
+    this.owned ??= lockOwnedPaths(this.rootAbs);
+    return this.owned;
   }
 
   /** Bring a plugin directory that lives in an ignored area (e.g. `examples/x`) into the index. */
@@ -134,7 +149,7 @@ export class ScanContext {
     this.files.merge(rootRel, sub);
   }
 
-  /** Version fallback chain: the entity's own, then its plugin's, then the origin tag's. */
+  /** Version fallback chain: the entity's own, then its plugin's, then the source tag's. */
   versionOf(own: string | undefined, plugin: PluginContext | undefined): string | undefined {
     return own ?? plugin?.version ?? this.tagVersion;
   }

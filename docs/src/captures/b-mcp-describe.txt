@@ -1,0 +1,26 @@
+$ palm describe mcp docs
+mcp docs  (installed, project scope)
+  source      palm.yaml
+  path        mcp/docs
+  selected by palm.yaml
+  claude      .mcp.json /mcpServers/docs
+      {
+        "type": "http",
+        "url": "https://docs.example.com/mcp",
+        "headers": {
+          "Authorization": "Bearer ${DOCS_TOKEN}"
+        }
+      }
+  codex       .codex/config.toml /mcp_servers/docs
+      [mcp_servers.docs]
+      url = "https://docs.example.com/mcp"
+      bearer_token_env_var = "DOCS_TOKEN"
+  cursor      .cursor/mcp.json /mcpServers/docs
+      {
+        "url": "https://docs.example.com/mcp",
+        "headers": {
+          "Authorization": "Bearer ${env:DOCS_TOKEN}"
+        }
+      }
+  note        needs DOCS_TOKEN in the environment
+  variables   DOCS_TOKEN (not set)

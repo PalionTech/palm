@@ -1,0 +1,19 @@
+$ palm install trailofbits/skills plugin:gh-cli --dry-run
+This install adds 1 program that will run on your machine.
+
+  1. hook gh-cli  from trailofbits/skills  (commit 924ffa8, v2.1.0, 2026-09-28)
+     SessionStart          CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh
+       cursor: CURSOR_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli CLAUDE_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh
+     PreToolUse  Bash      CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh
+       cursor: CURSOR_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli CLAUDE_PLUGIN_ROOT="$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CURSOR_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh
+     targets: claude (.claude/settings.json), cursor (.cursor/hooks.json)
+     scripts: 3 files, 438 B  ->  .palm/assets/trailofbits__skills/gh-cli/  (committed with your repo)
+       plugins/gh-cli/hooks/persist-session-id.sh     755   50 B  sha256:1033f868
+       plugins/gh-cli/hooks/intercept-github-curl.sh  755   98 B  sha256:6d5d4536
+       ... 1 more  (--review shows every script)
+
+palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
+so teammates and CI install it without being asked; any change asks again.
+i ref ^2.1 would be saved to palm.yaml (latest tag v2.1.0); edit ref: to track main
++ would install  hook  gh-cli   .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/, .claude/settings.json +1   3 files +4 merged
+dry run: 1 would install; nothing written.

@@ -1,6 +1,6 @@
 ---
 title: Migrate from APM
-description: A project that used apm.yml now installs through palm, with native files per harness and no compile step.
+description: A project that used apm.yml installs through palm instead. Each APM dependency becomes a source, files that already match are adopted with no diff, and there is no compile step.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
@@ -9,9 +9,9 @@ import CaptureTree from '../../../components/CaptureTree.astro';
 
 Your project installs agent files with Microsoft APM from an `apm.yml`.
 palm reads the same git repositories, APM packages included, and writes each harness's own files at install time.
-Each APM dependency becomes an origin plus one install per entity you want.
+Each dependency becomes a source in `palm.yaml`, and the files APM already wrote stay byte for byte where they are.
 
-When you finish, an APM package's skill, agent (subagent), instruction, prompt and hook sit in each harness's own folder:
+When you finish, an APM package's skill, prompt, agent (subagent), instruction and hook sit in each harness's own folder:
 
 <CaptureTree name="b-apm" depth={3} />
 
@@ -19,7 +19,7 @@ The session on this page ran against palm's APM test fixture, a package with `ap
 
 ## Before you start
 
-- The project's `apm.yml`. Keep a copy: step 3 removes it.
+- Commit the current state, so `git diff` shows every change palm makes.
 - palm, git and Node 22 or later.
 
 ## How the two map
@@ -29,33 +29,29 @@ The session on this page ran against palm's APM test fixture, a package with `ap
 | `apm.yml` | `palm.yaml` |
 | `apm.lock.yaml` | `palm.lock.yaml` |
 | `apm_modules/` in each project | `~/.palm/cache/`, shared by all your projects |
-| a package in `dependencies.apm` | an origin, then one install per entity |
-| an entry in `dependencies.mcp` | `palm install mcp <registry name>` |
-| compiled `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` | one native file per entity and harness |
+| a package in `dependencies.apm` | a source, then the entities you want from it, or `--all` |
+| an entry in `dependencies.mcp` | an `mcp:` entry, from the server's README snippet |
+| compiled `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` | one native file per entity and harness; managed blocks only in `AGENTS.md` and `GEMINI.md` |
+| `executables:` approval | consent pinned by hash in `palm.lock.yaml` |
 
 | APM command | palm command |
 | --- | --- |
 | `apm init` | `palm init` |
 | `apm install` | `palm install` |
-| `apm install <package>` | `palm install origin <repository>`, then `palm install <kind> <name>` |
-| `apm install --frozen` | `palm install --frozen` |
-| `apm uninstall <package>` | `palm uninstall <kind> <name>` |
+| `apm install <package>` | `palm install <owner/repo> <names>` or `palm install <owner/repo> --all` |
+| `apm install --frozen` | `palm check` |
+| `apm uninstall <package>` | `palm remove <source> <names>` |
 | `apm update` | `palm update` |
-| `apm outdated` | `palm outdated` |
+| `apm outdated` | `palm update --dry-run` |
 | `apm deps list` | `palm get` |
-| `apm deps tree` | `palm why <kind> <name>` |
-| `apm prune` | `palm install --prune` |
-| `apm audit`, `apm audit --strip` | `palm audit`, `palm audit --strip` |
+| `apm audit` | `palm check` |
 | `apm compile` | none: palm writes native files when it installs |
-
-palm keeps one managed block in `AGENTS.md` for Codex instructions and one in `GEMINI.md` for Gemini CLI.
-Everything else goes into separate files, so no compile step exists.
 
 ## Steps
 
 <Steps>
 
-1. List what `apm.yml` installs. Take this file as the example:
+1. List what `apm.yml` installs. Take this file as the example.
 
    ```yaml title="apm.yml"
    name: my-service
@@ -68,8 +64,6 @@ Everything else goes into separate files, so no compile step exists.
        - io.github.github/github-mcp-server
    ```
 
-   `acme/standards` is an APM package. `cursor/plugins/pstack` is a plugin folder whose two agents you use.
-
 2. Choose the harnesses.
 
    ```sh
@@ -77,68 +71,129 @@ Everything else goes into separate files, so no compile step exists.
    ```
 
    Use the harnesses from APM's `targets:` if you set it, or the ones your team runs.
+   palm notices the `apm.yml` and prints one hint: an import command for it arrives in palm 0.3. Until then, these steps do the job.
 
-3. Remove what APM installed.
+3. Install each package.
 
    ```sh
-   apm uninstall acme/standards
-   apm uninstall cursor/plugins/pstack
-   rm apm.yml apm.lock.yaml
-   rm -r apm_modules
+   palm install acme/standards
+   palm install acme/standards --all
    ```
 
-   Delete the context files `apm compile` wrote, such as `AGENTS.md`, unless you edit them by hand.
-   palm refuses to overwrite a file it did not write, so a leftover file stops the next steps.
+   The first command shows what the package holds. The second installs everything except programs.
+   A file APM already wrote that matches palm's output is adopted without a change.
 
-4. Add each package as an origin, and install it whole.
+4. Install the package's hook after you read it.
 
    ```sh
-   palm install origin acme/standards --ref v1.0.0
-   palm install plugin my-apm-pkg --yes
+   palm install acme/standards format-on-save
    ```
 
    <Capture name="b-apm" title="~/project" />
 
-   palm detects the APM package from `apm.yml` and `.apm/`, and treats the package as one plugin.
-   The plugin takes its name from the package's `apm.yml`; in the fixture that is `my-apm-pkg`.
-   Installing the plugin installs every primitive in it.
-   The package's hook runs a command, so palm asks for consent; `--yes` gives it.
+   Without a terminal palm stops and prints the `--allow-exec` line. On a terminal it shows the same review and asks.
 
-5. Install single entities where APM installed a whole folder.
+5. Take single entities where APM installed a whole folder.
 
    ```sh
-   palm install origin cursor/plugins/pstack --alias pstack
-   palm install agents comment-sicko poteto-agent
+   palm install cursor/plugins/pstack comment-sicko poteto-agent
    ```
 
-   On 2026-09-28, `cursor/plugins/pstack` held 50 skills and two agents.
-   These two commands install the two agents and nothing else.
+6. Add the MCP servers from `dependencies.mcp`.
 
-6. Install the MCP servers from `dependencies.mcp`.
+   palm has no registry client. Copy the JSON snippet from the server's README and pipe it in.
 
    ```sh
-   palm install mcp io.github.github/github-mcp-server
+   pbpaste | palm install mcp --snippet -
    ```
 
-   palm does not read the `dependencies:` of an origin's own `apm.yml`.
-   Install those servers and packages yourself, the same way.
+   A README without a JSON block works through `palm install mcp <name> --url ...` or `--command ...`.
+   [Add MCP servers](/palm/guides/mcp-servers/) covers snippets, flags and secrets.
 
-7. Commit `palm.yaml`, `palm.lock.yaml` and the harness files.
+7. Install your project's own `.apm/` folder, if it has one.
+
+   ```sh
+   palm install ./.apm
+   ```
+
+   The listing shows what palm finds there. Install the names you want, and `./.apm` becomes an in-repo source in `palm.yaml`.
+
+8. Remove APM's own files and hook entries, then commit.
+
+   ```sh
+   rm apm.yml apm.lock.yaml
+   rm -r apm_modules
+   palm check
+   ```
+
+   Delete the context files `apm compile` wrote, such as a root `AGENTS.md`, unless you edit them by hand.
+   The next section lists what else APM left behind. Then commit.
+
+   ```sh
+   git add -A
+   git commit -m "Install agent files with palm"
+   palm check
+   ```
 
 </Steps>
+
+palm does not follow `dependencies:` inside a package's own `apm.yml`.
+It lists them once as a warning, with the command for each, and installs nothing you did not name.
+
+## What APM leaves behind
+
+APM wrote copies of each package's files and its own hook entries.
+palm adopts the copies that match what it writes, and never edits what it did not write.
+
+| APM wrote | What palm does | What you do |
+| --- | --- | --- |
+| skills, agents and instructions in a harness folder, such as `.claude/skills/<n>/` or `.github/instructions/` | adopts a file that matches its render byte for byte; refuses one that differs, naming the command with `--force` | nothing for adopted files; compare and pass `--force` for the rest |
+| a hook entry in `.claude/settings.json` or `.codex/hooks.json` that runs a script under `.claude/hooks/` or `.codex/hooks/` | writes its own entry, which runs the script from `.palm/assets/`; `palm check` warns `foreign hook command` about APM's entry | delete APM's entry from the file, then its script copies |
+| hook copies in `.claude/hooks/`, `.codex/hooks/`, `.github/hooks/` and `.claude/apm-hooks.json` | nothing; the lock does not list them | delete them |
+| compiled `AGENTS.md`, `CLAUDE.md` or `GEMINI.md`, at the root or in folders such as `.claude/` or `docs/` | writes its own managed block into the root `AGENTS.md` and `GEMINI.md` | delete APM's compiled files unless you edit them by hand |
+
+A hook entry APM wrote and palm's own entry for the same hook run the same script twice.
+`palm check` names each foreign entry with its file and event, so you know which to delete.
+
+```sh
+palm check
+git status --short
+```
+
+After the deletions, `palm install` restores any file palm writes that you removed, and `palm check` passes.
+
+## Gitignored outputs
+
+APM restores its output on every install, so some projects ignore `.claude/` on purpose.
+palm commits the generated files instead, so a teammate's clone and CI work without palm.
+`palm check` fails on the `git-ignored` check while an output folder is ignored.
+`palm migrate` prints the same lines as a warning and does not fail on them.
+
+Both print the exact lines to add, for the output folders palm writes to only.
+Git cannot re-include a path whose parent folder is ignored, so a `.claude/` line becomes `.claude/*` first.
+
+```text title=".gitignore"
+.claude/*
+!.claude/skills/
+!.claude/rules/
+```
+
+Personal files such as `.claude/settings.local.json` stay ignored.
+Commit the files the new lines expose, then run `palm check`.
+A mode that keeps outputs ignored and restores them on a bare install is a candidate for palm 0.3.
 
 ## Check the result
 
 ```sh
 palm get
-palm install --frozen --yes
+palm check
 ```
 
-`palm get` lists each entity with its origin and targets.
-`palm install --frozen --yes` exits 0 when the manifest, the lockfile and the files agree.
+`palm get` lists each entity with its source and targets.
+`palm check` exits 0 when `palm.yaml`, the lock and the files agree.
 
 ## Next steps
 
-- [Adopt files you copied by hand](/palm/guides/adopt-existing-files/) handles files palm refuses to overwrite.
-- [Use palm in CI and scripts](/palm/guides/ci/) replaces `apm install --frozen` in your pipeline.
+- [Adopt files you copied by hand](/palm/guides/adopt-existing-files/) handles files that differ from what palm writes.
+- [Check the setup in CI](/palm/guides/ci/) replaces `apm install --frozen` in your pipeline.
 - [Scan rules](/palm/reference/scan-rules/) shows where APM packages rank among the layouts palm detects.

@@ -1,112 +1,201 @@
-/** `palm init`: choose this project's targets, write them to palm.yaml and ignore .palm/. */
-import { existsSync } from 'node:fs';
+/**
+ * `palm init [--target ids] [--here] [-g]` (DESIGN.md §10): write `targets:` (found here, or the
+ * flag) to palm.yaml in this directory and the two ignore lines to .gitignore; with -g, to
+ * ~/.palm/palm.yaml (J12, D5, R9). What was found is printed with its evidence (`codex
+ * (AGENTS.md)`), and on a terminal the person may change the set before it is written (C25).
+ * Refuses inside a directory with a palm.yaml above it in the same repository unless `--here`
+ * (PLAN.md §4.11), and where a project cannot be (the scope guards of openScope).
+ */
+import { existsSync, statSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { PalmError } from '../core/errors.js';
-import { type PalmContext, TARGET_IDS, type TargetId } from '../core/types.js';
-import { ScopePaths } from '../domain/scope-paths.js';
+import { initRefusal } from '../core/paths.js';
+import { type PalmContext, type Scope, TARGET_IDS, type TargetId } from '../core/types.js';
+import { targetOf } from '../create/engine.js';
+import type { Manifest } from '../domain/manifest.js';
 import type { App } from './app.js';
+import { importHint } from './foreign-lists.js';
 import { type Invocation, usage } from './grammar.js';
-import { displayPath, type GlobalOptions, makeContext, parseTargetList } from './shared.js';
+import { palmLine } from './hints.js';
+import {
+  displayPath,
+  engine,
+  engineDeps,
+  type GlobalOptions,
+  makeContext,
+  parseTargetList,
+} from './shared.js';
 
-/** Append `.palm/` to .gitignore text unless an equivalent line is already there. */
-export function withPalmIgnored(gitignore: string): string | undefined {
-  const lines = gitignore.split(/\r?\n/).map((l) => l.trim());
-  if (lines.some((l) => l === '.palm' || l === '.palm/' || l === '/.palm' || l === '/.palm/'))
-    return undefined;
-  const sep = gitignore === '' || gitignore.endsWith('\n') ? '' : '\n';
-  return `${gitignore}${sep}.palm/\n`;
+interface InitFlags extends GlobalOptions {
+  target?: string;
+  /** The second spelling of --target. */
+  targets?: string;
+  here?: boolean;
 }
 
-async function detectedTargets(ctx: PalmContext): Promise<TargetId[]> {
-  const { getTarget } = await import('../targets/index.js');
-  const detected: TargetId[] = [];
-  for (const id of TARGET_IDS) {
-    const t = getTarget(id);
-    const hit =
-      (await t.detect('project', ctx.paths.projectRoot, ctx.env).catch(() => false)) ||
-      (await t.detect('global', ctx.paths.home, ctx.env).catch(() => false));
-    if (hit) detected.push(id);
-  }
-  return detected;
+/** The only palm paths a project ignores (DESIGN.md §2). */
+const IGNORE_LINES = ['.palm/local/', 'palm.local.yaml'] as const;
+
+/** `.gitignore` text with the palm lines it lacks appended, and which ones those were. */
+function withIgnoreLines(text: string): { text: string; added: string[] } {
+  const have = new Set(
+    text.split(/\r?\n/).map((l) => l.trim().replace(/^\//, '').replace(/\/$/, '')),
+  );
+  const added = IGNORE_LINES.filter((l) => !have.has(l.replace(/\/$/, '')));
+  if (!added.length) return { text, added };
+  const gap = text === '' || text.endsWith('\n') ? '' : '\n';
+  return { text: `${text}${gap}${added.join('\n')}\n`, added };
 }
 
-async function chooseTargets(ctx: PalmContext, flag: TargetId[] | undefined): Promise<TargetId[]> {
-  if (flag) return flag;
-  const detected = await detectedTargets(ctx);
-  if (ctx.ui.isInteractive && !ctx.flags.yes) {
-    const { getTarget } = await import('../targets/index.js');
-    const picked = await ctx.ui.pickMany(
-      'Which harnesses should this project install into?',
-      TARGET_IDS.map((id) => ({
-        value: id,
-        label: getTarget(id).displayName,
-        hint: detected.includes(id) ? 'detected' : undefined,
-      })),
-      detected,
-    );
-    if (picked.length === 0) throw usage('pick at least one target', 'palm init --target claude');
-    return picked;
+/** The nearest directory at or above `dir` that holds `.git`. */
+function repoRoot(dir: string): string | undefined {
+  for (let d = dir; ; d = dirname(d)) {
+    if (existsSync(join(d, '.git'))) return d;
+    if (dirname(d) === d) return undefined;
   }
-  if (detected.length) return detected;
-  throw new PalmError(
-    'E_NON_INTERACTIVE',
-    'no harness detected and no --target given',
-    'palm init --target claude,codex',
+}
+
+async function refuseNested(ctx: PalmContext, app: App): Promise<void> {
+  const cwd = ctx.paths.cwd;
+  const enclosing = await engine(app).enclosingProject(cwd, repoRoot(cwd) ?? cwd);
+  if (!enclosing || enclosing === cwd) return;
+  const rel = relative(enclosing, cwd).split(sep).join('/');
+  throw usage(
+    `${rel} is inside project ${enclosing} (palm.yaml). Add entries with --at ${rel} (placed at the root until 0.3), or start a separate project here: palm init --here`,
   );
 }
 
-/** True when `dir` or an ancestor holds `.git` (a work tree, or a submodule's `.git` file). */
-function insideGitRepo(dir: string): boolean {
-  for (let d = resolve(dir); ; d = dirname(d)) {
-    if (existsSync(join(d, '.git'))) return true;
-    if (dirname(d) === d) return false;
-  }
+async function gitignore(cwd: string): Promise<{ file: string; text: string; added: string[] }> {
+  const file = join(cwd, '.gitignore');
+  const current = await readFile(file, 'utf8').catch(() => undefined);
+  if (current === undefined && !repoRoot(cwd)) return { file, text: '', added: [] };
+  return { file, ...withIgnoreLines(current ?? '') };
+}
+
+/** The directory init writes palm.yaml into, and its root for detection. */
+function placeOf(ctx: PalmContext, scope: Scope): { dir: string; root: string } {
+  if (scope === 'global') return { dir: ctx.paths.palmHome, root: ctx.paths.home };
+  return { dir: ctx.paths.cwd, root: ctx.paths.cwd };
+}
+
+async function detect(ctx: PalmContext, app: App, scope: Scope): Promise<TargetId[]> {
+  const api = engine(app);
+  const { root } = placeOf(ctx, scope);
+  const paths = await api.scopePaths(scope, root, ctx.paths.palmHome, ctx.env);
+  return api.detectTargets(ctx, paths, await api.resolveEngineDeps(engineDeps(app)));
 }
 
 /**
- * What `palm init` does to `.gitignore`: add `.palm/` (copied hook scripts) to an existing file,
- * or create the file inside a git repository; undefined when there is nothing to do.
+ * C25 Y15: `codex (.codex/)`: the file or directory that marked the harness as used here
+ * (`Target.evidence`), as the person types it.
  */
-async function gitignorePlan(
-  root: string,
-): Promise<{ file: string; text: string; created: boolean } | undefined> {
-  const file = join(root, '.gitignore');
-  const current = await readFile(file, 'utf8').catch(() => undefined);
-  if (current === undefined && !insideGitRepo(root)) return undefined;
-  const text = withPalmIgnored(current ?? '');
-  return text === undefined ? undefined : { file, text, created: current === undefined };
+async function evidenceOf(ctx: PalmContext, app: App, id: TargetId, scope: Scope) {
+  const target = await targetOf(app.deps ?? {}, id);
+  const root = scope === 'global' ? ctx.paths.home : ctx.paths.cwd;
+  const found = await target.evidence?.(scope, root, ctx.env);
+  if (!found) return undefined;
+  const shown =
+    scope === 'global'
+      ? displayPath(ctx, found, 'global')
+      : relative(ctx.paths.cwd, found).split(sep).join('/');
+  return existsSync(found) && statSync(found).isDirectory() ? `${shown}/` : shown;
+}
+
+/** L13: with nothing found here, the harnesses found in the home directory make the example. */
+async function noHarness(ctx: PalmContext, app: App, scope: Scope): Promise<PalmError> {
+  const home = scope === 'project' ? await detect(ctx, app, 'global').catch(() => []) : [];
+  const ids = home.length ? home.join(',') : 'claude';
+  const where =
+    scope === 'global'
+      ? 'no harness found in your home directory (~/.claude, ~/.codex, ~/.cursor, ...)'
+      : 'no harness found here (.claude/, .codex/, .github/, .cursor/, .gemini/, .opencode/)';
+  return usage(where, palmLine('init', ['--target', ids], scope));
+}
+
+/** L13, C25: the targets found (with evidence), which a person on a terminal may change. */
+async function detected(ctx: PalmContext, app: App, scope: Scope): Promise<TargetId[]> {
+  const found = await detect(ctx, app, scope);
+  if (!found.length) throw await noHarness(ctx, app, scope);
+  const shown: string[] = [];
+  for (const id of found) {
+    const why = await evidenceOf(ctx, app, id, scope);
+    shown.push(why ? `${id} (${why})` : id);
+  }
+  if (!app.out.jsonMode) app.out.info(`found ${shown.join(', ')}`);
+  if (!ctx.ui.isInteractive || ctx.flags.yes || ctx.flags.dryRun) return found;
+  const options = TARGET_IDS.map((id) => ({ value: id, label: id }));
+  const chosen = await ctx.ui.pickMany('Targets for palm.yaml', options, found);
+  if (!chosen.length) throw new PalmError('E_CANCELLED', 'no target chosen');
+  return TARGET_IDS.filter((id) => chosen.includes(id));
+}
+
+/**
+ * K14 B8 C10 J4 J5: the home directory and the global directories are never a project. J6': the
+ * hint keeps the typed `--target`, else names the harness whose directory this is.
+ */
+function refuseGlobalDir(ctx: PalmContext, typed: TargetId[] | undefined): void {
+  const why = initRefusal(ctx.paths.cwd, ctx.paths, ctx.env);
+  if (!why) return;
+  const inside = /global (\w+) directory/.exec(why)?.[1] ?? '';
+  const harness = (TARGET_IDS as readonly string[]).includes(inside) ? inside : 'claude';
+  const targets = typed?.join(',') ?? harness;
+  throw usage(
+    `${why}; your own setup is the global scope`,
+    palmLine('init', ['--target', targets], 'global'),
+  );
+}
+
+/** C11: `skills-lock.json` or `apm.yml` in a project whose palm.yaml lists nothing yet. */
+async function noteForeignLists(ctx: PalmContext, app: App, manifest: Manifest): Promise<void> {
+  const listed = async () => manifest.allEntries().length + Object.keys(manifest.mcp).length > 0;
+  const lines = await importHint(ctx.paths.cwd, 'project', listed);
+  const [first, ...rest] = lines ?? [];
+  if (!first || app.out.jsonMode) return;
+  app.out.info(first);
+  for (const l of rest) app.out.hint(l);
 }
 
 export async function run(inv: Invocation, app: App): Promise<void> {
-  const g = inv.opts as GlobalOptions;
-  if (g.global)
-    throw usage(
-      '`palm init` sets up a project',
-      'for global defaults run: palm config set targets claude,codex',
-    );
-  const flag = parseTargetList(g.target);
-  const ctx = await makeContext(app, g);
+  const flags = inv.opts as InitFlags;
+  const scope: Scope = flags.global ? 'global' : 'project';
+  const flag = parseTargetList(flags.target ?? flags.targets);
+  const ctx = await makeContext(app, flags);
+  if (scope === 'project') {
+    refuseGlobalDir(ctx, flag);
+    await engine(app).openScope(ctx, 'project', { readOnly: true });
+    if (!flags.here) await refuseNested(ctx, app);
+  }
+  const file = join(placeOf(ctx, scope).dir, 'palm.yaml');
+  const manifest = await engine(app).loadManifest(file);
+  if (scope === 'project') await noteForeignLists(ctx, app, manifest);
+  const current = manifest.targets;
+  if (current && !flag) {
+    if (app.out.jsonMode) return app.out.json({ file, targets: current, changed: false });
+    app.out.info(`${displayPath(ctx, file, scope)} already lists targets: ${current.join(', ')}`);
+    return app.out.hint(`change them: ${palmLine('init', ['--target', current.join(',')], scope)}`);
+  }
+  const targets = flag ?? (await detected(ctx, app, scope));
+  await writeInit(ctx, app, { file, manifest, targets, scope });
+}
+
+async function writeInit(
+  ctx: PalmContext,
+  app: App,
+  job: { file: string; manifest: Manifest; targets: TargetId[]; scope: Scope },
+): Promise<void> {
+  const { file, targets, scope } = job;
+  const ignore = scope === 'project' ? await gitignore(ctx.paths.cwd) : undefined;
+  const added = ignore?.added ?? [];
   const out = app.out;
-  const targets = await chooseTargets(ctx, flag);
-  const { Manifest } = await import('../domain/manifest.js');
-  const file = ScopePaths.of(ctx, 'project').manifestFile;
-  const manifest = await Manifest.load(file);
-  const ignore = await gitignorePlan(ctx.paths.projectRoot);
-  if (out.jsonMode)
-    out.json({ file, targets, gitignore: ignore !== undefined, dryRun: ctx.flags.dryRun });
-  if (ctx.flags.dryRun) {
-    out.hint(`dry run: would write targets [${targets.join(', ')}] to ${file}`);
-    if (ignore)
-      out.hint(`dry run: would ${ignore.created ? 'create' : 'add .palm/ to'} ${ignore.file}`);
-    return;
-  }
-  await manifest.setTargets(targets).save(file);
-  out.added(`${displayPath(ctx, file)}: targets ${targets.join(', ')}`);
-  if (ignore) {
-    await writeFile(ignore.file, ignore.text);
-    const where = displayPath(ctx, ignore.file);
-    out.added(ignore.created ? `${where} (new): .palm/` : `.palm/ in ${where}`);
-  }
-  out.hint('\nnext: palm search <query>   or   palm install skill <name>@<origin>');
+  const dry = ctx.flags.dryRun;
+  if (!dry) await job.manifest.setTargets(targets).save(file);
+  if (!dry && ignore && added.length) await writeFile(ignore.file, ignore.text);
+  if (out.jsonMode) return out.json({ file, targets, gitignore: added, dryRun: dry });
+  const verb = dry ? 'would write' : 'wrote';
+  out.mark('+', `${verb} ${displayPath(ctx, file, scope)}: targets ${targets.join(', ')}`);
+  if (ignore && added.length)
+    out.mark('+', `${verb} ${displayPath(ctx, ignore.file)}: ${added.join(', ')}`);
+  const next = palmLine('install', ['mattpocock/skills'], scope);
+  out.hint(`next: see what a source offers, for example: ${next}`);
 }

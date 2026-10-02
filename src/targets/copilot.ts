@@ -1,8 +1,13 @@
 import path from 'node:path';
 import type { ScopePaths } from '../domain/scope-paths.js';
-import { pathExists } from '../lib/fs.js';
-import type { TargetLayout, TargetSpec } from './layout.js';
-import { sharedSkillsRoot } from './shared-skills.js';
+import {
+  DISPLAY_NAMES,
+  fixedSkillsDir,
+  outputDirsOf,
+  sharedSkillsRoot,
+  type TargetLayout,
+  type TargetSpec,
+} from './layout.js';
 
 function projectLayout(paths: ScopePaths): TargetLayout {
   const gh = path.join(paths.root, '.github');
@@ -11,16 +16,12 @@ function projectLayout(paths: ScopePaths): TargetLayout {
   const skills = sharedSkillsRoot(paths);
   return {
     configDir: gh,
-    skillsDir: skills.dir,
+    skillsDir: fixedSkillsDir(skills),
     agentsDir: sub('agents'),
     instructions: { dir: sub('instructions') },
-    commands: { dir: sub('prompts') },
     hooks: { dir: sub('hooks') },
     mcp: { json: mcpFile, path: ['servers'] },
-    roots: [
-      ...['agents', 'instructions', 'prompts', 'hooks'].map((n) => ({ dir: sub(n), stop: gh })),
-      skills,
-    ],
+    roots: [...['agents', 'instructions', 'hooks'].map((n) => ({ dir: sub(n), stop: gh })), skills],
     mergedFiles: [mcpFile],
   };
 }
@@ -31,12 +32,9 @@ function globalLayout(paths: ScopePaths): TargetLayout {
   const skills = sharedSkillsRoot(paths);
   return {
     configDir: home,
-    skillsDir: skills.dir,
+    skillsDir: fixedSkillsDir(skills),
     agentsDir: path.join(home, 'agents'),
     instructions: { dir: path.join(home, 'instructions') },
-    commands: {
-      skip: 'Copilot has no user-level prompt files; command skipped (for .github/prompts: `palm install command <name>` without -g)',
-    },
     hooks: { dir: path.join(home, 'hooks') },
     mcp: { json: mcpFile, path: ['mcpServers'] },
     roots: [{ dir: home, stop: home }, skills],
@@ -44,19 +42,19 @@ function globalLayout(paths: ScopePaths): TargetLayout {
   };
 }
 
+function copilotLayout(paths: ScopePaths): TargetLayout {
+  return paths.scope === 'project' ? projectLayout(paths) : globalLayout(paths);
+}
+
 export const copilotSpec: TargetSpec = {
   id: 'copilot',
-  displayName: 'GitHub Copilot',
-  layout(paths): TargetLayout {
-    return paths.scope === 'project' ? projectLayout(paths) : globalLayout(paths);
-  },
-  async detect(paths) {
-    if (paths.scope === 'project') {
-      for (const p of ['.github/copilot-instructions.md', '.github/agents', '.vscode/mcp.json']) {
-        if (await pathExists(path.join(paths.root, p))) return true;
-      }
-      return false;
-    }
-    return pathExists(paths.harnessHome('copilot'));
-  },
+  displayName: DISPLAY_NAMES.copilot,
+  layout: copilotLayout,
+  markers: (paths) =>
+    paths.scope === 'project'
+      ? ['.github/copilot-instructions.md', '.github/agents', '.vscode/mcp.json'].map((p) =>
+          path.join(paths.root, p),
+        )
+      : [paths.harnessHome('copilot')],
+  outputDirs: (paths) => outputDirsOf(copilotLayout(paths), paths),
 };

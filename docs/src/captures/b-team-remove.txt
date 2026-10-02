@@ -1,0 +1,8 @@
+$ palm remove ci-watcher
+- agent  ci-watcher   .claude/agents/ci-watcher.md, .codex/agents/ci-watcher.toml   2 files
+1 removed.
+$ git status --short
+ D .claude/agents/ci-watcher.md
+ D .codex/agents/ci-watcher.toml
+ M palm.lock.yaml
+ M palm.yaml

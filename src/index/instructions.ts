@@ -1,15 +1,17 @@
 /**
- * Instruction parsing:
- *  - Cursor `.mdc` rules (description, globs, alwaysApply)
- *  - Copilot `.instructions.md` (applyTo, description)
- *  - Claude `.claude/rules`-style `.md` (optional `paths:`) and plain markdown
- *  - `AGENTS.md` sections
+ * Instruction parsing, with the activation the source format implies (DESIGN §5):
+ *  - Cursor `.mdc` rules: `alwaysApply: true` → always; `globs` → paths; a description without
+ *    globs → on-request; neither → manual
+ *  - Copilot `.instructions.md`: `applyTo` → paths (an everything-glob → always), else always
+ *  - Claude `.claude/rules`-style `.md` and plain markdown: `paths:` → paths, else always; without
+ *    Cursor or Copilot keys it is `claude-md`, which claude installs byte-identical (ruling B12)
+ *  - `AGENTS.md` sections: always
  */
 
 import { basename } from 'node:path';
-import type { InstructionDefinition } from '../core/types.js';
+import type { Activation, InstructionDefinition } from '../core/types.js';
 import { parseFrontmatter } from '../lib/frontmatter.js';
-import { stemOf } from '../lib/names.js';
+import { isSafeName, stemOf } from '../lib/names.js';
 import { withoutUndefined } from '../lib/object.js';
 import { asBool, asList, asString, toSlug } from './util.js';
 
@@ -18,51 +20,82 @@ const INSTRUCTION_EXTS = ['.instructions.md', '.mdc', '.md'];
 
 const ALWAYS_GLOBS = new Set(['**', '**/*', '*']);
 
+type Frontmatter = Record<string, unknown>;
+
+interface Parts {
+  name: string;
+  description?: string;
+  globs?: string[];
+  activation: Activation;
+  body: string;
+  sourceFormat: NonNullable<InstructionDefinition['sourceFormat']>;
+  fileName?: string;
+}
+
+/** Frontmatter keys Claude Code does not read on a rule; a file with one is converted, not copied. */
+const NON_CLAUDE_KEYS = ['globs', 'applyTo', 'alwaysApply'];
+
+function definition(parts: Parts): InstructionDefinition {
+  const globs = parts.globs && parts.globs.length > 0 ? parts.globs : undefined;
+  return withoutUndefined({ ...parts, globs, alwaysApply: parts.activation === 'always' });
+}
+
+/** Globs that scope a rule; undefined when absent or when every glob matches everything. */
+function scopingGlobs(value: unknown): string[] | undefined {
+  const globs = asList(value);
+  if (!globs || globs.length === 0 || globs.every((g) => ALWAYS_GLOBS.has(g))) return undefined;
+  return globs;
+}
+
+function mdcActivation(data: Frontmatter, description: string | undefined): Activation {
+  if (asBool(data.alwaysApply) === true) return 'always';
+  if ((asList(data.globs) ?? []).length > 0) return 'paths';
+  return description === undefined ? 'manual' : 'on-request';
+}
+
+/**
+ * Claude rules: `paths:` scopes the rule, otherwise it is always on. Cursor-style keys are read
+ * too, and an explicit `alwaysApply: false` is never widened to always-on (PLAN §4.5 item 17).
+ */
+function markdownActivation(data: Frontmatter, scoped: boolean, description?: string): Activation {
+  if (scoped) return 'paths';
+  if (asBool(data.alwaysApply) !== false) return 'always';
+  return description === undefined ? 'manual' : 'on-request';
+}
+
+/** The source file name a verbatim copy keeps, when it differs from `<name><ext>` (B12, Y8'). */
+function keptFileName(absPath: string, name: string, ext: string): string | undefined {
+  const base = basename(absPath);
+  if (base === `${name}${ext}` || !base.endsWith(ext) || !isSafeName(base)) return undefined;
+  return base;
+}
+
 export function parseInstructionFile(absPath: string, text: string): InstructionDefinition {
   const lower = absPath.toLowerCase();
   const { data, body } = parseFrontmatter(text);
   const name = toSlug(stemOf(absPath, INSTRUCTION_EXTS));
   const description = asString(data.description);
+  const head = { name, description, body };
 
   if (lower.endsWith('.mdc')) {
+    const activation = mdcActivation(data, description);
+    const fileName = keptFileName(absPath, name, '.mdc');
     const globs = asList(data.globs);
-    return withoutUndefined({
-      name,
-      description,
-      globs: globs && globs.length > 0 ? globs : undefined,
-      alwaysApply: asBool(data.alwaysApply) ?? false,
-      body,
-      sourceFormat: 'mdc' as const,
-    });
+    return definition({ ...head, globs, activation, sourceFormat: 'mdc', fileName });
   }
-
   if (lower.endsWith('.instructions.md')) {
-    const applyTo = asList(data.applyTo);
-    const always = applyTo?.some((g) => ALWAYS_GLOBS.has(g)) ?? false;
-    return withoutUndefined({
-      name,
-      description,
-      globs: applyTo?.length && !always ? applyTo : undefined,
-      alwaysApply: always,
-      body,
-      sourceFormat: 'instructions-md' as const,
-    });
+    const globs = scopingGlobs(data.applyTo);
+    const activation = globs ? 'paths' : 'always';
+    const fileName = keptFileName(absPath, name, '.instructions.md');
+    return definition({ ...head, globs, activation, sourceFormat: 'instructions-md', fileName });
   }
-
   if (basename(lower) === 'agents.md') {
-    return { name, alwaysApply: true, body, sourceFormat: 'agents-md' };
+    return definition({ name, body, activation: 'always', sourceFormat: 'agents-md' });
   }
-
-  // Claude rules: `paths:` scopes the rule; otherwise it is always on. Cursor-style keys are honoured too.
-  const paths = asList(data.paths ?? data.globs ?? data.applyTo);
-  const scoped =
-    paths !== undefined && paths.length > 0 && !paths.every((g) => ALWAYS_GLOBS.has(g));
-  return withoutUndefined({
-    name,
-    description,
-    globs: scoped ? paths : undefined,
-    alwaysApply: asBool(data.alwaysApply) ?? !scoped,
-    body,
-    sourceFormat: 'md' as const,
-  });
+  const globs = scopingGlobs(data.paths ?? data.globs ?? data.applyTo);
+  const activation = markdownActivation(data, globs !== undefined, description);
+  if (NON_CLAUDE_KEYS.some((k) => k in data))
+    return definition({ ...head, globs, activation, sourceFormat: 'md' });
+  const fileName = keptFileName(absPath, name, '.md');
+  return definition({ ...head, globs, activation, sourceFormat: 'claude-md', fileName });
 }

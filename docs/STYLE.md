@@ -8,11 +8,11 @@ capture files (terminal output).
 
 - Three page types, one template each (below): concept, guide, reference. Explanation pages follow the concept template.
 - Code or a command appears within the first 150 words.
-- Headings: sentence case, six words or fewer, nothing below H3. Guide titles are tasks: "Pin an origin to a tag".
+- Headings: sentence case, six words or fewer, nothing below H3. Guide titles are tasks: "Pin a source to a tag".
   Product names keep their capitals; add a new one to `PROPER` in `scripts/check-copy.mjs`.
 - Tables for anything enumerable: kinds, targets, flags, error codes.
 - A new page gets a slug in `src/site-map.mjs`. Until it is written, it is a stub with `draft: true`, its one-line purpose and three planned bullets. Drafts show in `npm run dev` and are left out of the build.
-- Links are absolute with the base and a trailing slash: `[Origins](/palm/concepts/origins/)`. Never link to a draft; the build fails on it.
+- Links are absolute with the base and a trailing slash: `[Sources](/palm/concepts/sources/)`. Never link to a draft; the build fails on it.
 
 ## Sentences
 
@@ -37,16 +37,18 @@ capture files (terminal output).
 | --- | --- | --- |
 | harness | the program: Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, OpenCode | "target" in prose about the tool |
 | target | palm's identifier for a harness: `claude`, `codex`, `copilot`, `cursor`, `gemini`, `opencode`; flags and config values | "harness" for a flag value |
-| origin | where entities come from: a git repository, a folder in one, a local directory | "registry", "source repo" |
+| source | where entities come from: a git repository, a folder in one, or a directory inside the project, declared in `palm.yaml` | "origin", "registry", "source repo" |
 | entity | one installable item | "package", "resource" |
-| kind | an entity's type: `skill`, `agent`, `instruction`, `command`, `hook`, `mcp`, `plugin` | "type" |
+| kind | an entity's type: `skill`, `agent`, `instruction`, `hook`, `mcp`; `plugin` is a selector over a source's entities | "type"; `command` is not a kind |
 | agent | introduce once per page as "agent (subagent)" | |
 | scope | `project` or `global` (`-g`) | "level", "mode" |
 | manifest | `palm.yaml` | "config" |
-| lockfile | `palm.lock.yaml` | "lock" alone |
-| config | `~/.palm/config.yaml` | "settings" |
-| registry | only the official MCP registry | anything else |
+| lock | `palm.lock.yaml`; the CLI says "the lock" | "lock state" |
+| generated file | every file palm writes; committed in a project | "output", "artifact" |
+| consent | the hash-pinned yes a person gives before a hook or stdio MCP server lands; recorded as `trust:` in the lock | "approval", "permission" |
 | install | what users do | "deploy" (internal only); "harness" as a verb |
+
+"origin", "registry" and "capability" are not palm words. Use them only to describe another tool or palm 0.1.
 
 ## Banned words
 
@@ -62,8 +64,10 @@ magic, simply, just, easy.
 - To add one: add a spec to `scripts/capture-specs.mjs`, build the CLI (`npm run build` at the
   repository root), run `npm run capture`, then use `<Capture name="..." />` in an `.mdx` page.
   `<CaptureTree name="..." />` shows the files the capture created.
-- Captures run in a throwaway home with fixture origins from `test/fixtures`; paths print as `~`.
-  Rerun `npm run capture` before each release; `npm run capture:check` fails when one is stale.
+- Captures run in a throwaway home; paths print as `~`. Sources are built from `test/fixtures` and
+  served as `https://github.com/<owner>/<repo>`, so `palm install mattpocock/skills tdd` works as
+  written. Rerun `npm run capture` before each release; `npm run capture:check` fails when one is
+  stale.
 
 ## Admonitions
 

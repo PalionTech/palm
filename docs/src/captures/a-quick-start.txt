@@ -1,20 +1,20 @@
 $ palm init --target claude,codex
-+ ./palm.yaml: targets claude, codex
-+ ./.gitignore (new): .palm/
-
-next: palm search <query>   or   palm install skill <name>@<origin>
-$ palm get skills --available
-mattpocock (5)
-kind   name            version  description
-─────  ──────────────  ───────  ────────────────────────────────────────────────
-skill  git-guardrails           Block dangerous git commands.
-skill  grill-me        1.2.3    Interview the user relentlessly about a plan.
-skill  handoff         1.2.3    Write a handoff note for the next session.
-skill  old-thing                An old skill kept for reference.
-skill  tdd             1.2.3    Test-driven development with red-green-refactor.
-$ palm install skill grill-me
-project scope → claude, codex
-status       kind   name      origin      targets       files
-───────────  ─────  ────────  ──────────  ────────────  ─────
-+ installed  skill  grill-me  mattpocock  claude,codex  4
-1 installed
++ wrote palm.yaml: targets claude, codex
++ wrote .gitignore: .palm/local/, palm.local.yaml
+next: see what a source offers, for example: palm install mattpocock/skills
+$ palm install mattpocock/skills
+i 1 note from indexing mattpocock/skills (see: palm describe source mattpocock/skills)
+mattpocock/skills  v1.2.3 (2c0db90)   1 plugin, 5 skills
+  plugin  mattpocock-skills   3 skills
+  skill   tdd                 Test-driven development with red-green-refactor.
+  skill   grill-me            Interview the user relentlessly about a plan.
+  skill   handoff             Write a handoff note for the next session.
+  skill   old-thing           An old skill kept for reference.
+  skill   git-guardrails      Block dangerous git commands.
+Nothing written. Install some:
+    palm install mattpocock/skills tdd grill-me
+    palm install mattpocock/skills --all
+$ palm install mattpocock/skills grill-me
+i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
++ skill  grill-me   .agents/skills/grill-me/, .claude/skills/grill-me/   3 files   from mattpocock/skills v1.2.3   (claude gets its own copy in .claude/skills)
+1 installed. Commit palm.yaml, palm.lock.yaml, .agents/ and .claude/ together.

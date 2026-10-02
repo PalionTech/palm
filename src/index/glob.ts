@@ -1,7 +1,7 @@
 /**
  * Globs over the file index instead of the disk. fast-glob keeps its own matching, ignore and
  * base-directory rules; only its filesystem calls are answered from the index, so a declared glob
- * never walks a subtree the index already covers and never reaches outside the origin.
+ * never walks a subtree the index already covers and never reaches outside the source.
  */
 
 import fg from 'fast-glob';
@@ -45,7 +45,7 @@ function enoent(p: string): NodeJS.ErrnoException {
   return err;
 }
 
-/** Origin-relative form of an absolute path fast-glob asks about; undefined outside the origin. */
+/** Source-relative form of an absolute path fast-glob asks about; undefined outside the source. */
 function relOf(index: FileIndex, abs: string): string | undefined {
   const root = index.rootAbs.replace(/\/+$/, '');
   const p = abs.replace(/\/+$/, '');

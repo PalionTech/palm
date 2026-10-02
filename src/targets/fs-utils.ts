@@ -1,8 +1,10 @@
 import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import { messageOf, PalmError } from '../core/errors.js';
-import { shouldSkipFile } from '../domain/ignore.js';
+import { isSkillCopySkipped, skillLeftOutReason } from '../domain/skill-copy.js';
 import {
   isEnoent,
+  isWithin,
   resolveWriteTarget,
   type WalkResult,
   walkFiles,
@@ -75,24 +77,58 @@ export async function removeFileIfExists(p: string): Promise<void> {
   }
 }
 
+/** A skill directory's files as the copy takes them, and the harness and palm paths left out. */
+export interface SkillFiles extends WalkResult {
+  /** Paths below the skill left out as harness, palm or environment files (ruling Y2). */
+  leftOut: string[];
+  /** Test directories and `*.test.*` files left out (ruling T2). */
+  testsLeftOut: string[];
+}
+
 /**
- * Recursively list the files to copy from `root`, skipping `COPY_SKIP` (`.git`, `node_modules`,
- * `.DS_Store`, `*.zip`) at any depth and the names in `skipTop` at the top level. Sorted for
- * determinism.
+ * Recursively list the files to copy from the skill directory `root`, leaving out at any depth
+ * what `isSkillCopySkipped` names: `.git`, `node_modules`, harness directories (`.claude`,
+ * `.cursor`, …), palm's files, `.env` files, test directories and `*.test.*` files. A skill's own
+ * `AGENTS.md` or `CLAUDE.md` is copied (ruling X1). Sorted for determinism.
  *
  * Symlinks are followed only when their real target stays inside `boundary` (default: `root`
- * itself; callers pass the origin root so links between skills of one repository keep working).
+ * itself; callers pass the source root so links between skills of one repository keep working).
  * A link that points anywhere else (`notes.md -> ~/.ssh/id_rsa`, `refs -> /etc`) is never read
- * and is reported in `skipped`. A symlinked `root` is resolved and checked the same way. Content
- * hashes (core/hash) walk with the same rule, so what is copied is what is hashed.
+ * and is reported in `symlinksOutside`. The index scans the same files for secrets.
  */
-export async function listCopyFiles(
+export async function listSkillFiles(
   root: string,
-  opts: { skipTop?: readonly string[]; boundary?: string } = {},
-): Promise<WalkResult> {
-  const skipTop = opts.skipTop ?? [];
-  return walkFiles(root, {
-    boundary: opts.boundary,
-    skip: (name, rel) => shouldSkipFile(name) || (rel === name && skipTop.includes(name)),
-  });
+  opts: { boundary?: string } = {},
+): Promise<SkillFiles> {
+  const leftOut: string[] = [];
+  const testsLeftOut: string[] = [];
+  const skip = (name: string, rel: string): boolean => {
+    if (!isSkillCopySkipped(name)) return false;
+    const reason = skillLeftOutReason(name);
+    if (reason === 'harness') leftOut.push(rel);
+    if (reason === 'test') testsLeftOut.push(rel);
+    return true;
+  };
+  const walk = await walkFiles(root, { boundary: opts.boundary, skip });
+  const dangling = await danglingOutside(root, opts.boundary ?? root, walk);
+  const symlinksOutside = [...walk.symlinksOutside, ...dangling].sort();
+  return { ...walk, symlinksOutside, leftOut, testsLeftOut };
+}
+
+/**
+ * Skipped links whose target, read as text, lies outside `boundary`: a fetched source keeps a link
+ * to `../../outside.txt` that dangles in the checkout, and it is a link leaving the source all
+ * the same (ruling S5).
+ */
+async function danglingOutside(root: string, boundary: string, walk: WalkResult) {
+  const realBoundary = await fs.realpath(boundary).catch(() => path.resolve(boundary));
+  const out: string[] = [];
+  for (const rel of walk.skipped.filter((r) => !walk.symlinksOutside.includes(r))) {
+    const abs = path.join(root, ...rel.split('/'));
+    const text = await fs.readlink(abs).catch(() => undefined);
+    if (text === undefined) continue;
+    const parent = await fs.realpath(path.dirname(abs)).catch(() => path.dirname(abs));
+    if (!isWithin(path.resolve(parent, text), realBoundary)) out.push(rel);
+  }
+  return out;
 }

@@ -1,446 +1,257 @@
-/** `palm install [kind] [names...]` (aliases `add`, `i`); `install origin` lives in origin.ts. */
-import { statSync } from 'node:fs';
-import { resolve } from 'node:path';
-import pc from 'picocolors';
-import { PalmError } from '../core/errors.js';
-import type {
-  EngineDeps,
-  InstallRequest,
-  InstallResult,
-  Kind,
-  LockEntry,
-  OriginSpec,
-  PalmContext,
-  Scope,
-  SecretPolicy,
-  TargetId,
-} from '../core/types.js';
-import { TARGET_IDS } from '../core/types.js';
-import { DepRef } from '../domain/dep-ref.js';
-import type { FoundTargets } from '../engine/resolve-targets.js';
-import { type Output, outputOf, printInstallSummary } from '../ui/output.js';
+/**
+ * `palm install` (aliases `add`, `i`), DESIGN.md §6 and PLAN.md §4.9:
+ *
+ * - `palm install <source> [--grep text]`: fetch, index and list what it offers; save nothing;
+ * - `palm install <source> [kind:]name... | --all`: install, recording the source and the
+ *   entries in palm.yaml and the lock;
+ * - `palm install`: make the disk match palm.yaml and the lock.
+ *
+ * Every command it suggests names the source as the person can paste it: the key once palm.yaml
+ * declares it, else what they typed (K9). `palm install mcp …` is src/commands/mcp.ts.
+ */
+import { existsSync } from 'node:fs';
+import type { Entity, InstallRequest, LayoutDescriptor, PalmContext } from '../core/types.js';
+import type { ScopeState, SourceListing } from '../create/engine.js';
+import { parseLayoutFlags } from '../index/layout-flags.js';
+import { indexNotes } from '../index/notes.js';
 import type { App } from './app.js';
-import { type Invocation, usage } from './grammar.js';
-import { installOrigin } from './origin.js';
-import { parseArgv } from './program.js';
+import { type Invocation, interpretInstall, usage } from './grammar.js';
 import {
-  ExitSignal,
-  entityKind,
-  entries,
-  failureCount,
+  type GrammarContext,
+  manifestFile,
+  palmLine,
+  pasteLine,
+  shellWord,
+  sourceOptions,
+  typedOptions,
+} from './hints.js';
+import { type InstallJob, pasteable } from './install-errors.js';
+import { grammarContext } from './known.js';
+import { type RemovedFlags, removedFlagError } from './legacy.js';
+import { listingJson, printListing } from './listing.js';
+import { interruptible, reportInstall } from './report.js';
+import {
+  engine,
+  engineDeps,
   type GlobalOptions,
   makeContext,
-  parseSecretPolicy,
   parseTargetList,
   scopeOf,
+  withSpinner,
 } from './shared.js';
 
-export interface AdhocMcpArgs {
-  name: string;
-  /** Command + args given after `--`. */
-  command?: string[];
-  url?: string;
-  headers: string[];
-  env: string[];
-  transport?: string;
-}
-
-export interface ParsedInstallArgs {
-  /** `sync` = bare `palm install` (install what palm.yaml lists). */
-  mode: 'install' | 'sync';
-  kind?: Kind;
-  specs: string[];
-  from?: string;
-  /** `--save-origin`: register the `--from` origin in config.yaml, or palm.yaml with `--project`. */
-  saveOrigin: false | 'global' | 'project';
-  secrets?: SecretPolicy;
-  prune: boolean;
-  /** `--frozen`: install exactly what the lock records; any difference is an error. */
-  frozen: boolean;
-  adhoc?: AdhocMcpArgs;
-  scope: Scope;
-  targets?: TargetId[];
-  global: GlobalOptions;
-}
-
-interface InstallCliOptions extends GlobalOptions {
-  from?: string;
-  saveOrigin?: boolean;
-  secrets?: string;
-  prune?: boolean;
-  frozen?: boolean;
-  url?: string;
-  header?: string[];
-  env?: string[];
-  transport?: string;
-  alias?: string;
-  ref?: string;
-  root?: string;
+interface InstallFlags extends GlobalOptions, RemovedFlags {
+  all?: boolean;
+  as?: string;
+  targets?: string;
+  /** The second spelling of --targets. */
+  target?: string;
+  at?: string;
+  grep?: string;
+  /** `--layout kind=glob`, repeatable (K2). */
   layout?: string[];
-  project?: boolean;
 }
 
-const ADHOC_HINT =
-  'palm install mcp <name> -- <command> [args...]   or   palm install mcp <name> --url <url> [--header K=V]';
-const REPO_PREFIX = /^(?:https?:\/\/|ssh:\/\/|git:\/\/|file:\/\/|git@|github:|gitlab:)/i;
-const ORIGIN_ONLY = ['alias', 'ref', 'root', 'layout', 'project'] as const;
+interface NamedInstall extends InstallJob {
+  flags: InstallFlags;
+}
+
+/** `isExecutable` for every entity of a listing, asked once each. */
+async function executables(app: App, entities: Entity[]): Promise<(e: Entity) => boolean> {
+  const api = engine(app);
+  const found = new Set<Entity>();
+  for (const e of entities) if (await api.isExecutable(e)) found.add(e);
+  return (e) => found.has(e);
+}
+
+/** Options a line that installs from the typed source repeats (T9, N7). */
+const ENTRY_OPTIONS: ReadonlySet<string> = new Set([
+  '--as',
+  '--layout',
+  '--targets',
+  '--target',
+  '--at',
+]);
 
 /**
- * True when a spec names a repository or path rather than an entity: a git URL, `github:`/`gitlab:`,
- * a relative/home path, or `owner/repo` (an MCP registry name like `io.github.x/y` has a dot in its
- * first segment and does not count).
+ * What was typed, as the paste lines repeat it: the typed source keeps `--as`, `--layout` and
+ * the targets it was given (T9); a declared key needs none of them.
  */
-export function looksLikeRepoRef(spec: string): boolean {
-  const s = spec.trim();
-  if (REPO_PREFIX.test(s) || s === '.' || s === '..' || s === '~' || s.startsWith('~/'))
-    return true;
-  let name: string;
-  try {
-    name = DepRef.parse(s).name;
-  } catch {
-    return false;
-  }
-  const first = name.split('/')[0] ?? '';
-  if (!name.includes('/') || first.startsWith('@')) return false; // npm scope: registry / not found
-  return first.startsWith('.') || !first.includes('.');
+function typedLine(job: NamedInstall, argv: readonly string[]) {
+  const scope = job.before.paths.scope;
+  const options = typedOptions(argv, (name) => ENTRY_OPTIONS.has(name));
+  return (source: string, names: readonly string[]) =>
+    pasteLine('install', [source, ...names], source === job.source ? options : [], scope);
 }
 
-export function repoRefError(spec: string): PalmError {
-  return new PalmError(
-    'E_USAGE',
-    `"${spec}" is a repository, not an entity name`,
-    `register it: palm install origin ${spec}   or take one entity from it: palm install skill <name> --from ${spec}`,
+/** K9, D9: the key once palm.yaml declares the source, else the input as typed (its #ref kept). */
+function pasteSource(listed: SourceListing, job: NamedInstall): string {
+  if (listed.paste !== undefined) return listed.paste;
+  return listed.declared && !job.source.includes('#') ? listed.source.name : job.source;
+}
+
+/** K2: the `layout:` a new source gets, from `--layout kind=glob`. */
+function layoutOf(flags: InstallFlags): { layout?: LayoutDescriptor } {
+  return flags.layout?.length ? { layout: parseLayoutFlags(flags.layout) } : {};
+}
+
+/**
+ * L15, N1, Q18: notes a person acts on print in full; the other index notes are one count line
+ * with one pointer, `palm describe source <source>` (each also under PALM_DEBUG).
+ */
+function noteIndexWarnings(app: App, listed: SourceListing, job: NamedInstall): void {
+  const { warnings } = listed.index;
+  if (!warnings.length || app.out.jsonMode) return;
+  const scope = job.before.paths.scope;
+  const as = typedOptions(app.argv, (name) => name === '--as');
+  const install = (args: readonly string[]) =>
+    pasteLine('install', [job.source, ...args], as, scope);
+  const { shown, rest } = indexNotes(
+    warnings,
+    listed.declared ? { declared: true } : { declared: false, install },
   );
+  for (const w of shown) app.out.info(`${listed.source.name}: ${w}`);
+  for (const w of rest) app.out.debug(w);
+  if (!rest.length) return;
+  const source = listed.declared ? listed.source.name : job.source;
+  const see = pasteLine('describe', ['source', source], [], scope);
+  const n = `${rest.length}${shown.length ? ' more' : ''}`;
+  const notes = rest.length === 1 ? 'note' : 'notes';
+  app.out.info(`${n} ${notes} from indexing ${listed.source.name} (see: ${see})`);
 }
 
-/** True when `spec` (a bare name that matched nothing) is a directory, relative to the cwd. */
-function isDirectory(ctx: PalmContext, spec: string): boolean {
-  try {
-    return statSync(resolve(ctx.paths.cwd, spec)).isDirectory();
-  } catch {
-    return false;
-  }
+async function list(ctx: PalmContext, app: App, job: NamedInstall) {
+  const api = engine(app);
+  const scope = job.before.paths.scope;
+  const listed: SourceListing = await withSpinner(ctx, `Fetching ${job.source}`, () =>
+    api.listSource(ctx, job.source, { scope, ...layoutOf(job.flags) }, engineDeps(app)),
+  ).catch((e: unknown) => {
+    throw pasteable(e, app, job);
+  });
+  const executable = await executables(app, listed.index.entities);
+  noteIndexWarnings(app, listed, job);
+  const line = typedLine(job, app.argv);
+  const source = pasteSource(listed, job);
+  const view = {
+    line: (names: readonly string[]) => line(source, names),
+    grep: job.flags.grep,
+    ...(job.flags.as && !listed.declared ? { title: job.flags.as } : {}),
+  };
+  if (app.out.jsonMode) app.out.json(listingJson(listed, executable, view));
+  else printListing(app.out, listed, executable, view);
 }
 
-function adhocArgs(
-  kind: Kind | undefined,
-  specs: string[],
-  opts: InstallCliOptions,
-  passthrough: string[],
-): AdhocMcpArgs | undefined {
-  const headers = opts.header ?? [];
-  const env = opts.env ?? [];
-  const requested =
-    passthrough.length > 0 ||
-    !!opts.url ||
-    headers.length > 0 ||
-    env.length > 0 ||
-    !!opts.transport;
-  if (!requested) return undefined;
-  if (kind !== 'mcp')
-    throw usage(
-      '`--`, --url, --header, --env and --transport define an ad hoc MCP server and need the mcp kind',
-      ADHOC_HINT,
-    );
-  if (specs.length !== 1) throw usage('an ad hoc MCP server needs exactly one name', ADHOC_HINT);
-  if (passthrough.length === 0 && !opts.url)
-    throw usage('an ad hoc MCP server needs a command after `--` or --url', ADHOC_HINT);
-  if (passthrough.length > 0 && opts.url)
-    throw usage('give either a command after `--` or --url, not both', ADHOC_HINT);
-  const command = passthrough.length ? passthrough : undefined;
-  return { name: specs[0] ?? '', command, url: opts.url, headers, env, transport: opts.transport };
-}
-
-function checkKindAndSpecs(kind: Kind | undefined, specs: string[], opts: InstallCliOptions): void {
-  if (specs[0]?.toLowerCase() === 'registry' && !kind)
-    throw usage(
-      'registry is not an installable kind',
-      'MCP registry servers install with: palm install mcp <registry-name>',
-    );
-  if (!kind) {
-    const repo = specs.find(looksLikeRepoRef);
-    if (repo) throw repoRefError(repo);
-  }
-  // --project also says where --save-origin registers the --from origin
-  const originOnly = ORIGIN_ONLY.filter(
-    (k) => opts[k] !== undefined && !(k === 'project' && opts.saveOrigin),
-  );
-  if (originOnly.length)
-    throw usage(
-      `--${originOnly.join(', --')} only apply to origins`,
-      `palm install origin <spec> --${originOnly[0]} …`,
-    );
-}
-
-function checkMode(mode: 'install' | 'sync', kind: Kind | undefined, opts: InstallCliOptions) {
-  if (mode === 'sync' && kind)
-    throw usage(
-      `name the ${kind} to install`,
-      `palm install ${kind} <name>   (or palm install with no arguments for everything in palm.yaml)`,
-    );
-  if (opts.prune && mode !== 'sync')
-    throw usage(
-      '--prune only applies to a bare `palm install` (manifest sync)',
-      'palm install --prune',
-    );
-  if (opts.frozen && mode !== 'sync')
-    throw usage(
-      '--frozen only applies to a bare `palm install` (install what palm.lock.yaml records)',
-      'palm install --frozen',
-    );
-  if (opts.frozen && opts.prune)
-    throw usage(
-      '--frozen only restores what the lock records, so it cannot --prune',
-      'palm install --frozen',
-    );
-  if (opts.saveOrigin && !opts.from)
-    throw usage(
-      '--save-origin needs --from <origin>',
-      'palm install skill <name> --from owner/repo --save-origin',
-    );
-}
-
-/** Where `--save-origin` registers the `--from` origin: config.yaml, or palm.yaml with --project. */
-function saveOriginScope(save?: boolean, project?: boolean): ParsedInstallArgs['saveOrigin'] {
-  if (!save) return false;
-  return project ? 'project' : 'global';
-}
-
-/** Pure interpretation of an install invocation (entity kinds; origins go to origin.ts). */
-export function interpretInstallArgs(inv: Invocation, passthrough: string[]): ParsedInstallArgs {
-  const opts = inv.opts as InstallCliOptions;
-  const kind = entityKind(inv.resource, 'install');
-  const specs = inv.names;
-  checkKindAndSpecs(kind, specs, opts);
-  const adhoc = adhocArgs(kind, specs, opts, passthrough);
-  const mode = specs.length === 0 ? 'sync' : 'install';
-  checkMode(mode, kind, opts);
-  const {
-    from,
-    saveOrigin,
-    project,
-    secrets,
-    prune,
-    frozen,
-    url,
-    header,
-    env,
-    transport,
-    ...global
-  } = opts;
+function requestOf(job: NamedInstall): InstallRequest {
+  const { flags } = job;
+  const targets = parseTargetList(flags.targets ?? flags.target, '--targets');
   return {
-    mode,
-    kind,
-    specs,
-    from,
-    saveOrigin: saveOriginScope(saveOrigin, project),
-    secrets: parseSecretPolicy(secrets),
-    prune: Boolean(prune),
-    frozen: Boolean(frozen),
-    adhoc,
-    scope: scopeOf(global),
-    targets: parseTargetList(global.target),
-    global,
+    source: job.source,
+    names: job.names,
+    ...(flags.all ? { all: true } : {}),
+    ...(targets ? { targets } : {}),
+    ...(flags.at ? { at: flags.at } : {}),
+    ...(flags.as ? { as: flags.as } : {}),
+    ...layoutOf(flags),
   };
 }
 
-/** Parse a full user argv (e.g. `['i', 'agent', 'x', '-g']`) exactly as the CLI would. */
-export function parseInstallArgs(argv: string[]): ParsedInstallArgs {
-  const { invocation, passthrough } = parseArgv(argv);
-  if (invocation.command !== 'install' || invocation.resource === 'origin')
-    throw usage(`not an entity install command: ${argv.join(' ')}`);
-  return interpretInstallArgs(invocation, passthrough);
+/** B11: `at:` is recorded now and honoured in 0.3; say so once per directory. */
+function noteAt(app: App, job: NamedInstall, placed: readonly (string | undefined)[]): void {
+  const dirs = new Set([job.flags.at, ...placed].filter((d): d is string => Boolean(d)));
+  for (const dir of dirs) app.out.info(`at ${dir} (placed at the root until 0.3)`);
+}
+
+async function installNames(ctx: PalmContext, app: App, job: NamedInstall): Promise<void> {
+  const api = engine(app);
+  const scope = job.before.paths.scope;
+  const req = requestOf(job);
+  const result = await interruptible(app, () =>
+    api.installFromSource(ctx, req, { scope }, engineDeps(app)),
+  ).catch((e: unknown) => {
+    throw pasteable(e, app, job);
+  });
+  const after = await api.openScope(ctx, scope, { readOnly: true });
+  if (!app.out.jsonMode) {
+    noteNewSource(app, job, after);
+    noteAt(
+      app,
+      job,
+      result.outcomes.map((o) => o.entry.at),
+    );
+  }
+  const typed = [job.source, ...sourceOptions(app.argv)].map(shellWord).join(' ');
+  const sourceWord = (name: string) => (after.sources.byName(name) ? name : typed);
+  const report = { before: job.before, after, from: job.names.length > 0, named: true };
+  await reportInstall(ctx, app, result, { ...report, sourceWord, explicit: job.names });
+}
+
+/** A source this run declared under a name other than what was typed (a URL, `--as`): its name. */
+function noteNewSource(app: App, job: NamedInstall, after: ScopeState): void {
+  const typed = job.source.split('#')[0] ?? job.source;
+  const file = manifestFile(after.paths.scope);
+  for (const s of after.sources.all())
+    if (!job.before.sources.byName(s.name) && s.name !== typed)
+      app.out.mark('+', `source ${s.name} → ${file}`);
+}
+
+async function sync(ctx: PalmContext, app: App, before: ScopeState): Promise<void> {
+  const api = engine(app);
+  const scope = before.paths.scope;
+  const result = await interruptible(app, () => api.syncScope(ctx, { scope }, engineDeps(app)));
+  const after = await api.openScope(ctx, scope, { readOnly: true });
+  if (!result.outcomes.length && !result.failures.length && !app.out.jsonMode) {
+    const file = manifestFile(scope);
+    const none = !existsSync(before.paths.manifestFile);
+    app.out.info(none ? `no ${file} here` : `nothing to install: ${file} lists no entries`);
+    app.out.hint(
+      `see what a source offers, for example: ${palmLine('install', ['mattpocock/skills'], scope)}`,
+    );
+  }
+  await reportInstall(ctx, app, result, { before, after });
+}
+
+/** `--all` and `--targets` need names to act on; a bare install follows palm.yaml (E7). */
+function checkBare(flags: InstallFlags, gctx: GrammarContext): void {
+  const scope = gctx.scope;
+  const example = gctx.sources?.[0]?.name ?? 'obra/superpowers';
+  if (flags.all)
+    throw usage(
+      '--all needs the source to take everything from',
+      palmLine('install', [example, '--all'], scope),
+    );
+  const targets = flags.targets ?? flags.target;
+  if (targets === undefined) return;
+  const manifest = manifestFile(scope);
+  throw usage(
+    `--targets narrows the entries an install names; palm install alone follows targets: in ${manifest}`,
+    `add ${targets} to targets: in ${manifest}, then run: ${palmLine('install', [], scope)}`,
+  );
+}
+
+/** E4: `palm install --frozen` (palm 0.1 CI) is `palm check` now; it prints so and runs it. */
+async function frozen(inv: Invocation, app: App): Promise<void> {
+  const g = inv.opts.global ? ' -g' : '';
+  app.out.info(`palm install --frozen is now: palm check${g}`);
+  const { run: check } = await import('./check.js');
+  return check({ ...inv, command: 'check', names: [], words: [] }, app);
 }
 
 export async function run(inv: Invocation, app: App): Promise<void> {
-  if (inv.resource === 'origin') return installOrigin(inv, app);
-  const parsed = interpretInstallArgs(inv, app.passthrough);
-  const ctx = await makeContext(app, parsed.global);
-  await installWithContext(ctx, parsed, { out: app.out, deps: app.deps });
-}
-
-interface InstallRun {
-  ctx: PalmContext;
-  parsed: ParsedInstallArgs;
-  out: Output;
-  deps?: Partial<EngineDeps>;
-}
-
-/** `palm install` against a given context (tests pass a sandbox context and fake UI). */
-export async function installWithContext(
-  ctx: PalmContext,
-  parsed: ParsedInstallArgs,
-  opts: { out?: Output; deps?: Partial<EngineDeps> } = {},
-): Promise<void> {
-  const r: InstallRun = { ctx, parsed, out: opts.out ?? outputOf(ctx.log), deps: opts.deps };
-  // Scope guards first (the home directory is no project, …): before any origin or target work.
-  const { scopedContext } = await import('../engine/install.js');
-  scopedContext(ctx, parsed.scope);
-  if (parsed.mode === 'sync') return syncInstall(r);
-  const { result, targets } = await installRequests(r);
-  finishInstall(r, result, targets);
-}
-
-/** The targets of this run; `persistTargets` saves them once the run placed something. */
-async function findTargetsFor(r: InstallRun): Promise<FoundTargets> {
-  const { findTargets } = await import('../engine/resolve-targets.js');
-  return findTargets(r.ctx, { scope: r.parsed.scope, flag: r.parsed.targets }, r.deps);
-}
-
-/**
- * Save the targets to palm.yaml when it has none, after an install that placed something: a
- * failed, ambiguous or cancelled run (it threw) saves nothing, and `--frozen` never writes. A
- * `--target` on a later install applies to that install only.
- */
-async function saveTargetsAfter(r: InstallRun, found: FoundTargets, result: InstallResult) {
-  const { persistTargets, placedSomething } = await import('../engine/resolve-targets.js');
-  if (!r.parsed.frozen && placedSomething(result))
-    await persistTargets(r.ctx, r.parsed.scope, found);
-}
-
-/**
- * The persisted set (palm.yaml / config.yaml, or what this first install persists) and every
- * entry's minimum set for a sync: the persisted set plus any `--target`.
- */
-async function syncTargetSets(r: InstallRun, found: FoundTargets) {
-  const { persistedTargets } = await import('../engine/resolve-targets.js');
-  const persisted = await persistedTargets(r.ctx, r.parsed.scope, found);
-  const all = new Set([...(persisted ?? []), ...found.targets]);
-  return { persisted, targets: TARGET_IDS.filter((t) => all.has(t)) };
-}
-
-async function syncInstall(r: InstallRun): Promise<void> {
-  const found = await findTargetsFor(r);
-  const { persisted, targets } = await syncTargetSets(r, found);
-  const { syncManifest } = await import('../engine/sync.js');
-  const { parsed } = r;
-  const result: InstallResult & { extraneous: LockEntry[] } = await syncManifest(
-    r.ctx,
-    {
-      scope: parsed.scope,
-      prune: parsed.prune,
-      targets,
-      ...(persisted ? { persisted } : {}),
-      ...(parsed.frozen ? { frozen: true } : {}),
-      ...(parsed.secrets ? { secretPolicy: parsed.secrets } : {}),
-    },
-    r.deps,
-  );
-  await saveTargetsAfter(r, found, result);
-  finishInstall(r, result, targets);
-  if (!result.extraneous.length || r.out.jsonMode) return;
-  const names = result.extraneous.map((e) => `${e.kind} ${e.name}`).join(', ');
-  const n = entries(result.extraneous.length);
-  if (parsed.prune) r.out.removed(`${n} not in palm.yaml: ${names}`);
-  else
-    r.out.warn(`installed but not in palm.yaml: ${names}; remove them with: palm install --prune`);
-}
-
-/** Print (or buffer as JSON) the result; exit 1 when the engine reports failures. */
-function finishInstall(r: InstallRun, result: InstallResult, targets: TargetId[]): void {
-  const { out, parsed } = r;
-  if (out.jsonMode) out.json(result);
-  else
-    printInstallSummary(out, result, {
-      scope: parsed.scope,
-      targets,
-      dryRun: parsed.global.dryRun,
-    });
-  if (parsed.global.dryRun && !out.jsonMode) out.hint(`\n${DRY_RUN_NOTE}`);
-  const failed = failureCount(result);
-  if (failed) {
-    const saved =
-      parsed.global.dryRun || parsed.frozen ? '' : ' (the lockfile records what succeeded)';
-    if (!out.jsonMode) out.error(`${failed} failed; see above${saved}`);
-    throw new ExitSignal(1);
+  const flags = inv.opts as InstallFlags;
+  const words = inv.words ?? [];
+  if (flags.frozen) return frozen(inv, app);
+  const ctx = await makeContext(app, flags);
+  const before = await engine(app).openScope(ctx, scopeOf(flags), { readOnly: true });
+  const gctx = await grammarContext(ctx, app, before, words);
+  const removed = removedFlagError(words, flags, app.argv, gctx);
+  if (removed) throw removed;
+  if (!words.length) {
+    checkBare(flags, gctx);
+    return sync(ctx, app, before);
   }
+  const w = interpretInstall(words, gctx);
+  if (w.legacy) app.out.info(`${w.legacy.form} is now: ${w.legacy.replacement}`);
+  const job = { before, source: w.source ?? '', names: w.names, flags };
+  if (!w.names.length && !flags.all) return list(ctx, app, job);
+  return installNames(ctx, app, job);
 }
-
-async function buildRequests(r: InstallRun, from: OriginSpec | undefined) {
-  const { parsed } = r;
-  if (!parsed.adhoc)
-    return parsed.specs.map((spec): InstallRequest => ({ kind: parsed.kind, spec, from }));
-  const { parseAdhocMcp } = await import('../mcp/adhoc.js');
-  const a = parsed.adhoc;
-  const adhocMcp = parseAdhocMcp(a.name, {
-    command: a.command,
-    url: a.url,
-    headers: a.headers,
-    env: a.env,
-    transport: a.transport,
-  });
-  return [{ kind: 'mcp', spec: a.name, adhocMcp } satisfies InstallRequest];
-}
-
-/** Names resolve before targets are asked for, so bad input fails before any prompt. */
-async function preflight(r: InstallRun, requests: InstallRequest[]): Promise<void> {
-  const { preflightInstall } = await import('../engine/install.js');
-  // A kind-less name that matches nothing but is a local directory was meant as an origin.
-  const dirs = r.parsed.kind
-    ? []
-    : requests.filter((q) => typeof q.spec === 'string' && isDirectory(r.ctx, q.spec));
-  for (const q of dirs) {
-    try {
-      await preflightInstall(r.ctx, [q], r.deps);
-    } catch (e) {
-      throw e instanceof PalmError && e.code === 'E_NOT_FOUND' ? repoRefError(String(q.spec)) : e;
-    }
-  }
-  await preflightInstall(
-    r.ctx,
-    requests.filter((q) => !dirs.includes(q)),
-    r.deps,
-  );
-}
-
-/** `--from <spec> --save-origin`: register the origin once its entities resolved. */
-async function saveFromOrigin(r: InstallRun, from: OriginSpec): Promise<OriginSpec> {
-  if (r.ctx.flags.dryRun) {
-    r.ctx.log.info(`dry run: would register origin ${from.alias}`);
-    return from;
-  }
-  const { addOrigin } = await import('../core/config.js');
-  // Like `palm install origin`: the user's config unless --project, whatever the install scope.
-  const saved = await addOrigin(r.ctx, from, { scope: r.parsed.saveOrigin || 'global' });
-  r.out.added(`origin ${pc.bold(saved.alias)}`);
-  return saved;
-}
-
-async function installRequests(
-  r: InstallRun,
-): Promise<{ result: InstallResult; targets: TargetId[] }> {
-  const { parsed } = r;
-  let from: OriginSpec | undefined;
-  if (parsed.from) {
-    const { parseOriginInput } = await import('../core/origin-input.js');
-    from = parseOriginInput(parsed.from, { cwd: r.ctx.paths.cwd });
-  }
-  const requests = await buildRequests(r, from);
-  await preflight(r, requests);
-  if (from && parsed.saveOrigin) {
-    const saved = await saveFromOrigin(r, from);
-    for (const q of requests) if (q.from) q.from = saved;
-  }
-  const found = await findTargetsFor(r);
-  const { targets } = found;
-  const { persistedTargets } = await import('../engine/resolve-targets.js');
-  const lockTargets = await persistedTargets(r.ctx, parsed.scope, found);
-  const { installEntities } = await import('../engine/install.js');
-  const result = await installEntities(
-    r.ctx,
-    requests,
-    {
-      scope: parsed.scope,
-      targets,
-      secretPolicy: parsed.secrets,
-      ...(lockTargets ? { lockTargets } : {}),
-    },
-    r.deps,
-  );
-  await saveTargetsAfter(r, found, result);
-  return { result, targets };
-}
-
-/** What --dry-run does and does not touch (origins are still fetched so the plan is real). */
-export const DRY_RUN_NOTE =
-  'dry run: no harness files, lockfile or manifest were changed (origins were fetched into the palm cache as needed)';

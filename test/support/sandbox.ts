@@ -79,9 +79,16 @@ export interface Sandbox {
   palmHome: string;
   project: string;
   env: NodeJS.ProcessEnv;
+  /** `<project>/palm.yaml` and `<project>/palm.lock.yaml`. */
+  manifestFile: string;
+  lockFile: string;
+  /** `<palmHome>/palm.yaml`, `<palmHome>/palm.lock.yaml` and `<palmHome>/applied.yaml` (global scope). */
+  globalManifestFile: string;
+  globalLockFile: string;
+  appliedFile: string;
 }
 
-/** Temp HOME, PALM_HOME and a project dir (with .git) — never the real home. */
+/** Temp HOME, PALM_HOME and a project dir (with .git), never the real home. */
 export async function sandbox(): Promise<Sandbox> {
   const root = await tempDir();
   const home = join(root, 'home');
@@ -89,5 +96,16 @@ export async function sandbox(): Promise<Sandbox> {
   const project = join(root, 'project');
   await mkdir(home, { recursive: true });
   await mkdir(join(project, '.git'), { recursive: true });
-  return { root, home, palmHome, project, env: { HOME: home, PALM_HOME: palmHome } };
+  return {
+    root,
+    home,
+    palmHome,
+    project,
+    env: { HOME: home, PALM_HOME: palmHome },
+    manifestFile: join(project, 'palm.yaml'),
+    lockFile: join(project, 'palm.lock.yaml'),
+    globalManifestFile: join(palmHome, 'palm.yaml'),
+    globalLockFile: join(palmHome, 'palm.lock.yaml'),
+    appliedFile: join(palmHome, 'applied.yaml'),
+  };
 }

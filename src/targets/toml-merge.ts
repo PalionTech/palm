@@ -7,19 +7,21 @@
  * when that check fails (dotted keys, inline tables, headers inside multi-line
  * strings, ...) the whole document is re-stringified with smol-toml instead.
  *
- * Unmerge removes the table when it still contains every key/value palm wrote
- * (keys the user added are tolerated; a table whose palm-written values were
- * edited is left alone).
+ * A table is found by its path (`['mcp_servers', <name>]`, the fragment's key is the name).
+ * Unmerge removes it by that path; whether the user changed it is decided before undeploy,
+ * from the lock's render hash.
  *
- * `mergeTableText` is the pure merge (text in, next text out) deploys plan with;
+ * `mergeTableText` is the pure merge (text in, next text out) the Applier writes;
  * `unmergeTomlTable` edits the file in place (undeploy).
  */
 import { parse, stringify } from 'smol-toml';
 import { messageOf, PalmError } from '../core/errors.js';
-import type { RecordState, TomlTableRecord } from '../domain/merged-record.js';
+import type { MergedRecord, RecordState } from '../domain/merged-record.js';
 import { deepEqual, isRecord } from '../lib/object.js';
 import { atomicWrite, readTextOrUndefined, removeFileIfExists } from './fs-utils.js';
-import { containsAll } from './recorded.js';
+import { matchesRendered } from './placeholder-match.js';
+
+type TomlTableRecord = Extract<MergedRecord, { type: 'toml-table' }>;
 
 type Table = Record<string, unknown>;
 
@@ -210,7 +212,10 @@ export function mergeTableText(text: string | undefined, edit: TomlEdit): string
   return mergedText(src, edit, current !== undefined, expected);
 }
 
-/** Whether `text` still holds the table palm wrote (keys the user added are fine). */
+/**
+ * Whether `text` holds the table `rec` names: `missing` when absent, `held` when it matches the
+ * rendered value (`${VAR}` matching any text), `changed` otherwise (an unparseable file too).
+ */
 export function tomlRecordState(text: string | undefined, rec: TomlTableRecord): RecordState {
   if (text === undefined) return 'missing';
   let current: unknown;
@@ -220,11 +225,21 @@ export function tomlRecordState(text: string | undefined, rec: TomlTableRecord):
     return 'changed';
   }
   if (current === undefined) return 'missing';
-  return containsAll(current, rec.value) ? 'held' : 'changed';
+  return matchesRendered(current, rec.value) ? 'held' : 'changed';
+}
+
+/** The table `rec` names in `text`; undefined when absent or unparseable. */
+export function tomlRecordValue(text: string | undefined, rec: TomlTableRecord): unknown {
+  if (text === undefined) return undefined;
+  try {
+    return getPath(parseToml(text, rec.file), rec.path);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
- * Remove the table recorded by `record` (`['mcp_servers', name]`); a file left empty is deleted.
+ * Remove the table `record` names (`['mcp_servers', name]`); a file left empty is deleted.
  * Missing file/table is a no-op.
  */
 export async function unmergeTomlTable(file: string, record: TomlTableRecord): Promise<void> {
@@ -233,8 +248,7 @@ export async function unmergeTomlTable(file: string, record: TomlTableRecord): P
   const doc = parseToml(text, file);
   const tablePath = record.path;
   if (tablePath.length === 0) return;
-  const current = getPath(doc, tablePath);
-  if (current === undefined || !containsAll(current, record.value)) return;
+  if (getPath(doc, tablePath) === undefined) return;
   const expected = structuredClone(doc);
   deletePath(expected, tablePath);
   pruneEmptyAncestors(expected, tablePath);

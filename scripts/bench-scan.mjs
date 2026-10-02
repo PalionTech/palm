@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Scanner benchmark. Not a pass/fail check; compare numbers across changes.
 //
-//  1. the synthetic cursor/plugins-sized origin (~4k files at 100 plugins, the tree
+//  1. the synthetic cursor/plugins-sized source (~4k files at 100 plugins, the tree
 //     test/index/scan-fs.test.ts checks for correctness), written to a temp dir;
 //  2. the cursor/plugins-shaped fixture test/fixtures/cursor-monorepo-like (marketplace, Cursor
 //     manifests, rules, hooks, MCP), many runs because it is small.
@@ -22,8 +22,8 @@ const runs = arg('runs', 5);
 const fixtureRuns = arg('fixture-runs', 50);
 
 register();
-const { scanOrigin } = await import('../src/index/scan.ts');
-const { syntheticCounts, writeSyntheticOrigin } = await import('../test/support/synthetic.ts');
+const { scanSource } = await import('../src/index/scan.ts');
+const { syntheticCounts, writeSyntheticSource } = await import('../test/support/synthetic.ts');
 
 const fmt = (ms) => `${ms.toFixed(1)} ms`;
 
@@ -45,12 +45,12 @@ async function bench(label, n, scan) {
   return result;
 }
 
-const scanAt = (root, alias) => () => scanOrigin(root, { alias, type: 'local', path: root });
+const scanAt = (root, name) => () => scanSource(root, { name, type: 'local', path: root });
 
 const tmp = await realpath(await mkdtemp(join(tmpdir(), 'palm-bench-scan-')));
 try {
   const root = join(tmp, 'repo');
-  const files = await writeSyntheticOrigin(root, plugins);
+  const files = await writeSyntheticSource(root, plugins);
   const want = Object.values(syntheticCounts(plugins)).reduce((a, b) => a + b, 0);
   const r = await bench(`synthetic: ${files} files, ${want} entities`, runs, scanAt(root, 'bench'));
   if (r.entities.length !== want)

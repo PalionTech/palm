@@ -1,28 +1,29 @@
 ---
 title: How palm reads a repository
-description: palm scans each origin as its author published it, detects the layout and reports what it could not install.
+description: palm scans each source as its author published it, detects the layout, and reports what it found and what it will not install.
 sidebar:
   label: Scanning
 ---
 
 import Capture from '../../../components/Capture.astro';
 
-palm **scans** an origin when you add or update it.
-The scan finds every entity the repository offers, and palm stores the result as the origin's index.
-Authors publish in many layouts, and palm reads them without a palm-specific manifest.
+palm **scans** a source when it first fetches a commit.
+The scan finds every entity the repository offers, and palm caches the result as the source's index, keyed by the commit.
+Authors publish in many layouts, and palm reads them with no palm-specific file.
 
 ```sh
-palm install origin anthropics/claude-plugins-official --dry-run
+palm install anthropics/claude-plugins-official
+palm describe source anthropics/claude-plugins-official
 ```
 
-`--dry-run` prints the scan report without saving the origin.
-This session added a copy of palm's test fixture that mirrors `anthropics/claude-plugins-official`.
+The first command lists the index and saves nothing. The second shows how palm read a declared source.
 
-<Capture name="a-scan-marketplace" title="~/project" />
+<Capture name="a-scan" title="~/project" />
 
-The first line names the counts per kind and the rule that matched, here `marketplace`.
-The warnings list what the scan skipped and why.
-`palm get --available` lists the index, one row per entity.
+`detected` names the rule that matched, here `marketplace`.
+The index warnings list what the scan found and will not install, each with the reason or the command that installs it from its own repository.
+A listing prints the notes you act on in full, such as a file the layout misses, and counts the rest in one line.
+`palm describe source <source>` prints them all, for a source `palm.yaml` declares or one you only typed.
 
 ## Detection order
 
@@ -30,13 +31,14 @@ The first rule that matches decides how palm reads the repository.
 
 | Order | Rule | Reported as | Applies when |
 | --- | --- | --- | --- |
-| 1 | Layout descriptor | `descriptor` | the origin has a [layout descriptor](/palm/reference/layout/) |
+| 1 | Layout descriptor | `descriptor` | the source has a [`layout:`](/palm/reference/layout/) in `palm.yaml` |
 | 2 | APM package | `apm` | the root has an `apm.yml` and an `.apm/` folder |
 | 3 | Marketplace | `marketplace` | the repository has a `marketplace.json` for Claude Code, Cursor, Copilot or Codex |
 | 4 | Plugin manifest | `plugin-manifest` | the root has a Claude Code, Cursor, Agent Plugins, Codex or Gemini CLI plugin manifest |
-| 5 | Conventions | `convention` | none of the above, so palm looks for `SKILL.md`, `agents/`, `rules/` and similar paths |
+| 5 | Conventions | `convention` | none of the above, so palm looks for `SKILL.md`, `agents/`, `rules/`, `hooks/` and similar paths |
 
-A marketplace entry with a relative path becomes a `plugin`, scanned at that path.
+A marketplace entry with a relative path becomes a plugin, scanned at that path.
+An entry that points back at the source itself is skipped without a warning.
 A plugin manifest picks one format and never merges two.
 The [scan rules](/palm/reference/scan-rules/) list every file name and pattern.
 
@@ -44,47 +46,73 @@ The [scan rules](/palm/reference/scan-rules/) list every file name and pattern.
 
 | Warning | Meaning |
 | --- | --- |
-| remote plugin not fetched | A marketplace entry points at another repository. palm prints the `palm install origin` command that adds it. |
-| not supported by palm | The plugin has a part palm does not install, such as LSP servers. |
-| unsupported source | A marketplace entry comes from npm or another source palm cannot read. |
-| does not declare | A plugin manifest omits skills that sit in its folder. palm indexes them as standalone skills. |
-| not a valid slug | A skill's `name` cannot be a folder name. palm uses the slugified folder name. |
-| hidden-unicode | A file holds invisible characters. See the [security model](/palm/explanation/security/). |
+| `remote plugin "<name>" ... not fetched` | A marketplace entry points at another repository. palm prints the `palm install` line that declares it as a source of its own. |
+| `lspServers are not installed by palm` | The plugin has a part palm does not install. |
+| `npm sources are not supported` | A marketplace entry comes from a place palm cannot fetch. |
+| `does not declare` | A plugin manifest omits skills that sit in its folder. palm indexes them as standalone skills. |
+| `not a valid slug` | A skill's `name` cannot be a folder name. palm uses the slugified folder name. |
+| `hidden-unicode` | A file holds invisible characters. See the [security model](/palm/explanation/security/). |
+| `unresolvable-reference` | A hook or MCP command names a script that is not in the source. palm refuses that entity. |
+| `secret-literal` | An MCP value or hook command holds something shaped like a secret. palm writes a reference instead. |
+| `not indexed` | Files shaped like agents, hooks or MCP configs sit outside the folders palm scans. The line names the `layout:` that indexes them, such as `add layout: { agents: [people/*.md] }`. |
+| `skipped (ignored name ...)` | A `SKILL.md` sits under a folder name palm ignores, such as `skills/test`. The line names the `layout:` that includes it. |
+| `matches nothing` | A glob in your `layout:` matched no file. |
 
-palm never fetches a remote marketplace entry by itself.
-You decide whether that repository becomes an origin.
+palm never fetches another repository on its own.
+You decide whether it becomes a source.
+
+## Hooks and scripts
+
+After the rules run, palm resolves every path a hook or MCP command names.
+`${CLAUDE_PLUGIN_ROOT}` and its variants, `${extensionPath}` and relative paths such as `./scripts/check.sh` are resolved against the source.
+The directory that holds the hook definition, plus every file a command names, becomes the entity's **closure**, the set of files palm copies to `.palm/assets/`.
+
+palm also reads each script once for literal paths, such as `$CLAUDE_PLUGIN_ROOT/skills/x/SKILL.md`, `../x` or `"$(dirname "$0")/../x"`.
+Files found that way join the closure, and the consent review lists them as `reads:`.
+A read palm cannot resolve prints a warning at install, because the script may fail without it.
+
+A reference that resolves to nothing, such as `$(...)`, `~/...` or a missing file, refuses the entity and prints the line.
+
+```text
+x hook do-stop-guard from agency: cannot relocate "./scripts/do-stop-guard.sh"
+  no such file under .apm/hooks/ in source agency at 8145505
+  a hook command must name a file relative to its hooks.json, ${CLAUDE_PLUGIN_ROOT}, or the project dir
+```
+
+palm never merges a command it could not resolve, so a clone without palm never runs a script that is not there.
 
 ## Folders palm skips
 
-Auto-detection skips folders that hold tests, fixtures, examples, templates, docs and build output.
-It also skips install outputs, such as `.claude/skills` or `.agents/skills`, because another tool committed those copies.
-Root `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` guide the repository's contributors, so palm skips them too.
+Auto-detection skips folders that hold tests, fixtures, evals, examples, templates, docs and build output.
+It also skips install outputs, such as `.claude/skills` or `.agents/skills`, because another tool committed those copies, and any output folder it reaches through a symlink.
+Root `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` guide the repository's own contributors, so palm skips them too.
+Inside a skill's folder those files are the skill's own content, and palm copies them with it.
+A skill copy leaves out tests and fixtures, harness folders and `.env` files, as the [scan rules](/palm/reference/scan-rules/#what-a-skill-copy-leaves-out) list.
 
-palm includes other dot folders.
-`openai/skills` keeps its skills in `skills/.curated`, and palm finds them.
+Only the top-most `SKILL.md` in a folder tree is a skill.
+Everything below a skill's folder is that skill's content, including a nested `references/x/SKILL.md`.
+
+palm includes other dot folders. `openai/skills` keeps its skills in `skills/.curated`, and palm finds them.
 
 ## When detection does not fit
 
-A **layout descriptor** tells palm where an origin keeps its entities.
-With one, palm skips detection and reads only the globs you give it.
+A **layout descriptor** tells palm where a source keeps its entities.
+It goes on the source in `palm.yaml`, and palm records it in the lock so every machine builds the same index.
 
-<Capture name="a-scan-layout" title="~/project" />
+```yaml title="palm.yaml"
+sources:
+  openai/skills:
+    ref: main
+    layout: { skills: ["skills/.curated/*"] }
+    skills: [gh-address-comments]
+```
 
-The fixture mirrors `openai/skills`, which keeps curated, experimental and system skills side by side.
-Auto-detection indexed all four.
-The second origin reads the same checkout through a descriptor and indexes only the two curated skills.
-
-Write a descriptor when a repository keeps entities in folders palm skips, or when you want only part of it.
+Write one when a repository keeps entities in folders palm skips, or when you want only part of it.
 The [layout descriptor](/palm/reference/layout/) reference lists every key.
-
-## When the index is refreshed
-
-palm rescans an origin when a fetch brings a new commit, as `palm update origins` does.
-A newer palm version with a different index format rescans once, on first use.
-The index never changes what you installed. Only `palm update` does that.
 
 ## Related
 
-- [Origins](/palm/concepts/origins/)
+- [Sources](/palm/concepts/sources/)
 - [Scan rules](/palm/reference/scan-rules/)
 - [Layout descriptor](/palm/reference/layout/)
+- [Publish your own source](/palm/guides/publish-your-own/)

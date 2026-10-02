@@ -55,9 +55,20 @@ function firstExisting(names) {
   return undefined;
 }
 
+/** `svg` without <style> blocks, removed until none is left (a removal can join a new one). */
+function withoutStyles(svg) {
+  let out = svg;
+  let previous;
+  do {
+    previous = out;
+    out = out.replace(/<style\b[\s\S]*?<\/style[^>]*>\s*/gi, '');
+  } while (out !== previous);
+  return out;
+}
+
 /** Give a single-colour SVG a fixed fill: drop embedded <style> blocks, replace currentColor. */
 function recolor(svg, color) {
-  return svg.replace(/<style[\s\S]*?<\/style>\s*/g, '').replaceAll('currentColor', color);
+  return withoutStyles(svg).replaceAll('currentColor', color);
 }
 
 /** Write the first existing source to `out`, recoloured when it uses currentColor. */

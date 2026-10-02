@@ -1,290 +1,569 @@
 import { describe, expect, it } from 'vitest';
-import { type Invocation, interpretWords, VERBS } from '../../src/commands/grammar.js';
-import { parseArgv } from '../../src/commands/program.js';
 import {
-  parseKind,
-  parseResource,
-  RESOURCES,
-  type Resource,
-  resourceWords,
-  SHORT_NAMES,
-} from '../../src/core/kinds.js';
+  applyPassthrough,
+  interpretInstall,
+  interpretRemove,
+  interpretWords,
+  prepareArgv,
+} from '../../src/commands/grammar.js';
+import type { KnownSource } from '../../src/commands/hints.js';
+import { parseArgv } from '../../src/commands/program.js';
+import { PalmError } from '../../src/core/errors.js';
 
-/** The parts of an Invocation that say what runs (options compared separately). */
-function what(argv: string[]): Pick<Invocation, 'command' | 'resource' | 'names' | 'marketplace'> {
-  const { command, resource, names, marketplace } = parseArgv(argv).invocation;
-  return { command, resource, names, marketplace };
-}
+const declared =
+  (...names: string[]) =>
+  (word: string) =>
+    names.includes(word);
 
-function usageError(argv: string[]): { code?: string; message?: string; hint?: string } {
+const SOURCES: KnownSource[] = [
+  { name: 'mattpocock/skills', input: 'mattpocock/skills', owner: 'mattpocock', repo: 'skills' },
+  { name: 'obra/superpowers', input: 'obra/superpowers', owner: 'obra', repo: 'superpowers' },
+];
+const KIT: KnownSource = { name: 'kit', input: 'https://gitlab.acme.com/kit.git', repo: 'kit' };
+
+function usageOf(fn: () => unknown): { message: string; hint?: string } {
   try {
-    parseArgv(argv);
+    fn();
   } catch (e) {
-    return e as { code?: string; message?: string; hint?: string };
+    expect(e).toBeInstanceOf(PalmError);
+    expect((e as PalmError).code).toBe('E_USAGE');
+    return { message: (e as PalmError).message, hint: (e as PalmError).hint };
   }
-  throw new Error(`palm ${argv.join(' ')} did not throw`);
+  throw new Error('expected E_USAGE');
 }
 
-/** singular, plural and short name of a resource (the forms every verb accepts). */
-function forms(r: Resource): string[] {
-  if (r === 'all') return ['all'];
-  const plural = r === 'mcp' ? 'mcps' : `${r}s`;
-  return [...new Set([r, plural, SHORT_NAMES[r] ?? r])];
-}
+describe('interpretInstall: the source first (DESIGN.md §10)', () => {
+  it.each([
+    [[], { names: [] }],
+    [['obra/superpowers'], { source: 'obra/superpowers', names: [] }],
+    [
+      ['mattpocock/skills', 'tdd', 'handoff'],
+      { source: 'mattpocock/skills', names: [{ name: 'tdd' }, { name: 'handoff' }] },
+    ],
+    [
+      ['mattpocock/skills', 'skill:tdd', 'mcp:docs'],
+      {
+        source: 'mattpocock/skills',
+        names: [
+          { kind: 'skill', name: 'tdd' },
+          { kind: 'mcp', name: 'docs' },
+        ],
+      },
+    ],
+    [['obra/superpowers/skills#v4'], { source: 'obra/superpowers/skills#v4', names: [] }],
+    [
+      ['https://gitlab.acme.com/platform/agent-kit.git#v1', 'reviewer'],
+      {
+        source: 'https://gitlab.acme.com/platform/agent-kit.git#v1',
+        names: [{ name: 'reviewer' }],
+      },
+    ],
+    [
+      ['git@github.com:obra/superpowers.git'],
+      { source: 'git@github.com:obra/superpowers.git', names: [] },
+    ],
+    [['./agent-kit', 'review'], { source: './agent-kit', names: [{ name: 'review' }] }],
+    [['mcp', 'docs'], { mcp: true, names: [{ name: 'docs' }] }],
+    [['mcp'], { mcp: true, names: [] }],
+  ])('%j', (words, expected) => {
+    expect(interpretInstall(words, { isDeclared: declared() })).toEqual(expected);
+  });
 
-describe('resource words', () => {
-  it.each(RESOURCES.flatMap((r) => forms(r).map((w) => [w, r] as const)))(
-    'parseResource(%j) → %s',
-    (word, resource) => {
-      expect(parseResource(word)).toBe(resource);
-      expect(parseResource(word.toUpperCase())).toBe(resource);
-    },
-  );
-
-  it('has the short names from the plan', () => {
-    expect(SHORT_NAMES).toMatchObject({
-      skill: 'sk',
-      agent: 'ag',
-      instruction: 'ins',
-      command: 'cmd',
-      hook: 'hk',
-      mcp: 'mcp',
-      plugin: 'pl',
-      origin: 'orig',
-      target: 'tg',
+  it('takes a name or alias palm.yaml declares as the source', () => {
+    const isDeclared = declared('acme-kit', 'kit');
+    expect(interpretInstall(['acme-kit', 'reviewer'], { isDeclared })).toEqual({
+      source: 'acme-kit',
+      names: [{ name: 'reviewer' }],
     });
+    expect(interpretInstall(['kit'], { isDeclared })).toEqual({ source: 'kit', names: [] });
   });
 
-  it('parseKind stays entity-only; aliases still work', () => {
-    expect(parseKind('origin')).toBeUndefined();
-    expect(parseKind('tg')).toBeUndefined();
-    expect(parseKind('rules')).toBe('instruction');
-    expect(parseKind('servers')).toBe('mcp');
-    expect(parseResource('wayfinder')).toBeUndefined();
-    expect(parseResource(undefined)).toBeUndefined();
-  });
-
-  it('resourceWords lists every word of a resource', () => {
-    expect(resourceWords('origin').sort()).toEqual(['orig', 'origin', 'origins']);
-    expect(resourceWords('skill').sort()).toEqual(['sk', 'skill', 'skills']);
+  it('keeps a bare first word for the command while commander parses (no palm.yaml yet)', () => {
+    expect(interpretInstall(['acme-kit', 'reviewer'])).toEqual({
+      source: 'acme-kit',
+      names: [{ name: 'reviewer' }],
+    });
   });
 });
 
-describe('palm <verb> <kind> [names] (every verb × alias × kind form)', () => {
-  const cases = VERBS.flatMap((v) =>
-    [v.name, ...v.aliases].flatMap((word) =>
-      v.resources.flatMap((r) => forms(r).map((form) => ({ verb: v.name, word, r, form }))),
-    ),
-  );
-
-  it.each(cases)('palm $word $form x → $verb $r', ({ verb, word, r, form }) => {
-    expect(what([word, form, 'x'])).toEqual({
-      command: verb,
-      resource: r,
-      names: ['x'],
-      marketplace: undefined,
-    });
-  });
-
-  it.each(VERBS.filter((v) => !v.kindRequired).flatMap((v) => [v.name, ...v.aliases]))(
-    'palm %s x (no kind) keeps x as a name',
-    (word) => {
-      expect(what([word, 'x'])).toMatchObject({ resource: undefined, names: ['x'] });
-    },
-  );
-
-  it('search takes the kind word only when a query follows it', () => {
-    expect(what(['search', 'mcp'])).toMatchObject({ resource: undefined, names: ['mcp'] });
-    expect(what(['search', 'mcp', 'github', 'server'])).toMatchObject({
-      resource: 'mcp',
-      names: ['github', 'server'],
-    });
-  });
-
-  it('get and update take names after the kind; the kind is optional', () => {
-    expect(what(['get'])).toMatchObject({ command: 'get', resource: undefined, names: [] });
-    expect(what(['update', 'origins', 'a', 'b'])).toMatchObject({
-      resource: 'origin',
-      names: ['a', 'b'],
-    });
-    expect(what(['ls', 'all'])).toMatchObject({ command: 'get', resource: 'all' });
-  });
-
+describe('interpretInstall: palm 0.1 forms print the new form and run it', () => {
   it.each([
-    [['install', 'target', 'claude'], 'palm install does not take targets', '--target'],
-    [['install', 'all'], 'palm install does not take all', 'palm install takes'],
-    [['rm', 'targets', 'x'], 'palm uninstall does not take targets', 'palm get targets'],
-    [['describe', 'all'], 'palm describe does not take all', 'palm get all'],
-    [['update', 'tg'], 'palm update does not take targets', 'palm get targets'],
-    [['create', 'origin', 'x'], 'palm create does not take origins', 'palm create takes'],
-    [['create', 'hook', 'x'], 'palm create does not take hooks', 'palm create takes'],
-    [['search', 'origins', 'x'], 'palm search does not take origins', 'palm get origins'],
-    [['describe'], 'name what to describe', 'palm describe skill <name>'],
-    [['describe', 'tdd'], '"tdd" is not something palm can describe', 'palm describe skill tdd'],
-    [['create'], 'name what to create', 'palm create skill'],
-  ])('palm %j → E_USAGE %j', (argv, message, hint) => {
-    const err = usageError(argv as string[]);
-    expect(err).toMatchObject({ code: 'E_USAGE', message });
-    expect(err.hint).toContain(hint);
+    [
+      ['origin', 'mattpocock/skills'],
+      'mattpocock',
+      { form: 'palm install origin', replacement: 'palm install mattpocock/skills' },
+    ],
+    [
+      ['skill', 'tdd@mattpocock'],
+      'mattpocock',
+      {
+        form: 'palm install skill tdd@mattpocock',
+        replacement: 'palm install mattpocock skill:tdd',
+      },
+    ],
+    [
+      ['tdd@mattpocock'],
+      'mattpocock',
+      { form: 'palm install tdd@mattpocock', replacement: 'palm install mattpocock tdd' },
+    ],
+    [
+      ['skills', 'tdd@mp', 'handoff@mp'],
+      'mp',
+      {
+        form: 'palm install skills tdd@mp handoff@mp',
+        replacement: 'palm install mp skill:tdd skill:handoff',
+      },
+    ],
+    [
+      ['plugin', 'obra/superpowers'],
+      'obra',
+      {
+        form: 'palm install plugin obra/superpowers',
+        replacement: 'palm install obra/superpowers',
+      },
+    ],
+    [
+      ['skill', 'mattpocock/skills', 'tdd'],
+      'mattpocock',
+      {
+        form: 'palm install skill mattpocock/skills tdd',
+        replacement: 'palm install mattpocock/skills skill:tdd',
+      },
+    ],
+  ])('%j', (words, alias, legacy) => {
+    const w = interpretInstall(words, { isDeclared: declared(alias) });
+    expect(w.legacy).toEqual(legacy);
   });
 
-  it('interpretWords is the same parser without commander', () => {
-    expect(interpretWords('get', ['sk', 'a', 'b'])).toEqual({
-      resource: 'skill',
-      names: ['a', 'b'],
+  it('prints no new form when what follows the kind word is no source', () => {
+    expect(interpretInstall(['plugin', 'superpowers']).legacy).toBeUndefined();
+  });
+
+  it('runs a legacy alias as its source with the kind kept', () => {
+    const w = interpretInstall(['skill', 'tdd@mattpocock'], { isDeclared: declared('mattpocock') });
+    expect(w).toMatchObject({ source: 'mattpocock', names: [{ kind: 'skill', name: 'tdd' }] });
+  });
+
+  it('keeps an alias for the command while commander parses (no palm.yaml yet)', () => {
+    expect(interpretInstall(['tdd@mp#v1'])).toEqual({ source: 'mp', names: [{ name: 'tdd' }] });
+  });
+
+  it('E16, L7: an alias names the declared source whose repository or owner it is', () => {
+    const ctx = { isDeclared: declared('mattpocock/skills', 'obra/superpowers'), sources: SOURCES };
+    expect(interpretInstall(['skill', 'grill-me@mattpocock'], ctx)).toEqual({
+      source: 'mattpocock/skills',
+      names: [{ kind: 'skill', name: 'grill-me' }],
+      legacy: {
+        form: 'palm install skill grill-me@mattpocock',
+        replacement: 'palm install mattpocock/skills skill:grill-me',
+      },
     });
-    expect(interpretWords('install', ['wayfinder'])).toEqual({ names: ['wayfinder'] });
+    expect(interpretInstall(['brainstorming@superpowers'], ctx).source).toBe('obra/superpowers');
+  });
+
+  it('J8: an alias ~/.palm/config.yaml knows resolves to its repository', () => {
+    const ctx = { isDeclared: declared(), legacyAliases: { mp: 'mattpocock/skills' } };
+    expect(interpretInstall(['tdd@mp'], ctx).source).toBe('mattpocock/skills');
+  });
+
+  it('C23, D10, X22: a #ref on a name moves to the source location; an example never pastes it', () => {
+    const ctx = { isDeclared: declared('mattpocock/skills'), sources: SOURCES };
+    expect(usageOf(() => interpretInstall(['tdd@mattpocock#v1.2.3'], ctx))).toEqual({
+      message: 'a version belongs to the source, not to a name',
+      hint: '  palm install mattpocock/skills#v1.2.3 tdd',
+    });
+    const fresh = { isDeclared: declared() };
+    expect(usageOf(() => interpretInstall(['skill', 'tdd@mattpocock#v1.2.3'], fresh)).hint).toBe(
+      '  palm install mattpocock/skills#v1.2.3 skill:tdd',
+    );
+    expect(
+      usageOf(() => interpretInstall(['tdd@acme#v2'], { ...fresh, scope: 'global' })).hint,
+    ).toBe(
+      '  palm install <owner/repo>#v2 tdd          for example  palm install mattpocock/skills#v1.0.0 tdd -g',
+    );
+  });
+
+  it('J8: names from two aliases get one line per source', () => {
+    const ctx = { isDeclared: declared('a'), legacyAliases: { b: 'obra/superpowers' } };
+    const e = usageOf(() => interpretInstall(['tdd@a', 'grill@b'], ctx));
+    expect(e.message).toBe('these names come from 2 sources; palm install takes one at a time:');
+    expect(e.hint).toBe('  palm install a tdd\n  palm install obra/superpowers grill');
+  });
+
+  it('E16, Q3: an alias nothing resolves gets the 0.2 form; a declared source only when it offers the name', () => {
+    expect(usageOf(() => interpretInstall(['tdd@mattpocock'], { isDeclared: declared() }))).toEqual(
+      {
+        message:
+          '"mattpocock" is a palm 0.1 alias and palm.yaml declares no source for it; did you mean mattpocock/skills?',
+        hint: '  palm install mattpocock/skills tdd',
+      },
+    );
+    const e = usageOf(() =>
+      interpretInstall(['tdd@acme'], { isDeclared: declared('kit'), sources: [KIT] }),
+    );
+    expect(e.hint).toBe(
+      '  palm install <owner/repo> tdd             for example  palm install mattpocock/skills tdd',
+    );
+  });
+
+  it('J8: install origin with several repositories gives one line each', () => {
+    const e = usageOf(() =>
+      interpretInstall(['origin', 'obra/superpowers', 'mattpocock/skills'], {
+        isDeclared: declared(),
+      }),
+    );
+    expect(e.hint).toBe('  palm install obra/superpowers\n  palm install mattpocock/skills');
+  });
+
+  it('a 0.1 name after a source is the same command with plain names', () => {
+    const ctx = { isDeclared: declared('mattpocock/skills'), sources: SOURCES };
+    expect(usageOf(() => interpretInstall(['mattpocock/skills', 'tdd#v1'], ctx)).hint).toBe(
+      '  palm install mattpocock/skills#v1 tdd',
+    );
+    expect(
+      usageOf(() => interpretInstall(['kit', 'tdd@mp'], { isDeclared: declared('kit') })).hint,
+    ).toBe('  palm install kit tdd');
+  });
+
+  it('install origin needs the repository', () => {
+    expect(usageOf(() => interpretInstall(['origin'])).hint).toBe('palm install obra/superpowers');
   });
 });
 
-describe('global flags go anywhere', () => {
+describe('interpretInstall: a word that is no source is "not a repository"', () => {
+  const strict = (words: string[]) =>
+    usageOf(() => interpretInstall(words, { isDeclared: declared() }));
+
   it.each([
-    [['-g', 'get', 'skills']],
-    [['get', '-g', 'skills']],
-    [['get', 'skills', '-g']],
-    [['ls', 'sk', '--global']],
-  ])('palm %j', (argv) => {
-    const { invocation } = parseArgv(argv);
-    expect(invocation).toMatchObject({ command: 'get', resource: 'skill' });
-    expect(invocation.opts.global).toBe(true);
+    [['superpowers'], 'superpowers'],
+    [['plugin', 'superpowers'], 'superpowers'],
+  ])('%j names the repository and a search (Nora)', (words, word) => {
+    expect(strict(words)).toEqual({
+      message: `"${word}" is not a repository. palm installs from git repositories:`,
+      hint: [
+        '  palm install <owner/repo> [names...]      for example  palm install obra/superpowers',
+        'Not sure which repository? https://github.com/search?q=superpowers+SKILL.md&type=code',
+      ].join('\n'),
+    });
   });
 
-  it('keeps the options of each verb', () => {
-    const inv = parseArgv(['get', 'skills', '--available', '-o', 'matt', '--json']).invocation;
-    expect(inv.opts).toMatchObject({ available: true, origin: 'matt', json: true });
-    const s = parseArgv(['search', 'x', '--kind', 'skill', '--refresh']).invocation;
-    expect(s.opts).toMatchObject({ kind: 'skill', refresh: true });
-    const c = parseArgv(['new', 'skill', 'x', '--no-install']).invocation;
-    expect(c).toMatchObject({ command: 'create', resource: 'skill', names: ['x'] });
-    expect(c.opts.install).toBe(false);
+  it.each([[['tdd']], [['skill', 'tdd']]])(
+    '%j names the repository of that skill (Lena)',
+    (words) => {
+      expect(strict(words)).toEqual({
+        message: '"tdd" is not a repository. palm installs from git repositories:',
+        hint: '  palm install <owner/repo> tdd             for example  palm install mattpocock/skills tdd',
+      });
+    },
+  );
+
+  it('keeps the names after a known repository name', () => {
+    expect(strict(['superpowers', 'brainstorming']).hint).toContain(
+      'for example  palm install obra/superpowers brainstorming',
+    );
   });
 
-  it('splits the ad hoc MCP command off at --', () => {
-    const { invocation, passthrough } = parseArgv([
-      'i',
+  it('an unknown word gets an example and a search for it', () => {
+    expect(strict(['frobnicate']).hint).toBe(
+      [
+        '  palm install <owner/repo> [names...]      for example  palm install mattpocock/skills tdd',
+        'Not sure which repository? https://github.com/search?q=frobnicate+SKILL.md&type=code',
+      ].join('\n'),
+    );
+  });
+});
+
+describe('interpretRemove', () => {
+  it.each([
+    [['tdd'], { names: [{ name: 'tdd' }] }],
+    [['mattpocock/skills', 'tdd'], { source: 'mattpocock/skills', names: [{ name: 'tdd' }] }],
+    [['obra/superpowers'], { source: 'obra/superpowers', names: [] }],
+    [
+      ['skill:tdd', 'mcp:docs'],
+      {
+        names: [
+          { kind: 'skill', name: 'tdd' },
+          { kind: 'mcp', name: 'docs' },
+        ],
+      },
+    ],
+    [['acme-kit', 'reviewer'], { names: [{ name: 'acme-kit' }, { name: 'reviewer' }] }],
+    [[], { names: [] }],
+  ])('%j', (words, expected) => {
+    expect(interpretRemove(words)).toEqual(expected);
+  });
+
+  it.each([
+    [
+      ['skill', 'tdd', 'handoff'],
+      { form: 'palm remove skill tdd handoff', replacement: 'palm remove skill:tdd skill:handoff' },
+    ],
+    [['tdd@mp'], { form: 'palm remove tdd@mp', replacement: 'palm remove mp tdd' }],
+    [
+      ['skill', 'tdd@mp#v1'],
+      { form: 'palm remove skill tdd@mp#v1', replacement: 'palm remove mp skill:tdd' },
+    ],
+    [['tdd@gone'], { form: 'palm remove tdd@gone', replacement: 'palm remove tdd' }],
+  ])('palm 0.1 form %j', (words, legacy) => {
+    expect(interpretRemove(words, { isDeclared: declared('mp') }).legacy).toEqual(legacy);
+  });
+
+  it('a declared source first, names after it', () => {
+    expect(interpretRemove(['acme-kit', 'reviewer'], { isDeclared: declared('acme-kit') })).toEqual(
+      { source: 'acme-kit', names: [{ name: 'reviewer' }] },
+    );
+  });
+
+  it('a source leaves palm.yaml with its last entry', () => {
+    expect(usageOf(() => interpretRemove(['origin', 'pstack'])).hint).toBe('palm get sources');
+  });
+});
+
+describe('interpretWords: kind nouns for get and describe', () => {
+  it.each([
+    [[], {}],
+    [['skills'], { resource: 'skill' }],
+    [['sk', 'tdd'], { resource: 'skill', names: [{ name: 'tdd' }] }],
+    [['agents'], { resource: 'agent' }],
+    [['ins'], { resource: 'instruction' }],
+    [['hk'], { resource: 'hook' }],
+    [['mcp'], { resource: 'mcp' }],
+    [['pl'], { resource: 'plugin' }],
+    [['sources'], { resource: 'source' }],
+    [['src'], { resource: 'source' }],
+    [['targets'], { resource: 'target' }],
+    [['tg'], { resource: 'target' }],
+    [['all'], { resource: 'all' }],
+    [['tdd'], { names: [{ name: 'tdd' }] }],
+    [['skill:tdd'], { names: [{ kind: 'skill', name: 'tdd' }] }],
+  ])('get %j', (words, expected) => {
+    expect(interpretWords('get', words)).toEqual({ names: [], ...expected });
+  });
+
+  it.each([
+    [['source', 'obra/superpowers'], { resource: 'source', names: [{ name: 'obra/superpowers' }] }],
+    [['target', 'cursor'], { resource: 'target', names: [{ name: 'cursor' }] }],
+    [['.claude/skills/tdd/SKILL.md'], { names: [{ name: '.claude/skills/tdd/SKILL.md' }] }],
+    [['~/.claude/agents/x.md'], { names: [{ name: '~/.claude/agents/x.md' }] }],
+    [['mcp:docs'], { names: [{ kind: 'mcp', name: 'docs' }] }],
+  ])('describe %j', (words, expected) => {
+    expect(interpretWords('describe', words)).toEqual(expected);
+  });
+
+  it.each([
+    ['get', ['origins'], { form: 'palm get origins', replacement: 'palm get sources' }],
+    ['get', ['orig'], { form: 'palm get orig', replacement: 'palm get sources' }],
+    [
+      'describe',
+      ['origin', 'mattpocock'],
+      { form: 'palm describe origin mattpocock', replacement: 'palm describe source mattpocock' },
+    ],
+    [
+      'get',
+      ['commands'],
+      { form: 'palm get commands', replacement: 'palm get skills (commands install as skills)' },
+    ],
+  ] as const)('%s %j is a palm 0.1 word', (verb, words, legacy) => {
+    expect(interpretWords(verb, [...words]).legacy).toEqual(legacy);
+  });
+
+  it('describe shows one thing', () => {
+    expect(usageOf(() => interpretWords('describe', ['all'])).hint).toBe('palm get all');
+  });
+});
+
+describe('argv', () => {
+  it('attaches a value that starts with a dash to its option, so -y stays an --arg', () => {
+    expect(prepareArgv(['install', 'mcp', 'x', '--arg', '-y', '--env', '-z', '-g']).args).toEqual([
+      'install',
       'mcp',
-      'fs',
-      '--',
-      'npx',
-      '-y',
-      'srv',
+      'x',
+      '--arg=-y',
+      '--env=-z',
       '-g',
     ]);
-    expect(invocation).toMatchObject({ command: 'install', resource: 'mcp', names: ['fs'] });
-    expect(invocation.opts.global).toBeUndefined();
-    expect(passthrough).toEqual(['npx', '-y', 'srv', '-g']);
+    expect(prepareArgv(['install', 'mcp', '--snippet', '-']).args).toEqual([
+      'install',
+      'mcp',
+      '--snippet',
+      '-',
+    ]);
+  });
+
+  it('splits at -- and turns the 0.1 ad hoc command into --command and --arg', () => {
+    const { args, passthrough } = prepareArgv(['install', 'mcp', 'fs', '--', 'npx', '-y', 'srv']);
+    expect(args).toEqual(['install', 'mcp', 'fs']);
+    const inv = applyPassthrough(
+      { command: 'install mcp', names: [{ name: 'fs' }], opts: {} },
+      passthrough,
+    );
+    expect(inv.opts).toMatchObject({ command: 'npx', arg: ['-y', 'srv'] });
+    expect(inv.legacy).toEqual({
+      form: 'palm install mcp fs -- npx -y srv',
+      replacement: 'palm install mcp fs --command npx --arg -y --arg srv',
+    });
+    expect(() => applyPassthrough({ command: 'get', names: [], opts: {} }, ['x'])).toThrow(
+      /only for palm install mcp/,
+    );
   });
 });
 
-describe('old grammar: hidden aliases forward to the new verbs', () => {
-  const originOpts = ['--alias', 'a', '--ref', 'v1', '--root', 'sub', '--layout', 'skills=x/*'];
-
+describe('parseArgv: verbs, aliases and flags', () => {
   it.each([
+    [['i', 'mattpocock/skills', 'tdd', '-g'], { command: 'install', source: 'mattpocock/skills' }],
+    [['add', 'obra/superpowers', '--all'], { command: 'install', source: 'obra/superpowers' }],
+    [['install'], { command: 'install', names: [] }],
+    [['install', 'mcp', 'docs', '--url', 'https://x.dev/mcp'], { command: 'install mcp' }],
+    [['uninstall', 'tdd'], { command: 'remove', names: [{ name: 'tdd' }] }],
+    [['rm', 'mattpocock/skills', 'tdd'], { command: 'remove', source: 'mattpocock/skills' }],
+    [['up', 'mattpocock/skills'], { command: 'update', names: [{ name: 'mattpocock/skills' }] }],
+    [['check'], { command: 'check', names: [] }],
+    [['ls', 'skills'], { command: 'get', resource: 'skill' }],
+    [['list', 'sources'], { command: 'get', resource: 'source' }],
+    [['info', 'tdd'], { command: 'describe', names: [{ name: 'tdd' }] }],
     [
-      ['origin', 'add', 'owner/repo'],
-      ['install', 'origin', 'owner/repo'],
+      ['new', 'skill', 'notes'],
+      { command: 'create', resource: 'skill', names: [{ name: 'notes' }] },
     ],
-    [
-      ['origin', 'add', 'owner/repo', ...originOpts],
-      ['install', 'origin', 'owner/repo', ...originOpts],
-    ],
-    [
-      ['origin', 'add', 'x', '--project'],
-      ['install', 'origin', 'x', '--project'],
-    ],
-    [
-      ['origin', 'list'],
-      ['get', 'origins'],
-    ],
-    [
-      ['origin', 'ls'],
-      ['get', 'origins'],
-    ],
-    [
-      ['origin', 'remove', 'matt'],
-      ['uninstall', 'origin', 'matt'],
-    ],
-    [
-      ['origin', 'rm', 'matt'],
-      ['uninstall', 'origin', 'matt'],
-    ],
-    [
-      ['origin', 'update'],
-      ['update', 'origins'],
-    ],
-    [
-      ['origin', 'update', 'matt'],
-      ['update', 'origin', 'matt'],
-    ],
-    [['targets'], ['get', 'targets']],
-    [
-      ['targets', '-g'],
-      ['get', 'targets', '-g'],
-    ],
-    [
-      ['list', 'skills', '--available'],
-      ['get', 'skills', '--available'],
-    ],
-    [
-      ['info', 'skill', 'tdd'],
-      ['describe', 'skill', 'tdd'],
-    ],
-  ])('palm %j = palm %j', (old, current) => {
-    const a = parseArgv(old).invocation;
-    const b = parseArgv(current).invocation;
-    expect(what(old)).toEqual(what(current));
-    expect(a.opts).toEqual(b.opts);
+    [['init', '--here'], { command: 'init' }],
+    [['migrate', '--dry-run'], { command: 'migrate' }],
+    [['completion', 'zsh'], { command: 'completion', names: [{ name: 'zsh' }] }],
+    [['cache', 'clean', '--yes'], { command: 'cache clean' }],
+  ])('%j', (argv, expected) => {
+    expect(parseArgv(argv).invocation).toMatchObject(expected);
   });
 
-  it('palm origin import f = palm install origin f, read as a marketplace', () => {
-    expect(what(['origin', 'import', 'dir', '--project'])).toEqual({
-      command: 'install',
-      resource: 'origin',
-      names: ['dir'],
-      marketplace: true,
+  it('merges the global flags into every command', () => {
+    const { invocation } = parseArgv([
+      'install',
+      'acme-kit',
+      'reviewer',
+      '-g',
+      '--dry-run',
+      '--force',
+      '-y',
+      '--allow-exec',
+      'hook:x@y=sha256:12345678',
+      '--offline',
+      '--json',
+      '--secrets',
+      'literal',
+      '--targets',
+      'claude,codex',
+      '--at',
+      'packages/db',
+      '--as',
+      'kit',
+    ]);
+    expect(invocation.opts).toMatchObject({
+      global: true,
+      dryRun: true,
+      force: true,
+      yes: true,
+      allowExec: 'hook:x@y=sha256:12345678',
+      offline: true,
+      json: true,
+      secrets: 'literal',
+      targets: 'claude,codex',
+      at: 'packages/db',
+      as: 'kit',
     });
   });
-});
 
-describe('utilities', () => {
+  it('collects repeated MCP flags', () => {
+    const { invocation } = parseArgv([
+      'install',
+      'mcp',
+      'xcodebuild',
+      '--command',
+      'npx',
+      '--arg',
+      '-y',
+      '--arg',
+      'xcodebuildmcp@latest',
+      '--env',
+      'A=1',
+      '--env',
+      'B=2',
+      '--header',
+      'X=1',
+      '--transport',
+      'stdio',
+      '--cwd',
+      'tools',
+    ]);
+    expect(invocation.opts).toMatchObject({
+      command: 'npx',
+      arg: ['-y', 'xcodebuildmcp@latest'],
+      env: ['A=1', 'B=2'],
+      header: ['X=1'],
+      transport: 'stdio',
+      cwd: 'tools',
+    });
+  });
+
+  it('--snippet names the README block; --json stays JSON output', () => {
+    const { invocation } = parseArgv(['install', 'mcp', '--snippet', '-', '--json']);
+    expect(invocation.opts).toMatchObject({ snippet: '-', json: true });
+  });
+
+  it('install takes --review', () => {
+    const { invocation } = parseArgv(['install', 'obra/superpowers', 'session-start', '--review']);
+    expect(invocation.opts).toMatchObject({ review: true });
+  });
+
+  it('update, get, describe, remove and create take their own flags', () => {
+    expect(
+      parseArgv(['update', 'kit', '--to', '^2', '--review', '--strict']).invocation.opts,
+    ).toMatchObject({
+      to: '^2',
+      review: true,
+      strict: true,
+    });
+    expect(parseArgv(['get', '-s', 'kit', '--files']).invocation.opts).toMatchObject({
+      source: 'kit',
+      files: true,
+    });
+    expect(parseArgv(['remove', 'brainstorming', '--exclude']).invocation.opts).toMatchObject({
+      exclude: true,
+    });
+    expect(
+      parseArgv(['create', 'agent', 'reviewer', '--in', 'kit', '--description', 'Reviews diffs'])
+        .invocation.opts,
+    ).toMatchObject({ in: 'kit', description: 'Reviews diffs' });
+    expect(parseArgv(['init', '--target', 'claude,cursor']).invocation.opts).toMatchObject({
+      target: 'claude,cursor',
+    });
+  });
+
   it.each([
-    [['init'], { command: 'init', names: [] }],
-    [['doctor', '--offline'], { command: 'doctor', names: [] }],
-    [['config', 'get'], { command: 'config get', names: [] }],
-    [['config', 'get', 'targets'], { command: 'config get', names: ['targets'] }],
-    [
-      ['config', 'set', 'targets', 'claude'],
-      { command: 'config set', names: ['targets', 'claude'] },
-    ],
-    [['completion', 'zsh'], { command: 'completion', names: ['zsh'] }],
-    [['cache', 'info'], { command: 'cache info', names: [] }],
-    [['cache', 'clean', '--yes'], { command: 'cache clean', names: [] }],
-    [['outdated'], { command: 'outdated', names: [] }],
-    [['outdated', 'skills'], { command: 'outdated', names: ['skills'] }],
-    [['why', 'skill', 'tdd@matt'], { command: 'why', names: ['skill', 'tdd@matt'] }],
+    [['doctor'], 'palm doctor is now: palm check'],
+    [['audit', '--strip'], 'palm audit is now: palm check'],
+    [['outdated', 'skills'], 'palm outdated is now: palm update --dry-run'],
+    [['why', 'skill', 'tdd@mattpocock'], 'palm why is now: palm describe skill tdd'],
     [
       ['find', '.claude/skills/tdd/SKILL.md'],
-      { command: 'find', names: ['.claude/skills/tdd/SKILL.md'] },
+      'palm find is now: palm describe .claude/skills/tdd/SKILL.md',
     ],
-    [['audit'], { command: 'audit', names: [] }],
-    [['audit', 'skill', 'tdd'], { command: 'audit', names: ['skill', 'tdd'] }],
-  ])('palm %j', (argv, expected) => {
-    expect(parseArgv(argv as string[]).invocation).toMatchObject(expected);
+    [
+      ['config', 'get'],
+      'palm config is gone; targets live in palm.yaml (~/.palm/palm.yaml with -g)',
+    ],
+    [
+      ['origin', 'add', 'mattpocock/skills'],
+      'palm origin add is now: palm install mattpocock/skills',
+    ],
+    [['origin', 'list'], 'palm origin list is now: palm get sources'],
+  ])('hidden palm 0.1 command %j names its replacement', (argv, line) => {
+    expect(usageOf(() => parseArgv(argv))).toEqual({ message: line, hint: undefined });
   });
 
-  it('keeps the global flags and their own options', () => {
-    expect(parseArgv(['outdated', '-g', '--json']).invocation.opts).toMatchObject({
-      global: true,
-      json: true,
-    });
-    expect(parseArgv(['audit', '--strip']).invocation.opts).toMatchObject({ strip: true });
-    expect(parseArgv(['find', 'x', '-g']).invocation.opts).toMatchObject({ global: true });
+  it('J18: search is gone and points at GitHub, and MCP servers at --snippet', () => {
+    expect(usageOf(() => parseArgv(['search', 'tdd'])).message).toBe(
+      'palm search is gone; find a repository (https://github.com/search?q=tdd+SKILL.md&type=code), then list it, for example: palm install mattpocock/skills; an MCP server comes from its README: pbpaste | palm install mcp --snippet -',
+    );
+    expect(usageOf(() => parseArgv(['search', 'mcp', 'brave'])).message).toBe(
+      'palm search is gone; an MCP server comes from its README: pbpaste | palm install mcp --snippet -',
+    );
   });
-
-  it.each([[['why']], [['why', 'skill']], [['find']]])(
-    'palm %j: a missing argument is a usage error',
-    (argv) => {
-      expect(() => parseArgv(argv)).toThrow(/missing required argument/);
-    },
-  );
 });

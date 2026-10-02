@@ -1,80 +1,60 @@
 $ palm install --help
-Usage: palm install|add [options] [kind] [names...]
+Usage: palm install|add [source] [[kind:]name...] [options]
 
-Install entities or register an origin.
+Install from a source; bare, sync with palm.yaml.
 
 Arguments:
-  kind                  skill, agent, instruction, command, hook, mcp, plugin,
-                        origin (plurals and short names work); omit it to search
-                        every entity kind
-  names                 name[@origin][#ref]
+  source                 owner/repo, git URL, directory, or a source in
+                         palm.yaml
+  names                  [kind:]name of what to install
 
 Options:
-  --from <origin>       take the entities from this origin spec without
-                        registering it
-  --save-origin         register the --from origin in the global config (with
-                        --project: in palm.yaml)
-  --secrets <policy>    MCP secrets: env-ref (project default) or literal (-g
-                        default)
-  --prune               no names only: remove installed entries no longer in
-                        palm.yaml
-  --frozen              no names only: install exactly what palm.lock.yaml
-                        records, restoring missing files and config entries;
-                        fail on any other difference
-  -h, --help            display help for command
+  --all                  everything the source offers
+  --grep <text>          list only what matches the text (name or description)
+  --as <name>            the name a URL source gets in palm.yaml
+  --layout <k=glob>      a new source’s layout: skills=packages/* (repeatable)
+  --targets <ids>        only these targets for these entries (kept per entry)
+  --review               print program scripts first; with --dry-run, only print
+  --allow-local-sources  palm.yaml may name file:// sources outside the project
+  -h, --help             display help for command
 
-Ad hoc MCP server options:
-  --url <url>           HTTP/SSE endpoint
-  --header <K=V>        HTTP header (repeatable)
-  --env <K=V>           environment variable (repeatable)
-  --transport <t>       stdio, http or sse
-
-Origin options (install origin):
-  --alias <alias>       short name used in name@alias (default: repo name)
-  --ref <ref>           tag, branch or sha (default: latest semver tag, else
-                        default branch)
-  --root <path>         subdirectory that is the origin root
-  --layout <kind=glob>  layout descriptor instead of auto-detection, e.g.
-                        skills='skills/.curated/*' (repeatable; kinds: skills,
-                        agents, commands, instructions, hooks, mcp, exclude,
-                        include; or nameFrom=dirname)
-  --project             save the origin in this project’s palm.yaml instead of
-                        the global config
+MCP servers (palm install mcp):
+  --url <url>            a remote server
+  --header <K=V>         an HTTP header (repeatable)
+  --command <cmd>        a local (stdio) server: the program
+  --arg <arg>            an argument for --command (repeatable)
+  --env <K=V>            an environment variable (repeatable)
+  --transport <t>        stdio, http or sse, when palm cannot tell
+  --cwd <dir>            working directory for --command
+  --snippet <file>       a README's mcpServers block: a file, or - for stdin
 
 Global Options:
-  -g, --global          use the global scope (~), not this project
-  -t, --target <ids>    comma-separated: claude, codex, copilot, cursor, gemini,
-                        opencode
-  --dry-run             show what would change; write nothing
-  --force               overwrite files palm does not own
-  -y, --yes             accept defaults instead of prompting
-  --offline             use cached origins only; no network
-  --verbose             debug output and stack traces
-  --json                JSON on stdout; everything else on stderr
-  --no-color            no colours (also NO_COLOR=1)
-  -V, --version         print the palm version
+  -g, --global           use ~/.palm/palm.yaml and the harness home directories
+  --dry-run              show what would change; write nothing
+  --force                replace files you changed or that palm does not own
+  -y, --yes              accept plan confirmations (never consents to programs)
+  --allow-exec <list>    allow programs: hook:x@source=sha256:hash,... or all
+  --offline              use the cache only; no network
+  --json                 one JSON document on stdout; everything else on stderr
+  --secrets <policy>     env-ref (default) or literal, for secrets you type
+  -V, --version          print the palm version
 
-Names: name[@origin][#ref]
-  name       entity name (skill directory, agent file, MCP server key, plugin name)
-  @origin    origin alias from `palm get origins` (needed when several origins have the name)
-  #ref       tag, branch or commit of that origin (default: its latest semver tag)
-  MCP registry servers go by their registry name: palm install mcp io.github.upstash/context7
+Forms:
+  palm install <source>                       list what the source offers; saves nothing
+  palm install <source> --grep <text>         list only what matches the text
+  palm install <source> [kind:]name...        install those and record them in palm.yaml
+  palm install <source> --all                 everything the source offers
+  palm install                                make the disk match palm.yaml and the lock
+  palm install mcp <name> --url <url> [--header K=V]...
+  palm install mcp <name> --command <cmd> [--arg a]... [--env K=V]...
+  palm install mcp --snippet <file or ->      the mcpServers block from a README
 
-Origins: palm install origin <spec> [--alias a] [--ref r] [--root dir] [--layout kind=glob]
-  <spec>     owner/repo, owner/repo/sub/dir, github:owner/repo, git URL[#ref], local path,
-             or a marketplace.json (path or URL) whose plugins become origins
-  The origin is fetched and indexed first; nothing is saved when that fails.
-
-Ad hoc MCP servers (no origin needed):
-  palm install mcp <name> [--env K=V]... -- <command> [args...]
-  palm install mcp <name> --url <url> [--header K=V]... [--transport http|sse]
-  ${VAR} in values stays an environment reference (env-ref) or is filled in (literal).
+A source is owner/repo, owner/repo/sub/dir, a git URL (#ref pins it), a directory in this
+project, or the name or alias of a source in palm.yaml.
 
 Examples:
-  palm install origin mattpocock/skills          register an origin
-  palm install skill tdd@mattpocock              one skill from one origin
-  palm install skills grill-me wayfinder         several of one kind
-  palm install plugin superpowers -g             into your home directory
-  palm install mcp fs -- npx -y @modelcontextprotocol/server-filesystem .
-  palm install mcp docs --url https://example.com/mcp --header "Authorization=Bearer ${DOCS_TOKEN}"
-  palm install                                   everything palm.yaml lists
+  palm install obra/superpowers
+  palm install mattpocock/skills tdd handoff
+  palm install obra/superpowers --all -g
+  palm install mcp docs --url https://example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
+  pbpaste | palm install mcp --snippet -

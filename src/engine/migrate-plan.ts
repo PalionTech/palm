@@ -1,0 +1,258 @@
+/**
+ * Everything `palm migrate` decides before it writes (DESIGN §6 "Migrate"): the scope opened on
+ * the converted palm.yaml and provisional lock without touching the 0.1 files, the scope guards
+ * and the overlap rule, every source resolved at its locked commit, 0.1 entries renamed to the
+ * 0.2 names by path, the jobs of a bare install prepared, and the one consent. A failure here
+ * leaves the 0.1 files as they were, so the printed `--allow-exec` line can run the same
+ * command again.
+ */
+import { isPalmError, PalmError } from '../core/errors.js';
+import type {
+  EngineDeps,
+  InstallFailure,
+  Kind,
+  LayoutDescriptor,
+  LegacyOriginSpec,
+  LockEntry,
+  PalmContext,
+  Scope,
+} from '../core/types.js';
+import { Applied } from '../domain/applied.js';
+import { sameName } from '../domain/entity-ref.js';
+import { Lock } from '../domain/lock.js';
+import { Manifest } from '../domain/manifest.js';
+import { MANIFEST_FILE } from '../domain/scope-paths.js';
+import type { SourceRef } from '../domain/source.js';
+import { parseYaml } from '../lib/yaml.js';
+import { dedupeJobs, manifestJobs } from './entries.js';
+import { manifestMcpJob } from './install-mcp.js';
+import { askForConsent, type Job, type Prepared, type Run, runOf } from './jobs.js';
+import type { LegacyItem, MigratedSource } from './migrate-legacy.js';
+import { lockSourceOf, pinOf, type Resolved, resolveSource } from './resolve.js';
+import { prepareAll } from './runner.js';
+import { assertNoOverlap, findOverlaps, openScope, type ScopeState } from './scope.js';
+
+/** A 0.1 entry palm 0.2 names differently (a root hook is named after its folder, not the alias). */
+interface Rename {
+  kind: Kind;
+  source: string;
+  from: string;
+  to: string;
+}
+
+export interface Plan {
+  run: Run;
+  prepared: Prepared[];
+  renamed: Rename[];
+  /** Absolute path → the hash 0.1 recorded, for every file the provisional lock adopted. */
+  hashes: Map<string, string>;
+}
+
+export interface PlanInput {
+  manifest: Manifest;
+  lock: Lock;
+  /** Absolute path → the hash 0.1 recorded, for every file the provisional lock adopted. */
+  hashes: Map<string, string>;
+  legacy: LegacyItem[];
+  /** The migrated sources with their 0.1 origins (T6). */
+  sources?: readonly MigratedSource[];
+}
+
+// ---------------------------------------------------------------------------
+// The scope, opened without writing
+// ---------------------------------------------------------------------------
+
+/** The first common directory of every glob of a layout (`rules` for `rules/*.md`), if any. */
+function commonDir(layout: LayoutDescriptor | undefined): string | undefined {
+  const globs = Object.entries(layout ?? {})
+    .filter(([k]) => !['exclude', 'include', 'nameFrom'].includes(k))
+    .flatMap(([, v]) => (Array.isArray(v) ? v : [v]))
+    .filter((g): g is string => typeof g === 'string');
+  const firsts = new Set(globs.map((g) => g.replace(/^\.\//, '').split('/')[0] ?? ''));
+  const [dir] = firsts;
+  return firsts.size === 1 && dir && !/[*?[{]/.test(dir) && globs.every((g) => g.includes('/'))
+    ? dir
+    : undefined;
+}
+
+/**
+ * T6: while palm.yaml is still in the 0.1 format, the overlap hint names the 0.1 origin and
+ * what to change on it (`set root: rules on origin kitcn-rules; globs relative to it`).
+ */
+function legacyOverlapHint(origin: LegacyOriginSpec): string {
+  const dir = commonDir(origin.layout);
+  const then = 'then run: palm migrate';
+  if (dir)
+    return `in palm.yaml, set root: ${dir} on origin ${origin.alias}; globs relative to it (${dir}/ dropped), ${then}`;
+  return `in palm.yaml, point origin ${origin.alias} at a directory of its own (for example path: ./agent-kit), ${then}`;
+}
+
+/** The overlap rule, its hint naming the 0.1 origin of the source (T6). */
+async function refuseOverlap(
+  ctx: PalmContext,
+  state: ScopeState,
+  deps: EngineDeps,
+  sources: readonly MigratedSource[],
+): Promise<void> {
+  try {
+    await assertNoOverlap(ctx, state, deps);
+  } catch (e) {
+    if (!isPalmError(e) || e.code !== 'E_SOURCE') throw e;
+    const [o] = await findOverlaps(ctx, state, deps);
+    const origin = sources.find((s) => o && sameName(s.source.name, o.source))?.origin;
+    throw origin ? new PalmError('E_SOURCE', e.message, legacyOverlapHint(origin)) : e;
+  }
+}
+
+/**
+ * The scope opened on the converted palm.yaml and lock (copies: planning changes them) without
+ * writing to it: the targets are detected for the scope and the overlap rule applies.
+ */
+async function openStaged(
+  ctx: PalmContext,
+  scope: Scope,
+  input: { manifest: Manifest; lock: Lock; sources?: readonly MigratedSource[] },
+  deps: EngineDeps,
+): Promise<ScopeState> {
+  const preload = {
+    manifest: Manifest.of(
+      parseYaml<Parameters<typeof Manifest.of>[0]>(input.manifest.text(), MANIFEST_FILE) ?? {},
+    ),
+    lock: Lock.from(input.lock.toJSON()),
+  };
+  const state = await openScope(ctx, scope, { readOnly: true, deps, preload });
+  delete state.applied;
+  await refuseOverlap(ctx, state, deps, input.sources ?? []);
+  return state;
+}
+
+// ---------------------------------------------------------------------------
+// 0.1 names → 0.2 names, by the entity's path in its source
+// ---------------------------------------------------------------------------
+
+function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => p.replace(/^\.\//, '').replace(/\/+$/, '');
+  return norm(a) === norm(b);
+}
+
+function renamedEntry(e: LockEntry, to: string): LockEntry {
+  const merged = e.merged?.map((m) => ({
+    ...m,
+    id: m.id.replace(`palm:${e.kind}:${e.name}:`, `palm:${e.kind}:${to}:`),
+  }));
+  return { ...e, name: to, ...(merged ? { merged } : {}) };
+}
+
+/**
+ * The 0.1 entries of `ref` its index has under another name, renamed in palm.yaml and the lock
+ * (matched by kind and path; palm 0.1 named a root `hooks/hooks.json` after the alias).
+ */
+function renameByPath(state: ScopeState, ref: SourceRef, r: Resolved, legacy: LegacyItem[]) {
+  const renamed: Rename[] = [];
+  for (const item of legacy.filter((i) => i.source === ref.name)) {
+    const { kind } = item;
+    const from = item.entry.name;
+    if (r.index.entities.some((e) => e.kind === kind && sameName(e.name, from))) continue;
+    const found = r.index.entities.find(
+      (e) => e.kind === kind && samePath(e.path, item.entry.path),
+    );
+    const current = state.lock.find({ kind, name: from }, ref.name);
+    if (!found || !current) continue;
+    state.lock.remove(current).upsert(renamedEntry(current, found.name));
+    const entry = state.manifest.entries(ref.name, kind).find((e) => sameName(e.name, from));
+    if (entry) {
+      state.manifest.addEntry(ref.name, kind, { ...entry, name: found.name });
+      state.manifest.removeEntry(ref.name, kind, from);
+    }
+    renamed.push({ kind, source: ref.name, from, to: found.name });
+  }
+  return renamed;
+}
+
+// ---------------------------------------------------------------------------
+// The bare install's jobs
+// ---------------------------------------------------------------------------
+
+/** A source that cannot be resolved stops the migration before anything is written. */
+function unresolved(ref: SourceRef, e: unknown): PalmError {
+  const why = e instanceof Error ? e.message : String(e);
+  const hint = isPalmError(e) && e.hint ? e.hint : 'palm migrate --dry-run';
+  return new PalmError(
+    isPalmError(e) ? e.code : 'E_SOURCE',
+    `source ${ref.name}: ${why}; nothing was migrated`,
+    hint,
+  );
+}
+
+async function jobsOf(
+  run: Run,
+  legacy: LegacyItem[],
+): Promise<{ jobs: Job[]; renamed: Rename[]; failures: InstallFailure[] }> {
+  const { ctx, deps, state } = run;
+  const out = { jobs: [] as Job[], renamed: [] as Rename[], failures: [] as InstallFailure[] };
+  for (const ref of state.sources.all()) {
+    const r = await resolveSource({ ctx, deps, state, ref, ...pinOf(state, ref) }).catch(
+      (e: unknown) => {
+        throw unresolved(ref, e);
+      },
+    );
+    state.lock.setSource(ref.name, lockSourceOf(state, ref, r));
+    out.renamed.push(...renameByPath(state, ref, r, legacy));
+    const m = manifestJobs(state, ref, r);
+    out.jobs.push(...m.jobs);
+    out.failures.push(...m.failures);
+  }
+  for (const [name, entry] of Object.entries(state.manifest.mcp))
+    out.jobs.push(manifestMcpJob(run, name, entry));
+  return { ...out, jobs: dedupeJobs(out.jobs) };
+}
+
+/**
+ * 0.1 entries no job installs (an entry the source no longer has): dropped from the provisional
+ * lock with their files left where they are, so the install never deletes them.
+ */
+function dropUnlisted(run: Run, jobs: Job[]): void {
+  const want = new Set(jobs.map((j) => `${j.entity.kind}:${j.entity.name}@${j.source.name}`));
+  for (const e of run.state.lock.entries) {
+    if (want.has(`${e.kind}:${e.name}@${e.source}`) || Object.keys(e.render).length) continue;
+    run.state.lock.remove(e);
+    const files = e.files.length + (e.merged?.length ?? 0);
+    if (files)
+      run.result.warnings.push(
+        `kept what palm 0.1 wrote for ${e.kind} ${e.name} (${files} ${files === 1 ? 'path' : 'paths'}): palm 0.2 does not install it from ${e.source}`,
+      );
+  }
+}
+
+/** A declined program stops the migration: palm 0.1's copy of it would stay half moved. */
+function refuseDeclined(prepared: Prepared[]): void {
+  const declined = prepared.filter((p) => p.consent === 'declined' && p.out.unit);
+  if (!declined.length) return;
+  throw new PalmError(
+    'E_CANCELLED',
+    `you declined ${declined.length === 1 ? '1 program' : `${declined.length} programs`}; nothing was migrated`,
+    'palm migrate --dry-run --review shows every program and its scripts',
+  );
+}
+
+/**
+ * DESIGN §6 "Migrate", up to the consent: nothing is written. In a dry run the consent only
+ * shows the programs (and, with `--review`, their scripts).
+ */
+export async function planMigration(
+  ctx: PalmContext,
+  scope: Scope,
+  input: PlanInput & { text: string },
+  deps: EngineDeps,
+): Promise<Plan> {
+  const state = await openStaged(ctx, scope, input, deps);
+  if (scope === 'global') state.applied = Applied.fromLock(input.lock, state.paths, input.hashes);
+  const run = runOf(ctx, deps, state);
+  const { jobs, renamed, failures } = await jobsOf(run, input.legacy);
+  run.result.failures.push(...failures);
+  dropUnlisted(run, jobs);
+  const { prepared } = await prepareAll(run, jobs);
+  await askForConsent(run, prepared);
+  refuseDeclined(prepared);
+  return { run, prepared, renamed, hashes: input.hashes };
+}

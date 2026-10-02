@@ -1,39 +1,39 @@
 /**
- * Gemini CLI and OpenCode specifics (research R7): agent dialects, tool names, commands,
- * instruction mechanisms (GEMINI.md block, opencode.json list), hook events, MCP reference
- * syntaxes and the GEMINI_CLI_HOME / XDG_CONFIG_HOME / OPENCODE_DISABLE_EXTERNAL_SKILLS
- * environment. The deploy matrix and golden round trips cover both targets in deploy.test.ts
- * and golden.test.ts.
+ * Gemini CLI and OpenCode specifics (research R7): agent dialects, tool names, instruction
+ * mechanisms (GEMINI.md block, opencode.json list), hook events, MCP reference syntaxes and the
+ * GEMINI_CLI_HOME / XDG_CONFIG_HOME / OPENCODE_DISABLE_EXTERNAL_SKILLS environment. The golden
+ * renders and round trips cover both targets in golden.test.ts.
  */
 import path from 'node:path';
-import { parse as parseToml } from 'smol-toml';
 import { afterEach, describe, expect, it } from 'vitest';
-import { fileTargetLabel } from '../../src/commands/describe.js';
-import type { AgentDefinition, HookSet, McpServerConfig } from '../../src/core/types.js';
-import { ScopePaths } from '../../src/domain/scope-paths.js';
+import type {
+  AgentDefinition,
+  HookSet,
+  McpServerConfig,
+  SourceReference,
+} from '../../src/core/types.js';
 import { parseFrontmatter } from '../../src/lib/frontmatter.js';
 import { renderAgent } from '../../src/targets/convert-agent.js';
-import { renderCommand } from '../../src/targets/convert-command.js';
 import { convertHooks } from '../../src/targets/convert-hooks.js';
 import { renderInstruction } from '../../src/targets/convert-instruction.js';
 import { createTarget } from '../../src/targets/index.js';
 import { OAUTH_NOTE, renderMcp } from '../../src/targets/mcp-config.js';
+import { relocateCommand } from '../../src/targets/relocate.js';
 import {
   copilotTool,
   geminiTool,
   hookMatcher,
   opencodePermission,
 } from '../../src/targets/tool-names.js';
-
 import {
   CLAUDE_HOOKS,
   cleanupTmp,
   exists,
+  FMT_HOOKS,
   fakeEnv,
-  makeOrigin,
+  install,
+  makeSource,
   mkEntity,
-  mkInput,
-  mkLock,
   read,
   readJson,
   tmpDir,
@@ -296,39 +296,14 @@ describe('renderAgent: opencode', () => {
   });
 });
 
-describe('renderCommand', () => {
-  const CMD = {
-    name: 'fix',
-    description: 'Fix "it"',
-    argumentHint: '[file]',
-    body: 'Fix $ARGUMENTS in @src/a.ts and @./notes.md.\n!`git status`\nMail a@b.com, ping @team.\n',
-  };
-
-  it('gemini: TOML description + prompt, Claude syntax converted', () => {
-    const r = renderCommand(CMD, 'gemini');
-    expect(r.fileName).toBe('fix.toml');
-    expect(parseToml(r.content)).toEqual({
-      description: 'Fix "it"',
-      prompt:
-        'Fix {{args}} in @{src/a.ts} and @{./notes.md}.\n!{git status}\nMail a@b.com, ping @team.\n',
-    });
-    expect(r.notes).toEqual([]);
-    const positional = renderCommand({ name: 'p', body: 'Use $1 then $2\n' }, 'gemini');
-    expect(parseToml(positional.content)).toEqual({ prompt: 'Use $1 then $2\n' });
-    expect(positional.notes).toEqual([
-      'positional arguments ($1, $2, …) have no Gemini CLI equivalent; {{args}} holds all of them',
-    ]);
-  });
-
-  it('opencode: markdown with description only; placeholders unchanged', () => {
-    const r = renderCommand(CMD, 'opencode');
-    expect(r.fileName).toBe('fix.md');
-    expect(r.content).toBe(`---\ndescription: Fix "it"\n---\n\n${CMD.body}`);
-  });
-});
-
 describe('renderInstruction', () => {
-  const INSTR = { name: 'ts', globs: ['src/**/*.ts'], alwaysApply: false, body: 'Strict.\n' };
+  const INSTR = {
+    name: 'ts',
+    globs: ['src/**/*.ts'],
+    alwaysApply: false,
+    activation: 'paths' as const,
+    body: 'Strict.\n',
+  };
 
   it('gemini: a managed block for GEMINI.md; opencode: a plain markdown file', () => {
     expect(renderInstruction(INSTR, 'gemini')).toEqual({
@@ -342,9 +317,12 @@ describe('renderInstruction', () => {
 });
 
 describe('convertHooks: gemini', () => {
-  const PROJECT = ScopePaths.at('project', '/proj', { HOME: '/home/u' });
-  const GLOBAL = ScopePaths.at('global', '/home/u', {});
-  const claudeSet: HookSet = { name: 'fmt', dialect: 'claude', raw: CLAUDE_HOOKS };
+  const relocate = (refs: SourceReference[], scope: 'project' | 'global') => (command: string) =>
+    relocateCommand(command, refs, 'gemini', {
+      assetsRoot: `${scope === 'project' ? '.palm' : '<palm>'}/assets/acme__kit/fmt`,
+      scope,
+      env: { HOME: '/home/u' },
+    });
 
   it('renames events, maps matchers, converts timeouts to ms, roots commands at $GEMINI_PROJECT_DIR', () => {
     const raw = {
@@ -358,8 +336,9 @@ describe('convertHooks: gemini', () => {
         PostToolUseFailure: [{ hooks: [{ type: 'command', command: 'x' }] }],
       },
     };
-    const r = convertHooks({ ...claudeSet, raw }, 'gemini', PROJECT.hooksAssetDir('fmt'), PROJECT);
-    const root = '$GEMINI_PROJECT_DIR/.palm/hooks/fmt';
+    const set = { ...FMT_HOOKS, raw };
+    const r = convertHooks(set, 'gemini', relocate(FMT_HOOKS.references, 'project'));
+    const dir = '.palm/assets/acme__kit/fmt/plugins/fmt';
     expect(r.hooks).toEqual({
       hooks: {
         AfterTool: [
@@ -368,7 +347,7 @@ describe('convertHooks: gemini', () => {
             hooks: [
               {
                 type: 'command',
-                command: `CLAUDE_PLUGIN_ROOT="${root}" "${root}/hooks/format.sh"`,
+                command: `CLAUDE_PLUGIN_ROOT="$GEMINI_PROJECT_DIR"/${dir} "$GEMINI_PROJECT_DIR/${dir}/hooks/format.sh"`,
                 timeout: 30000,
               },
             ],
@@ -389,25 +368,23 @@ describe('convertHooks: gemini', () => {
     ]);
   });
 
-  it('global: the absolute asset dir; Gemini-dialect sources stay verbatim (native events too)', () => {
-    const asset = GLOBAL.hooksAssetDir('fmt');
-    const g = convertHooks(claudeSet, 'gemini', asset, GLOBAL);
-    expect(JSON.stringify(g.hooks)).toContain(`${asset}/hooks/format.sh`);
+  it('global: a "$HOME"-relative asset dir; Gemini-dialect sources stay verbatim (native events too)', () => {
+    const g = convertHooks(FMT_HOOKS, 'gemini', relocate(FMT_HOOKS.references, 'global'));
+    expect(JSON.stringify(g.hooks)).toContain(
+      '$HOME/.palm/assets/acme__kit/fmt/plugins/fmt/hooks/format.sh',
+    );
     const native = {
       hooks: {
         BeforeModel: [{ hooks: [{ type: 'command', command: 'm', timeout: 1500 }] }],
         AfterTool: [{ matcher: 'write_file', sequential: true, hooks: [{ command: 'w' }] }],
       },
     };
-    const r = convertHooks({ name: 'g', dialect: 'gemini', raw: native }, 'gemini', asset, GLOBAL);
-    expect(r).toEqual({ hooks: native, dropped: [] });
+    const set: HookSet = { ...FMT_HOOKS, dialect: 'gemini', raw: native, references: [] };
+    const r = convertHooks(set, 'gemini', relocate([], 'global'));
+    expect(r.hooks).toEqual(native);
+    expect(r.dropped).toEqual([]);
     // to Claude: canonical events, seconds and Claude tool names (R8 M8)
-    const claude = convertHooks(
-      { name: 'g', dialect: 'gemini', raw: native },
-      'claude',
-      asset,
-      GLOBAL,
-    );
+    const claude = convertHooks(set, 'claude', relocate([], 'global'));
     expect(claude.hooks).toEqual({
       hooks: {
         PostToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'w' }] }],
@@ -503,9 +480,17 @@ describe('renderMcp: gemini and opencode', () => {
 
 const INSTR = (name: string) =>
   mkEntity(
-    { kind: 'instruction', instruction: { name, alwaysApply: true, body: `Rule ${name}.\n` } },
+    {
+      kind: 'instruction',
+      instruction: { name, alwaysApply: true, activation: 'always', body: `Rule ${name}.\n` },
+    },
     name,
   );
+
+/** A render case for `entity` at a scope root (the source is irrelevant for instructions). */
+function at(entity: ReturnType<typeof mkEntity>, scopeRoot: string, scope: 'project' | 'global') {
+  return { entity, absPath: scopeRoot, sourceRoot: scopeRoot, scope, scopeRoot };
+}
 
 describe('instruction merge / unmerge', () => {
   it('gemini: one managed block per instruction in GEMINI.md; user text survives', async () => {
@@ -513,18 +498,23 @@ describe('instruction merge / unmerge', () => {
     const USER = '# Project context\n\nWe use pnpm.\n';
     await write(path.join(root, 'GEMINI.md'), USER);
     const t = createTarget('gemini', fakeEnv(root));
-    const a = await t.deploy(mkInput({ entity: INSTR('a'), scopeRoot: root }));
-    const b = await t.deploy(mkInput({ entity: INSTR('b'), scopeRoot: root }));
-    expect(a.merged).toEqual([
-      { file: 'GEMINI.md', pointer: 'block:instruction:a', value: 'Rule a.\n' },
+    const a = await install(t, at(INSTR('a'), root, 'project'));
+    const b = await install(t, at(INSTR('b'), root, 'project'));
+    expect(a.result.merged).toEqual([
+      {
+        file: 'GEMINI.md',
+        at: 'block:instruction:a',
+        id: 'palm:instruction:a:0',
+        key: 'instruction:a',
+      },
     ]);
     expect(await read(path.join(root, 'GEMINI.md'))).toBe(
       `${USER}\n<!-- palm:begin instruction:a -->\nRule a.\n<!-- palm:end instruction:a -->\n\n` +
         '<!-- palm:begin instruction:b -->\nRule b.\n<!-- palm:end instruction:b -->\n',
     );
-    await t.undeploy(mkLock(INSTR('a'), ['gemini'], a.files, a.merged), 'project', root, false);
+    await t.undeploy(a.entry, 'project', root, false);
     expect(await read(path.join(root, 'GEMINI.md'))).not.toContain('instruction:a');
-    await t.undeploy(mkLock(INSTR('b'), ['gemini'], b.files, b.merged), 'project', root, false);
+    await t.undeploy(b.entry, 'project', root, false);
     expect(await read(path.join(root, 'GEMINI.md'))).toBe(USER);
   });
 
@@ -533,173 +523,139 @@ describe('instruction merge / unmerge', () => {
     const USER = { $schema: 'https://opencode.ai/config.json', instructions: ['docs/*.md'] };
     await write(path.join(root, 'opencode.json'), JSON.stringify(USER));
     const t = createTarget('opencode', fakeEnv(root));
-    const a = await t.deploy(mkInput({ entity: INSTR('a'), scopeRoot: root }));
-    const b = await t.deploy(mkInput({ entity: INSTR('b'), scopeRoot: root }));
-    expect(a.files).toEqual(['.opencode/instructions/a.md']);
+    const a = await install(t, at(INSTR('a'), root, 'project'));
+    const b = await install(t, at(INSTR('b'), root, 'project'));
+    expect(a.result.files).toEqual(['.opencode/instructions/a.md']);
     expect(await read(path.join(root, '.opencode/instructions/a.md'))).toBe('Rule a.\n');
     expect(await readJson(path.join(root, 'opencode.json'))).toEqual({
       ...USER,
       instructions: ['docs/*.md', '.opencode/instructions/a.md', '.opencode/instructions/b.md'],
     });
-    await t.undeploy(mkLock(INSTR('a'), ['opencode'], a.files, a.merged), 'project', root, false);
+    await t.undeploy(a.entry, 'project', root, false);
     expect(await readJson(path.join(root, 'opencode.json'))).toEqual({
       ...USER,
       instructions: ['docs/*.md', '.opencode/instructions/b.md'],
     });
-    await t.undeploy(mkLock(INSTR('b'), ['opencode'], b.files, b.merged), 'project', root, false);
+    await t.undeploy(b.entry, 'project', root, false);
     expect(await readJson(path.join(root, 'opencode.json'))).toEqual(USER);
     expect(await exists(path.join(root, '.opencode/instructions'))).toBe(false);
     expect(await exists(path.join(root, '.opencode'))).toBe(true); // a stop dir
   });
 
-  it('opencode global: the listed path is absolute', async () => {
+  it('opencode global: the listed path is home-relative; the lock names tokens', async () => {
     const home = await tmpDir();
     const t = createTarget('opencode', fakeEnv(home));
-    const r = await t.deploy(mkInput({ entity: INSTR('a'), scope: 'global', scopeRoot: home }));
-    const file = path.join(home, '.config/opencode/instructions/a.md');
+    const r = await install(t, at(INSTR('a'), home, 'global'));
+    expect(r.result.files).toEqual(['<opencode>/instructions/a.md']);
+    expect(r.result.merged?.[0]?.file).toBe('<opencode>/opencode.json');
     expect(await readJson(path.join(home, '.config/opencode/opencode.json'))).toEqual({
-      instructions: [file],
+      instructions: ['~/.config/opencode/instructions/a.md'],
     });
-    await t.undeploy(mkLock(INSTR('a'), ['opencode'], r.files, r.merged), 'global', home, false);
+    await t.undeploy(r.entry, 'global', home, false);
     expect(await exists(path.join(home, '.config/opencode/opencode.json'))).toBe(false);
-    expect(await exists(file)).toBe(false);
+    expect(await exists(path.join(home, '.config/opencode/instructions/a.md'))).toBe(false);
   });
 });
 
 describe('environment (global scope)', () => {
   it('GEMINI_CLI_HOME: $GEMINI_CLI_HOME/.gemini for every kind, skills included', async () => {
-    const origin = await makeOrigin();
+    const src = await makeSource();
     const home = await tmpDir();
     const alt = path.join(home, 'alt');
-    const env = fakeEnv(home, { GEMINI_CLI_HOME: alt });
-    const t = createTarget('gemini', env);
-    const deploy = (entity: ReturnType<typeof mkEntity>, absPath = origin.root) =>
-      t.deploy(
-        mkInput({ entity, absPath, originRoot: origin.root, scope: 'global', scopeRoot: home }),
-      );
-    const skill = mkEntity({ kind: 'skill', skill: { name: 'demo', description: 'd' } });
-    const s = await deploy(skill, origin.skillDir);
-    expect(s.files[0]).toBe(path.join(alt, '.gemini/skills/demo/SKILL.md'));
-    const agent = await deploy(
-      mkEntity({ kind: 'agent', agent: { name: 'demo', description: 'd', body: 'x' } }),
-    );
-    expect(agent.files).toEqual([path.join(alt, '.gemini/agents/demo.md')]);
-    const instr = await deploy(INSTR('a'));
-    expect(instr.merged![0]!.file).toBe(path.join(alt, '.gemini/GEMINI.md'));
-    const mcp = mkEntity(
-      { kind: 'mcp', mcp: { name: 'x', transport: 'stdio', command: 'x' } },
-      'x',
-    );
-    const m = await deploy(mcp);
-    expect(m.merged![0]).toMatchObject({
-      file: path.join(alt, '.gemini/settings.json'),
-      pointer: '/mcpServers/x',
+    const t = createTarget('gemini', fakeEnv(home, { GEMINI_CLI_HOME: alt }));
+    const inSource = (entity: ReturnType<typeof mkEntity>, absPath = src.root) => ({
+      ...at(entity, home, 'global'),
+      absPath,
+      sourceRoot: src.root,
     });
-    // the override is a scope boundary (uninstall may delete there) and undeploy follows it
-    expect(ScopePaths.at('global', home, env).contains(s.files[0]!)).toBe(true);
-    await t.undeploy(mkLock(skill, ['gemini'], s.files), 'global', home, false);
+    const skill = mkEntity({ kind: 'skill', skill: { name: 'demo', description: 'd' } });
+    const s = await install(t, inSource(skill, src.skillDir));
+    expect(s.result.files[0]).toBe('<gemini>/skills/demo/SKILL.md');
+    expect(await exists(path.join(alt, '.gemini/skills/demo/SKILL.md'))).toBe(true);
+    const agentDef = { name: 'demo', description: 'd', body: 'x' };
+    const agent = await install(t, inSource(mkEntity({ kind: 'agent', agent: agentDef })));
+    expect(agent.result.files).toEqual(['<gemini>/agents/demo.md']);
+    const instr = await install(t, inSource(INSTR('a')));
+    expect(instr.result.merged?.[0]?.file).toBe('<gemini>/GEMINI.md');
+    const server = { name: 'x', transport: 'stdio' as const, command: 'x' };
+    const mcp = mkEntity({ kind: 'mcp', mcp: server, references: [], closure: { paths: [] } }, 'x');
+    const m = await install(t, inSource(mcp));
+    expect(m.result.merged?.[0]).toMatchObject({
+      file: '<gemini>/settings.json',
+      at: '/mcpServers/x',
+    });
+    expect(await readJson(path.join(alt, '.gemini/settings.json'))).toEqual({
+      mcpServers: { x: { command: 'x' } },
+    });
+    // undeploy follows the override, and keeps the harness dir
+    await t.undeploy(s.entry, 'global', home, false);
     expect(await exists(path.join(alt, '.gemini/skills'))).toBe(false);
     expect(await exists(path.join(alt, '.gemini'))).toBe(true);
     // project scope ignores it: the shared .agents/skills
     const project = await tmpDir();
-    const p = await t.deploy(
-      mkInput({
-        entity: skill,
-        absPath: origin.skillDir,
-        originRoot: origin.root,
-        scopeRoot: project,
-      }),
-    );
-    expect(p.files[0]).toBe('.agents/skills/demo/SKILL.md');
+    const p = await install(t, {
+      ...inSource(skill, src.skillDir),
+      scope: 'project',
+      scopeRoot: project,
+    });
+    expect(p.result.files[0]).toBe('.agents/skills/demo/SKILL.md');
   });
 
   it('XDG_CONFIG_HOME: $XDG_CONFIG_HOME/opencode; OPENCODE_DISABLE_EXTERNAL_SKILLS: own skills dir', async () => {
-    const origin = await makeOrigin();
+    const src = await makeSource();
     const home = await tmpDir();
     const xdg = path.join(home, 'xdg');
     const skill = mkEntity({ kind: 'skill', skill: { name: 'demo', description: 'd' } });
-    const input = (scope: 'global' | 'project', scopeRoot: string) =>
-      mkInput({
-        entity: skill,
-        absPath: origin.skillDir,
-        originRoot: origin.root,
-        scope,
-        scopeRoot,
-      });
+    const skillAt = (scope: 'global' | 'project', scopeRoot: string) => ({
+      ...at(skill, scopeRoot, scope),
+      absPath: src.skillDir,
+      sourceRoot: src.root,
+    });
     const env = fakeEnv(home, { XDG_CONFIG_HOME: xdg });
     const t = createTarget('opencode', env);
-    const agent = await t.deploy(
-      mkInput({
-        entity: mkEntity({ kind: 'agent', agent: { name: 'demo', description: 'd', body: 'x' } }),
-        scope: 'global',
-        scopeRoot: home,
-      }),
+    const firstFile = async (
+      target: ReturnType<typeof createTarget>,
+      scope: 'global' | 'project',
+      root: string,
+    ) => (await install(target, skillAt(scope, root))).result.files[0];
+    const agentDef = { name: 'demo', description: 'd', body: 'x' };
+    const agent = await install(
+      t,
+      at(mkEntity({ kind: 'agent', agent: agentDef }), home, 'global'),
     );
-    expect(agent.files).toEqual([path.join(xdg, 'opencode/agents/demo.md')]);
-    const instr = await t.deploy(mkInput({ entity: INSTR('a'), scope: 'global', scopeRoot: home }));
+    expect(agent.result.files).toEqual(['<opencode>/agents/demo.md']);
+    expect(await exists(path.join(xdg, 'opencode/agents/demo.md'))).toBe(true);
+    await install(t, at(INSTR('a'), home, 'global'));
     expect(await readJson(path.join(xdg, 'opencode/opencode.json'))).toEqual({
-      instructions: [path.join(xdg, 'opencode/instructions/a.md')],
+      instructions: ['~/xdg/opencode/instructions/a.md'],
     });
-    expect(instr.merged![0]!.file).toBe(path.join(xdg, 'opencode/opencode.json'));
-    expect(ScopePaths.at('global', home, env).contains(agent.files[0]!)).toBe(true);
     // skills: shared unless OpenCode ignores external skill dirs
-    expect((await t.deploy(input('global', home))).files[0]).toBe(
-      path.join(home, '.agents/skills/demo/SKILL.md'),
-    );
+    expect(await firstFile(t, 'global', home)).toBe('<agents>/skills/demo/SKILL.md');
     const own = createTarget('opencode', { ...env, OPENCODE_DISABLE_EXTERNAL_SKILLS: 'true' });
-    expect((await own.deploy(input('global', home))).files[0]).toBe(
-      path.join(xdg, 'opencode/skills/demo/SKILL.md'),
-    );
+    expect(await firstFile(own, 'global', home)).toBe('<opencode>/skills/demo/SKILL.md');
     const project = await tmpDir();
-    const ownProject = createTarget(
-      'opencode',
-      fakeEnv(project, { OPENCODE_DISABLE_EXTERNAL_SKILLS: '1' }),
-    );
-    expect((await ownProject.deploy(input('project', project))).files[0]).toBe(
-      '.opencode/skills/demo/SKILL.md',
-    );
-    const off = createTarget(
-      'opencode',
-      fakeEnv(project, { OPENCODE_DISABLE_EXTERNAL_SKILLS: '0' }),
-    );
-    expect((await off.deploy(input('project', project))).files[0]).toBe(
-      '.agents/skills/demo/SKILL.md',
-    );
+    const flag = (v: string) =>
+      createTarget('opencode', fakeEnv(project, { OPENCODE_DISABLE_EXTERNAL_SKILLS: v }));
+    expect(await firstFile(flag('1'), 'project', project)).toBe('.opencode/skills/demo/SKILL.md');
+    expect(await firstFile(flag('0'), 'project', project)).toBe('.agents/skills/demo/SKILL.md');
   });
 
   it('the shared .agents/skills is written once for gemini + opencode + codex', async () => {
-    const origin = await makeOrigin();
+    const src = await makeSource();
     const root = await tmpDir();
     const env = fakeEnv(root);
     const skill = mkEntity({ kind: 'skill', skill: { name: 'demo', description: 'd' } });
-    const input = mkInput({
-      entity: skill,
-      absPath: origin.skillDir,
-      originRoot: origin.root,
-      scopeRoot: root,
-    });
+    const c = { ...at(skill, root, 'project'), absPath: src.skillDir, sourceRoot: src.root };
     const results = [];
     for (const id of ['gemini', 'opencode', 'codex'] as const)
-      results.push(await createTarget(id, env).deploy(input));
-    expect(results[1]).toEqual(results[0]);
-    expect(results[2]).toEqual(results[0]);
-    await createTarget('opencode', env).undeploy(
-      mkLock(skill, ['gemini', 'opencode', 'codex'], results[0]!.files),
-      'project',
-      root,
-      false,
-    );
+      results.push(await install(createTarget(id, env), c));
+    const [first, second, third] = results;
+    expect(first?.result.adopted).toEqual([]);
+    // the later targets find identical files and adopt them: one copy on disk
+    expect(second?.result.files).toEqual(first?.result.files);
+    expect(second?.result.adopted).toEqual(first?.result.files);
+    expect(third?.rendered.hash).toBe(first?.rendered.hash);
+    await createTarget('opencode', env).undeploy(first!.entry, 'project', root, false);
     expect(await exists(path.join(root, '.agents/skills/demo'))).toBe(false);
-  });
-});
-
-describe('describe: installed files attributed to the harness', () => {
-  it('gemini and opencode paths', () => {
-    expect(fileTargetLabel('.gemini/agents/x.md')).toBe('gemini');
-    expect(fileTargetLabel('GEMINI.md')).toBe('gemini');
-    expect(fileTargetLabel('/home/u/alt/.gemini/settings.json')).toBe('gemini');
-    expect(fileTargetLabel('.opencode/commands/x.md')).toBe('opencode');
-    expect(fileTargetLabel('opencode.json')).toBe('opencode');
-    expect(fileTargetLabel('/home/u/.config/opencode/agents/x.md')).toBe('opencode');
   });
 });

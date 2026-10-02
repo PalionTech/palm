@@ -1,11 +1,9 @@
+import fc from 'fast-check';
 import { parse } from 'smol-toml';
 import { describe, expect, it } from 'vitest';
 import type { AgentDefinition } from '../../src/core/types.js';
-import {
-  isClaudeModel,
-  renderAgent,
-  tomlMultilineString,
-} from '../../src/targets/convert-agent.js';
+import { knownModel } from '../../src/targets/agent-models.js';
+import { renderAgent, tomlMultilineString } from '../../src/targets/convert-agent.js';
 
 const AGENT: AgentDefinition = {
   name: 'reviewer',
@@ -103,6 +101,17 @@ describe('renderAgent', () => {
     );
     expect(parse(`x = ${tomlMultilineString('ends with "')}`)).toEqual({ x: 'ends with "' });
     expect(parse(`x = ${tomlMultilineString('')}`)).toEqual({ x: '' });
+    expect(parse(`x = ${tomlMultilineString('ends with \\"')}`)).toEqual({ x: 'ends with \\"' });
+  });
+
+  it('codex: any mix of quotes, backslashes and control characters round-trips', () => {
+    const unit = fc.constantFrom('a', '"', '\\', '\n', '\r', '\t', '\u0001', '\u007f');
+    fc.assert(
+      fc.property(fc.string({ unit }), (s) => {
+        const parsed = parse(`x = ${tomlMultilineString(s)}`) as { x: string };
+        expect(parsed.x).toBe(s.replace(/\r\n/g, '\n'));
+      }),
+    );
   });
 
   it('copilot: display name, tools list with MCP wildcards, skills dropped', () => {
@@ -205,7 +214,8 @@ describe('renderAgent', () => {
       'sonnet[1m]',
       'claude-opus-5',
     ])
-      expect(isClaudeModel(m)).toBe(true);
-    for (const m of ['gpt-6-astra', 'o4-mini', 'composer-2']) expect(isClaudeModel(m)).toBe(false);
+      expect(knownModel('claude', m)).toBe(true);
+    for (const m of ['gpt-6-astra', 'o4-mini', 'composer-2'])
+      expect(knownModel('claude', m)).toBe(false);
   });
 });

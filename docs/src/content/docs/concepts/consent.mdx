@@ -1,0 +1,154 @@
+---
+title: Consent and executable content
+description: Hooks and stdio MCP servers run programs on your machine. palm shows each command and script before it writes them, defaults to no, and pins your yes by hash in the lock.
+sidebar:
+  label: Consent
+---
+
+import Capture from '../../../components/Capture.astro';
+
+**Executable content** is anything palm writes that makes a harness, or a program it starts, run code.
+Before palm writes any of it, you see every command and script, and you answer yes. The default answer is no.
+
+```sh
+palm install trailofbits/skills plugin:gh-cli --dry-run
+```
+
+`--dry-run` prints the same review a terminal prompt shows and writes nothing.
+
+## What counts
+
+| Executable | Gated | Why |
+| --- | --- | --- |
+| hook commands, per event and matcher | yes | the harness runs them on every matching event |
+| stdio MCP servers: command, arguments, working directory, environment keys | yes | the harness starts the program |
+| the scripts those reach, and the files a script reads, copied to `.palm/assets/` | yes, as part of the unit | a changed script byte changes what runs |
+| the scripts of an in-repo source, which run in place | yes, hashed in the working tree | an edit changes what runs |
+| prompt hooks (`type: prompt`) | no | text sent to the model; listed, never called a command |
+| remote MCP servers (a URL) | no | nothing runs on your machine; the review says which is which |
+| skills that cite scripts, such as `scripts/find-polluter.sh` | no | the harness asks before the model runs a shell command; `palm describe` lists them |
+
+palm itself never runs what it installs. The only programs palm starts are git and your pager.
+
+## The review
+
+On a terminal, palm prints one block per program and asks once.
+This is the prompt as palm prints it for a plugin hook and a stdio MCP server.
+
+```text
+This install adds 2 programs that will run on your machine.
+
+  1. hook gh-cli  from trailofbits/skills  (commit 82fe822, v2.1.0, 2026-07-14)
+     SessionStart          bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/persist-session-id.sh
+     PreToolUse  Bash      bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/hooks/intercept-github-curl.sh
+     targets: claude (.claude/settings.json), cursor (.cursor/hooks.json)
+     scripts: 8 files, 21 KB  ->  .palm/assets/trailofbits__skills/gh-cli/  (committed with your repo)
+       hooks/persist-session-id.sh     755   612 B   sha256:1b9e04c2
+       hooks/intercept-github-curl.sh  755   1.1 KB  sha256:77d0a9f1
+       ... 6 more  (v shows every script)
+  2. mcp team-helper  from acme-kit  (commit 61ec102, v1.1.1)
+     stdio  node ".palm/assets/acme-kit/team-helper/server.js"   env: none
+     targets: claude (.mcp.json), cursor (.cursor/mcp.json)
+
+  Also 1 prompt hook (text sent to the model; no program runs): fp-check Stop.
+
+palm never runs these itself. If you say yes, their hashes go into palm.lock.yaml,
+so teammates and CI install them without being asked; any change asks again.
+
+Allow these 2 programs to run?  [y/N/v=view scripts]
+```
+
+Each block names the source, the commit, the tag and its date.
+Printed without a question (a dry run, or no terminal), the block ends in `(--review shows every script)` instead of `v`.
+A target the program is not installed for, such as OpenCode, which has no command hooks, is named on a `skipped:` line.
+An `env` value a server gets as written reads `KEY (literal)`, and an `npx pkg@latest` command without an exact version gets an `! unpinned` line.
+On `palm update`, the headline says `changes` for a program you trusted before and `adds` for a new one.
+It shows every command as the harness will run it, the file it lands in per target, and the scripts with mode, size and a short hash.
+A script that reads another file of the source by a literal relative path, such as `../skills/x/SKILL.md`, gets a `reads:` line.
+palm copies that file too, and a read it cannot resolve prints a warning at install.
+
+| Key | Does |
+| --- | --- |
+| `y` | allows every program in the list |
+| `n` or Enter | declines; the default |
+| `v` | pages every script body from the pinned commit |
+| `d` | during `palm update`, pages a unified diff against the version you trusted, fetching that commit when the cache lacks it |
+
+Every yes or no question palm asks uses the same `[y/N]` prompt.
+
+## One hash per program
+
+palm hashes each program as one unit.
+The hash covers the commands before per-harness rendering, with their events and matchers.
+It also covers the environment keys, the working directory, and a tree hash of every script the unit reaches or reads, mode bits included.
+
+An in-repo source's scripts run in place, so an edit is live at once.
+palm still hashes them from the working tree, and `v` shows them from there.
+The next `palm install` asks again, and `palm check` fails until someone consents.
+
+| Asks again | Does not ask again |
+| --- | --- |
+| a new hook or stdio server | the same hash at a newer commit |
+| any changed command, script byte, mode bit, environment key or working directory | a target you add |
+| a trust entry removed from the lock | a newer palm version |
+
+## What the hash does not pin
+
+The hash covers the command text and the files in the source.
+It cannot cover what a command downloads each time it runs.
+`npx -y <package>` runs whichever version npm resolves when the harness starts it, so one trusted hash can run different code over time.
+`uvx <package>` and `docker run` with a tag instead of a digest behave the same way.
+Pin the version in the command, such as `npx -y <package>@1.4.2`. A new version then changes the hash and asks again.
+
+## Consent lives in the lock
+
+A yes is recorded once, in `palm.lock.yaml`, as a `trust:` hash on the entry.
+Every later install replays it silently while the hash matches: yours, a teammate's and CI's.
+
+<Capture name="a-consent" title="~/project" />
+
+The lock diff is the team's consent record.
+A reviewer sees the readable `command:` lines and one hash line beside them, and approves both in the same pull request.
+
+## Without a terminal
+
+palm never prompts without a terminal, and `--yes` never consents.
+A program without a trusted hash stops the command with `E_UNTRUSTED_EXEC`, and the error prints the exact line that consents.
+
+```text
+x 2 programs need your consent and there is no terminal
+  review:  palm install --dry-run --review
+  then:    palm install --allow-exec hook:gh-cli@trailofbits/skills=sha256:a7cc7911f2bd0a61d9686cbc62fcfb17c8e8276fa2ea5aa0c69e646a0b23ad60,mcp:team-helper@acme-kit=sha256:75aafd9baefdaaee905cd992fe17dbe17b4fa390f7f487399d6a57f282682c79
+```
+
+`--allow-exec` takes `<kind>:<name>@<source>=<hash>`, comma-separated for several.
+palm prints the full hash; a prefix of at least 16 hex characters is accepted too.
+It pins the exact program you reviewed, so a changed script fails again instead of slipping through.
+`--allow-exec all` works only on a terminal.
+Values you typed with `--env` or `--header` are redacted in the `review:` and `then:` lines.
+
+## Leaving a program out
+
+`palm install <source> --all` leaves every hook and stdio server out without asking.
+It prints a `see it:` and an `install it:` line for each one, and exits 0.
+
+At the prompt, what you decline decides what palm writes.
+
+| You decline | palm writes | Exit |
+| --- | --- | --- |
+| a program you named, such as `palm install <source> hook:<name>` | nothing | `130` |
+| a hook that arrives with a plugin | the rest of the plugin, and `exclude: [hook:<name>]` on the plugin entry in `palm.yaml` | `0`, with a `! … not installed` line |
+| the new version of a program you trusted before | nothing: the update stops | `130` |
+
+The `exclude:` line goes through review like any other change, and later bare installs keep the hook out.
+`palm install <source> hook:<name>` asks again.
+
+Declining a changed version of a program you trusted before ends the run and writes nothing.
+The previous version stays active, and palm prints its trusted hash and the `palm remove` command that takes it out.
+
+## Related
+
+- [Security model](/palm/explanation/security/)
+- [palm.lock.yaml reference](/palm/reference/palm-lock-yaml/#exec-and-trust)
+- [Check the setup in CI](/palm/guides/ci/)
+- [Install plugins and marketplaces](/palm/guides/plugins-and-marketplaces/)

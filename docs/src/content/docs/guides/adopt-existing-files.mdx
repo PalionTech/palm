@@ -1,6 +1,6 @@
 ---
 title: Adopt files you copied by hand
-description: Agent files you once copied into .claude, .cursor or .github are tracked in palm.lock.yaml and update with palm.
+description: Agent files you once copied into .claude, .cursor or .github get a source, a lock entry and updates, and identical copies need no change at all.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
@@ -8,18 +8,19 @@ import Capture from '../../../components/Capture.astro';
 
 Many projects began by copying an agent (subagent) or a skill from GitHub into `.claude/` or `.cursor/`.
 Those copies drift from their source, and nobody remembers where they came from.
-palm takes them over: you name each source once, and the lockfile tracks the file from then on.
+palm takes them over. You name each source once, and the lock tracks the file from then on.
 
-When you finish, palm names the entity behind each file and lists everything it now tracks:
+When you finish, palm owns both files. The identical skill needed nothing, and the edited agent is replaced with your version still in git:
 
-<Capture name="b-adopt-result" title="~/project" />
+<Capture name="b-adopt" title="~/project" />
 
-The sessions on this page ran against palm's test fixtures, which mirror `mattpocock/skills` and `cursor/plugins`.
+The session ran against palm's test fixtures, which mirror `mattpocock/skills` and `cursor/plugins`.
 
 ## Before you start
 
 - Commit your current files, so `git diff` shows what palm changes.
 - Know or find the repository each copy came from.
+- Set the targets with `palm init`. It detects them from the folders you already have, and prints the evidence for each.
 
 ## Steps
 
@@ -28,56 +29,57 @@ The sessions on this page ran against palm's test fixtures, which mirror `mattpo
 1. Take stock of the harness folders.
 
    ```sh
-   find .claude .cursor .github .agents -type f
+   find .claude .cursor .github .codex .gemini .opencode .agents -type f 2>/dev/null
    ```
 
    | Folder | Holds files for |
    | --- | --- |
-   | `.claude/agents`, `.claude/skills`, `.claude/rules`, `.claude/commands` | Claude Code |
-   | `.cursor/agents`, `.cursor/rules`, `.cursor/commands` | Cursor |
-   | `.github/agents`, `.github/instructions`, `.github/prompts` | GitHub Copilot |
+   | `.claude/agents`, `.claude/skills`, `.claude/rules` | Claude Code |
+   | `.cursor/agents`, `.cursor/rules` | Cursor |
+   | `.github/agents`, `.github/instructions` | GitHub Copilot |
    | `.codex/agents`, `.gemini/agents`, `.opencode/agents` | Codex, Gemini CLI and OpenCode |
    | `.agents/skills` | every harness except Claude Code |
    | `.mcp.json`, `.vscode/mcp.json`, `.cursor/mcp.json` | MCP servers |
 
-2. Add the origin each copy came from, and find the entity in it.
+2. Install each entity from its source over your copy.
 
    ```sh
-   palm install origin cursor/plugins/pstack --alias pstack
-   palm search comment-sicko
+   palm install mattpocock/skills tdd
    ```
 
-3. Install the entity over your copy.
+   A copy that matches what palm would write is adopted. palm records it in the lock and writes nothing.
+   The comparison reads the frontmatter as data and ignores trailing whitespace, so a copy that differs only in quoting or line ends still matches.
+
+3. Look at each file palm refuses.
 
    ```sh
-   palm install agent comment-sicko
+   palm install cursor/plugins/pstack comment-sicko
    ```
 
-   palm never overwrites a file it did not write, so the first attempt fails and names each file.
-   Your copy differs from what palm writes: palm normalises the agent's `name` to its file name.
+   palm never overwrites a file it did not write. The error names the file and the command that replaces it.
+   Compare your copy with the source. If your change matters, keep it in your own source under a new name (step 5), since the source's entity keeps its own name.
 
-4. Repeat with `--force` once you have checked the file.
+4. Replace the rest with `--force`.
 
    ```sh
-   palm install agent comment-sicko --force
+   palm install cursor/plugins/pstack comment-sicko --force
    git diff
    ```
 
-   `--force` replaces your copy and records it in `palm.lock.yaml`.
-   `git diff` shows exactly what changed.
+   `--force` replaces your copy and records it in the lock. `git diff` shows exactly what changed.
 
-5. Adopt the remaining copies the same way.
+5. Move files you wrote yourself into an in-repo source.
+
+   palm has no import command for your own files. `git mv` does the job and keeps the history.
 
    ```sh
-   palm install skill tdd@mattpocock
+   mkdir -p agent-kit/agents
+   git mv .claude/agents/release-captain.md agent-kit/agents/
+   palm install ./agent-kit release-captain
    ```
 
-   A copy that is byte for byte what palm would write needs no `--force`: palm records it and moves on.
-   This is the full session for steps 3 to 5:
-
-   <Capture name="b-adopt" title="~/project" />
-
-   The first install also saved the detected targets, `claude` and `cursor`, to `palm.yaml`.
+   palm declares `./agent-kit` in `palm.yaml` and writes the agent back for every target, now as a generated file.
+   From then on you edit `agent-kit/agents/release-captain.md`, and a bare `palm install` renders the change.
 
 </Steps>
 
@@ -86,23 +88,24 @@ The sessions on this page ran against palm's test fixtures, which mirror `mattpo
 Commit first, so you can bring an edit back with git.
 :::
 
-MCP servers work the same way.
-A server you wrote into `.mcp.json` by hand blocks `palm install mcp <name>` for that harness until you pass `--force`.
+MCP servers and hooks work the same way.
+A server or hook entry you wrote by hand that matches palm's is adopted, never added a second time.
+One that differs blocks the install until you pass `--force`, and palm keeps every other entry in the file.
+
+A project with a `skills-lock.json` or an `apm.yml` gets one hint from `palm init` and `palm check`: palm 0.3 imports those files.
+Until then, install each entry by name as above.
 
 ## Check the result
 
-Ask palm which entity wrote a file:
-
 ```sh
-palm find .claude/agents/comment-sicko.md
+palm get --files
+palm check
 ```
 
-palm prints the scope, kind, name, origin and target that own the file.
-For a file no entity wrote, it exits 1. That file stays yours, and palm never deletes it.
+`palm get --files` lists every file palm now owns with the entity that wrote it.
+`palm describe <path>` answers the same question for one file.
 
 ## Next steps
 
+- [Publish your own source](/palm/guides/publish-your-own/) turns `./agent-kit` into a repository other projects install from.
 - [Share a team baseline](/palm/guides/team-baseline/) commits the result for everyone.
-- [Migrate from APM](/palm/guides/migrate-from-apm/) covers files APM installed.
-- [Origins](/palm/concepts/origins/) explains how palm finds an entity by name.
-- [palm find](/palm/reference/cli/find/) lists every form of the path argument.

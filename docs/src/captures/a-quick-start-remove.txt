@@ -1,13 +1,31 @@
-$ palm install skill grill-me --target claude,codex
-i saved targets claude, codex to palm.yaml
-project scope → claude, codex
-status       kind   name      origin      targets       files
-───────────  ─────  ────────  ──────────  ────────────  ─────
-+ installed  skill  grill-me  mattpocock  claude,codex  4
-1 installed
-$ palm uninstall skill grill-me
-status     kind   name      origin      files    via
-─────────  ─────  ────────  ──────────  ───────  ───
-- removed  skill  grill-me  mattpocock  4 files
+$ palm check
+✓ manifest and lock agree
+✓ palm.yaml targets match the lock
+✓ every entry is rendered
+✓ every entry is on all its targets
+✓ generated files match the lock
+✓ no stray file in a folder palm owns
+- applied files outside the lock: skipped (global scope only)
+✓ in-repo sources match the lock
+✓ no generated path lies inside a source
+✓ every program palm installed is trusted
+✓ no foreign command in the hook files palm manages
+✓ no foreign stdio server in the MCP files palm manages
+✓ every hook script exists
+✓ no literal secret in generated files
+✓ every variable the servers need is set
+✓ generated files are committed
+✓ every source is declared
+✓ no link leaves the scope
+✓ no hidden Unicode in generated files
+✓ no harness loads an entity twice
+✓ no two agents or commands share a name in a harness folder
+✓ every skill an agent preloads is installed
+✓ instruction files are within harness limits
+no problems
+$ palm remove grill-me
+- skill  grill-me   .agents/skills/grill-me/, .claude/skills/grill-me/   3 files
+1 removed.
 $ palm get
-No entities installed in the project scope. Find some with: palm get skills --available
+No entities installed in the project scope.
+see what a source offers, for example: palm install mattpocock/skills

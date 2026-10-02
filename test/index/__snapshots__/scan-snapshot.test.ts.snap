@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`scanOrigin snapshot per fixture > anthropics-skills-like 1`] = `
+exports[`scanSource snapshot per fixture > anthropics-skills-like 1`] = `
 {
   "detected": "marketplace",
   "entities": [
@@ -16,9 +16,9 @@ exports[`scanOrigin snapshot per fixture > anthropics-skills-like 1`] = `
       "description": "Spreadsheet creation, editing, and analysis.",
       "kind": "skill",
       "name": "xlsx",
-      "origin": "anthropics-skills",
       "path": "skills/xlsx",
       "plugin": "document-skills",
+      "source": "anthropics-skills",
     },
     {
       "def": {
@@ -32,9 +32,9 @@ exports[`scanOrigin snapshot per fixture > anthropics-skills-like 1`] = `
       "description": "PDF manipulation toolkit.",
       "kind": "skill",
       "name": "pdf",
-      "origin": "anthropics-skills",
       "path": "skills/pdf",
       "plugin": "document-skills",
+      "source": "anthropics-skills",
     },
     {
       "def": {
@@ -54,8 +54,8 @@ exports[`scanOrigin snapshot per fixture > anthropics-skills-like 1`] = `
       "description": "Document processing suite",
       "kind": "plugin",
       "name": "document-skills",
-      "origin": "anthropics-skills",
       "path": ".",
+      "source": "anthropics-skills",
     },
     {
       "def": {
@@ -68,9 +68,9 @@ exports[`scanOrigin snapshot per fixture > anthropics-skills-like 1`] = `
       "description": "Create visual art in .png and .pdf documents.",
       "kind": "skill",
       "name": "canvas-design",
-      "origin": "anthropics-skills",
       "path": "skills/canvas-design",
       "plugin": "example-skills",
+      "source": "anthropics-skills",
     },
     {
       "def": {
@@ -86,8 +86,8 @@ exports[`scanOrigin snapshot per fixture > anthropics-skills-like 1`] = `
       "description": "Example skills",
       "kind": "plugin",
       "name": "example-skills",
-      "origin": "anthropics-skills",
       "path": ".",
+      "source": "anthropics-skills",
     },
     {
       "def": {
@@ -100,8 +100,8 @@ exports[`scanOrigin snapshot per fixture > anthropics-skills-like 1`] = `
       "description": "Not part of any marketplace plugin.",
       "kind": "skill",
       "name": "internal-only",
-      "origin": "anthropics-skills",
       "path": "skills/internal-only",
+      "source": "anthropics-skills",
     },
   ],
   "warnings": [
@@ -111,7 +111,7 @@ exports[`scanOrigin snapshot per fixture > anthropics-skills-like 1`] = `
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > apm-like 1`] = `
+exports[`scanSource snapshot per fixture > apm-like 1`] = `
 {
   "detected": "apm",
   "entities": [
@@ -126,9 +126,9 @@ exports[`scanOrigin snapshot per fixture > apm-like 1`] = `
       "description": "Fix lint errors.",
       "kind": "skill",
       "name": "lint-fix",
-      "origin": "apm",
       "path": ".apm/skills/lint-fix",
       "plugin": "my-apm-pkg",
+      "source": "apm",
       "version": "1.0.0",
     },
     {
@@ -149,14 +149,15 @@ exports[`scanOrigin snapshot per fixture > apm-like 1`] = `
       "description": "Reviews pull requests",
       "kind": "agent",
       "name": "reviewer",
-      "origin": "apm",
       "path": ".apm/agents/reviewer.agent.md",
       "plugin": "my-apm-pkg",
+      "source": "apm",
       "version": "1.0.0",
     },
     {
       "def": {
         "instruction": {
+          "activation": "paths",
           "alwaysApply": false,
           "body": "Prefer const.
 ",
@@ -172,36 +173,47 @@ exports[`scanOrigin snapshot per fixture > apm-like 1`] = `
       "description": "TS style",
       "kind": "instruction",
       "name": "typescript",
-      "origin": "apm",
       "path": ".apm/instructions/typescript.instructions.md",
       "plugin": "my-apm-pkg",
+      "source": "apm",
       "version": "1.0.0",
     },
     {
       "def": {
-        "command": {
-          "body": "Cut a release now.
-",
+        "kind": "skill",
+        "skill": {
           "description": "Cut a release",
+          "fromCommand": {
+            "body": "Cut a release now.
+",
+            "sourceFormat": "prompt-md",
+          },
           "name": "release",
-          "sourceFormat": "prompt-md",
         },
-        "kind": "command",
       },
       "description": "Cut a release",
-      "kind": "command",
+      "kind": "skill",
       "name": "release",
-      "origin": "apm",
+      "notes": [
+        "from command release.prompt.md: installed as a skill, which a harness may also load on its own when it looks relevant",
+      ],
       "path": ".apm/prompts/release.prompt.md",
       "plugin": "my-apm-pkg",
+      "source": "apm",
       "version": "1.0.0",
     },
     {
       "def": {
         "hooks": {
+          "closure": {
+            "paths": [
+              ".apm/hooks",
+            ],
+          },
           "dialect": "claude",
           "name": "format-on-save",
           "pluginRootRel": ".",
+          "promptHooks": [],
           "raw": {
             "hooks": {
               "PostToolUse": [
@@ -217,14 +229,15 @@ exports[`scanOrigin snapshot per fixture > apm-like 1`] = `
               ],
             },
           },
+          "references": [],
         },
         "kind": "hook",
       },
       "kind": "hook",
       "name": "format-on-save",
-      "origin": "apm",
       "path": ".apm/hooks/format-on-save.json",
       "plugin": "my-apm-pkg",
+      "source": "apm",
       "version": "1.0.0",
     },
     {
@@ -245,7 +258,7 @@ exports[`scanOrigin snapshot per fixture > apm-like 1`] = `
             "name": "typescript",
           },
           {
-            "kind": "command",
+            "kind": "skill",
             "name": "release",
           },
           {
@@ -257,16 +270,19 @@ exports[`scanOrigin snapshot per fixture > apm-like 1`] = `
       "description": "A sample APM package",
       "kind": "plugin",
       "name": "my-apm-pkg",
-      "origin": "apm",
       "path": ".",
+      "source": "apm",
       "version": "1.0.0",
     },
   ],
-  "warnings": [],
+  "warnings": [
+    "apm.yml: 1 MCP server dependency is not installed (io.github.github/github-mcp-server); palm installs a server with: palm install mcp --snippet <the JSON from io.github.github/github-mcp-server's README>",
+    "apm.yml: 2 dependencies are not installed; declare what you need: palm install microsoft/apm-sample-package, palm install github/awesome-copilot/skills/review-and-refactor#v1.2.0",
+  ],
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > awesome-copilot-like 1`] = `
+exports[`scanSource snapshot per fixture > awesome-copilot-like 1`] = `
 {
   "detected": "marketplace",
   "entities": [
@@ -281,9 +297,9 @@ exports[`scanOrigin snapshot per fixture > awesome-copilot-like 1`] = `
       "description": "Suggest relevant agents.",
       "kind": "skill",
       "name": "suggest-awesome-github-copilot-agents",
-      "origin": "awesome-copilot",
       "path": "skills/suggest-awesome-github-copilot-agents",
       "plugin": "awesome-copilot",
+      "source": "awesome-copilot",
       "version": "1.1.0",
     },
     {
@@ -307,13 +323,16 @@ exports[`scanOrigin snapshot per fixture > awesome-copilot-like 1`] = `
       "description": "Meta agentic project creation assistant",
       "kind": "agent",
       "name": "meta-agentic-project-scaffold",
-      "origin": "awesome-copilot",
       "path": "agents/meta-agentic-project-scaffold.agent.md",
       "plugin": "awesome-copilot",
+      "source": "awesome-copilot",
       "version": "1.1.0",
     },
     {
       "def": {
+        "closure": {
+          "paths": [],
+        },
         "kind": "mcp",
         "mcp": {
           "args": [
@@ -323,20 +342,20 @@ exports[`scanOrigin snapshot per fixture > awesome-copilot-like 1`] = `
             "ghcr.io/microsoft/mcp-dotnet-samples/awesome-copilot:latest",
           ],
           "command": "docker",
-          "name": "awesome-copilot",
-          "source": {
+          "from": {
             "ref": "awesome-copilot",
-            "type": "origin",
-            "version": "1.1.0",
+            "type": "source",
           },
+          "name": "awesome-copilot",
           "transport": "stdio",
         },
+        "references": [],
       },
       "kind": "mcp",
       "name": "awesome-copilot",
-      "origin": "awesome-copilot",
       "path": "plugins/awesome-copilot/mcp.json",
       "plugin": "awesome-copilot",
+      "source": "awesome-copilot",
       "version": "1.1.0",
     },
     {
@@ -361,8 +380,8 @@ exports[`scanOrigin snapshot per fixture > awesome-copilot-like 1`] = `
       "description": "Meta prompts that help you discover Copilot resources.",
       "kind": "plugin",
       "name": "awesome-copilot",
-      "origin": "awesome-copilot",
       "path": "plugins/awesome-copilot",
+      "source": "awesome-copilot",
       "version": "1.1.0",
     },
     {
@@ -376,24 +395,8 @@ exports[`scanOrigin snapshot per fixture > awesome-copilot-like 1`] = `
       "description": "Guides Qdrant scaling decisions.",
       "kind": "skill",
       "name": "qdrant-scaling",
-      "origin": "awesome-copilot",
       "path": "skills/qdrant-scaling",
-    },
-    {
-      "def": {
-        "kind": "skill",
-        "skill": {
-          "description": "Diagnoses horizontal scaling: 'vertical or horizontal?', 'how many nodes?'",
-          "dirName": "horizontal-scaling",
-          "name": "qdrant-horizontal-scaling",
-          "parent": "qdrant-scaling",
-        },
-      },
-      "description": "Diagnoses horizontal scaling: 'vertical or horizontal?', 'how many nodes?'",
-      "kind": "skill",
-      "name": "qdrant-horizontal-scaling",
-      "origin": "awesome-copilot",
-      "path": "skills/qdrant-scaling/scaling-data-volume/horizontal-scaling",
+      "source": "awesome-copilot",
     },
     {
       "def": {
@@ -421,12 +424,13 @@ exports[`scanOrigin snapshot per fixture > awesome-copilot-like 1`] = `
       "description": "An agent designed to assist with .NET projects.",
       "kind": "agent",
       "name": "c-sharp-expert",
-      "origin": "awesome-copilot",
       "path": "agents/CSharpExpert.agent.md",
+      "source": "awesome-copilot",
     },
     {
       "def": {
         "instruction": {
+          "activation": "always",
           "alwaysApply": true,
           "body": "# Accessibility
 
@@ -441,12 +445,13 @@ Use semantic HTML.
       "description": "Web accessibility standards",
       "kind": "instruction",
       "name": "a11y",
-      "origin": "awesome-copilot",
       "path": "instructions/a11y.instructions.md",
+      "source": "awesome-copilot",
     },
     {
       "def": {
         "instruction": {
+          "activation": "paths",
           "alwaysApply": false,
           "body": "Use type hints.
 ",
@@ -463,15 +468,21 @@ Use semantic HTML.
       "description": "Python conventions",
       "kind": "instruction",
       "name": "python",
-      "origin": "awesome-copilot",
       "path": "instructions/python.instructions.md",
+      "source": "awesome-copilot",
     },
     {
       "def": {
         "hooks": {
+          "closure": {
+            "paths": [
+              "hooks/license-checker",
+            ],
+          },
           "dialect": "copilot",
           "name": "license-checker",
           "pluginRootRel": "hooks/license-checker",
+          "promptHooks": [],
           "raw": {
             "hooks": {
               "sessionEnd": [
@@ -488,24 +499,24 @@ Use semantic HTML.
             },
             "version": 1,
           },
+          "references": [],
         },
         "kind": "hook",
       },
       "kind": "hook",
       "name": "license-checker",
-      "origin": "awesome-copilot",
       "path": "hooks/license-checker/hooks.json",
+      "source": "awesome-copilot",
     },
   ],
   "warnings": [
-    "remote plugin "agent-council" (github:Avyayalaya/agent-council#v0.1.3) not fetched → add it as an origin: palm install origin Avyayalaya/agent-council#v0.1.3",
-    "remote plugin "anarlog" (github:fastrepl/anarlog/agent-plugins/anarlog@259b68866a7d) not fetched → add it as an origin: palm install origin fastrepl/anarlog/agent-plugins/anarlog",
-    "skills/qdrant-scaling/scaling-data-volume/horizontal-scaling/SKILL.md: frontmatter name "qdrant-horizontal-scaling" differs from directory "horizontal-scaling"; keeping "qdrant-horizontal-scaling"",
+    "remote plugin "agent-council" (github:Avyayalaya/agent-council#v0.1.3) not fetched: declare it: palm install Avyayalaya/agent-council#v0.1.3 <names>",
+    "remote plugin "anarlog" (github:fastrepl/anarlog/agent-plugins/anarlog@259b68866a7d) not fetched: declare it: palm install fastrepl/anarlog/agent-plugins/anarlog#259b68866a7d6c331cd428aaa33a33300a700c5d <names>",
   ],
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > caveman-like 1`] = `
+exports[`scanSource snapshot per fixture > caveman-like 1`] = `
 {
   "detected": "marketplace",
   "entities": [
@@ -520,9 +531,9 @@ exports[`scanOrigin snapshot per fixture > caveman-like 1`] = `
       "description": "Ultra-compressed communication mode.",
       "kind": "skill",
       "name": "caveman",
-      "origin": "caveman",
       "path": "skills/caveman",
       "plugin": "caveman",
+      "source": "caveman",
       "version": "2.7.0",
     },
     {
@@ -536,9 +547,9 @@ exports[`scanOrigin snapshot per fixture > caveman-like 1`] = `
       "description": "Terse commit messages.",
       "kind": "skill",
       "name": "caveman-commit",
-      "origin": "caveman",
       "path": "skills/caveman-commit",
       "plugin": "caveman",
+      "source": "caveman",
       "version": "2.7.0",
     },
     {
@@ -560,55 +571,48 @@ exports[`scanOrigin snapshot per fixture > caveman-like 1`] = `
       "description": "Builds things tersely.",
       "kind": "agent",
       "name": "cavecrew-builder",
-      "origin": "caveman",
       "path": "agents/cavecrew-builder.md",
       "plugin": "caveman",
+      "source": "caveman",
       "version": "2.7.0",
     },
     {
       "def": {
-        "command": {
-          "argumentHint": "[--dry-run|--force]",
-          "body": "Write the rule files.
-",
+        "kind": "skill",
+        "skill": {
           "description": "Drop the caveman rule into the repo",
+          "fromCommand": {
+            "argumentHint": "[--dry-run|--force]",
+            "body": "Write the rule files.
+",
+            "sourceFormat": "claude-md",
+          },
           "name": "caveman-init",
-          "sourceFormat": "claude-md",
         },
-        "kind": "command",
       },
       "description": "Drop the caveman rule into the repo",
-      "kind": "command",
+      "kind": "skill",
       "name": "caveman-init",
-      "origin": "caveman",
+      "notes": [
+        "from command caveman-init.md: installed as a skill, which a harness may also load on its own when it looks relevant",
+      ],
       "path": "commands/caveman-init.md",
       "plugin": "caveman",
-      "version": "2.7.0",
-    },
-    {
-      "def": {
-        "command": {
-          "body": "Switch to caveman {{args}} mode.",
-          "description": "Switch caveman level",
-          "name": "caveman",
-          "sourceFormat": "gemini-toml",
-        },
-        "kind": "command",
-      },
-      "description": "Switch caveman level",
-      "kind": "command",
-      "name": "caveman",
-      "origin": "caveman",
-      "path": "commands/caveman.toml",
-      "plugin": "caveman",
+      "source": "caveman",
       "version": "2.7.0",
     },
     {
       "def": {
         "hooks": {
+          "closure": {
+            "paths": [
+              "src/hooks/activate.js",
+            ],
+          },
           "dialect": "claude",
           "name": "caveman",
           "pluginRootRel": ".",
+          "promptHooks": [],
           "raw": {
             "hooks": {
               "SessionStart": [
@@ -624,14 +628,22 @@ exports[`scanOrigin snapshot per fixture > caveman-like 1`] = `
               ],
             },
           },
+          "references": [
+            {
+              "form": "plugin-root",
+              "raw": ""\${CLAUDE_PLUGIN_ROOT}/src/hooks/activate.js"",
+              "rel": "src/hooks/activate.js",
+              "site": "command",
+            },
+          ],
         },
         "kind": "hook",
       },
       "kind": "hook",
       "name": "caveman",
-      "origin": "caveman",
       "path": ".claude-plugin/plugin.json",
       "plugin": "caveman",
+      "source": "caveman",
       "version": "2.7.0",
     },
     {
@@ -652,12 +664,8 @@ exports[`scanOrigin snapshot per fixture > caveman-like 1`] = `
             "name": "cavecrew-builder",
           },
           {
-            "kind": "command",
+            "kind": "skill",
             "name": "caveman-init",
-          },
-          {
-            "kind": "command",
-            "name": "caveman",
           },
           {
             "kind": "hook",
@@ -668,19 +676,20 @@ exports[`scanOrigin snapshot per fixture > caveman-like 1`] = `
       "description": "Ultra-compressed communication mode.",
       "kind": "plugin",
       "name": "caveman",
-      "origin": "caveman",
       "path": ".",
+      "source": "caveman",
       "version": "2.7.0",
     },
   ],
   "warnings": [
-    "duplicate command "caveman-init" at commands/caveman-init.toml ignored (already indexed from commands/caveman-init.md)",
+    "duplicate skill "caveman-init" at commands/caveman-init.toml ignored (already indexed from commands/caveman-init.md)",
+    "command commands/caveman.toml dropped: skill "caveman" at skills/caveman has the same name",
     "duplicate skill "caveman" at plugins/caveman/skills/caveman ignored (already indexed from skills/caveman)",
   ],
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > claude-plugins-official-like 1`] = `
+exports[`scanSource snapshot per fixture > claude-plugins-official-like 1`] = `
 {
   "detected": "marketplace",
   "entities": [
@@ -705,9 +714,9 @@ exports[`scanOrigin snapshot per fixture > claude-plugins-official-like 1`] = `
       "description": "Helps with Agent SDK questions.",
       "kind": "skill",
       "name": "sdk-helper",
-      "origin": "claude-plugins-official",
       "path": "plugins/agent-sdk-dev/skills/sdk-helper",
       "plugin": "agent-sdk-dev",
+      "source": "claude-plugins-official",
       "version": "1.10",
     },
     {
@@ -738,37 +747,48 @@ exports[`scanOrigin snapshot per fixture > claude-plugins-official-like 1`] = `
       "description": "Use this agent to verify a Python Agent SDK app. Examples: <example>Context: user created an app</example>",
       "kind": "agent",
       "name": "agent-sdk-verifier-py",
-      "origin": "claude-plugins-official",
       "path": "plugins/agent-sdk-dev/agents/agent-sdk-verifier-py.md",
       "plugin": "agent-sdk-dev",
+      "source": "claude-plugins-official",
       "version": "1.0.0",
     },
     {
       "def": {
-        "command": {
-          "argumentHint": "[project-name]",
-          "body": "You are tasked with helping the user create a new Claude Agent SDK application.
-",
+        "kind": "skill",
+        "skill": {
           "description": "Create and setup a new Claude Agent SDK application",
+          "fromCommand": {
+            "argumentHint": "[project-name]",
+            "body": "You are tasked with helping the user create a new Claude Agent SDK application.
+",
+            "sourceFormat": "claude-md",
+          },
           "name": "new-sdk-app",
-          "sourceFormat": "claude-md",
         },
-        "kind": "command",
       },
       "description": "Create and setup a new Claude Agent SDK application",
-      "kind": "command",
+      "kind": "skill",
       "name": "new-sdk-app",
-      "origin": "claude-plugins-official",
+      "notes": [
+        "from command new-sdk-app.md: installed as a skill, which a harness may also load on its own when it looks relevant",
+      ],
       "path": "plugins/agent-sdk-dev/commands/new-sdk-app.md",
       "plugin": "agent-sdk-dev",
+      "source": "claude-plugins-official",
       "version": "1.0.0",
     },
     {
       "def": {
         "hooks": {
+          "closure": {
+            "paths": [
+              "plugins/agent-sdk-dev/hooks",
+            ],
+          },
           "dialect": "claude",
           "name": "agent-sdk-dev",
           "pluginRootRel": "plugins/agent-sdk-dev",
+          "promptHooks": [],
           "raw": {
             "description": "Guard edits",
             "hooks": {
@@ -786,14 +806,22 @@ exports[`scanOrigin snapshot per fixture > claude-plugins-official-like 1`] = `
               ],
             },
           },
+          "references": [
+            {
+              "form": "plugin-root",
+              "raw": "\${CLAUDE_PLUGIN_ROOT}/hooks/guard.py",
+              "rel": "plugins/agent-sdk-dev/hooks/guard.py",
+              "site": "command",
+            },
+          ],
         },
         "kind": "hook",
       },
       "kind": "hook",
       "name": "agent-sdk-dev",
-      "origin": "claude-plugins-official",
       "path": "plugins/agent-sdk-dev/hooks/hooks.json",
       "plugin": "agent-sdk-dev",
+      "source": "claude-plugins-official",
       "version": "1.0.0",
     },
     {
@@ -810,7 +838,7 @@ exports[`scanOrigin snapshot per fixture > claude-plugins-official-like 1`] = `
             "name": "agent-sdk-verifier-py",
           },
           {
-            "kind": "command",
+            "kind": "skill",
             "name": "new-sdk-app",
           },
           {
@@ -822,14 +850,21 @@ exports[`scanOrigin snapshot per fixture > claude-plugins-official-like 1`] = `
       "description": "Agent SDK dev kit",
       "kind": "plugin",
       "name": "agent-sdk-dev",
-      "origin": "claude-plugins-official",
       "path": "plugins/agent-sdk-dev",
+      "source": "claude-plugins-official",
       "version": "1.0.0",
     },
     {
       "def": {
+        "closure": {
+          "paths": [],
+        },
         "kind": "mcp",
         "mcp": {
+          "from": {
+            "ref": "claude-plugins-official",
+            "type": "source",
+          },
           "headers": {
             "Authorization": "Bearer \${GITHUB_PERSONAL_ACCESS_TOKEN}",
           },
@@ -843,19 +878,16 @@ exports[`scanOrigin snapshot per fixture > claude-plugins-official-like 1`] = `
               "required": true,
             },
           ],
-          "source": {
-            "ref": "claude-plugins-official",
-            "type": "origin",
-          },
           "transport": "http",
           "url": "https://api.githubcopilot.com/mcp/",
         },
+        "references": [],
       },
       "kind": "mcp",
       "name": "github",
-      "origin": "claude-plugins-official",
       "path": "external_plugins/github/.mcp.json",
       "plugin": "github",
+      "source": "claude-plugins-official",
     },
     {
       "def": {
@@ -871,13 +903,20 @@ exports[`scanOrigin snapshot per fixture > claude-plugins-official-like 1`] = `
       "description": "Official GitHub MCP server",
       "kind": "plugin",
       "name": "github",
-      "origin": "claude-plugins-official",
       "path": "external_plugins/github",
+      "source": "claude-plugins-official",
     },
     {
       "def": {
+        "closure": {
+          "paths": [],
+        },
         "kind": "mcp",
         "mcp": {
+          "from": {
+            "ref": "claude-plugins-official",
+            "type": "source",
+          },
           "headers": {
             "Authorization": "\${CONTEXT7_API_KEY:-}",
           },
@@ -890,22 +929,22 @@ exports[`scanOrigin snapshot per fixture > claude-plugins-official-like 1`] = `
               "required": false,
             },
           ],
-          "source": {
-            "ref": "claude-plugins-official",
-            "type": "origin",
-          },
           "transport": "http",
           "url": "https://mcp.context7.com/mcp",
         },
+        "references": [],
       },
       "kind": "mcp",
       "name": "context7",
-      "origin": "claude-plugins-official",
       "path": "external_plugins/context7/.mcp.json",
       "plugin": "context7",
+      "source": "claude-plugins-official",
     },
     {
       "def": {
+        "closure": {
+          "paths": [],
+        },
         "kind": "mcp",
         "mcp": {
           "args": [
@@ -917,6 +956,10 @@ exports[`scanOrigin snapshot per fixture > claude-plugins-official-like 1`] = `
           "env": {
             "FS_TOKEN": "\${FS_TOKEN}",
           },
+          "from": {
+            "ref": "claude-plugins-official",
+            "type": "source",
+          },
           "name": "fs",
           "secrets": [
             {
@@ -925,18 +968,15 @@ exports[`scanOrigin snapshot per fixture > claude-plugins-official-like 1`] = `
               "required": true,
             },
           ],
-          "source": {
-            "ref": "claude-plugins-official",
-            "type": "origin",
-          },
           "transport": "stdio",
         },
+        "references": [],
       },
       "kind": "mcp",
       "name": "fs",
-      "origin": "claude-plugins-official",
       "path": "external_plugins/context7/.mcp.json",
       "plugin": "context7",
+      "source": "claude-plugins-official",
     },
     {
       "def": {
@@ -956,26 +996,29 @@ exports[`scanOrigin snapshot per fixture > claude-plugins-official-like 1`] = `
       "description": "Context7 docs lookup",
       "kind": "plugin",
       "name": "context7",
-      "origin": "claude-plugins-official",
       "path": "external_plugins/context7",
+      "source": "claude-plugins-official",
     },
   ],
   "warnings": [
     "plugin clangd-lsp: lspServers not supported by palm (ignored)",
     "plugin "clangd-lsp" at plugins/clangd-lsp has no installable components; skipped",
-    "remote plugin "42crunch" (https://github.com/42Crunch-AI/claude-plugins.git (plugins/api-security-testing)@faf5305385de) not fetched → add it as an origin: palm install origin https://github.com/42Crunch-AI/claude-plugins.git#v1.5.5 --root plugins/api-security-testing",
-    "remote plugin "agentforce-adlc" (https://github.com/SalesforceAIResearch/agentforce-adlc.git@09bf1539d41f) not fetched → add it as an origin: palm install origin https://github.com/SalesforceAIResearch/agentforce-adlc.git",
+    "remote plugin "42crunch" (https://github.com/42Crunch-AI/claude-plugins.git (plugins/api-security-testing)@faf5305385de) not fetched: declare it: palm install 42Crunch-AI/claude-plugins/plugins/api-security-testing#faf5305385de8afed9468904e8639be737aff39e <names>",
+    "remote plugin "agentforce-adlc" (https://github.com/SalesforceAIResearch/agentforce-adlc.git@09bf1539d41f) not fetched: declare it: palm install SalesforceAIResearch/agentforce-adlc#09bf1539d41f9ff355ba3eb5d05d4a75813423bb <names>",
     "plugin "npm-plugin": unsupported source npm:@acme/plugin; skipped",
   ],
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > codex-agent-like 1`] = `
+exports[`scanSource snapshot per fixture > codex-agent-like 1`] = `
 {
   "detected": "convention",
   "entities": [
     {
       "def": {
+        "closure": {
+          "paths": [],
+        },
         "kind": "mcp",
         "mcp": {
           "args": [
@@ -983,18 +1026,19 @@ exports[`scanOrigin snapshot per fixture > codex-agent-like 1`] = `
             "server-fs",
           ],
           "command": "npx",
-          "name": "local-fs",
-          "source": {
+          "from": {
             "ref": "codex-agent",
-            "type": "origin",
+            "type": "source",
           },
+          "name": "local-fs",
           "transport": "stdio",
         },
+        "references": [],
       },
       "kind": "mcp",
       "name": "local-fs",
-      "origin": "codex-agent",
       "path": ".mcp.json",
+      "source": "codex-agent",
     },
     {
       "def": {
@@ -1024,49 +1068,65 @@ Prioritize correctness, security, behavior regressions.
       "description": "PR reviewer focused on correctness and security.",
       "kind": "agent",
       "name": "reviewer",
-      "origin": "codex-agent",
       "path": "agents/reviewer.toml",
+      "source": "codex-agent",
     },
     {
       "def": {
-        "command": {
-          "body": "Review {{args}} carefully.",
+        "kind": "skill",
+        "skill": {
           "description": "Review the diff",
+          "fromCommand": {
+            "body": "Review {{args}} carefully.",
+            "sourceFormat": "gemini-toml",
+          },
           "name": "review",
-          "sourceFormat": "gemini-toml",
         },
-        "kind": "command",
       },
       "description": "Review the diff",
-      "kind": "command",
+      "kind": "skill",
       "name": "review",
-      "origin": "codex-agent",
+      "notes": [
+        "from command review.toml: installed as a skill, which a harness may also load on its own when it looks relevant",
+      ],
       "path": "commands/review.toml",
+      "source": "codex-agent",
     },
     {
       "def": {
-        "command": {
-          "argumentHint": "[--dry-run]",
-          "body": "Ship the change.
-",
+        "kind": "skill",
+        "skill": {
           "description": "Ship it",
+          "fromCommand": {
+            "argumentHint": "[--dry-run]",
+            "body": "Ship the change.
+",
+            "sourceFormat": "claude-md",
+          },
           "name": "ship",
-          "sourceFormat": "claude-md",
         },
-        "kind": "command",
       },
       "description": "Ship it",
-      "kind": "command",
+      "kind": "skill",
       "name": "ship",
-      "origin": "codex-agent",
+      "notes": [
+        "from command ship.md: installed as a skill, which a harness may also load on its own when it looks relevant",
+      ],
       "path": "commands/ship.md",
+      "source": "codex-agent",
     },
     {
       "def": {
         "hooks": {
+          "closure": {
+            "paths": [
+              "hooks",
+            ],
+          },
           "dialect": "gemini",
           "name": "codex-agent",
           "pluginRootRel": ".",
+          "promptHooks": [],
           "raw": {
             "hooks": {
               "BeforeTool": [
@@ -1082,34 +1142,56 @@ Prioritize correctness, security, behavior regressions.
               ],
             },
           },
+          "references": [
+            {
+              "form": "relative",
+              "raw": "./check.sh",
+              "site": "command",
+              "unresolved": "no such file in the source",
+            },
+          ],
         },
         "kind": "hook",
       },
+      "issues": [
+        {
+          "code": "unresolvable-reference",
+          "file": "hooks/hooks.json",
+          "message": "hooks/hooks.json: cannot relocate "./check.sh" in command "./check.sh": no such file in the source",
+          "severity": "critical",
+        },
+      ],
       "kind": "hook",
       "name": "codex-agent",
-      "origin": "codex-agent",
       "path": "hooks/hooks.json",
+      "source": "codex-agent",
     },
     {
       "def": {
-        "command": {
-          "body": "Explain the selection.
-",
+        "kind": "skill",
+        "skill": {
           "description": "Explain code",
+          "fromCommand": {
+            "body": "Explain the selection.
+",
+            "sourceFormat": "prompt-md",
+          },
           "name": "explain",
-          "sourceFormat": "prompt-md",
         },
-        "kind": "command",
       },
       "description": "Explain code",
-      "kind": "command",
+      "kind": "skill",
       "name": "explain",
-      "origin": "codex-agent",
+      "notes": [
+        "from command explain.prompt.md: installed as a skill, which a harness may also load on its own when it looks relevant",
+      ],
       "path": "prompts/explain.prompt.md",
+      "source": "codex-agent",
     },
     {
       "def": {
         "instruction": {
+          "activation": "paths",
           "alwaysApply": false,
           "body": "Use 2 spaces.
 ",
@@ -1125,17 +1207,18 @@ Prioritize correctness, security, behavior regressions.
       "description": "Style",
       "kind": "instruction",
       "name": "style",
-      "origin": "codex-agent",
       "path": "rules/style.mdc",
+      "source": "codex-agent",
     },
   ],
   "warnings": [
     "skipped agents/partial.md: agent file without name/description frontmatter",
+    "unresolvable-reference: hook "codex-agent" (critical): hooks/hooks.json: cannot relocate "./check.sh" in command "./check.sh": no such file in the source",
   ],
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > cursor-monorepo-like 1`] = `
+exports[`scanSource snapshot per fixture > cursor-monorepo-like 1`] = `
 {
   "detected": "marketplace",
   "entities": [
@@ -1150,9 +1233,9 @@ exports[`scanOrigin snapshot per fixture > cursor-monorepo-like 1`] = `
       "description": "Route work through the pstack workflow.",
       "kind": "skill",
       "name": "poteto-mode",
-      "origin": "cursor-monorepo",
       "path": "pstack/skills/poteto-mode",
       "plugin": "pstack",
+      "source": "cursor-monorepo",
       "version": "0.14.2",
     },
     {
@@ -1169,9 +1252,9 @@ exports[`scanOrigin snapshot per fixture > cursor-monorepo-like 1`] = `
       "description": "Use only when the user explicitly asks for TDD.",
       "kind": "skill",
       "name": "tdd",
-      "origin": "cursor-monorepo",
       "path": "pstack/skills/tdd",
       "plugin": "pstack",
+      "source": "cursor-monorepo",
       "version": "0.14.2",
     },
     {
@@ -1191,9 +1274,9 @@ I hate comments.
       "description": "A deranged comment-hater that savors deletion.",
       "kind": "agent",
       "name": "comment-sicko",
-      "origin": "cursor-monorepo",
       "path": "pstack/agents/comment-sicko.md",
       "plugin": "pstack",
+      "source": "cursor-monorepo",
       "version": "0.14.2",
     },
     {
@@ -1218,29 +1301,32 @@ I hate comments.
       "description": "if you want to go fast, go deep first.",
       "kind": "plugin",
       "name": "pstack",
-      "origin": "cursor-monorepo",
       "path": "pstack",
+      "source": "cursor-monorepo",
       "version": "0.14.2",
     },
     {
       "def": {
+        "closure": {
+          "paths": [],
+        },
         "kind": "mcp",
         "mcp": {
-          "name": "ahrefs",
-          "source": {
+          "from": {
             "ref": "cursor-monorepo",
-            "type": "origin",
-            "version": "1.0.0",
+            "type": "source",
           },
+          "name": "ahrefs",
           "transport": "http",
           "url": "https://api.ahrefs.com/mcp/mcp",
         },
+        "references": [],
       },
       "kind": "mcp",
       "name": "ahrefs",
-      "origin": "cursor-monorepo",
       "path": "third_party/ahrefs/mcp.json",
       "plugin": "ahrefs",
+      "source": "cursor-monorepo",
       "version": "1.0.0",
     },
     {
@@ -1257,8 +1343,8 @@ I hate comments.
       "description": "Research keywords.",
       "kind": "plugin",
       "name": "ahrefs",
-      "origin": "cursor-monorepo",
       "path": "third_party/ahrefs",
+      "source": "cursor-monorepo",
       "version": "1.0.0",
     },
     {
@@ -1272,9 +1358,9 @@ I hate comments.
       "description": "Watch CI and fix failures.",
       "kind": "skill",
       "name": "ci-watch",
-      "origin": "cursor-monorepo",
       "path": "team-kit/skills/ci-watch",
       "plugin": "cursor-team-kit",
+      "source": "cursor-monorepo",
       "version": "1.2.0",
     },
     {
@@ -1295,14 +1381,15 @@ I hate comments.
       "description": "Watches CI runs.",
       "kind": "agent",
       "name": "ci-watcher",
-      "origin": "cursor-monorepo",
       "path": "team-kit/agents/ci-watcher.md",
       "plugin": "cursor-team-kit",
+      "source": "cursor-monorepo",
       "version": "1.2.0",
     },
     {
       "def": {
         "instruction": {
+          "activation": "always",
           "alwaysApply": true,
           "body": "# No inline imports
 
@@ -1317,14 +1404,15 @@ Always place imports at the top.
       "description": "Keep imports at top of file",
       "kind": "instruction",
       "name": "no-inline-imports",
-      "origin": "cursor-monorepo",
       "path": "team-kit/rules/no-inline-imports.mdc",
       "plugin": "cursor-team-kit",
+      "source": "cursor-monorepo",
       "version": "1.2.0",
     },
     {
       "def": {
         "instruction": {
+          "activation": "paths",
           "alwaysApply": false,
           "body": "Use exhaustive switches.
 ",
@@ -1341,17 +1429,23 @@ Always place imports at the top.
       "description": "TypeScript conventions",
       "kind": "instruction",
       "name": "typescript",
-      "origin": "cursor-monorepo",
       "path": "team-kit/rules/typescript.mdc",
       "plugin": "cursor-team-kit",
+      "source": "cursor-monorepo",
       "version": "1.2.0",
     },
     {
       "def": {
         "hooks": {
+          "closure": {
+            "paths": [
+              "team-kit/hooks",
+            ],
+          },
           "dialect": "cursor",
           "name": "cursor-team-kit",
           "pluginRootRel": "team-kit",
+          "promptHooks": [],
           "raw": {
             "hooks": {
               "afterFileEdit": [
@@ -1368,14 +1462,28 @@ Always place imports at the top.
             },
             "version": 1,
           },
+          "references": [
+            {
+              "form": "plugin-root",
+              "raw": ""\${CURSOR_PLUGIN_ROOT}/hooks/mark.sh"",
+              "rel": "team-kit/hooks/mark.sh",
+              "site": "command",
+            },
+            {
+              "form": "relative",
+              "raw": "./hooks/record.sh",
+              "rel": "team-kit/hooks/record.sh",
+              "site": "command",
+            },
+          ],
         },
         "kind": "hook",
       },
       "kind": "hook",
       "name": "cursor-team-kit",
-      "origin": "cursor-monorepo",
       "path": "team-kit/hooks/hooks.json",
       "plugin": "cursor-team-kit",
+      "source": "cursor-monorepo",
       "version": "1.2.0",
     },
     {
@@ -1412,8 +1520,8 @@ Always place imports at the top.
       "description": "Internal team workflows.",
       "kind": "plugin",
       "name": "cursor-team-kit",
-      "origin": "cursor-monorepo",
       "path": "team-kit",
+      "source": "cursor-monorepo",
       "version": "1.2.0",
     },
     {
@@ -1427,21 +1535,21 @@ Always place imports at the top.
       "description": "Configure Benny.",
       "kind": "skill",
       "name": "setup-benny",
-      "origin": "cursor-monorepo",
       "path": "pstack/automations/benny/skills/setup-benny",
+      "source": "cursor-monorepo",
     },
   ],
   "warnings": [
     "pstack/skills/poteto-mode/SKILL.md: frontmatter name "Poteto Mode" is not a valid slug; using "poteto-mode"",
     "duplicate skill "tdd" at team-kit/skills/tdd ignored (already indexed from pstack/skills/tdd)",
-    "remote plugin "far-away" (github:acme/far-away#v1.0.0) not fetched → add it as an origin: palm install origin acme/far-away#v1.0.0",
+    "remote plugin "far-away" (github:acme/far-away#v1.0.0) not fetched: declare it: palm install acme/far-away#v1.0.0 <names>",
     "plugin "missing-dir": source directory does-not-exist not found; skipped",
     "plugin "pstack" at pstack does not declare 1 skill (setup-benny); indexed standalone",
   ],
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > descriptor-like 1`] = `
+exports[`scanSource snapshot per fixture > descriptor-like 1`] = `
 {
   "detected": "convention",
   "entities": [
@@ -1456,8 +1564,8 @@ exports[`scanOrigin snapshot per fixture > descriptor-like 1`] = `
       "description": "Alpha skill.",
       "kind": "skill",
       "name": "alpha",
-      "origin": "descriptor",
       "path": "catalog/skills/alpha",
+      "source": "descriptor",
     },
     {
       "def": {
@@ -1471,8 +1579,8 @@ exports[`scanOrigin snapshot per fixture > descriptor-like 1`] = `
       "description": "Beta skill whose frontmatter name differs.",
       "kind": "skill",
       "name": "beta-renamed",
-      "origin": "descriptor",
       "path": "catalog/skills/beta",
+      "source": "descriptor",
     },
     {
       "def": {
@@ -1485,8 +1593,8 @@ exports[`scanOrigin snapshot per fixture > descriptor-like 1`] = `
       "description": "Gamma skill (excluded by the descriptor).",
       "kind": "skill",
       "name": "gamma",
-      "origin": "descriptor",
       "path": "catalog/skills/gamma",
+      "source": "descriptor",
     },
     {
       "def": {
@@ -1499,8 +1607,8 @@ exports[`scanOrigin snapshot per fixture > descriptor-like 1`] = `
       "description": "Not matched by the descriptor globs.",
       "kind": "skill",
       "name": "ignored-by-descriptor",
-      "origin": "descriptor",
       "path": "other/skills/ignored-by-descriptor",
+      "source": "descriptor",
     },
     {
       "def": {
@@ -1516,8 +1624,8 @@ exports[`scanOrigin snapshot per fixture > descriptor-like 1`] = `
       "description": "would be found by convention only",
       "kind": "agent",
       "name": "conventional",
-      "origin": "descriptor",
       "path": "agents/conventional.md",
+      "source": "descriptor",
     },
   ],
   "warnings": [
@@ -1526,7 +1634,7 @@ exports[`scanOrigin snapshot per fixture > descriptor-like 1`] = `
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > descriptor-like with a layout descriptor 1`] = `
+exports[`scanSource snapshot per fixture > descriptor-like with a layout descriptor 1`] = `
 {
   "detected": "descriptor",
   "entities": [
@@ -1541,8 +1649,8 @@ exports[`scanOrigin snapshot per fixture > descriptor-like with a layout descrip
       "description": "Alpha skill.",
       "kind": "skill",
       "name": "alpha",
-      "origin": "descriptor",
       "path": "catalog/skills/alpha",
+      "source": "descriptor",
     },
     {
       "def": {
@@ -1556,8 +1664,8 @@ exports[`scanOrigin snapshot per fixture > descriptor-like with a layout descrip
       "description": "Beta skill whose frontmatter name differs.",
       "kind": "skill",
       "name": "beta-renamed",
-      "origin": "descriptor",
       "path": "catalog/skills/beta",
+      "source": "descriptor",
     },
     {
       "def": {
@@ -1573,8 +1681,8 @@ exports[`scanOrigin snapshot per fixture > descriptor-like with a layout descrip
       "description": "Reviews code",
       "kind": "agent",
       "name": "reviewer",
-      "origin": "descriptor",
       "path": "catalog/people/reviewer.md",
+      "source": "descriptor",
     },
     {
       "def": {
@@ -1590,8 +1698,8 @@ exports[`scanOrigin snapshot per fixture > descriptor-like with a layout descrip
       "description": "helper agent living in a tests dir",
       "kind": "agent",
       "name": "helper",
-      "origin": "descriptor",
       "path": "catalog/tests/helper.md",
+      "source": "descriptor",
     },
   ],
   "warnings": [
@@ -1600,7 +1708,7 @@ exports[`scanOrigin snapshot per fixture > descriptor-like with a layout descrip
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > hidden-unicode-like 1`] = `
+exports[`scanSource snapshot per fixture > hidden-unicode-like 1`] = `
 {
   "detected": "convention",
   "entities": [
@@ -1623,8 +1731,8 @@ exports[`scanOrigin snapshot per fixture > hidden-unicode-like 1`] = `
       ],
       "kind": "skill",
       "name": "bidi-override",
-      "origin": "hidden-unicode",
       "path": "skills/bidi-override",
+      "source": "hidden-unicode",
     },
     {
       "def": {
@@ -1637,8 +1745,8 @@ exports[`scanOrigin snapshot per fixture > hidden-unicode-like 1`] = `
       "description": "A family of emoji is fine.",
       "kind": "skill",
       "name": "clean",
-      "origin": "hidden-unicode",
       "path": "skills/clean",
+      "source": "hidden-unicode",
     },
     {
       "def": {
@@ -1659,8 +1767,8 @@ exports[`scanOrigin snapshot per fixture > hidden-unicode-like 1`] = `
       ],
       "kind": "skill",
       "name": "zero-width",
-      "origin": "hidden-unicode",
       "path": "skills/zero-width",
+      "source": "hidden-unicode",
     },
     {
       "def": {
@@ -1684,8 +1792,8 @@ exports[`scanOrigin snapshot per fixture > hidden-unicode-like 1`] = `
       ],
       "kind": "agent",
       "name": "tagged",
-      "origin": "hidden-unicode",
       "path": "agents/tagged.md",
+      "source": "hidden-unicode",
     },
   ],
   "warnings": [
@@ -1696,7 +1804,7 @@ exports[`scanOrigin snapshot per fixture > hidden-unicode-like 1`] = `
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > marketplaces 1`] = `
+exports[`scanSource snapshot per fixture > marketplaces 1`] = `
 {
   "detected": "empty",
   "entities": [],
@@ -1704,7 +1812,7 @@ exports[`scanOrigin snapshot per fixture > marketplaces 1`] = `
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > mattpocock-like 1`] = `
+exports[`scanSource snapshot per fixture > mattpocock-like 1`] = `
 {
   "detected": "marketplace",
   "entities": [
@@ -1719,9 +1827,9 @@ exports[`scanOrigin snapshot per fixture > mattpocock-like 1`] = `
       "description": "Test-driven development with red-green-refactor.",
       "kind": "skill",
       "name": "tdd",
-      "origin": "mattpocock",
       "path": "skills/engineering/tdd",
       "plugin": "mattpocock-skills",
+      "source": "mattpocock",
       "version": "1.2.3",
     },
     {
@@ -1735,9 +1843,9 @@ exports[`scanOrigin snapshot per fixture > mattpocock-like 1`] = `
       "description": "Interview the user relentlessly about a plan.",
       "kind": "skill",
       "name": "grill-me",
-      "origin": "mattpocock",
       "path": "skills/engineering/grill-me",
       "plugin": "mattpocock-skills",
+      "source": "mattpocock",
       "version": "1.2.3",
     },
     {
@@ -1751,9 +1859,9 @@ exports[`scanOrigin snapshot per fixture > mattpocock-like 1`] = `
       "description": "Write a handoff note for the next session.",
       "kind": "skill",
       "name": "handoff",
-      "origin": "mattpocock",
       "path": "skills/productivity/handoff",
       "plugin": "mattpocock-skills",
+      "source": "mattpocock",
       "version": "1.2.3",
     },
     {
@@ -1778,8 +1886,8 @@ exports[`scanOrigin snapshot per fixture > mattpocock-like 1`] = `
       "description": "Matt Pocock's agent skills for real engineering.",
       "kind": "plugin",
       "name": "mattpocock-skills",
-      "origin": "mattpocock",
       "path": ".",
+      "source": "mattpocock",
       "version": "1.2.3",
     },
     {
@@ -1793,8 +1901,8 @@ exports[`scanOrigin snapshot per fixture > mattpocock-like 1`] = `
       "description": "An old skill kept for reference.",
       "kind": "skill",
       "name": "old-thing",
-      "origin": "mattpocock",
       "path": "skills/deprecated/old-thing",
+      "source": "mattpocock",
     },
     {
       "def": {
@@ -1807,8 +1915,8 @@ exports[`scanOrigin snapshot per fixture > mattpocock-like 1`] = `
       "description": "Block dangerous git commands.",
       "kind": "skill",
       "name": "git-guardrails",
-      "origin": "mattpocock",
       "path": "skills/misc/git-guardrails",
+      "source": "mattpocock",
     },
   ],
   "warnings": [
@@ -1817,7 +1925,7 @@ exports[`scanOrigin snapshot per fixture > mattpocock-like 1`] = `
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > nested-plugins-like 1`] = `
+exports[`scanSource snapshot per fixture > nested-plugins-like 1`] = `
 {
   "detected": "plugin-manifest",
   "entities": [
@@ -1832,28 +1940,33 @@ exports[`scanOrigin snapshot per fixture > nested-plugins-like 1`] = `
       "description": "Alpha skill.",
       "kind": "skill",
       "name": "alpha-skill",
-      "origin": "nested-plugins",
       "path": "plugins/alpha/skills/alpha-skill",
       "plugin": "alpha",
+      "source": "nested-plugins",
       "version": "0.1.0",
     },
     {
       "def": {
-        "command": {
-          "body": "Go now.
-",
+        "kind": "skill",
+        "skill": {
           "description": "Go",
+          "fromCommand": {
+            "body": "Go now.
+",
+            "sourceFormat": "claude-md",
+          },
           "name": "go",
-          "sourceFormat": "claude-md",
         },
-        "kind": "command",
       },
       "description": "Go",
-      "kind": "command",
+      "kind": "skill",
       "name": "go",
-      "origin": "nested-plugins",
+      "notes": [
+        "from command go.md: installed as a skill, which a harness may also load on its own when it looks relevant",
+      ],
       "path": "plugins/alpha/commands/go.md",
       "plugin": "alpha",
+      "source": "nested-plugins",
       "version": "0.1.0",
     },
     {
@@ -1866,54 +1979,62 @@ exports[`scanOrigin snapshot per fixture > nested-plugins-like 1`] = `
             "name": "alpha-skill",
           },
           {
-            "kind": "command",
+            "kind": "skill",
             "name": "go",
           },
         ],
       },
       "kind": "plugin",
       "name": "alpha",
-      "origin": "nested-plugins",
       "path": "plugins/alpha",
+      "source": "nested-plugins",
       "version": "0.1.0",
     },
     {
       "def": {
-        "command": {
-          "body": "Say hello.",
+        "kind": "skill",
+        "skill": {
           "description": "Say hello",
+          "fromCommand": {
+            "body": "Say hello.",
+            "sourceFormat": "gemini-toml",
+          },
           "name": "hello",
-          "sourceFormat": "gemini-toml",
         },
-        "kind": "command",
       },
       "description": "Say hello",
-      "kind": "command",
+      "kind": "skill",
       "name": "hello",
-      "origin": "nested-plugins",
+      "notes": [
+        "from command hello.toml: installed as a skill, which a harness may also load on its own when it looks relevant",
+      ],
       "path": "plugins/beta/commands/hello.toml",
       "plugin": "beta",
+      "source": "nested-plugins",
       "version": "0.2.0",
     },
     {
       "def": {
+        "closure": {
+          "paths": [],
+        },
         "kind": "mcp",
         "mcp": {
-          "name": "beta-server",
-          "source": {
+          "from": {
             "ref": "nested-plugins",
-            "type": "origin",
-            "version": "0.2.0",
+            "type": "source",
           },
+          "name": "beta-server",
           "transport": "http",
           "url": "https://beta.example.com/mcp",
         },
+        "references": [],
       },
       "kind": "mcp",
       "name": "beta-server",
-      "origin": "nested-plugins",
       "path": "plugins/beta/gemini-extension.json",
       "plugin": "beta",
+      "source": "nested-plugins",
       "version": "0.2.0",
     },
     {
@@ -1922,7 +2043,7 @@ exports[`scanOrigin snapshot per fixture > nested-plugins-like 1`] = `
         "manifestPath": "plugins/beta/gemini-extension.json",
         "members": [
           {
-            "kind": "command",
+            "kind": "skill",
             "name": "hello",
           },
           {
@@ -1933,8 +2054,8 @@ exports[`scanOrigin snapshot per fixture > nested-plugins-like 1`] = `
       },
       "kind": "plugin",
       "name": "beta",
-      "origin": "nested-plugins",
       "path": "plugins/beta",
+      "source": "nested-plugins",
       "version": "0.2.0",
     },
     {
@@ -1948,15 +2069,15 @@ exports[`scanOrigin snapshot per fixture > nested-plugins-like 1`] = `
       "description": "A standalone skill.",
       "kind": "skill",
       "name": "loose",
-      "origin": "nested-plugins",
       "path": "skills/loose",
+      "source": "nested-plugins",
     },
   ],
   "warnings": [],
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > openai-like 1`] = `
+exports[`scanSource snapshot per fixture > openai-like 1`] = `
 {
   "detected": "convention",
   "entities": [
@@ -1971,8 +2092,8 @@ exports[`scanOrigin snapshot per fixture > openai-like 1`] = `
       "description": "Fix failing GitHub Actions checks.",
       "kind": "skill",
       "name": "gh-fix-ci",
-      "origin": "openai",
       "path": "skills/.curated/gh-fix-ci",
+      "source": "openai",
     },
     {
       "def": {
@@ -1985,8 +2106,8 @@ exports[`scanOrigin snapshot per fixture > openai-like 1`] = `
       "description": "Turn Notion specs into tickets.",
       "kind": "skill",
       "name": "notion-spec",
-      "origin": "openai",
       "path": "skills/.curated/notion-spec",
+      "source": "openai",
     },
     {
       "def": {
@@ -1999,8 +2120,8 @@ exports[`scanOrigin snapshot per fixture > openai-like 1`] = `
       "description": "Experimental.",
       "kind": "skill",
       "name": "beta-thing",
-      "origin": "openai",
       "path": "skills/.experimental/beta-thing",
+      "source": "openai",
     },
     {
       "def": {
@@ -2013,15 +2134,15 @@ exports[`scanOrigin snapshot per fixture > openai-like 1`] = `
       "description": "Create new skills.",
       "kind": "skill",
       "name": "skill-creator",
-      "origin": "openai",
       "path": "skills/.system/skill-creator",
+      "source": "openai",
     },
   ],
   "warnings": [],
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > openai-like with a layout descriptor 1`] = `
+exports[`scanSource snapshot per fixture > openai-like with a layout descriptor 1`] = `
 {
   "detected": "descriptor",
   "entities": [
@@ -2036,8 +2157,8 @@ exports[`scanOrigin snapshot per fixture > openai-like with a layout descriptor 
       "description": "Fix failing GitHub Actions checks.",
       "kind": "skill",
       "name": "gh-fix-ci",
-      "origin": "openai",
       "path": "skills/.curated/gh-fix-ci",
+      "source": "openai",
     },
     {
       "def": {
@@ -2050,15 +2171,15 @@ exports[`scanOrigin snapshot per fixture > openai-like with a layout descriptor 
       "description": "Turn Notion specs into tickets.",
       "kind": "skill",
       "name": "notion-spec",
-      "origin": "openai",
       "path": "skills/.curated/notion-spec",
+      "source": "openai",
     },
   ],
   "warnings": [],
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > root-skill-like 1`] = `
+exports[`scanSource snapshot per fixture > root-skill-like 1`] = `
 {
   "detected": "convention",
   "entities": [
@@ -2087,8 +2208,8 @@ exports[`scanOrigin snapshot per fixture > root-skill-like 1`] = `
       "description": "Research what happened in the last 30 days.",
       "kind": "skill",
       "name": "last30days",
-      "origin": "root-skill",
       "path": ".",
+      "source": "root-skill",
       "version": "2.1.0",
     },
   ],
@@ -2096,7 +2217,7 @@ exports[`scanOrigin snapshot per fixture > root-skill-like 1`] = `
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > superpowers-like 1`] = `
+exports[`scanSource snapshot per fixture > superpowers-like 1`] = `
 {
   "detected": "marketplace",
   "entities": [
@@ -2111,9 +2232,9 @@ exports[`scanOrigin snapshot per fixture > superpowers-like 1`] = `
       "description": "Use before any creative work: explore intent, requirements and design.",
       "kind": "skill",
       "name": "brainstorming",
-      "origin": "superpowers",
       "path": "skills/brainstorming",
       "plugin": "superpowers",
+      "source": "superpowers",
       "version": "6.4.2",
     },
     {
@@ -2127,9 +2248,9 @@ exports[`scanOrigin snapshot per fixture > superpowers-like 1`] = `
       "description": "Use when implementing any feature or bugfix, before writing implementation code.",
       "kind": "skill",
       "name": "test-driven-development",
-      "origin": "superpowers",
       "path": "skills/test-driven-development",
       "plugin": "superpowers",
+      "source": "superpowers",
       "version": "6.4.2",
     },
     {
@@ -2143,17 +2264,23 @@ exports[`scanOrigin snapshot per fixture > superpowers-like 1`] = `
       "description": "Use when creating or editing skills.",
       "kind": "skill",
       "name": "writing-skills",
-      "origin": "superpowers",
       "path": "skills/writing-skills",
       "plugin": "superpowers",
+      "source": "superpowers",
       "version": "6.4.2",
     },
     {
       "def": {
         "hooks": {
+          "closure": {
+            "paths": [
+              "hooks",
+            ],
+          },
           "dialect": "claude",
           "name": "superpowers",
           "pluginRootRel": ".",
+          "promptHooks": [],
           "raw": {
             "hooks": {
               "SessionStart": [
@@ -2170,14 +2297,22 @@ exports[`scanOrigin snapshot per fixture > superpowers-like 1`] = `
               ],
             },
           },
+          "references": [
+            {
+              "form": "plugin-root",
+              "raw": ""\${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd"",
+              "rel": "hooks/run-hook.cmd",
+              "site": "command",
+            },
+          ],
         },
         "kind": "hook",
       },
       "kind": "hook",
       "name": "superpowers",
-      "origin": "superpowers",
       "path": "hooks/hooks.json",
       "plugin": "superpowers",
+      "source": "superpowers",
       "version": "6.4.2",
     },
     {
@@ -2206,8 +2341,8 @@ exports[`scanOrigin snapshot per fixture > superpowers-like 1`] = `
       "description": "Core skills library for Claude Code",
       "kind": "plugin",
       "name": "superpowers",
-      "origin": "superpowers",
       "path": ".",
+      "source": "superpowers",
       "version": "6.4.2",
     },
   ],
@@ -2215,7 +2350,7 @@ exports[`scanOrigin snapshot per fixture > superpowers-like 1`] = `
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > vercel-like 1`] = `
+exports[`scanSource snapshot per fixture > vercel-like 1`] = `
 {
   "detected": "convention",
   "entities": [
@@ -2231,8 +2366,8 @@ exports[`scanOrigin snapshot per fixture > vercel-like 1`] = `
       "description": "Deploy the current project.",
       "kind": "skill",
       "name": "deploy-to-vercel",
-      "origin": "vercel",
       "path": "skills/Deploy To Vercel",
+      "source": "vercel",
     },
     {
       "def": {
@@ -2252,8 +2387,8 @@ exports[`scanOrigin snapshot per fixture > vercel-like 1`] = `
       "description": "React performance guidelines from Vercel.",
       "kind": "skill",
       "name": "vercel-react-best-practices",
-      "origin": "vercel",
       "path": "skills/react-best-practices",
+      "source": "vercel",
       "version": "1.0.0",
     },
     {
@@ -2267,8 +2402,8 @@ exports[`scanOrigin snapshot per fixture > vercel-like 1`] = `
       "description": "Review UI code for web interface guidelines.",
       "kind": "skill",
       "name": "web-design-guidelines",
-      "origin": "vercel",
       "path": "skills/web-design-guidelines",
+      "source": "vercel",
     },
   ],
   "warnings": [
@@ -2278,7 +2413,7 @@ exports[`scanOrigin snapshot per fixture > vercel-like 1`] = `
 }
 `;
 
-exports[`scanOrigin snapshot per fixture > voltagent-like 1`] = `
+exports[`scanSource snapshot per fixture > voltagent-like 1`] = `
 {
   "detected": "marketplace",
   "entities": [
@@ -2305,9 +2440,9 @@ exports[`scanOrigin snapshot per fixture > voltagent-like 1`] = `
       "description": "API architecture expert",
       "kind": "agent",
       "name": "api-designer",
-      "origin": "voltagent",
       "path": "categories/01-core-development/api-designer.md",
       "plugin": "voltagent-core-dev",
+      "source": "voltagent",
       "version": "1.0.4",
     },
     {
@@ -2328,9 +2463,9 @@ exports[`scanOrigin snapshot per fixture > voltagent-like 1`] = `
       "description": "Senior backend engineer",
       "kind": "agent",
       "name": "backend-developer",
-      "origin": "voltagent",
       "path": "categories/01-core-development/backend-developer.md",
       "plugin": "voltagent-core-dev",
+      "source": "voltagent",
       "version": "1.0.4",
     },
     {
@@ -2350,8 +2485,8 @@ exports[`scanOrigin snapshot per fixture > voltagent-like 1`] = `
       },
       "kind": "plugin",
       "name": "voltagent-core-dev",
-      "origin": "voltagent",
       "path": "categories/01-core-development",
+      "source": "voltagent",
       "version": "1.0.4",
     },
   ],

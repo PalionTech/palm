@@ -1,17 +1,13 @@
 /**
- * Rule 1 (DESIGN §5): a layout descriptor on the origin replaces detection. Its globs are matched
- * against the file index (walked with the descriptor's own ignore rules), not the disk again.
+ * Rule 1 (DESIGN §5): a layout descriptor on the source replaces convention detection (the
+ * plugins a manifest or marketplace declares stay, scanner.ts `scanLayoutPlugins`). Its globs
+ * are matched against the file index (walked with the descriptor's own ignore rules), not the
+ * disk again.
  */
 
 import type { LayoutDescriptor } from '../../core/types.js';
-import {
-  addAgent,
-  addCommand,
-  addHookFile,
-  addInstruction,
-  addMcpFile,
-  addSkill,
-} from '../adders.js';
+import { addAgent, addCommandAsSkill, addInstruction, addSkill } from '../adders.js';
+import { addHookFile, addMcpFile } from '../exec-adders.js';
 import { byDepthThenPath } from '../files.js';
 import { globIndex } from '../glob.js';
 import { minimalIgnoreGlobs } from '../ignore.js';
@@ -37,31 +33,62 @@ async function globLayout(ctx: ScanContext, layout: LayoutDescriptor, v: Globs):
   return matches.sort(byDepthThenPath);
 }
 
-async function layoutFiles(
+/** Files one pattern matches (directories left out). */
+async function patternFiles(
   ctx: ScanContext,
   layout: LayoutDescriptor,
-  v: Globs,
+  p: string,
 ): Promise<string[]> {
-  return (await globLayout(ctx, layout, v)).filter((m) => !m.endsWith('/'));
+  return (await globLayout(ctx, layout, p)).filter((m) => !m.endsWith('/'));
 }
 
-/** Skill directories: matched SKILL.md files and matched directories that hold one. */
-async function layoutSkillDirs(ctx: ScanContext, layout: LayoutDescriptor): Promise<string[]> {
+/** Skill directories one pattern matches: matched SKILL.md files and directories holding one. */
+async function patternSkillDirs(
+  ctx: ScanContext,
+  layout: LayoutDescriptor,
+  p: string,
+): Promise<string[]> {
   const dirs: string[] = [];
-  for (const m of await globLayout(ctx, layout, layout.skills)) {
-    const p = m.replace(/\/$/, '');
-    if (baseOf(p) === 'SKILL.md') dirs.push(dirOf(p));
-    else if (ctx.files.isSkillDir(p)) dirs.push(p);
+  for (const m of await globLayout(ctx, layout, p)) {
+    const rel = m.replace(/\/$/, '');
+    if (baseOf(rel) === 'SKILL.md') dirs.push(dirOf(rel));
+    else if (ctx.files.isSkillDir(rel)) dirs.push(rel);
   }
-  return [...new Set(dirs)].sort(byDepthThenPath);
+  return dirs;
+}
+
+type KindKey = 'skills' | 'agents' | 'commands' | 'instructions' | 'hooks' | 'mcp';
+
+/**
+ * What one layout key names, shallowest first; a pattern that names nothing is a warning
+ * (`layout agents: "people/*.md" matches nothing in the source`, ruling K2).
+ */
+async function layoutMatches(
+  ctx: ScanContext,
+  layout: LayoutDescriptor,
+  key: KindKey,
+): Promise<string[]> {
+  const v = layout[key];
+  const patterns = (Array.isArray(v) ? v : [v ?? '']).filter((p) => normRel(p) !== '');
+  const out: string[] = [];
+  for (const p of patterns) {
+    const found =
+      key === 'skills'
+        ? await patternSkillDirs(ctx, layout, p)
+        : await patternFiles(ctx, layout, p);
+    if (found.length === 0)
+      ctx.warnings.push(`layout ${key}: "${p}" matches nothing in the source`);
+    out.push(...found);
+  }
+  return [...new Set(out)].sort(byDepthThenPath);
 }
 
 export async function scanDescriptor(ctx: ScanContext, layout: LayoutDescriptor): Promise<void> {
-  for (const d of await layoutSkillDirs(ctx, layout)) await addSkill(ctx, d);
-  const files = (v: Globs) => layoutFiles(ctx, layout, v);
-  for (const f of await files(layout.agents)) await addAgent(ctx, f, undefined, true);
-  for (const f of await files(layout.commands)) await addCommand(ctx, f, undefined);
-  for (const f of await files(layout.instructions)) await addInstruction(ctx, f, undefined);
-  for (const f of await files(layout.hooks)) await addHookFile(ctx, f, undefined);
-  for (const f of await files(layout.mcp)) await addMcpFile(ctx, f, undefined, true);
+  const files = (key: KindKey) => layoutMatches(ctx, layout, key);
+  for (const d of await files('skills')) await addSkill(ctx, d);
+  for (const f of await files('agents')) await addAgent(ctx, f, undefined, true);
+  for (const f of await files('commands')) await addCommandAsSkill(ctx, f, undefined);
+  for (const f of await files('instructions')) await addInstruction(ctx, f, undefined);
+  for (const f of await files('hooks')) await addHookFile(ctx, f, undefined);
+  for (const f of await files('mcp')) await addMcpFile(ctx, f, undefined, true);
 }

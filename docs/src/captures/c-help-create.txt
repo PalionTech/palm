@@ -1,32 +1,36 @@
 $ palm create --help
-Usage: palm create|new [options] [kind] [names...]
+Usage: palm create|new <kind> <name> [options]
 
-Create a skill, agent, instruction or command.
+Write a template into your own source and install it.
 
 Arguments:
-  kind                skill, agent, instruction, command (plurals and short
-                      names work)
-  names               name[@origin][#ref]
+  kind                  skill, agent, instruction or hook
+  name                  the new entity
 
 Options:
-  --no-install        only write the file; do not install it
-  -h, --help          display help for command
+  --in <dir>            the source directory (default: the in-repo source, else
+                        ./agent-kit)
+  --description <text>  the description in the template
+  --review              print the scripts of a hook first; with --dry-run, only
+                        print
+  -h, --help            display help for command
 
 Global Options:
-  -g, --global        use the global scope (~), not this project
-  -t, --target <ids>  comma-separated: claude, codex, copilot, cursor, gemini,
-                      opencode
-  --dry-run           show what would change; write nothing
-  --force             overwrite files palm does not own
-  -y, --yes           accept defaults instead of prompting
-  --offline           use cached origins only; no network
-  --verbose           debug output and stack traces
-  --json              JSON on stdout; everything else on stderr
-  --no-color          no colours (also NO_COLOR=1)
-  -V, --version       print the palm version
+  -g, --global          use ~/.palm/palm.yaml and the harness home directories
+  --dry-run             show what would change; write nothing
+  --force               replace files you changed or that palm does not own
+  -y, --yes             accept plan confirmations (never consents to programs)
+  --allow-exec <list>   allow programs: hook:x@source=sha256:hash,... or all
+  --offline             use the cache only; no network
+  --json                one JSON document on stdout; everything else on stderr
+  --secrets <policy>    env-ref (default) or literal, for secrets you type
+  -V, --version         print the palm version
+
+Kinds: skill, agent, instruction, hook. The template goes into ./agent-kit (~/.palm/kit
+under -g), which is declared in palm.yaml on first use, and is installed at once.
 
 Examples:
   palm create skill release-notes
-  palm create agent code-reviewer -g
-  palm create instruction ts-style --no-install
-  palm new command changelog
+  palm create agent reviewer --description "Reviews diffs before a merge"
+  palm create hook session-log --in tools/agent-kit
+  palm create instruction db-conventions -g

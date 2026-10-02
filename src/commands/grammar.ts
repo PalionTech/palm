@@ -1,90 +1,113 @@
 /**
- * The kubectl-style grammar `palm <verb> [kind] [names...] [flags]` (DESIGN.md §9): the verb
- * table, how the first word becomes a resource, and the `Invocation` every command action
- * hands to the dispatcher. Pure and light: `palm --help` loads this, so it imports nothing
- * but kinds and errors.
+ * The command grammar (DESIGN.md §10): eight verbs, the source first for install and remove,
+ * kind nouns for get and describe, and the palm 0.1 forms that still work for one release
+ * (src/commands/legacy.ts), each printing its new form. Every command palm suggests is built
+ * from what palm.yaml declares (src/commands/hints.ts). Pure and light: `palm --help` loads it.
  */
 import { PalmError } from '../core/errors.js';
-import { parseResource, type Resource, SHORT_NAMES } from '../core/kinds.js';
-import { KINDS, type Kind } from '../core/types.js';
+import { isCommandWord, parseKind, parseResource, type Resource } from '../core/kinds.js';
+import { looksLikeSourceInput } from '../core/source-input.js';
+import type { EntityRefSpec, Kind, Scope } from '../core/types.js';
+import { parseEntityRef } from '../domain/entity-ref.js';
+import { type GrammarContext, palmLine, shellWord } from './hints.js';
+import { commandLine, kindWord, legacyAlias, legacyOrigin, sourcedNames } from './legacy.js';
+import { kindWordError, notASource } from './not-a-source.js';
 
-export type Verb = 'install' | 'uninstall' | 'get' | 'describe' | 'update' | 'create' | 'search';
+export { formatName, type GrammarContext } from './hints.js';
+
+export type Verb =
+  | 'init'
+  | 'install'
+  | 'remove'
+  | 'update'
+  | 'check'
+  | 'get'
+  | 'describe'
+  | 'create';
 
 export interface VerbSpec {
   name: Verb;
   aliases: readonly string[];
   /** One line for the root help. */
   summary: string;
-  /** Resources the verb accepts as its first word. */
-  resources: readonly Resource[];
-  /** The first word must be a resource (describe, create). */
-  kindRequired?: boolean;
+  /** The arguments as help shows them. */
+  arguments: string;
 }
-
-export const CREATABLE: readonly Kind[] = ['skill', 'agent', 'instruction', 'command'];
 
 export const VERBS: readonly VerbSpec[] = [
   {
+    name: 'init',
+    aliases: [],
+    summary: 'write palm.yaml with the targets found here',
+    arguments: '',
+  },
+  {
     name: 'install',
     aliases: ['add', 'i'],
-    summary: 'install entities or register an origin',
-    resources: [...KINDS, 'origin'],
+    summary: 'install from a source; bare, sync with palm.yaml',
+    arguments: '[source] [[kind:]name...]',
   },
   {
-    name: 'uninstall',
-    aliases: ['remove', 'rm', 'delete'],
-    summary: 'remove entities or unregister an origin',
-    resources: [...KINDS, 'origin'],
-  },
-  {
-    name: 'get',
-    aliases: ['list', 'ls'],
-    summary: 'list installed entities, origins, targets',
-    resources: [...KINDS, 'origin', 'target', 'all'],
-  },
-  {
-    name: 'describe',
-    aliases: ['info'],
-    summary: 'show one entity, origin or target',
-    resources: [...KINDS, 'origin', 'target'],
-    kindRequired: true,
+    name: 'remove',
+    aliases: ['uninstall', 'rm'],
+    summary: 'delete exactly what palm wrote for some entities',
+    arguments: '[source] <[kind:]name...>',
   },
   {
     name: 'update',
     aliases: ['up'],
-    summary: 'update entities or refresh origin indexes',
-    resources: [...KINDS, 'origin'],
+    summary: 'move sources to newer commits within their refs',
+    arguments: '[sources...]',
+  },
+  {
+    name: 'check',
+    aliases: [],
+    summary: 'verify palm.yaml, the lock and the files (CI gate)',
+    arguments: '',
+  },
+  {
+    name: 'get',
+    aliases: ['list', 'ls'],
+    summary: 'list what is installed, the sources or the targets',
+    arguments: '[kind] [names...]',
+  },
+  {
+    name: 'describe',
+    aliases: ['info'],
+    summary: 'show one entity, source, target or file',
+    arguments: '<name or path>',
   },
   {
     name: 'create',
     aliases: ['new'],
-    summary: 'create a skill, agent, instruction or command',
-    resources: CREATABLE,
-    kindRequired: true,
-  },
-  {
-    name: 'search',
-    aliases: [],
-    summary: 'search origins and the MCP registry',
-    resources: KINDS,
+    summary: 'write a template into your own source and install it',
+    arguments: '<kind> <name>',
   },
 ];
 
+/** A palm 0.1 form that still runs: printed as `i <form> is now: <replacement>`. */
+export interface Legacy {
+  form: string;
+  replacement: string;
+}
+
 /** What a command action hands to the dispatcher. */
 export interface Invocation {
-  /** A verb, or a utility path: `init`, `doctor`, `config get`, `cache clean`, `completion`. */
+  /** A verb (`install`), `install mcp`, or a utility (`migrate`, `completion`, `cache clean`). */
   command: string;
   resource?: Resource;
-  names: string[];
+  source?: string;
+  names: EntityRefSpec[];
   /** Command options merged with the global ones (commander `optsWithGlobals`). */
   opts: Record<string, unknown>;
-  /** `palm origin import`: the spec is a marketplace file or a directory holding one. */
-  marketplace?: boolean;
+  legacy?: Legacy;
+  /** The positional words as typed (install and remove read them again with palm.yaml at hand). */
+  words?: string[];
 }
 
 export type Dispatch = (inv: Invocation) => Promise<void>;
 
-/** Thrown by a command to end the process with a given exit code after it has printed its own output. */
+/** Thrown by a command to end the process with a given exit code after it printed its output. */
 export class ExitSignal extends Error {
   readonly exitCode: number;
   constructor(exitCode: number) {
@@ -94,86 +117,184 @@ export class ExitSignal extends Error {
   }
 }
 
-/** Split argv at the first `--`: everything after it is a pass-through command (ad hoc MCP servers). */
-export function splitPassthrough(argv: string[]): { args: string[]; passthrough: string[] } {
-  const i = argv.indexOf('--');
-  if (i === -1) return { args: argv, passthrough: [] };
-  return { args: argv.slice(0, i), passthrough: argv.slice(i + 1) };
-}
-
 export function usage(message: string, hint?: string): PalmError {
   return new PalmError('E_USAGE', message, hint);
 }
 
-function verbSpec(verb: Verb): VerbSpec {
-  const spec = VERBS.find((v) => v.name === verb);
-  if (!spec) throw new PalmError('E_INTERNAL', `unknown verb ${verb}`);
-  return spec;
+export interface InstallWords {
+  source?: string;
+  names: EntityRefSpec[];
+  mcp?: boolean;
+  legacy?: Legacy;
 }
 
-/** `skill (sk)`, `origin (orig)`, `all`: how a resource is listed in help and errors. */
-function resourceLabel(r: Resource): string {
-  const short = SHORT_NAMES[r];
-  return short && short !== r ? `${r} (${short})` : r;
-}
+const parseNames = (words: string[]): EntityRefSpec[] => words.map((w) => parseEntityRef(w));
 
-export function plural(r: Resource): string {
-  if (r === 'all') return 'all';
-  return r === 'mcp' ? 'MCP servers' : `${r}s`;
-}
+// install ---------------------------------------------------------------------------------------
 
-const RESOURCE_HINTS: Partial<Record<Verb, Partial<Record<Resource, string>>>> = {
-  install: {
-    target: 'targets are chosen per command: palm install skill <name> --target claude,codex',
-  },
-  uninstall: { target: 'see what palm writes to: palm get targets' },
-  describe: { all: 'list everything: palm get all' },
-  update: { target: 'see what palm writes to: palm get targets' },
-  search: { origin: 'list origins: palm get origins', target: 'list targets: palm get targets' },
-};
-
-function unsupported(verb: Verb, resource: Resource): PalmError {
-  const spec = verbSpec(verb);
-  return usage(
-    `palm ${verb} does not take ${plural(resource)}`,
-    RESOURCE_HINTS[verb]?.[resource] ??
-      `palm ${verb} takes: ${spec.resources.map(resourceLabel).join(', ')}`,
-  );
-}
-
-const MISSING_KIND_HINT: Partial<Record<Verb, string>> = {
-  describe: 'palm describe skill <name>   or   palm describe origin <alias>',
-  create: `palm create ${CREATABLE.join('|')} [name]`,
-};
-
-/** `search [kind] <query...>`: a leading kind word counts only when a query follows it. */
-function interpretSearch(words: string[]): { resource?: Resource; names: string[] } {
-  const resource = words.length > 1 ? parseResource(words[0]) : undefined;
-  if (!resource) return { names: words };
-  if (!verbSpec('search').resources.includes(resource)) throw unsupported('search', resource);
-  return { resource, names: words.slice(1) };
+function isSource(word: string, ctx: GrammarContext): boolean {
+  return looksLikeSourceInput(word) || Boolean(ctx.isDeclared?.(word));
 }
 
 /**
- * The first word as a resource (singular, plural or short name) and the rest as names.
- * A first word that is no resource is a name, except where the verb needs a kind.
+ * `install skill tdd` (palm 0.1) and a kind word where the source goes (`install rules`): with a
+ * source after the kind word, the names narrowed to that kind and the new form printed; without
+ * one, what the kind word means and how to find a repository (L5).
+ */
+function withKind(kind: Kind, words: string[], ctx: GrammarContext): InstallWords {
+  const inner = words.slice(1);
+  const [next] = inner;
+  const sourced = next !== undefined && (isSource(next, ctx) || next === 'origin');
+  if (ctx.isDeclared && !sourced) throw kindWordError(kind, words, ctx);
+  const w = interpretInstall(inner, ctx);
+  const names = w.names.map((n) => (n.kind ? n : { kind, name: n.name }));
+  const replacement = commandLine('install', w.source, names, ctx.scope);
+  const legacy = w.legacy ?? { form: `palm install ${words.join(' ')}`, replacement };
+  return { ...w, names, ...(sourced ? { legacy } : {}) };
+}
+
+/**
+ * The words after `palm install` (DESIGN.md §10): nothing (sync with palm.yaml), `mcp …`, or a
+ * source (a declared name or alias, `owner/repo…`, a URL, a path) followed by `[kind:]name…`.
+ * With `isDeclared`, a first word that is no source is the "not a repository" family of errors,
+ * each with a command built from palm.yaml; without it (while commander parses) the word is
+ * kept for the command to decide.
+ */
+export function interpretInstall(words: string[], ctx: GrammarContext = {}): InstallWords {
+  const [first, ...rest] = words;
+  if (first === undefined) return { names: [] };
+  if (first === 'mcp') return { mcp: true, names: rest.map((name) => ({ name })) };
+  if (first === 'origin') return legacyOrigin(rest, ctx);
+  if (isSource(first, ctx))
+    return { source: first, names: sourcedNames('install', first, rest, ctx) };
+  const legacy = legacyAlias('install', words, ctx);
+  if (legacy) return legacy;
+  const kind = kindWord(words) ?? (rest.length ? undefined : parseKind(first));
+  if (kind) return withKind(kind, words, ctx);
+  if (!ctx.isDeclared) return { source: first, names: parseNames(rest) };
+  throw notASource(words, ctx);
+}
+
+// remove ----------------------------------------------------------------------------------------
+
+/**
+ * `palm remove [source] <[kind:]name…>`: the first word is a source when it looks like one, or
+ * when palm.yaml declares it and names follow it.
+ */
+export function interpretRemove(words: string[], ctx: GrammarContext = {}): InstallWords {
+  const [first, ...rest] = words;
+  if (first === undefined) return { names: [] };
+  if (first === 'origin')
+    throw usage(
+      'a source leaves palm.yaml with its last entry; remove its entries',
+      palmLine('get', ['sources'], ctx.scope),
+    );
+  const declared = rest.length > 0 && Boolean(ctx.isDeclared?.(first));
+  if (declared || looksLikeSourceInput(first))
+    return { source: first, names: sourcedNames('remove', first, rest, ctx) };
+  const legacy = legacyAlias('remove', words, ctx);
+  if (legacy) return legacy;
+  const kind = kindWord(words);
+  if (!kind) return { names: parseNames(words) };
+  const names = rest.map((name) => ({ kind, name }));
+  const replacement = commandLine('remove', undefined, names, ctx.scope);
+  return { names, legacy: { form: `palm remove ${words.join(' ')}`, replacement } };
+}
+
+// get and describe ------------------------------------------------------------------------------
+
+/** A path (`./x`, `~/x`, `a/b`) stays as typed; anything else is `[kind:]name`. */
+function nameOrPath(word: string): EntityRefSpec {
+  return /[/\\]/.test(word) || word.startsWith('.') || word.startsWith('~')
+    ? { name: word }
+    : parseEntityRef(word);
+}
+
+function legacyWord(verb: 'get' | 'describe', words: string[]): Legacy | undefined {
+  const [word = '', ...rest] = words;
+  const tail = rest.map((w) => ` ${w}`).join('');
+  const form = `palm ${verb} ${word}${tail}`;
+  const plural = verb === 'get';
+  if (/^orig(in)?s?$/i.test(word))
+    return { form, replacement: `palm ${verb} ${plural ? 'sources' : 'source'}${tail}` };
+  if (isCommandWord(word))
+    return {
+      form,
+      replacement: `palm ${verb} ${plural ? 'skills' : 'skill'}${tail} (commands install as skills)`,
+    };
+  return undefined;
+}
+
+/**
+ * `get` and `describe`: a first word that is a kind (singular, plural or short), `source(s)`,
+ * `target(s)` or `all` (get only) is the resource; the rest are names (or paths for describe).
  */
 export function interpretWords(
-  verb: Verb,
+  verb: 'get' | 'describe',
   words: string[],
-): { resource?: Resource; names: string[] } {
-  if (verb === 'search') return interpretSearch(words);
-  const spec = verbSpec(verb);
-  const resource = parseResource(words[0]);
-  if (resource && !spec.resources.includes(resource)) throw unsupported(verb, resource);
-  if (resource) return { resource, names: words.slice(1) };
-  if (!spec.kindRequired) return { names: words };
-  const first = words[0];
-  if (first === undefined) throw usage(`name what to ${verb}`, MISSING_KIND_HINT[verb]);
-  throw usage(
-    `"${first}" is not something palm can ${verb}`,
-    verb === 'describe'
-      ? `name the kind first: palm describe skill ${first}`
-      : MISSING_KIND_HINT[verb],
-  );
+  scope?: Scope,
+): { resource?: Resource; names: EntityRefSpec[]; legacy?: Legacy } {
+  const [first, ...rest] = words;
+  const resource = parseResource(first);
+  if (!resource) return { names: words.map(nameOrPath) };
+  if (resource === 'all' && verb === 'describe')
+    throw usage('describe shows one thing at a time', palmLine('get', ['all'], scope));
+  const plain = resource === 'source' || resource === 'target' || resource === 'all';
+  const names = rest.map((w) => (plain ? { name: w } : nameOrPath(w)));
+  const legacy = legacyWord(verb, words);
+  return legacy ? { resource, names, legacy } : { resource, names };
+}
+
+// argv ------------------------------------------------------------------------------------------
+
+/** Options whose value may start with a dash (`--arg -y`). */
+const DASH_VALUES = new Set(['--arg', '--env', '--header', '--command', '--description']);
+
+/**
+ * `--arg -y` as `--arg=-y`: commander would read `-y` as the global `--yes` and leave `--arg`
+ * without its value.
+ */
+function attachDashValues(args: string[]): string[] {
+  const joined: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] as string;
+    const next = args[i + 1];
+    const dashed = next?.startsWith('-') && next !== '-';
+    if (DASH_VALUES.has(a) && dashed) {
+      joined.push(`${a}=${next}`);
+      i++;
+    } else joined.push(a);
+  }
+  return joined;
+}
+
+/** Split argv at the first `--`; attach dash values to their options. */
+export function prepareArgv(argv: string[]): { args: string[]; passthrough: string[] } {
+  const cut = argv.indexOf('--');
+  const args = cut < 0 ? argv : argv.slice(0, cut);
+  const passthrough = cut < 0 ? [] : argv.slice(cut + 1);
+  return { args: attachDashValues(args), passthrough };
+}
+
+/** palm 0.1 `install mcp <name> -- <command> [args...]`: now `--command` and `--arg`. */
+export function applyPassthrough(inv: Invocation, passthrough: string[]): Invocation {
+  if (!passthrough.length) return inv;
+  const [command, ...args] = passthrough;
+  const name = inv.names[0]?.name ?? '';
+  if (inv.command !== 'install mcp' || !command)
+    throw usage(
+      'palm reads words after -- only for palm install mcp',
+      palmLine(
+        'install',
+        ['mcp', 'docs', '--command', 'npx', '--arg', '-y', '--arg', 'docs-mcp'],
+        inv.opts.global ? 'global' : 'project',
+      ),
+    );
+  const flags = [`--command ${shellWord(command)}`, ...args.map((a) => `--arg ${shellWord(a)}`)];
+  const legacy = {
+    form: `palm install mcp ${name} -- ${passthrough.map(shellWord).join(' ')}`,
+    replacement: `palm install mcp ${name} ${flags.join(' ')}`,
+  };
+  const previous = Array.isArray(inv.opts.arg) ? (inv.opts.arg as string[]) : [];
+  return { ...inv, opts: { ...inv.opts, command, arg: [...previous, ...args] }, legacy };
 }

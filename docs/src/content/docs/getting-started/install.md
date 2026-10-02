@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Install palm with npm, check that it works, upgrade it and remove it.
+description: Install palm with npm, check that it works, upgrade it from 0.1 and remove it.
 ---
 
 palm is a Node.js command-line tool published to npm as `@paliontech/palm`.
@@ -18,11 +18,26 @@ The first command installs palm for your user. The second prints the installed v
 | Requirement | Why |
 | --- | --- |
 | Node.js 22 or later | palm declares Node 22 as its minimum in `package.json`. |
-| git | palm clones and fetches every origin with the `git` on your `PATH`. |
-| macOS or Linux | palm is tested on both. Windows is untested and not supported yet. |
+| git | palm fetches every source with the `git` on your `PATH`. |
+| macOS or Linux | palm is tested on both. On Windows, run palm inside WSL. |
 
 Private repositories need the git credentials you already use, such as an SSH key or a credential helper.
 palm never prompts for a password, so a missing credential fails with a hint instead of hanging.
+
+### Run palm inside WSL
+
+palm 0.2 does not run on native Windows.
+A maintainer on Windows installs Node 22, git and palm inside WSL, and runs palm there.
+
+```sh
+wsl
+npm install -g @paliontech/palm
+```
+
+Keep the repository in the WSL file system, such as `~/src/<repo>`, so git and palm see the same line endings.
+palm writes text files with LF line endings.
+Contributors who only use the harnesses need no palm at all: the generated files are committed, and each harness reads them on Windows as it does elsewhere.
+Native Windows support stays on the list for palm 1.0.
 
 ## Other package managers
 
@@ -39,13 +54,13 @@ npx @paliontech/palm --help
 
 ## Check the installation
 
-```sh
-palm doctor
-```
+`palm --help` lists the eight verbs on one screen.
+Inside a project that already uses palm, `palm check` runs every consistency check and changes nothing.
 
-`palm doctor` checks git and Node, palm's home directory, which harnesses it detects, lockfile drift and whether your origins are reachable.
-Add `--offline` to skip the network check.
-It exits with 1 when a check fails.
+```sh
+palm --help
+palm check
+```
 
 ## Shell completion
 
@@ -65,8 +80,21 @@ npm install -g @paliontech/palm@latest
 ```
 
 palm does not check for updates and never updates itself.
-After an upgrade, the next `palm install` may rewrite some files, when the new version renders an entity differently.
-The lockfile records that version per entry as `transform`.
+A newer palm may render an entity differently. The next `palm install` then reports it as `~ re-rendered`, and `palm check` fails until you commit the result.
+For that reason, pin the exact version in CI, such as `npm install -g @paliontech/palm@0.2.0`, and upgrade it in a pull request of its own.
+
+### From palm 0.1
+
+palm 0.2 reads a new `palm.yaml` format and version 3 of `palm.lock.yaml`.
+Every command except `palm migrate` stops on the old files and names that command.
+
+```sh
+palm migrate --dry-run
+palm migrate
+```
+
+[Migrate from palm 0.1](/palm/guides/migrate-from-0-1/) walks through it, including the global scope.
+`palm migrate` ships with 0.2 only, so run it before you upgrade to 0.3.
 
 ## Uninstall
 
@@ -75,14 +103,23 @@ npm uninstall -g @paliontech/palm
 ```
 
 This removes the command only.
-Files palm installed into your projects and your home directory stay.
-Run `palm get` in each project, and `palm get -g`, and uninstall what you no longer want before you remove palm.
+Files palm generated in your projects are committed there and stay, and they keep working without palm.
+Run `palm get` in a project, and `palm get -g`, to see what palm installed before you remove it.
 
 palm keeps its own state in `~/.palm`.
-That folder holds the global config, manifest and lockfile, the origin cache and the `mine` origin.
-Delete it to remove that state.
+
+| Path | Holds |
+| --- | --- |
+| `palm.yaml`, `palm.lock.yaml` | The global scope's manifest and lock. You may keep these in a dotfiles repository. |
+| `applied.yaml` | What the global scope wrote on this machine, with real paths. |
+| `assets/` | Scripts that global hooks and MCP servers run. |
+| `kit/` | The in-repo source `palm create -g` writes to. You may keep it in a dotfiles repository too. |
+| `cache/` | Checkouts and indexes. Safe to delete. |
+
+Delete `~/.palm` to remove that state.
 
 ## Related
 
 - [Quick start](/palm/getting-started/quick-start/)
+- [Environment variables](/palm/reference/environment/)
 - [Security model](/palm/explanation/security/)

@@ -1,19 +1,29 @@
-$ palm describe skill tdd
-skill tdd  installed (project)
+$ palm describe tdd
+skill tdd  (installed, project scope)
   Test-driven development with red-green-refactor.
-
-  origin      mattpocock
-  url         ~/src/skills
+  source      mattpocock/skills  https://github.com/mattpocock/skills.git
+  ref         ^1.2 → v1.2.3  2c0db90
   path        skills/engineering/tdd
   version     1.2.3
-  plugin      mattpocock-skills
-
-  targets     claude, codex
-  shared .agents
-    .agents/skills/tdd/SKILL.md
-    .agents/skills/tdd/agents/openai.yaml
-    .agents/skills/tdd/references/mocking.md
-  claude
-    .claude/skills/tdd/SKILL.md
-    .claude/skills/tdd/agents/openai.yaml
-    .claude/skills/tdd/references/mocking.md
+  selected by palm.yaml
+  claude      .claude/skills/tdd/SKILL.md, .claude/skills/tdd/references/mocking.md
+  codex       .agents/skills/tdd/SKILL.md, .agents/skills/tdd/agents/openai.yaml, .agents/skills/tdd/references/mocking.md
+  note        claude gets its own copy in .claude/skills
+$ palm describe hook:gh-cli
+hook gh-cli  (installed, project scope)
+  source      trailofbits/skills  https://github.com/trailofbits/skills.git
+  ref         ^2.1 → v2.1.0  924ffa8
+  path        plugins/gh-cli/hooks/hooks.json
+  version     2.1.0
+  selected by plugin:gh-cli
+  claude      .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/hooks.json, .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh, .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh, .claude/settings.json
+  codex       .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/hooks.json, .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh, .palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh, .codex/hooks.json
+  merged      .claude/settings.json /hooks/PreToolUse
+  merged      .claude/settings.json /hooks/SessionStart
+  merged      .codex/hooks.json /hooks/PreToolUse
+  merged      .codex/hooks.json /hooks/SessionStart
+  runs        PreToolUse//Bash  CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/intercept-github-curl.sh
+  runs        SessionStart//-  CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli bash "$CLAUDE_PROJECT_DIR"/.palm/assets/trailofbits__skills/gh-cli/plugins/gh-cli/hooks/persist-session-id.sh
+  trust       trusted (sha256:23759d85)
+$ palm describe .claude/settings.json
+.claude/settings.json  merged of hook gh-cli from trailofbits/skills

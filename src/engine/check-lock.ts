@@ -1,0 +1,210 @@
+/**
+ * The checks that compare palm.yaml, the lock and the sources (DESIGN §6 "Check"):
+ * `manifest-lock`, `local-sources` and `sources-declared`.
+ */
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { short } from '../core/hash.js';
+import type { CheckProblem, CheckRun, LockEntry, LockSource } from '../core/types.js';
+import { lockId, Via } from '../domain/entity-key.js';
+import { isPlaceholderDescription } from '../index/placeholder-description.js';
+import { type CheckContext, checkRun, count, entityOf, type Found, found } from './check-kit.js';
+import { missingPreloads, preloadLine } from './preloads.js';
+import { palmCommand } from './report.js';
+import { localDrift, MANIFEST_SOURCE } from './sources.js';
+
+function install(c: CheckContext, extra?: string): string {
+  return palmCommand('install', [], c.run.state.paths.scope, extra);
+}
+
+function problem(message: string, fix: string, e?: LockEntry): CheckProblem {
+  return e ? { entity: entityOf(e), message, fix } : { message, fix };
+}
+
+/** A plugin entry's `only`/`exclude` items that name no member the plugin declares. */
+function strayFilters(
+  c: CheckContext,
+  entry: { source: string; name: string; items: string[] },
+  f: Found,
+) {
+  const { source, name, items } = entry;
+  const plugin = c.run.state.lock.find({ kind: 'plugin', name }, source);
+  if (!plugin) return;
+  const members = new Set((plugin.deps ?? []).map((d) => `${d.kind}:${d.name}`.toLowerCase()));
+  for (const item of items)
+    if (!members.has(item.toLowerCase()))
+      f.fail.push(
+        problem(
+          `plugin ${name}: ${item} names no member of the plugin`,
+          `edit palm.yaml: remove ${item} from plugin ${name}`,
+          plugin,
+        ),
+      );
+}
+
+/** Every palm.yaml entry (and `mcp:` server) has a lock entry; plugin filters name members. */
+function manifestSide(c: CheckContext, f: Found): void {
+  const { manifest, lock } = c.run.state;
+  for (const { source, kind, entry } of manifest.allEntries()) {
+    const message = `${kind} ${entry.name} is in palm.yaml but not in palm.lock.yaml`;
+    if (!lock.find({ kind, name: entry.name }, source)) f.fail.push(problem(message, install(c)));
+    else if (kind === 'plugin')
+      strayFilters(
+        c,
+        { source, name: entry.name, items: [...(entry.only ?? []), ...(entry.exclude ?? [])] },
+        f,
+      );
+  }
+  for (const name of Object.keys(manifest.mcp))
+    if (!lock.find({ kind: 'mcp', name }, MANIFEST_SOURCE))
+      f.fail.push(problem(`mcp ${name} is in palm.yaml but not in palm.lock.yaml`, install(c)));
+}
+
+function listedInManifest(c: CheckContext, e: LockEntry): boolean {
+  const { manifest, lock } = c.run.state;
+  if (e.source === MANIFEST_SOURCE) return !!manifest.mcp[e.name];
+  if (e.via) return !!lock.find({ kind: 'plugin', name: Via.parse(e.via).name }, e.source);
+  return manifest.hasEntry(e.source, e.kind, e.name);
+}
+
+/** Every lock entry is in palm.yaml and names a locked source. */
+function entrySide(c: CheckContext, f: Found): void {
+  const { lock } = c.run.state;
+  for (const e of lock.entries) {
+    if (!listedInManifest(c, e))
+      f.fail.push(
+        problem(`${e.kind} ${e.name} is in palm.lock.yaml but not in palm.yaml`, install(c), e),
+      );
+    if (e.source !== MANIFEST_SOURCE && !lock.source(e.source))
+      f.fail.push(
+        problem(
+          `source ${e.source} of ${e.kind} ${e.name} is missing from palm.lock.yaml`,
+          install(c),
+          e,
+        ),
+      );
+  }
+}
+
+/** What a lock source lacks to be rebuilt anywhere: a git sha, or a url or path. */
+function lacking(ls: LockSource): string | undefined {
+  if (ls.url) return ls.sha ? undefined : 'sha';
+  return ls.path === undefined ? 'url or path' : undefined;
+}
+
+/** Sources agree on refs and the lock carries what rebuilds them. */
+function sourceSide(c: CheckContext, f: Found): void {
+  const { lock, sources } = c.run.state;
+  for (const ref of sources.all()) {
+    const ls = lock.source(ref.name);
+    if (!ls || ref.isLocal || ls.ref === ref.source.ref) continue;
+    const refs = `ref ${ref.source.ref ?? '(none)'} in palm.yaml, ${ls.ref ?? '(none)'} in palm.lock.yaml`;
+    f.fail.push(problem(`source ${ref.name}: ${refs}`, install(c)));
+  }
+  for (const [name, ls] of Object.entries(lock.sources)) {
+    const lacks = lacking(ls);
+    if (lacks) f.fail.push(problem(`source ${name} in palm.lock.yaml lacks ${lacks}`, install(c)));
+  }
+}
+
+/**
+ * K3: an installed agent that preloads a skill or server (`skills:`, `mcpServers:` in its
+ * frontmatter) nobody installed gets a warning naming the install command; palm installs nothing
+ * on its own (PLAN §6). The agents are read at their locked commit (preloads.ts).
+ */
+export async function preloads(c: CheckContext): Promise<CheckRun> {
+  const f = found();
+  for (const gap of await missingPreloads(c.run)) {
+    const { command, ...rest } = gap;
+    f.warn.push(
+      command ? { message: preloadLine(rest), fix: command } : { message: preloadLine(rest) },
+    );
+  }
+  return checkRun(
+    'preloads',
+    {
+      ok: 'every skill an agent preloads is installed',
+      bad: (n) => `${count(n, 'agent')} preload${n === 1 ? 's' : ''} what is not installed`,
+    },
+    f,
+  );
+}
+
+export function manifestLock(c: CheckContext): CheckRun {
+  const f = found();
+  manifestSide(c, f);
+  entrySide(c, f);
+  sourceSide(c, f);
+  return checkRun(
+    'manifest-lock',
+    {
+      ok: 'manifest and lock agree',
+      bad: (n) => `${count(n, 'disagreement')} between palm.yaml and palm.lock.yaml`,
+    },
+    f,
+  );
+}
+
+/**
+ * B3: an in-repo entry whose own files changed since the lock (its content hash moved) is the
+ * drift signal, per entry, so two pull requests that touch two entries do not conflict in
+ * palm.lock.yaml. The entry is then reported here, not again by `lock-disk`.
+ */
+export function localSources(c: CheckContext): CheckRun {
+  const f = found();
+  for (const { entry: e, content } of localDrift(c.run.state, c.renders)) {
+    if (e.kind === 'plugin') continue;
+    c.drifted.add(lockId(e));
+    const moved = `content ${short(e.content, 7)} → ${short(content, 7)}`;
+    f.fail.push(
+      problem(
+        `${e.kind} ${e.name} in source ${e.source} changed since palm.lock.yaml (${moved})`,
+        `${install(c)}, then commit palm.lock.yaml and the files it re-rendered`,
+        e,
+      ),
+    );
+  }
+  placeholders(c, f);
+  const bad = (n: number) =>
+    `${count(n, 'in-repo entity', 'in-repo entities')} changed since the lock`;
+  const warned = (n: number) =>
+    `${count(n, 'in-repo entity', 'in-repo entities')} still ${n === 1 ? 'has' : 'have'} the placeholder description`;
+  return checkRun('local-sources', { ok: 'in-repo sources match the lock', bad, warned }, f);
+}
+
+/**
+ * M21: an in-repo entity whose description is still the `TODO: describe` line `palm create`
+ * wrote: every harness lists it with that text until someone writes the real one.
+ */
+function placeholders(c: CheckContext, f: Found): void {
+  const { lock, paths, sources } = c.run.state;
+  for (const e of lock.entries) {
+    const entity = c.renders.get(lockId(e))?.entity;
+    const dir = sources.byName(e.source)?.source.path;
+    if (!entity || dir === undefined || !isPlaceholderDescription(entity.description)) continue;
+    const file = paths.lockForm(join(dir, e.kind === 'skill' ? `${e.path}/SKILL.md` : e.path));
+    f.warn.push(
+      problem(
+        `${e.kind} ${e.name} still has the placeholder description from palm create`,
+        `write its description in ${file}, then ${install(c)}`,
+        e,
+      ),
+    );
+  }
+}
+
+/** Every lock source is declared; every declared local source exists. */
+export function sourcesDeclared(c: CheckContext): CheckRun {
+  const f = found();
+  const { state } = c.run;
+  for (const name of Object.keys(state.lock.sources))
+    if (!state.manifest.hasSource(name))
+      f.fail.push(problem(`source ${name} is in palm.lock.yaml but not in palm.yaml`, install(c)));
+  for (const ref of state.sources.all()) {
+    if (!ref.isLocal || !ref.source.path || existsSync(ref.source.path)) continue;
+    const rel = state.paths.lockForm(ref.source.path);
+    f.fail.push(problem(`source ${ref.name}: ${rel} is missing`, `restore the directory ${rel}`));
+  }
+  const bad = (n: number) => `${count(n, 'source')} not declared or missing`;
+  return checkRun('sources-declared', { ok: 'every source is declared', bad }, f);
+}

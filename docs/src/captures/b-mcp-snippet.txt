@@ -1,0 +1,17 @@
+$ palm install mcp --snippet - <<'JSON'
+{
+  "mcpServers": {
+    "github": {
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": { "Authorization": "Bearer ${GITHUB_PAT}" }
+    }
+  }
+}
+JSON
++ mcp  github   .mcp.json, .codex/config.toml +4   merged   (needs GITHUB_PAT in the environment)
+1 installed. Commit palm.yaml, palm.lock.yaml, .mcp.json, .codex/, .vscode/, .cursor/, .gemini/ and opencode.json together.
+$ palm get mcp
+kind  name    source     ref  sha  targets                                      files
+────  ──────  ─────────  ───  ───  ───────────────────────────────────────────  ───────────
+mcp   github  palm.yaml            claude,codex,copilot,cursor,gemini,opencode  0 +6 merged
+github needs GITHUB_PAT (not set)

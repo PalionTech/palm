@@ -1,22 +1,22 @@
 ---
 title: Policies
-description: What palm promises about versions, platforms, the network and security reports.
+description: What palm promises about versions, file formats, platforms, the network and security reports.
 ---
 
-This page states what palm promises today, as of 2026-09-28, and what it does not.
+This page states what palm promises as of 2026-09-30, and what it does not.
 
 ```sh
 palm --version
-palm doctor --offline
+palm check --offline
 ```
 
 | Topic | Policy |
 | --- | --- |
-| Versions | Semantic versioning, still on 0.x |
-| Platforms | macOS and Linux; Windows untested |
+| Versions | Semantic versioning, still on 0.x; pin an exact version in CI |
+| Platforms | macOS and Linux; on Windows, inside WSL |
 | Runtime | Node 22 or later, and git |
 | Telemetry | None, and no update check |
-| Network | git to your origins, the MCP registry, and URLs you pass |
+| Network | git to the sources you declare, nothing else |
 | Security reports | Private, through GitHub security advisories |
 
 ## Versioning
@@ -24,12 +24,25 @@ palm doctor --offline
 palm follows semantic versioning and is on 0.x.
 Before 1.0, a minor release may change commands, options or file formats, and the changelog says so.
 A patch release fixes bugs without such changes.
-Only the latest release receives fixes; there are no backports.
+Only the latest release receives fixes.
+Pin the version your CI installs, such as `npm install -g @paliontech/palm@0.2.0`, and move it in a pull request.
+A `palm:` key in `palm.yaml` that names the minimum version is planned for 0.3.
 
-The lockfile carries a `version`, currently `2`.
-palm reads version 1 and converts it, and refuses a version it does not know.
-`palm.yaml` and `config.yaml` have no version key.
-palm keeps the keys it does not know in both files.
+| Release | Focus |
+| --- | --- |
+| 0.2 | Sources in `palm.yaml`, lock version 3, committed generated files, `palm check`, hash-pinned consent, `palm migrate` |
+| 0.3 | The personal `palm.local.yaml` and per-person disable, placement with `at:`, one carrier per harness, activation mapping, the hook mapping table, text diffs in `--review`, load cost in `palm get`, `palm migrate` removed |
+| 1.0 | Every placement and hook mapping tested against the real CLIs of all six harnesses; native Windows considered |
+
+## File formats
+
+The lock carries `version: 3`.
+palm 0.2 reads versions 1 and 2 only through `palm migrate`, and every other command names that command.
+`palm.yaml` has no version key. palm detects the 0.1 format by its shape.
+palm keeps your comments and key order in `palm.yaml`.
+An unknown key on a source, an entry or an MCP server is a parse error that suggests the nearest key, so a typo never widens an entry in silence.
+
+The old command grammar works for one release as hidden aliases, and removed commands print their replacement.
 
 ## Platforms
 
@@ -37,28 +50,24 @@ palm keeps the keys it does not know in both files.
 | --- | --- |
 | macOS | Supported |
 | Linux | Supported |
-| Windows | Untested. Paths, hook commands and file modes may not work. |
-
-palm needs Node 22 or later and git on `PATH`.
-`palm doctor` checks both.
+| Windows, inside WSL | Supported: WSL runs Linux. Keep the repository in the WSL file system. |
+| Windows, native | Not supported in 0.2. It stays on the list for 1.0. Paths use the platform's joiner, so a contributor can add it. |
 
 ## Network
 
 palm sends no telemetry, keeps no usage statistics and checks for no updates.
-It opens a connection only in these cases:
+It has no registry client, so it never looks up a name on a server.
+Its only connections are git to the hosts of the sources you declare.
 
-| Connection | When |
+| Command | Connects when |
 | --- | --- |
-| git `ls-remote`, `clone` and `fetch` to an origin's host | Adding an origin; installing from an origin that is not cached at the wanted commit; `palm update`; `palm outdated`; `palm search --refresh` |
-| git `ls-remote` to each origin | `palm doctor` |
-| HTTPS to the MCP registry: `registry.modelcontextprotocol.io`, or your `mcpRegistryUrl` | `palm search` without a kind or with `mcp`; installing, updating or checking a registry server; the MCP server search in `palm create agent` |
-| HTTPS to a URL you pass | `palm install origin` with an `https://` URL to a `marketplace.json` |
+| `palm install <source>` | always, to read the remote's current tags for the listing or the first install; then to fetch a commit that is not cached |
+| `palm install` | a locked commit is not cached, or a `ref:` changed |
+| `palm update` | always, to read the remote's tags and branches |
+| `palm check` | a locked commit is not cached |
 
-`--offline` skips every connection in the table.
-A command that cannot work without one then fails with `E_NETWORK`, or shows `?` in `palm outdated`.
-
-MCP servers and hooks that palm installs run inside your harness, not inside palm.
-Their own network use is outside these rules.
+`--offline` forbids every connection, and a command that needs one fails with `E_NETWORK`.
+Hooks and MCP servers that palm installs run inside your harness, not inside palm. Their own network use is outside these rules.
 
 ## Security
 
@@ -66,7 +75,7 @@ Report a vulnerability privately through [GitHub security advisories](https://gi
 Do not open a public issue for it.
 The repository's `SECURITY.md` lists what is in scope and the response times.
 
-[The security model](/palm/explanation/security/) explains what palm trusts and what it refuses.
+[The security model](/palm/explanation/security/) explains what palm trusts, asks and refuses.
 
 ## Related
 

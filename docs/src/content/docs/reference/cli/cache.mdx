@@ -1,0 +1,69 @@
+---
+title: palm cache
+description: Remove palm's cache of source checkouts and indexes. Sources stay declared, and the next command that needs one fetches it again.
+---
+
+import Capture from '../../../../components/Capture.astro';
+
+`palm cache clean` removes `~/.palm/cache`, where palm keeps one checkout per source commit and one index per checkout.
+
+```sh
+palm cache clean [--yes]
+```
+
+| Command | What it does |
+| --- | --- |
+| `palm cache clean` | Remove every checkout and index, after a confirmation. |
+| `palm cache clean --yes` | Remove them without asking. Needed without a terminal. |
+| `palm cache clean --dry-run` | Show what palm would remove. |
+
+<Capture name="c-cache" title="~/project" />
+
+## Subcommands
+
+{/* cli-reference:subcommands cache */}
+
+| Command | Meaning |
+| --- | --- |
+| `palm cache clean` | Delete every checkout and index (sources stay declared). |
+
+{/* /cli-reference */}
+
+## Options
+
+{/* cli-reference:options cache */}
+
+No options of its own. The [global options](/palm/reference/cli/#global-options) apply.
+
+{/* /cli-reference */}
+
+## Behavior
+
+The cache holds `<cache>/<source id>/sha-<commit>/`, one checkout per commit, fetched once, and one index file per source, commit and layout.
+The folder has mode `0700`, and the indexes hold redacted hashes, never secret values.
+
+After `palm cache clean`, sources stay declared in `palm.yaml` and pinned in the lock.
+The next command that needs a commit fetches it again.
+A bare `palm install --offline` fails until then, because the locked commit is no longer cached.
+
+palm never cleans the cache by itself. Delete it whenever you like; nothing else depends on it.
+
+## Reads and writes
+
+| Path | Writes |
+| --- | --- |
+| `$PALM_HOME/cache` | deleted |
+
+## Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | The cache was removed, or was already empty. |
+| `1` | No terminal and no `--yes`. |
+| `2` | No subcommand, or an unknown one. |
+| `130` | You answered no, or pressed Esc. |
+
+## Related
+
+- [Environment variables](/palm/reference/environment/#palm_home)
+- [palm install](/palm/reference/cli/install/)

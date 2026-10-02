@@ -220,7 +220,7 @@ export function stripHiddenUnicode(text: string, opts: StripHiddenUnicodeOptions
 const ANSI_SGR_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 
 /** `text` without ANSI colour (SGR) sequences. */
-export function stripAnsi(text: string): string {
+function stripAnsi(text: string): string {
   return text.replace(ANSI_SGR_RE, '');
 }
 

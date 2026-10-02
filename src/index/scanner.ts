@@ -1,32 +1,38 @@
 /**
- * Scan orchestration (DESIGN §5): check the root, detect the rule, walk the origin once, run the
- * rule and the passes that follow it, and assemble the ScanResult.
+ * Scan orchestration (DESIGN §5): check the root, detect the rule, walk the source once, run the
+ * rule and the passes that follow it, and assemble the ScanResult. References and closures are
+ * resolved as hook sets and servers are added; the hidden-Unicode and secrets passes follow.
  *
  * Rule order: descriptor > apm > marketplace > plugin manifest > convention. Plugin rules are
  * followed by a convention pass over the rest of the tree, so skills on disk that a manifest does
- * not declare are still indexed (standalone, with a warning).
+ * not declare are still indexed (standalone, with a warning). A descriptor (layout) keeps the
+ * plugins a manifest or marketplace declares and adds what its globs name (R3').
  */
 
 import { stat } from 'node:fs/promises';
 import { messageOf, PalmError } from '../core/errors.js';
-import type { OriginSpec, ScanResult } from '../core/types.js';
+import type { ScanResult, Source } from '../core/types.js';
 import { type Detection, detectLayout, type ScanRule } from './detect.js';
 import { checkHiddenUnicode } from './hidden-unicode.js';
+import { issueWarnings } from './issues.js';
+import { warnNearMisses, warnSkippedSkills } from './near-miss.js';
 import { scanApm } from './rules/apm.js';
 import { scanConvention } from './rules/convention.js';
 import { scanDescriptor } from './rules/descriptor.js';
 import { scanMarketplace } from './rules/marketplace.js';
 import { scanNestedPlugins, scanPlugin } from './rules/plugin-manifest.js';
 import { ScanContext } from './scan-context.js';
+import { checkSecrets, type SecretScanner } from './secrets.js';
 
 async function assertDirectory(ctx: ScanContext): Promise<void> {
   try {
     if (!(await stat(ctx.rootAbs)).isDirectory()) throw new Error('not a directory');
   } catch (e) {
+    const cause = messageOf(e);
     throw new PalmError(
       'E_IO',
-      `cannot scan origin "${ctx.alias}": ${ctx.rootAbs} is not a readable directory`,
-      messageOf(e),
+      `cannot scan source "${ctx.sourceName}": ${ctx.rootAbs} is not a readable directory (${cause})`,
+      ctx.source.type === 'git' ? 'palm cache clean' : undefined,
     );
   }
 }
@@ -46,10 +52,24 @@ async function runMarketplace(
   });
 }
 
+/**
+ * R3': a layout is merged with the plugins detection finds (a root plugin manifest, a
+ * marketplace): the globs add what they name, and a plugin the source ships stays indexed, so
+ * pasting the layout palm suggested never hides it.
+ */
+async function scanLayoutPlugins(ctx: ScanContext): Promise<void> {
+  const found = await detectLayout(ctx.rootAbs, undefined, ctx.warnings, { skipApm: true });
+  if (found.rule === 'marketplace' && found.marketplaceFile)
+    await scanMarketplace(ctx, found.marketplaceFile, found.rootManifest);
+  else if (found.rule === 'plugin-manifest')
+    await scanPlugin(ctx, { rootRel: '', manifest: found.rootManifest });
+}
+
 /** Apply one detection rule. Returns the rule to report, or undefined when it found nothing to apply. */
 async function runRule(ctx: ScanContext, detection: Detection): Promise<ScanRule | undefined> {
   switch (detection.rule) {
     case 'descriptor':
+      await scanLayoutPlugins(ctx);
       await scanDescriptor(ctx, ctx.layout ?? {});
       return 'descriptor';
     case 'apm':
@@ -76,17 +96,28 @@ async function runDetected(ctx: ScanContext, detection: Detection): Promise<Scan
   return (await runRule(ctx, next)) ?? 'convention';
 }
 
-/** Index the checked-out origin at `root` (DESIGN §5). */
-export async function scanOrigin(root: string, spec: OriginSpec): Promise<ScanResult> {
-  const ctx = new ScanContext(root, spec);
+/**
+ * Index the source checked out at `root` (DESIGN §5) with the given secret scanner; scan.ts
+ * passes `src/secrets/scan.ts`.
+ */
+export async function scanSourceWith(
+  root: string,
+  source: Source,
+  secrets: SecretScanner,
+): Promise<ScanResult> {
+  const ctx = new ScanContext(root, source);
   await assertDirectory(ctx);
   const detection = await detectLayout(ctx.rootAbs, ctx.layout, ctx.warnings);
   await ctx.buildIndex(detection.rule === 'descriptor');
   const rule = await runDetected(ctx, detection);
   ctx.registry.applyInclude(ctx.layout?.include);
   ctx.registry.warnUndeclared();
+  await warnSkippedSkills(ctx);
+  await warnNearMisses(ctx);
   await checkHiddenUnicode(ctx);
+  await checkSecrets(ctx, secrets);
   const entities = ctx.registry.entities;
+  ctx.warnings.push(...issueWarnings(entities));
   return {
     entities,
     warnings: ctx.warnings,

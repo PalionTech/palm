@@ -1,0 +1,15 @@
+$ palm describe source anthropics/claude-plugins-official
+source anthropics/claude-plugins-official
+  url         https://github.com/anthropics/claude-plugins-official.git
+  ref         main
+  sha         bc94689
+  detected    marketplace
+  installed   1
+  offers      2 skills, 1 agent, 1 hook, 3 MCP servers, 3 plugins
+
+Warnings
+  ! anthropics/claude-plugins-official: plugin clangd-lsp: lspServers not supported by palm (ignored)
+  ! anthropics/claude-plugins-official: plugin "clangd-lsp" at plugins/clangd-lsp has no installable components; skipped
+  ! anthropics/claude-plugins-official: remote plugin "42crunch" (https://github.com/42Crunch-AI/claude-plugins.git (plugins/api-security-testing)@faf5305385de) not fetched: declare it: palm install 42Crunch-AI/claude-plugins/plugins/api-security-testing#faf5305385de8afed9468904e8639be737aff39e <names>
+  ! anthropics/claude-plugins-official: remote plugin "agentforce-adlc" (https://github.com/SalesforceAIResearch/agentforce-adlc.git@09bf1539d41f) not fetched: declare it: palm install SalesforceAIResearch/agentforce-adlc#09bf1539d41f9ff355ba3eb5d05d4a75813423bb <names>
+  ! anthropics/claude-plugins-official: plugin "npm-plugin": unsupported source npm:@acme/plugin; skipped

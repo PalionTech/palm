@@ -1,20 +1,20 @@
 ---
 title: Targets matrix
-description: Where palm writes every kind, for every target, in project and global scope.
+description: Where palm writes every kind, for every target, in project and global scope, how hook scripts are relocated, and how merging works.
 ---
 
 This page lists every path palm writes, by kind, target and scope.
-`<n>` is the entity name. Project paths are relative to the project root; global paths start at `~`.
+`<n>` is the entity name. Project paths are relative to the project root. Global paths start at `~`, and the global lock writes them as tokens such as `<claude>`.
 
 ```sh
-palm install agent reviewer --target claude,codex,copilot,cursor,gemini,opencode
-palm install agent reviewer -g
+palm init --target claude,codex,copilot,cursor,gemini,opencode
+palm describe target gemini
 ```
 
 `palm describe target <target>` prints these paths for your machine, with every override applied.
 
 The `gemini` (Gemini CLI) and `opencode` (OpenCode) rows follow each harness's documentation and source, checked on 2026-09-28.
-Neither harness has been tested against a running CLI yet.
+Neither has run against a live CLI in palm's tests yet.
 
 ## Skills
 
@@ -23,13 +23,23 @@ Neither harness has been tested against a running CLI yet.
 | `claude` | `.claude/skills/<n>/` | `~/.claude/skills/<n>/` |
 | `codex` | `.agents/skills/<n>/` | `~/.agents/skills/<n>/` |
 | `copilot` | `.agents/skills/<n>/` | `~/.agents/skills/<n>/` |
-| `cursor` | `.agents/skills/<n>/` | `~/.agents/skills/<n>/` |
+| `cursor` | `.claude/skills/<n>/` when `claude` is a target, else `.agents/skills/<n>/` | `~/.agents/skills/<n>/` |
 | `gemini` | `.agents/skills/<n>/` | `~/.agents/skills/<n>/` |
 | `opencode` | `.agents/skills/<n>/` | `~/.agents/skills/<n>/` |
 
-palm writes `.agents/skills` once, however many of `codex`, `copilot`, `cursor`, `gemini` and `opencode` are active.
-With `$GEMINI_CLI_HOME` set, Gemini CLI reads `$GEMINI_CLI_HOME/.agents/skills`, so global skills go to `$GEMINI_CLI_HOME/.gemini/skills/<n>/`.
-With `OPENCODE_DISABLE_EXTERNAL_SKILLS` set, OpenCode ignores `.agents/skills`, so palm writes `.opencode/skills/<n>/` and `~/.config/opencode/skills/<n>/`.
+palm writes `.agents/skills` once, however many targets read it.
+Claude Code does not read `.agents/skills`. Cursor reads both folders and removes duplicates by name, so `claude` plus `cursor` means one copy.
+With `$GEMINI_CLI_HOME` set, global skills for Gemini CLI go to `$GEMINI_CLI_HOME/.gemini/skills/<n>/`.
+With `OPENCODE_DISABLE_EXTERNAL_SKILLS` set to `1` or `true`, skills for OpenCode go to `.opencode/skills/<n>/` and `~/.config/opencode/skills/<n>/`.
+
+palm copies a skill's whole folder, including an `AGENTS.md`, `CLAUDE.md` or `GEMINI.md` the skill keeps in it.
+The copy leaves out harness folders (`.claude/`, `.cursor/`, `.codex/`, `.github/`, `.vscode/`, `.gemini/`, `.opencode/`), palm's own files, `.git`, `node_modules`, `.env*`, and tests: `tests/`, `test/`, `fixtures/`, `__tests__/` and `*.test.*` files.
+Every copied file goes through the secret scan, and a finding in a file the copy leaves out never refuses the skill. A skill above 200 files or 5 MB needs `--force`, and the message gives the count.
+`agents/openai.yaml` is Codex metadata, so palm copies it into `.agents/skills` only, never into `.claude/skills`.
+
+A command found in a source installs at these paths as a skill, with `name`, `description` and the command body in `SKILL.md`.
+A command without a description gets its first body line.
+`$ARGUMENTS` survives. Where a harness does not expand it, or has no `/name` call for skills, a note says so.
 
 ## Agents
 
@@ -42,19 +52,14 @@ With `OPENCODE_DISABLE_EXTERNAL_SKILLS` set, OpenCode ignores `.agents/skills`, 
 | `gemini` | `.gemini/agents/<n>.md` | `~/.gemini/agents/<n>.md` |
 | `opencode` | `.opencode/agents/<n>.md` | `~/.config/opencode/agents/<n>.md` |
 
-Gemini CLI rejects an agent file with any key outside its schema.
-palm writes only `name`, `description`, `kind`, `display_name`, `tools`, `model`, `temperature`, `max_turns` and `timeout_mins`.
-Claude tool names become Gemini names, for example `Read` becomes `read_file` and `Bash` becomes `run_shell_command`.
-Gemini CLI agents are a preview feature behind `experimental.enableAgents`.
+palm never copies a field into a harness that would misread it, and records each dropped field as a note.
 
-GitHub Copilot ignores tool names it does not know, so palm maps each tool to a Copilot name.
-For example `Read` becomes `read`, `Bash` becomes `execute`, and `mcp__docs__search` becomes `docs/search`.
-Copilot has no argument restrictions, so `Bash(git:*)` becomes plain `execute`.
-The install summary names each restriction it lost and each tool without a Copilot name.
-
-OpenCode passes unknown agent keys to the model provider, so palm writes only the keys OpenCode defines.
-Each agent gets `mode: subagent`, and a `tools` list becomes a `permission` block that denies everything else.
-The install summary names every key palm dropped.
+- Claude Code gets a Claude Code agent unchanged. From another format, palm drops keys Claude Code does not define, such as a Cursor model id, and turns `readonly: true` into a read-only tool list.
+- Gemini CLI rejects an agent file with any key outside its schema. palm writes only the keys Gemini defines, and maps Claude tool names to Gemini names, such as `Read` to `read_file` and `Bash` to `run_shell_command`.
+- GitHub Copilot ignores tool names it does not know, so palm maps each tool to a Copilot name, such as `Read` to `read` and `mcp__docs__search` to `docs/search`. Copilot has no argument restrictions, so `Bash(git:*)` becomes `execute`.
+- Cursor gets `readonly: true` only when the tool list has no tool that writes or runs commands.
+- OpenCode passes unknown keys to the model provider, so palm writes only the keys OpenCode defines, `mode: subagent`, and a `permission` map built from the tool lists or from `readonly: true`.
+- Codex agents get `name`, `description` and `developer_instructions`.
 
 ## Instructions
 
@@ -63,29 +68,18 @@ The install summary names every key palm dropped.
 | `claude` | `.claude/rules/<n>.md` | `~/.claude/rules/<n>.md` |
 | `codex` | managed block in `AGENTS.md` | managed block in `~/.codex/AGENTS.md` |
 | `copilot` | `.github/instructions/<n>.instructions.md` | `~/.copilot/instructions/<n>.instructions.md` |
-| `cursor` | `.cursor/rules/<n>.mdc` | skipped: Cursor has no user rules |
+| `cursor` | `.cursor/rules/<n>.mdc` | skipped: Cursor has no user rules file |
 | `gemini` | managed block in `GEMINI.md` | managed block in `~/.gemini/GEMINI.md` |
 | `opencode` | `.opencode/instructions/<n>.md`, listed in `opencode.json` | `~/.config/opencode/instructions/<n>.md`, listed in `~/.config/opencode/opencode.json` |
 
-Gemini CLI loads only `GEMINI.md` files, so each instruction is a block in that file.
-OpenCode reads the files named in the `instructions` array of `opencode.json`.
-palm adds one entry per instruction: a project-relative path, or an absolute path in the global config.
-It does not write `AGENTS.md` for OpenCode, because an `AGENTS.md` hides an existing `CLAUDE.md` from OpenCode.
+palm never edits `CLAUDE.md`.
+A rule written for Claude Code installs into `.claude/rules` byte for byte, frontmatter and file name case included. palm converts only for other harnesses.
 
-## Commands
+Claude Code and OpenCode have no on-request or manual rules, so palm 0.2 installs such a rule always-on there, with one notice per rule.
+`palm describe <name>` shows the activation the source declared.
 
-| Target | Project | Global |
-| --- | --- | --- |
-| `claude` | `.claude/commands/<n>.md` | `~/.claude/commands/<n>.md` |
-| `codex` | skipped: Codex has no project prompts | `~/.codex/prompts/<n>.md` |
-| `copilot` | `.github/prompts/<n>.prompt.md` | skipped: Copilot has no user prompt files |
-| `cursor` | `.cursor/commands/<n>.md` | `~/.cursor/commands/<n>.md` |
-| `gemini` | `.gemini/commands/<n>.toml` | `~/.gemini/commands/<n>.toml` |
-| `opencode` | `.opencode/commands/<n>.md` | `~/.config/opencode/commands/<n>.md` |
-
-Gemini CLI commands are TOML files with `description` and `prompt`.
-palm turns `$ARGUMENTS` into `{{args}}`, a shell line into `!{cmd}` and a file reference into `@{path}`.
-Gemini CLI has no positional arguments such as `$1`, and the install summary says so.
+A root `AGENTS.md` or `GEMINI.md` whose managed blocks pass 24 KiB makes `palm install`, its dry run and `palm check` warn.
+Above the harness's documented cap, the install refuses without `--force`, and the hint suggests `targets:` on the entry to keep the block out of that file.
 
 ## Hooks
 
@@ -95,27 +89,38 @@ Gemini CLI has no positional arguments such as `$1`, and the install summary say
 | `codex` | merged into `.codex/hooks.json` | merged into `~/.codex/hooks.json` |
 | `copilot` | `.github/hooks/<n>.json` | `~/.copilot/hooks/<n>.json` |
 | `cursor` | merged into `.cursor/hooks.json` | merged into `~/.cursor/hooks.json` |
-| `gemini` | merged into `.gemini/settings.json` (`hooks`) | merged into `~/.gemini/settings.json` (`hooks`) |
+| `gemini` | merged into `.gemini/settings.json` | merged into `~/.gemini/settings.json` |
 | `opencode` | skipped: OpenCode hooks are JavaScript plugins | skipped |
 
-palm copies hook scripts to `.palm/hooks/<n>/`, or to `~/.palm/hooks/<n>/` with `-g`.
-Claude Code and Codex use PascalCase event names; Cursor and Copilot use camelCase with `version: 1`.
+Each merged hook entry carries only the keys that harness documents.
+GitHub Copilot matchers cannot hold arguments, so a hook whose matcher has them, such as `Bash(git commit*)`, is skipped for Copilot with a note.
 
-Gemini CLI has its own event names and counts timeouts in milliseconds:
+Gemini CLI has its own event names and counts timeouts in milliseconds.
+palm 0.3 ships a table of documented one-to-one event and matcher equivalents.
+Each row names the harness version it was checked against, and anything without a row is skipped with a note.
 
-| Claude Code event | Gemini CLI event |
+## Hook scripts
+
+palm copies what a hook or stdio MCP server runs into `.palm/assets/<source>/<entity>/`, the entity's **closure**.
+`<source>` is the `palm.yaml` key with `/` replaced by `__`, so `trailofbits/skills` becomes `trailofbits__skills`.
+The closure is the folder that holds the hook definition, plus every file a command names.
+It also holds every file a script reads through a literal path, such as `$CLAUDE_PLUGIN_ROOT/skills/x/SKILL.md`, `../x` or `"$(dirname "$0")/../x"`.
+palm never copies `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, plugin manifests, `.git` or `node_modules`, and copies a `SKILL.md` only when a script reads it.
+Mode bits are kept. A symlink is dereferenced, and one that leaves the source refuses the entity.
+
+A reference to the plugin root, such as `${CLAUDE_PLUGIN_ROOT}/hooks/x.sh`, becomes a quoted path in each harness's project-folder idiom.
+
+| Target | Command starts with |
 | --- | --- |
-| `PreToolUse` | `BeforeTool` |
-| `PostToolUse` | `AfterTool` |
-| `UserPromptSubmit` | `BeforeAgent` |
-| `Stop` | `AfterAgent` |
-| `PreCompact` | `PreCompress` |
-| `SessionStart`, `SessionEnd`, `Notification` | same name |
+| `claude` | `"$CLAUDE_PROJECT_DIR"/.palm/assets/...` |
+| `cursor` | `"$CURSOR_PROJECT_DIR"/.palm/assets/...` |
+| `gemini` | `"$GEMINI_PROJECT_DIR"/.palm/assets/...` |
+| `codex`, `copilot` | `"$(git rev-parse --show-toplevel 2>/dev/null \|\| pwd)"/.palm/assets/...` |
+| any, with `-g` | `"$HOME"/.palm/assets/...` |
+| `opencode` | skipped |
 
-palm drops the other Claude Code events, such as `SubagentStop`, and names them in the install summary.
-Tool names in matchers change as for agents, in both directions.
-A Gemini CLI `run_shell_command` matcher becomes `Bash` for Claude Code and Codex.
-A hook script still receives Gemini tool names on stdin, so a script that tests for `Bash` does not match.
+An in-repo source is not copied. Its scripts run in place, such as `"$CLAUDE_PROJECT_DIR"/agent-kit/hooks/x.sh`, so an edit is live.
+palm still hashes those scripts for [consent](/palm/concepts/consent/), so an edit asks again on the next install.
 
 ## MCP servers
 
@@ -124,39 +129,40 @@ A hook script still receives Gemini tool names on stdin, so a script that tests 
 | `claude` | `.mcp.json` (`mcpServers`) | `~/.claude.json` (`mcpServers`) |
 | `codex` | `.codex/config.toml` (`[mcp_servers.<n>]`) | `~/.codex/config.toml` |
 | `copilot` | `.vscode/mcp.json` (`servers`) | `~/.copilot/mcp-config.json` (`mcpServers`) |
-| `cursor` | `.cursor/mcp.json` | `~/.cursor/mcp.json` |
+| `cursor` | `.cursor/mcp.json` (`mcpServers`) | `~/.cursor/mcp.json` |
 | `gemini` | `.gemini/settings.json` (`mcpServers`) | `~/.gemini/settings.json` (`mcpServers`) |
 | `opencode` | `opencode.json` (`mcp`) | `~/.config/opencode/opencode.json` (`mcp`) |
 
-Secrets stay environment references unless you pass `--secrets literal`.
-Gemini CLI uses `${NAME}`, like Claude Code. OpenCode uses `{env:NAME}` and has no default value syntax.
-palm writes `opencode.json` even when `opencode.jsonc` exists, because OpenCode loads and merges both.
+Secrets are environment references in each harness's syntax. [Secrets](/palm/concepts/secrets/#one-reference-six-spellings) lists them.
+Every file that can hold secrets is created with mode `0600` in global scope.
 
 ## Harness homes
 
 With `-g`, `~/.claude` follows `$CLAUDE_CONFIG_DIR`, `~/.codex` follows `$CODEX_HOME` and `~/.copilot` follows `$COPILOT_HOME`.
 `~/.gemini` becomes `$GEMINI_CLI_HOME/.gemini`, and `~/.config/opencode` becomes `$XDG_CONFIG_HOME/opencode`.
 
-Gemini CLI ignores project settings, commands, skills, agents and MCP servers in folders you have not trusted.
+Gemini CLI ignores project settings, skills, agents and MCP servers in folders you have not trusted.
 Trust the project folder in Gemini CLI after installing.
 
 ## How merging works
 
 Hooks and MCP servers go into files the harness shares with your own settings.
-palm parses the file, inserts its entries and writes it back: JSON with two-space indentation, TOML as a whole file.
-The lockfile records each insertion as a file, a JSON pointer and the exact value.
+palm parses the file, inserts its entries and writes it back, JSON with two-space indentation and TOML as a whole file.
+The lock records each insertion by file, location and identity, never by value.
 
-An uninstall removes exactly those values.
+An entry you already wrote by hand with the same identity, such as the same hook event, matcher and command, is adopted and reported, never added twice.
+An entry palm owns whose value you changed is `changed`: palm keeps it, `palm check` fails, and only `--force` writes it again.
+`palm check` warns about a command in a hook array palm manages that no lock entry explains.
+
+`palm remove` takes out exactly those entries, checks that each is gone, and prints `! could not remove` for one that stays.
 It prunes containers palm emptied, such as `"hooks": {}`, and deletes a JSON file left as `{}`.
-It removes directories palm emptied, but never the harness directories themselves, such as `.claude`, `.github` or `.opencode`.
-
-For Codex and Gemini CLI instructions, palm writes one managed block per instruction in `AGENTS.md` or `GEMINI.md`.
-It removes only its own blocks.
-For OpenCode, it removes only its own entries from the `instructions` array.
+A Cursor `hooks.json` left holding only `version` is deleted when palm created the file, and kept otherwise.
+It removes folders palm emptied, but never the harness folders themselves.
+A symlinked config file, such as a dotfiles-managed `~/.claude/settings.json`, stays a link. palm writes through it.
 
 ## Related
 
 - [Targets](/palm/concepts/targets/)
-- [`palm describe`](/palm/reference/cli/describe/)
+- [palm describe](/palm/reference/cli/describe/)
 - [Project and global scope](/palm/concepts/scopes/)
 - [Why native files per harness](/palm/explanation/why-native-files/)

@@ -1,8 +1,0 @@
-$ palm outdated
-kind   name      origin      current           wanted            latest
-─────  ────────  ──────────  ────────────────  ────────────────  ────────────────
-skill  grill-me  mattpocock  v1.0.0 (4747051)  v1.0.0 (4747051)  v1.1.0 (13365b4)
-skill  tdd       mattpocock  v1.0.0 (4747051)  v1.1.0 (13365b4)  v1.1.0 (13365b4)
-
-1 at an older commit than palm.yaml wants: palm update (it reinstalls those whose content changed)
-1 pinned below the latest release: change the #ref in palm.yaml, then palm update

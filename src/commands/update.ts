@@ -1,192 +1,294 @@
 /**
- * `palm update [kind] [names...]` (alias `up`): print the plan (`~ updated`, `+ added`,
- * `- removed`, `= unchanged`, `x failed`, files at risk, the hook and stdio MCP commands it
- * writes), ask y/N once (default No; `--yes` for scripts, required without a terminal), then
- * reinstall what changed. That one answer is also the executable consent for the commands
- * listed. `--dry-run` prints the plan only. `palm update origins [alias...]` refreshes origin
- * indexes.
+ * `palm update [sources…] [--to ref] [--dry-run] [--review]` (alias `up`), DESIGN.md §6
+ * "Update": print the plan (sources, entries, every new or changed program, the files you
+ * changed), ask once (default no; `--yes` without a terminal, never for programs), then apply.
+ * `--dry-run` is the outdated report; with `--strict` it exits 1 when a source is behind.
  */
-import pc from 'picocolors';
+import semver from 'semver';
 import { PalmError } from '../core/errors.js';
-import type { Kind, PalmContext, Scope, TargetId } from '../core/types.js';
-import { DepRef } from '../domain/dep-ref.js';
-import type { UpdateMark, UpdatePlan, UpdatePlanItem, UpdateResult } from '../engine/update.js';
+import { runGit } from '../core/git-exec.js';
+import { parseKind } from '../core/kinds.js';
+import type {
+  ExecUnit,
+  PalmContext,
+  UpdateMark,
+  UpdatePlan,
+  UpdatePlanItem,
+  UpdatePlanSource,
+} from '../core/types.js';
+import { gitToplevel } from '../lib/git-query.js';
 import { plural } from '../lib/text.js';
-import {
-  type Mark,
-  type Output,
-  printFailures,
-  printInstallSummary,
-  symbol,
-} from '../ui/output.js';
+import { formatColumns, listJoin, type Mark, shortHash, shortRef } from '../ui/format.js';
+import type { Output } from '../ui/output.js';
+import { printFailures } from '../ui/summary.js';
 import type { App } from './app.js';
-import type { Invocation } from './grammar.js';
-import { updateOrigins } from './origin.js';
+import { ExitSignal, type Invocation, usage } from './grammar.js';
+import { exampleLine, palmLine } from './hints.js';
+import { interruptible, reportInstall } from './report.js';
 import {
-  ExitSignal,
-  entityKind,
-  failureCount,
+  engine,
+  engineDeps,
   type GlobalOptions,
   makeContext,
   scopeOf,
   withSpinner,
 } from './shared.js';
 
-type Ref = { kind?: Kind; name: string };
-
-/** `palm update skills` = every directly installed skill in the scope. */
-async function directEntries(ctx: PalmContext, scope: Scope, kind: Kind): Promise<Ref[]> {
-  const { listInstalled } = await import('../engine/query.js');
-  return (await listInstalled(ctx, scope, kind))
-    .filter((e) => !e.via)
-    .map((e) => ({ kind: e.kind, name: e.name }));
+interface UpdateFlags extends GlobalOptions {
+  to?: string;
+  strict?: boolean;
 }
 
-const MARKS: Record<UpdateMark, Mark> = {
-  updated: 'updated',
-  added: 'added',
-  removed: 'removed',
-  unchanged: 'unchanged',
-  failed: 'error',
-  skipped: 'warning',
+const MARKS: Readonly<Record<UpdateMark, Mark>> = {
+  updated: '~',
+  added: '+',
+  removed: '-',
+  unchanged: '=',
+  failed: 'x',
+  skipped: '⊘',
 };
 
-function changeCell(i: UpdatePlanItem): string {
-  const change = i.from && i.to ? `${i.from} → ${i.to}` : (i.from ?? '');
-  if (!i.note) return change;
-  return change ? `${change}  ${pc.dim(i.note)}` : pc.dim(i.note);
+/** O22: a version as a table shows it: a full commit sha as its first 7 characters. */
+const short = (v?: string) => v?.replace(/\b([0-9a-f]{7})[0-9a-f]{33}\b/g, '$1');
+
+const arrow = (from?: string, to?: string) =>
+  from && to && from !== to ? `${short(from)} → ${short(to)}` : (short(to ?? from) ?? '');
+
+/** The version a plan string names (`v1.2.3 (6acc160)` → `1.2.3`), when it is one. */
+function versionOf(text: string | undefined): string | undefined {
+  const ref = text?.replace(/\s*\(.*\)$/, '');
+  return ref ? (semver.valid(semver.coerce(ref)) ?? undefined) : undefined;
 }
 
-function planRow(i: UpdatePlanItem): string[] {
-  const name = i.via ? `${i.name} ${pc.dim(`(${i.via})`)}` : i.name;
-  return [`${symbol(MARKS[i.mark])} ${i.mark}`, i.kind, name, i.origin, changeCell(i)];
+/** Q12: the sources this plan moves to an older version. */
+function downgrades(plan: UpdatePlan): Set<string> {
+  const older = (s: UpdatePlanSource) => {
+    const [from, to] = [versionOf(s.from), versionOf(s.to)];
+    return Boolean(from && to && semver.lt(to, from));
+  };
+  return new Set(plan.sources.filter(older).map((s) => s.name));
+}
+
+/** V3' S8: a program's row says so: `changed program`, `new program`. */
+function markWord(i: UpdatePlanItem, downgraded: boolean): string {
+  if (i.exec && i.mark === 'added') return 'new program';
+  if (i.exec && i.mark === 'updated') return 'changed program';
+  return i.mark === 'updated' && downgraded ? 'downgraded' : i.mark;
+}
+
+function itemCells(i: UpdatePlanItem, down: ReadonlySet<string>): string[] {
+  const name = i.via ? `${i.name} (${i.via})` : i.name;
+  const moved = down.has(i.source) && i.mark === 'updated' ? 'downgrade' : '';
+  const change = [arrow(i.from, i.to), i.note, moved].filter(Boolean).join('  ');
+  return [markWord(i, Boolean(moved)), i.kind, name, i.source, change];
+}
+
+function changedScripts(before: ExecUnit, after: ExecUnit): string[] {
+  const known = new Map(before.closure.files.map((f) => [f.path, f.hash]));
+  return after.closure.files.filter((f) => known.get(f.path) !== f.hash).map((f) => f.path);
+}
+
+/** `hook team-skills: setup.sh changed (sha256:a7cc7911… → 3e01a9f2…); d shows the diff`. */
+function execLine(i: UpdatePlanItem): string | undefined {
+  if (!i.exec) return undefined;
+  const { unit, previous } = i.exec;
+  const hash = (u: ExecUnit) => `sha256:${shortHash(u.hash, 8)}…`;
+  if (!previous)
+    return `${i.kind} ${i.name}: a new program (${hash(unit)}); palm asks before it lands`;
+  const scripts = changedScripts(previous, unit);
+  const what = scripts.length ? `${listJoin(scripts)} changed` : 'its command changed';
+  return `${i.kind} ${i.name}: ${what} (${hash(previous)} → ${shortHash(unit.hash, 8)}…); d shows the diff`;
 }
 
 function printAtRisk(out: Output, items: UpdatePlanItem[], force: boolean): void {
   const risky = items.filter((i) => i.atRisk.length);
   if (!risky.length) return;
-  out.out();
-  out.out(
-    force
-      ? `${symbol('warning')} you changed these files; --force overwrites them:`
-      : `${symbol('warning')} you changed these files since palm wrote them; palm overwrites them only with --force:`,
-  );
-  for (const i of risky)
-    for (const f of i.atRisk) out.out(`    ${f}  ${pc.dim(`(${i.kind} ${i.name})`)}`);
+  const how = force ? '--force overwrites them' : 'palm overwrites them only with --force';
+  out.mark('!', `you changed these files since palm wrote them; ${how}:`);
+  for (const i of risky) for (const f of i.atRisk) out.out(`    ${f}  (${i.kind} ${i.name})`);
 }
 
-/** The hook commands and stdio MCP servers the one confirmation also allows (executable consent). */
-function printExecutables(out: Output, runs: string[]): void {
-  if (!runs.length) return;
-  const n = runs.length;
-  const what = n === 1 ? 'a command that runs' : `${n} commands that run`;
-  out.out();
-  out.out(`${symbol('warning')} this update writes ${what} on your machine:`);
-  for (const r of runs) out.out(`    ${r}`);
+/** An unchanged entry with nothing to say (no move, no note): counted, not listed (K21). */
+function quiet(i: UpdatePlanItem): boolean {
+  return i.mark === 'unchanged' && !i.note && (!i.from || !i.to || i.from === i.to) && !i.exec;
 }
 
-function printPlan(out: Output, plan: UpdatePlan, runs: string[], force: boolean): void {
-  out.out(`${pc.bold('Update plan')} ${pc.dim(`(${plan.scope} scope)`)}`);
-  out.table(plan.items.map(planRow));
+/** O23: an entry whose source moved while its content stayed the same: re-pinned, counted. */
+function repinned(i: UpdatePlanItem): boolean {
+  const moved = Boolean(i.from && i.to && i.from !== i.to);
+  return i.mark === 'unchanged' && moved && !i.exec && (!i.note || i.note === 'same content');
+}
+
+/** `= 9 re-pinned (same content), 1 unchanged`. */
+function countsLine(items: UpdatePlanItem[]): string | undefined {
+  const moved = items.filter(repinned).length;
+  const same = items.filter(quiet).length;
+  const parts = [
+    moved ? `${moved} re-pinned (same content)` : '',
+    same ? `${same} unchanged` : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(', ') : undefined;
+}
+
+/** B21: skipped entries of one source as one line (`⊘ ./kit   100 entries   a directory source…`). */
+function skippedLines(items: UpdatePlanItem[]): string[][] {
+  const bySource = new Map<string, UpdatePlanItem[]>();
+  for (const i of items.filter((x) => x.mark === 'skipped'))
+    bySource.set(i.source, [...(bySource.get(i.source) ?? []), i]);
+  return [...bySource].map(([source, group]) => {
+    const notes = [...new Set(group.flatMap((i) => (i.note ? [i.note] : [])))];
+    const n = group.length;
+    return ['skipped', 'source', source, `${n} ${n === 1 ? 'entry' : 'entries'}`, notes.join('; ')];
+  });
+}
+
+/** D4 C19: how far a pin is behind: `latest v6.4.2`, `main is 063bee9`. */
+function behindCell(s: UpdatePlanSource): string {
+  const latest = s.latest && s.latest !== s.to ? `latest ${s.latest}` : '';
+  const head = s.head ? `${s.head.branch} is ${shortHash(s.head.sha, 7)}` : '';
+  return [latest, head].filter(Boolean).join('; ');
+}
+
+function printPlan(out: Output, plan: UpdatePlan, force: boolean): void {
+  out.out(`Update plan (${plan.scope} scope)`);
+  const down = downgrades(plan);
+  const sources = plan.sources.map((s) => [
+    s.name,
+    shortRef(s.ref) ?? '',
+    arrow(s.from, s.to),
+    [behindCell(s), down.has(s.name) ? 'downgrade' : ''].filter(Boolean).join('; '),
+  ]);
+  for (const line of formatColumns(sources)) out.out(line);
+  // D11: why a source counts as a change when no entry changes.
+  for (const s of plan.sources) if (s.reason) out.mark('i', `${s.name}: ${s.reason}`);
+  const listed = plan.items.filter((i) => !quiet(i) && !repinned(i) && i.mark !== 'skipped');
+  const rows = [...listed.map((i) => itemCells(i, down)), ...skippedLines(plan.items)];
+  const marks = [
+    ...listed.map((i) => MARKS[i.mark]),
+    ...skippedLines(plan.items).map(() => MARKS.skipped),
+  ];
+  for (const [n, line] of formatColumns(rows).entries()) out.mark(marks[n] ?? '=', line);
+  const counts = countsLine(plan.items);
+  if (counts) out.mark('=', counts);
+  for (const line of plan.items.map(execLine)) if (line) out.mark('!', line);
   printAtRisk(out, plan.items, force);
-  printExecutables(out, runs);
+  printFailures(out, plan.failures);
 }
 
-function planJson(plan: UpdatePlan): UpdateResult {
-  return { plan: plan.items, outcomes: [], failures: plan.failures, warnings: plan.warnings };
+/** D27: `v1.2.3 (6acc160)` as `{ ref, sha }`; `content 1a2b3c4` as `{ content }`. */
+function refSha(text: string | undefined): Record<string, string> | undefined {
+  if (!text) return undefined;
+  const pinned = /^(.*?)\s*\(([0-9a-f]{7,40})\)$/.exec(text);
+  if (pinned) return { ...(pinned[1] ? { ref: pinned[1] } : {}), sha: pinned[2] as string };
+  const content = /^content ([0-9a-f]+)$/.exec(text);
+  if (content) return { content: content[1] as string };
+  return /^[0-9a-f]{7,40}$/.test(text) ? { sha: text } : { ref: text };
 }
 
-/**
- * Ask before changing anything: y/N in a terminal, `--yes` without one. False = declined. The
- * answer also allows the commands the plan listed (the install does not ask about them again).
- */
-async function confirmed(
-  ctx: PalmContext,
-  changes: { count: number; runs: number },
-  again: string,
-): Promise<boolean> {
+/** The plan as data: versions as fields, not display strings. */
+function planJson(plan: UpdatePlan) {
+  const versions = <T extends { from?: string; to?: string }>(x: T) => ({
+    ...x,
+    from: refSha(x.from),
+    to: refSha(x.to),
+  });
+  return { ...plan, sources: plan.sources.map(versions), items: plan.items.map(versions) };
+}
+
+async function confirmed(ctx: PalmContext, changes: number): Promise<boolean> {
   if (ctx.flags.yes) return true;
   if (!ctx.ui.isInteractive)
     throw new PalmError(
       'E_NON_INTERACTIVE',
-      'palm update changes installed files and needs a confirmation',
-      `review the plan, then run: ${again} --yes   (or ${again} --dry-run to only print it)`,
+      `the update would apply ${plural(changes, 'change')} and there is no terminal to ask`,
+      'review it with --dry-run, then apply it',
+      { retryWith: '--yes' },
     );
-  const apply = `Apply ${plural(changes.count, 'change')}`;
-  const allow = changes.runs
-    ? ` and allow ${changes.runs === 1 ? 'that command' : 'those commands'} to run`
-    : '';
-  return ctx.ui.confirm(`${apply}${allow}?`, false);
+  return ctx.ui.confirm(`Apply ${plural(changes, 'change')}?`, false);
 }
 
-/** The command line to repeat in hints: `palm update skill tdd -g`. */
-function againCommand(inv: Invocation, scope: Scope): string {
-  const words = ['palm update', inv.resource, ...inv.names].filter(Boolean);
-  return `${words.join(' ')}${scope === 'global' ? ' -g' : ''}`;
-}
-
-async function refsOf(inv: Invocation, ctx: PalmContext, scope: Scope): Promise<Ref[] | undefined> {
-  const kind = entityKind(inv.resource, 'update');
-  const refs: Ref[] = inv.names.map((n) => ({ kind, name: DepRef.parse(n).name }));
-  if (refs.length || !kind) return refs;
-  const direct = await directEntries(ctx, scope, kind);
-  return direct.length ? direct : undefined;
-}
-
-async function applyPlan(ctx: PalmContext, app: App, plan: UpdatePlan): Promise<UpdateResult> {
-  const { applyUpdate } = await import('../engine/update.js');
-  const step = { message: 'Updating', json: app.out.jsonMode };
-  return withSpinner(ctx, step, () => applyUpdate(ctx, plan, app.deps));
-}
-
-function printApplied(out: Output, result: UpdateResult, scope: Scope): void {
-  const changed = result.outcomes.filter((o) => o.status !== 'unchanged');
-  const targets = [...new Set(changed.flatMap((o) => o.entry.targets))] as TargetId[];
-  out.out();
-  printInstallSummary(out, { ...result, outcomes: changed }, { scope, targets });
-}
-
-/** No changes, or --dry-run: the plan is all there is (exit 1 when an origin failed). */
-function endWithPlan(out: Output, plan: UpdatePlan, changes: number): void {
-  if (out.jsonMode) out.json(planJson(plan));
-  else {
-    out.hint(changes === 0 ? '\nNothing to update.' : '\ndry run: nothing written');
-    printFailures(out, plan.failures);
-  }
+/** No changes, or --dry-run: the plan is all there is. */
+function endWithPlan(app: App, plan: UpdatePlan, changes: number, strict: boolean): void {
+  const out = app.out;
   for (const w of plan.warnings) out.warn(w);
-  if (plan.failures.length) throw new ExitSignal(1);
+  if (out.jsonMode) out.json({ plan: planJson(plan), changes, applied: false });
+  else out.hint(changes === 0 ? 'Nothing to update.' : 'dry run: nothing written.');
+  const behind = strict && changes > 0;
+  if (behind && !out.jsonMode)
+    out.info(`--strict exits 1: ${plural(changes, 'change')} would apply`);
+  if (plan.failures.length || behind) throw new ExitSignal(1);
 }
 
-async function makePlan(ctx: PalmContext, app: App, refs: Ref[], scope: Scope) {
-  const { planUpdate } = await import('../engine/update.js');
-  const step = { message: 'Checking origins for updates', json: app.out.jsonMode };
-  return withSpinner(ctx, step, () => planUpdate(ctx, refs, { scope }, app.deps));
+/** `--to` moves one source; the hint names one palm.yaml declares (D10). */
+async function checkArgs(ctx: PalmContext, app: App, sources: string[], flags: UpdateFlags) {
+  const [first = ''] = sources;
+  const scope = scopeOf(flags);
+  if (parseKind(first) && sources.length > 1)
+    throw usage('update moves sources, not kinds', palmLine('get', ['sources'], scope));
+  if (!flags.to || sources.length === 1) return;
+  const state = await engine(app).openScope(ctx, scope, { readOnly: true });
+  const [declared] = state.sources.names();
+  const to = flags.to;
+  if (declared)
+    throw usage(
+      '--to moves the ref of one source',
+      palmLine('update', [declared, '--to', to], scope),
+    );
+  throw usage(
+    '--to moves the ref of one source, and palm.yaml declares none',
+    exampleLine(
+      `palm install <owner/repo>#${to}`,
+      palmLine('install', [`mattpocock/skills#${to}`], scope),
+    ),
+  );
 }
 
 export async function run(inv: Invocation, app: App): Promise<void> {
-  if (inv.resource === 'origin') return updateOrigins(inv, app);
-  const g = inv.opts as GlobalOptions;
-  const scope = scopeOf(g);
-  const ctx = await makeContext(app, g);
-  const out = app.out;
-  const refs = await refsOf(inv, ctx, scope);
-  if (!refs) {
-    out.hint(`No ${inv.resource} entries installed in the ${scope} scope.`);
-    if (out.jsonMode) out.json({ plan: [], outcomes: [], failures: [] });
+  const flags = inv.opts as UpdateFlags;
+  const sources = inv.names.map((n) => n.name);
+  // update pages its own review (reviewText); src/exec must not print the scripts again
+  const ctx = await makeContext(app, { ...flags, review: false });
+  await checkArgs(ctx, app, sources, flags);
+  const api = engine(app);
+  const opts = { scope: scopeOf(flags), ...(flags.to ? { to: flags.to } : {}) };
+  const plan = await withSpinner(ctx, 'Checking sources for updates', () =>
+    api.planUpdate(ctx, sources, opts, engineDeps(app)),
+  );
+  const changes = await api.planChanges(plan);
+  if (!app.out.jsonMode) printPlan(app.out, plan, ctx.flags.force);
+  if (flags.review)
+    await app.out.page(
+      await api.reviewText(ctx, plan, await api.resolveEngineDeps(engineDeps(app))),
+    );
+  if (ctx.flags.dryRun || changes === 0)
+    return endWithPlan(app, plan, changes, Boolean(flags.strict));
+  if (!(await confirmed(ctx, changes))) {
+    if (app.out.jsonMode) app.out.json({ plan: planJson(plan), changes, applied: false });
+    else app.out.hint('Nothing changed.');
     return;
   }
-  const plan = await makePlan(ctx, app, refs, scope);
-  const { planChanges, planExecutables } = await import('../engine/update.js');
-  const runs = planExecutables(plan);
-  if (!out.jsonMode) printPlan(out, plan, runs, ctx.flags.force);
-  const changes = planChanges(plan);
-  if (changes === 0 || ctx.flags.dryRun) return endWithPlan(out, plan, changes);
-  if (!(await confirmed(ctx, { count: changes, runs: runs.length }, againCommand(inv, scope)))) {
-    out.hint('Nothing changed.');
-    return;
+  const before = await api.openScope(ctx, opts.scope, { readOnly: true });
+  const result = await interruptible(app, () => api.applyUpdate(ctx, plan, opts, engineDeps(app)));
+  const after = await api.openScope(ctx, opts.scope, { readOnly: true });
+  const down = downgrades(plan);
+  try {
+    await reportInstall(ctx, app, result, {
+      before,
+      after,
+      json: { plan: planJson(plan), ...result },
+      downgraded: (source) => down.has(source),
+    });
+  } finally {
+    // Q12: what the update changed, new files included, as `git status --short` lists them.
+    const show = !app.out.jsonMode && opts.scope === 'project';
+    const status = show ? await gitStatus(after.paths.root) : undefined;
+    if (status) app.out.out(status);
   }
-  const result = await applyPlan(ctx, app, plan);
-  if (out.jsonMode) out.json(result);
-  else printApplied(out, result, scope);
-  if (failureCount(result)) throw new ExitSignal(1);
+}
+
+/** `git status --short` of the scope's root; undefined outside a repository or without git. */
+async function gitStatus(root: string): Promise<string | undefined> {
+  if (!(await gitToplevel(root))) return undefined;
+  const out = await runGit(['status', '--short', '--', '.'], { cwd: root }).catch(() => '');
+  return out.trimEnd() || undefined;
 }

@@ -1,126 +1,118 @@
 ---
 title: Share a team baseline
-description: Every clone installs the same entities, from the same commits, for the same harnesses.
+description: One person installs the team's skills, agents and rules and commits them. Every clone works without running palm, updates arrive as pull requests, and removals reach everyone.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 import Capture from '../../../components/Capture.astro';
 
-A platform team keeps its shared skills and agents (subagents) in one repository, and every service repository should use them.
-A new developer should get the exact same setup on day one, without registering origins or picking harnesses.
-palm stores the origin, the harnesses and the locked commits in two files you commit.
+Your platform team keeps its skills, agents and rules in `acme/agent-kit`.
+Every service should have the same set, at the same version, for Claude Code and Codex.
+One person sets it up once. Everyone else clones, and it works.
 
-When you finish, a teammate on a new machine clones the repository and runs one command:
+When you finish, a teammate's fresh clone passes `palm check` without a single palm command before it:
 
-<Capture name="b-team-clone" title="~/project" />
-
-palm installs the commit the lockfile names, `v1.0.0`, although the origin has a newer tag.
-`palm outdated` shows the newer tag without changing anything.
-
-The sessions on this page use a local git repository with two tags in place of a GitHub repository.
-Its URL is `file://~/src/team-kit`; yours is `acme/agent-kit` or any git URL.
+<Capture name="b-team-clone" title="teammate: ~/teammate" />
 
 ## Before you start
 
-- A shared repository of skills or agents with release tags, such as `v1.0.0`.
-- palm on every developer's machine and in CI.
+- The team's repository is reachable over git from every laptop and from CI.
+- The project has `targets:` in `palm.yaml`, from `palm init --target claude,codex`.
 
-## Steps
+## Set it up once
 
 <Steps>
 
-1. Choose the harnesses for the whole team.
+1. Install the team's entities by name.
 
    ```sh
-   palm init --target claude,codex
+   palm install acme/agent-kit ci-watch ci-watcher typescript
    ```
 
-   `targets:` in `palm.yaml` comes before each developer's global default and before detection.
-   So every clone installs for these harnesses, whatever the machine has.
+   palm declares `acme/agent-kit` in `palm.yaml` with a range on its newest tag, so later releases within `1.x` arrive through `palm update`.
 
-2. Add the team's origin to the project, not to your own config.
-
-   ```sh
-   palm install origin acme/agent-kit --alias team --project
-   ```
-
-   `--project` writes the origin under `origins:` in `palm.yaml`.
-   A teammate needs no `palm install origin` of their own.
-
-3. Install what the team uses.
-
-   ```sh
-   palm install skill ci-watch@team
-   palm install agent ci-watcher@team
-   ```
+2. Commit everything palm wrote, in one commit.
 
    <Capture name="b-team-setup" title="~/project" />
 
-   Without a ref, palm takes the origin's latest semver tag.
-   The lockfile records that tag and its commit for each entry.
-
-4. Commit `palm.yaml` and `palm.lock.yaml`.
-
-   ```sh
-   git add palm.yaml palm.lock.yaml
-   git commit -m "Add the team agent baseline"
-   ```
-
-   Decide whether the files palm wrote go into git as well:
-
-   | You commit | On a fresh clone |
-   | --- | --- |
-   | `palm.yaml`, `palm.lock.yaml` and the harness files | The harnesses work at once. `palm install` restores what git does not hold, such as hook scripts in `.palm/`. |
-   | only `palm.yaml` and `palm.lock.yaml` | `palm install` writes every file from the locked commits, as in the session at the top. |
-
-5. On every clone, run `palm install` with no names.
-
-   ```sh
-   palm install
-   ```
-
-   palm reads the origin from `palm.yaml` and fetches the commit in the lockfile.
-   A newer tag never changes what a bare `palm install` writes.
-
-6. Move the team to a new release when you choose to.
-
-   ```sh
-   palm update --dry-run
-   palm update
-   ```
-
-   <Capture name="b-team-update" title="~/project" />
-
-   `--dry-run` prints the plan and writes nothing.
-   In a terminal, `palm update` prints the same plan and asks before it writes; `--yes` skips the question.
-   The agent did not change between the two tags, so its entry keeps the `v1.0.0` commit.
-   Commit the new `palm.lock.yaml`, and every clone moves to `v1.1.0` on its next `palm install`.
+   The commit holds `palm.yaml`, the lock and every generated file.
+   Reviewers see the skill text, the agent and the rule block in `AGENTS.md`, exactly as the harnesses will read them.
 
 </Steps>
 
-To accept only compatible releases, pin a semver range in `palm.yaml`:
+## What a teammate does
 
-```yaml title="palm.yaml"
-skills:
-  - ci-watch@team#^1.0
-```
+Nothing palm-specific. `git clone` delivers the files, and the harnesses read them.
 
-`palm update` then moves to the highest `1.x` tag and never to `2.0.0`.
+palm is only needed to change the setup, and to prove it in CI.
+A bare `palm install` on the clone counts every entry as unchanged and writes nothing.
+If a hook is part of the baseline, the lock already holds the team's consent, so the clone installs it silently. [Consent](/palm/concepts/consent/) explains the hash that makes this safe.
 
-## Check the result
+## Take an update
 
-Run the CI check on a clean checkout:
+The team tags `v1.1.0` of `acme/agent-kit`.
+One person moves the project to it and opens a pull request.
+
+<Capture name="b-team-update" title="~/project" />
+
+`--dry-run` prints the plan and writes nothing.
+`--yes` applies it without a prompt, and palm prints the diff stat.
+The pull request shows the new skill text and the moved commit in the lock, and review decides.
+
+The plan lists every entry of a source whose commit moves, including those whose files stay the same, so review sees each re-pin.
+For a source pinned to an exact tag, the plan prints the latest tag, so a pin never hides a newer release.
+
+A changed or new hook is never covered by `--yes`. It needs a fresh consent, shown with `d` as a diff against what the team trusted.
+A hook or MCP server that a plugin starts to ship appears as `i new program available`, and nothing installs it until someone names it.
+
+To leave the range, move it explicitly.
 
 ```sh
-palm install --frozen --yes
+palm update acme/agent-kit --to ^2
 ```
 
-It exits 0 when `palm.yaml`, `palm.lock.yaml` and the files on disk agree.
-It exits 1 and lists each difference when a file was edited or an entry is missing from the lockfile.
+## Remove something for everyone
+
+<Capture name="b-team-remove" title="~/project" />
+
+The removal is two deleted files and two edited ones.
+Commit them, and every teammate's next `git pull` removes the agent. No one has to run palm.
+
+## Personal additions
+
+A teammate who wants an extra skill only for themselves installs it with `-g`, into their home directory.
+
+```sh
+palm install mattpocock/skills tdd -g
+```
+
+palm cannot switch off a committed entry for one person, because git tracks the file.
+Use the harness's own switch instead, such as `.claude/settings.local.json` for Claude Code or a `[[skills.config]]` entry in `~/.codex/config.toml` for Codex.
+Removing the entry with `palm remove` removes it for the whole team.
+palm 0.3 adds `palm.local.yaml` for personal targets, sources and entries in one checkout, ignored by git, and per-person disable with it.
+`--local` prints that and changes nothing until then.
+
+## Protect the files that run programs
+
+The lock records that someone consented to a hook's hash, not who did.
+Make review of those files mandatory with a `CODEOWNERS` file, so a consent always passes through someone you chose.
+
+```text title=".github/CODEOWNERS"
+palm.lock.yaml            @acme/platform
+.palm/assets/**           @acme/platform
+.claude/settings.json     @acme/platform
+.codex/hooks.json         @acme/platform
+.github/hooks/            @acme/platform
+.cursor/hooks.json        @acme/platform
+.gemini/settings.json     @acme/platform
+agent-kit/                @acme/platform
+```
+
+List the hook files of your targets only, and every in-repo source, such as `agent-kit/`.
+A change to a hook's script, its command or its `trust:` hash then needs that team's approval.
 
 ## Next steps
 
-- [Use palm in CI and scripts](/palm/guides/ci/) runs that check on every pull request.
-- [Publish your own skills](/palm/guides/publish-your-own/) creates the shared repository.
-- [Origins](/palm/concepts/origins/) explains refs, aliases and project origins.
-- [Manifest and lockfile](/palm/concepts/manifest-and-lockfile/) explains replay and `--frozen`.
+- Run `palm check` on every pull request. See [Check the setup in CI](/palm/guides/ci/).
+- Publish the team's own repository. See [Publish your own source](/palm/guides/publish-your-own/).
+- Understand what the lock records. See [palm.yaml and palm.lock.yaml](/palm/concepts/manifest-and-lockfile/).

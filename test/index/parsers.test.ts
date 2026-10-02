@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { isPalmError } from '../../src/core/errors.js';
 import { parseAgentFile } from '../../src/index/agents.js';
 import { parseCommandFile } from '../../src/index/commands.js';
-import { detectHookDialect, mergeHooksRaw, parseHooksJson } from '../../src/index/hooks.js';
+import {
+  detectHookDialect,
+  hookHandlers,
+  mergeHooksRaw,
+  parseHooksJson,
+} from '../../src/index/hooks.js';
 import { parseInstructionFile } from '../../src/index/instructions.js';
 import { parseMcpJson } from '../../src/index/mcp.js';
 import { parseSkillMd } from '../../src/index/skills.js';
@@ -192,6 +197,7 @@ describe('parseInstructionFile', () => {
         description: 'A',
         globs: ['**/*.ts', '**/*.tsx'],
         alwaysApply: false,
+        activation: 'paths',
         body: 'Body',
         sourceFormat: 'mdc',
       },
@@ -199,7 +205,14 @@ describe('parseInstructionFile', () => {
     [
       '/r/rules/b.mdc',
       '---\nglobs: ["src/**"]\nalwaysApply: "true"\n---\nBody',
-      { name: 'b', globs: ['src/**'], alwaysApply: true, body: 'Body', sourceFormat: 'mdc' },
+      {
+        name: 'b',
+        globs: ['src/**'],
+        alwaysApply: true,
+        activation: 'always',
+        body: 'Body',
+        sourceFormat: 'mdc',
+      },
     ],
     [
       '/r/rules/c.mdc',
@@ -208,7 +221,19 @@ describe('parseInstructionFile', () => {
         name: 'c',
         description: 'Agent decides',
         alwaysApply: false,
+        activation: 'on-request',
         body: 'Body',
+        sourceFormat: 'mdc',
+      },
+    ],
+    [
+      '/r/rules/d.mdc',
+      '---\nalwaysApply: false\n---\nOnly when mentioned.',
+      {
+        name: 'd',
+        alwaysApply: false,
+        activation: 'manual',
+        body: 'Only when mentioned.',
         sourceFormat: 'mdc',
       },
     ],
@@ -219,6 +244,7 @@ describe('parseInstructionFile', () => {
         name: 'a11y',
         description: 'A11y',
         alwaysApply: true,
+        activation: 'always',
         body: 'Body',
         sourceFormat: 'instructions-md',
       },
@@ -230,6 +256,19 @@ describe('parseInstructionFile', () => {
         name: 'py',
         globs: ['**/*.py', '**/*.pyi'],
         alwaysApply: false,
+        activation: 'paths',
+        body: 'Body',
+        sourceFormat: 'instructions-md',
+      },
+    ],
+    [
+      '/r/instructions/plain.instructions.md',
+      '---\ndescription: No applyTo\n---\nBody',
+      {
+        name: 'plain',
+        description: 'No applyTo',
+        alwaysApply: true,
+        activation: 'always',
         body: 'Body',
         sourceFormat: 'instructions-md',
       },
@@ -241,6 +280,42 @@ describe('parseInstructionFile', () => {
         name: 'api',
         globs: ['src/api/**/*.ts'],
         alwaysApply: false,
+        activation: 'paths',
+        body: 'Body',
+        sourceFormat: 'claude-md',
+      },
+    ],
+    [
+      '/r/rules/described.md',
+      '---\ndescription: Claude rules have no on-request form\n---\nBody',
+      {
+        name: 'described',
+        description: 'Claude rules have no on-request form',
+        alwaysApply: true,
+        activation: 'always',
+        body: 'Body',
+        sourceFormat: 'claude-md',
+      },
+    ],
+    [
+      '/r/rules/cursor-style.md',
+      '---\ndescription: Pick me when relevant\nalwaysApply: false\n---\nBody',
+      {
+        name: 'cursor-style',
+        description: 'Pick me when relevant',
+        alwaysApply: false,
+        activation: 'on-request',
+        body: 'Body',
+        sourceFormat: 'md',
+      },
+    ],
+    [
+      '/r/rules/by-name.md',
+      '---\nalwaysApply: false\n---\nBody',
+      {
+        name: 'by-name',
+        alwaysApply: false,
+        activation: 'manual',
         body: 'Body',
         sourceFormat: 'md',
       },
@@ -248,12 +323,24 @@ describe('parseInstructionFile', () => {
     [
       '/r/instructions/Style Guide.md',
       '# Style\n',
-      { name: 'style-guide', alwaysApply: true, body: '# Style\n', sourceFormat: 'md' },
+      {
+        name: 'style-guide',
+        alwaysApply: true,
+        activation: 'always',
+        body: '# Style\n',
+        sourceFormat: 'claude-md',
+      },
     ],
     [
       '/r/AGENTS.md',
       '# Agents\n',
-      { name: 'agents', alwaysApply: true, body: '# Agents\n', sourceFormat: 'agents-md' },
+      {
+        name: 'agents',
+        alwaysApply: true,
+        activation: 'always',
+        body: '# Agents\n',
+        sourceFormat: 'agents-md',
+      },
     ],
   ])('%s', (path, text, expected) => {
     expect(parseInstructionFile(path, text)).toEqual(expected);
@@ -270,9 +357,7 @@ describe('parseCommandFile', () => {
     ).toEqual({
       name: 'new-sdk-app',
       description: 'Create an app',
-      argumentHint: '[project-name]',
-      body: 'Do it.\n',
-      sourceFormat: 'claude-md',
+      command: { argumentHint: '[project-name]', body: 'Do it.\n', sourceFormat: 'claude-md' },
     });
   });
 
@@ -285,8 +370,7 @@ describe('parseCommandFile', () => {
     ).toEqual({
       name: 'explain',
       description: 'Explain',
-      body: 'Explain.',
-      sourceFormat: 'prompt-md',
+      command: { body: 'Explain.', sourceFormat: 'prompt-md' },
     });
   });
 
@@ -299,16 +383,21 @@ describe('parseCommandFile', () => {
     ).toEqual({
       name: 'caveman',
       description: 'Switch',
-      body: 'Switch to {{args}}.',
-      sourceFormat: 'gemini-toml',
+      command: { body: 'Switch to {{args}}.', sourceFormat: 'gemini-toml' },
     });
   });
 
   it('recognises OpenCode commands', () => {
     expect(
       parseCommandFile('/r/commands/t.md', '---\ndescription: Test\nagent: build\n---\nRun tests.')
-        .sourceFormat,
+        .command.sourceFormat,
     ).toBe('opencode-md');
+  });
+
+  it('throws E_PARSE on invalid TOML', () => {
+    expect(() => parseCommandFile('/r/commands/bad.toml', 'prompt = ')).toThrowError(
+      /invalid TOML in command bad\.toml/,
+    );
   });
 });
 
@@ -346,7 +435,47 @@ describe('hooks', () => {
       dialect: 'claude',
       raw: { hooks: inline },
       pluginRootRel: '.',
+      promptHooks: [],
     });
+  });
+
+  it('lists prompt hooks once per event and matcher, never as commands', () => {
+    const json = {
+      hooks: {
+        Stop: [
+          { hooks: [{ type: 'prompt', prompt: 'Check the work.' }] },
+          { hooks: [{ type: 'prompt', prompt: 'Again.' }] },
+        ],
+        SubagentStop: [
+          {
+            matcher: '*',
+            hooks: [
+              { type: 'prompt', prompt: 'x' },
+              { type: 'command', command: 'y' },
+            ],
+          },
+        ],
+      },
+    };
+    expect(parseHooksJson('fp-check', json).promptHooks).toEqual([
+      { event: 'Stop' },
+      { event: 'SubagentStop', matcher: '*' },
+    ]);
+  });
+
+  it('walks nested (Claude, Gemini) and flat (Cursor, Copilot) handlers alike', () => {
+    expect(hookHandlers(claude)).toEqual([
+      {
+        event: 'PreToolUse',
+        matcher: 'Bash',
+        handler: { type: 'command', command: 'x', timeout: 5 },
+      },
+    ]);
+    expect(hookHandlers(copilot).map((h) => [h.event, h.handler.bash])).toEqual([
+      ['sessionEnd', 'x.sh'],
+    ]);
+    expect(hookHandlers(cursor).map((h) => h.handler.command)).toEqual(['bash x.sh']);
+    expect(hookHandlers(42)).toEqual([]);
   });
 
   it('merges event arrays', () => {
@@ -363,7 +492,7 @@ describe('hooks', () => {
 });
 
 describe('parseMcpJson', () => {
-  it('parses the wrapped form with secrets from env and headers', () => {
+  it('parses the wrapped form as written (secrets and origin are the caller’s)', () => {
     const cfgs = parseMcpJson({
       mcpServers: {
         context7: {
@@ -375,6 +504,7 @@ describe('parseMcpJson', () => {
           command: 'npx',
           args: ['-y', 'server-fs', '.'],
           env: { TOKEN: '${FS_TOKEN}', ROOT: '${CLAUDE_PLUGIN_ROOT}' },
+          cwd: '${CLAUDE_PLUGIN_ROOT}',
         },
       },
     });
@@ -384,10 +514,6 @@ describe('parseMcpJson', () => {
         transport: 'http',
         url: 'https://mcp.context7.com/mcp',
         headers: { Authorization: '${CONTEXT7_API_KEY:-}' },
-        secrets: [
-          { name: 'CONTEXT7_API_KEY', in: 'header', header: 'Authorization', required: false },
-        ],
-        source: { type: 'origin' },
       },
       {
         name: 'fs',
@@ -395,13 +521,12 @@ describe('parseMcpJson', () => {
         command: 'npx',
         args: ['-y', 'server-fs', '.'],
         env: { TOKEN: '${FS_TOKEN}', ROOT: '${CLAUDE_PLUGIN_ROOT}' },
-        secrets: [{ name: 'FS_TOKEN', in: 'env', required: true }],
-        source: { type: 'origin' },
+        cwd: '${CLAUDE_PLUGIN_ROOT}',
       },
     ]);
   });
 
-  it('parses the flat form and bearer header formats', () => {
+  it('parses the flat form', () => {
     expect(
       parseMcpJson({
         github: {
@@ -416,16 +541,6 @@ describe('parseMcpJson', () => {
         transport: 'http',
         url: 'https://api.githubcopilot.com/mcp/',
         headers: { Authorization: 'Bearer ${GITHUB_PAT}' },
-        secrets: [
-          {
-            name: 'GITHUB_PAT',
-            in: 'header',
-            header: 'Authorization',
-            required: true,
-            format: 'Bearer {value}',
-          },
-        ],
-        source: { type: 'origin' },
       },
     ]);
   });
@@ -449,38 +564,10 @@ describe('parseMcpJson', () => {
     expect(parseMcpJson([1, 2])).toEqual([]);
   });
 
-  it('finds secrets in the URL and args and merges a name used in env and a header', () => {
-    const [remote, local] = parseMcpJson({
-      remote: {
-        type: 'http',
-        url: 'https://x/${REGION}/mcp?k=${URL_KEY:-}',
-        env: { T: '${TOK:-x}' },
-        headers: { Authorization: 'Bearer ${TOK}', 'X-Two': '${A1}:${PLUGIN_ROOT}' },
-      },
-      local: { command: 'x', args: ['--key=${ARG_KEY}', '${HOME}/x'] },
-    });
-    expect(remote?.secrets).toEqual([
-      {
-        name: 'TOK',
-        in: 'header',
-        header: 'Authorization',
-        required: true,
-        format: 'Bearer {value}',
-      },
-      { name: 'A1', in: 'header', header: 'X-Two', required: true },
-      { name: 'REGION', in: 'env', required: true },
-      { name: 'URL_KEY', in: 'env', required: false },
-    ]);
-    expect(local?.secrets).toEqual([{ name: 'ARG_KEY', in: 'env', required: true }]);
-  });
-
-  it('flags empty and placeholder env values as secrets', () => {
+  it('turns empty and placeholder env values into references to a variable of the same name', () => {
     const [cfg] = parseMcpJson({
       x: { command: 'x', env: { API_KEY: '', OTHER: '<your key>', PLAIN: 'value' } },
     });
-    expect(cfg?.secrets).toEqual([
-      { name: 'API_KEY', in: 'env', required: true },
-      { name: 'OTHER', in: 'env', required: true },
-    ]);
+    expect(cfg?.env).toEqual({ API_KEY: '${API_KEY}', OTHER: '${OTHER}', PLAIN: 'value' });
   });
 });

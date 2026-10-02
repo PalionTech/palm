@@ -1,26 +1,24 @@
 ---
-title: Publish your own skills
-description: Your skills live in a tagged git repository, and teammates install them by name.
+title: Publish your own source
+description: Write skills in your project with palm create, then move them to a tagged repository that any project installs with one command.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 import Capture from '../../../components/Capture.astro';
+import CaptureTree from '../../../components/CaptureTree.astro';
 
-You wrote a skill that turns merged pull requests into release notes, and your team wants it too.
-`palm create` writes it into `~/.palm/mine`, a git repository palm already reads as an origin.
-Push that repository and tag it, and each teammate installs the skill with two commands.
+You wrote a skill that turns merged pull requests into release notes, and the next service wants it too.
+Start it inside the project with `palm create`, where every edit is live.
+When it proves itself, push the folder as its own repository, tag it, and any project installs it by name.
 
-When you finish, a teammate installs your skill from its tag:
+When you finish, a teammate in another project installs your skill from its tag:
 
-<Capture name="b-publish-teammate" title="teammate: ~/project" />
-
-The recorded session reads the tag from a local copy of the repository, so its spec is a `file://` URL.
-With GitHub, the spec is `<you>/mine`.
+<Capture name="b-publish-teammate" title="teammate: ~/other-project" />
 
 ## Before you start
 
-- A terminal: `palm create` is an interactive wizard.
-- An empty repository on GitHub, or on any git host, called `mine`.
+- A project with targets set, for example `palm init --target claude,codex`.
+- An empty repository on GitHub, or on any git host, for step 4.
 
 ## Steps
 
@@ -29,97 +27,98 @@ With GitHub, the spec is `<you>/mine`.
 1. Create the skill.
 
    ```sh
-   palm create skill release-notes
+   palm create skill release-notes --description 'Write release notes from the pull requests merged since the last tag.'
    ```
 
-   The wizard asks three questions, then offers to install the skill in the current project:
+   palm writes a template into `./agent-kit`, declares `./agent-kit` in `palm.yaml` and installs the skill. It asks nothing and opens no editor.
 
-   | Prompt | What to enter |
+   | Kind | Template |
    | --- | --- |
-   | Skill name | a slug: lowercase letters, digits and single hyphens |
-   | Description | what the skill does and when to load it, 1024 characters or fewer |
-   | Add optional directories? | any of `scripts/`, `references/` and `assets/` |
-   | Install skill release-notes now? | yes, to try it here first |
+   | `skill` | `agent-kit/skills/<name>/SKILL.md` |
+   | `agent` | `agent-kit/agents/<name>.md` |
+   | `instruction` | `agent-kit/instructions/<name>.md` |
+   | `hook` | `agent-kit/hooks/<name>/hooks.json` with an example script |
 
-   With `$VISUAL` or `$EDITOR` set, palm opens the new file in your editor.
+   `--in <dir>` picks another folder, and a `layout:` on that source decides where the template goes.
+   A file that already exists, or a name the source or another source already has, stops with `E_CONFLICT` before palm writes anything.
 
-2. Write the skill. The wizard starts from this file:
+2. Write the skill, and let palm follow.
 
-   ```md title="~/.palm/mine/skills/release-notes/SKILL.md"
-   ---
-   name: release-notes
-   description: Use when the user asks for release notes. Reads merged pull requests and writes a changelog entry.
-   ---
+   <Capture name="b-create" title="~/project" />
 
-   # Release Notes
+   The in-repo source is the truth. After an edit, `palm check` fails until you run `palm install`, which re-renders the harness copies.
+   Commit `agent-kit/`, the lock and the generated files together.
 
-   ## When to use
+3. Give it a shape other repositories use.
 
-   Describe the situations and requests this skill is for, and when not to use it.
+   palm reads a repository without any palm file, so follow the conventions every harness knows.
 
-   ## Steps
+   | Put | Where |
+   | --- | --- |
+   | skills | `skills/<name>/SKILL.md` with `name` and `description` frontmatter |
+   | agents | `agents/<name>.md` with `name` and `description` frontmatter |
+   | instructions | `instructions/<name>.md`, `rules/<name>.md`, `rules/<name>.mdc` or `<name>.instructions.md` |
+   | hooks | `hooks/hooks.json`, with scripts next to it referenced as `${CLAUDE_PLUGIN_ROOT}/hooks/<file>` |
+   | MCP servers | `.mcp.json` with `mcpServers` |
+   | a version | a semver tag, or `metadata.version` in the frontmatter |
 
-   1. First step.
-   2. Second step.
+   A `.claude-plugin/plugin.json` is optional. It lets people select your members as one plugin.
 
-   ## Notes
+   A root `hooks/hooks.json` takes its name from the key the person installing gives your source, such as `hook:agent-kit`, or `hook:acme` after `--as acme`.
+   For a name you control, use `hooks/<name>/hooks.json` or a plugin manifest.
+   A relative `./script.sh` in a command is read from the source root, so name scripts as `${CLAUDE_PLUGIN_ROOT}/hooks/<file>`.
+   The [scan rules](/palm/reference/scan-rules/#hook-names) list every case.
 
-   - Gotchas, constraints, and pointers to files in references/ or scripts/.
-   ```
-
-   Replace the three sections with your instructions.
-   `palm create agent`, `palm create instruction` and `palm create command` write into the same repository.
-
-3. Commit and push `~/.palm/mine`.
+4. Copy the folder into its own repository and tag it.
 
    ```sh
-   cd ~/.palm/mine
+   cp -R agent-kit ~/src/agent-kit
+   cd ~/src/agent-kit
+   git init -b main
    git add -A
    git commit -m "Add the release-notes skill"
-   git remote add origin git@github.com:<you>/mine.git
-   git push -u origin HEAD
-   ```
-
-   palm ran `git init` in this folder when it created it.
-   Everything in it becomes public when the GitHub repository is public.
-
-4. Tag a release.
-
-   ```sh
+   git remote add github git@github.com:acme/agent-kit.git
+   git push -u github main
    git tag v1.0.0
-   git push origin v1.0.0
+   git push github v1.0.0
    ```
 
-   An origin without a ref resolves to its latest semver tag.
-   Commits after `v1.0.0` reach teammates only when you push the next tag.
+   An undeclared source resolves to its newest tag, and palm writes `ref: ^1.0` for the people who install it.
+   Commits after `v1.0.0` reach them only when you push the next tag and they run `palm update`.
 
-5. Send teammates the two commands.
+5. Switch your own project to the published source.
 
    ```sh
-   palm install origin <you>/mine --alias <you>
-   palm install skill release-notes@<you>
+   palm remove ./agent-kit release-notes
+   palm install acme/agent-kit release-notes
+   git rm -r agent-kit
    ```
 
-   The alias defaults to the repository name, `mine`.
-   Teammates who use `palm create` already have an origin called `mine`, so choose `--alias` yourself.
+   `./agent-kit` had no entries left, so palm dropped it from `palm.yaml`. Commit the result.
 
 </Steps>
 
-To publish a change, commit it, tag `v1.1.0` and push the tag.
-Teammates then run `palm update skill release-notes`.
-
 ## Check the result
 
-On a teammate's machine, list the installed skills:
+In another project, a teammate runs one command, as in the session at the top.
+`palm get` shows your tag in the `ref` column.
 
-```sh
-palm get skills
-```
+To publish a change, commit it, tag `v1.1.0` and push the tag.
+Each project then runs `palm update acme/agent-kit`, reviews the plan and commits.
 
-The `version` column shows your tag and its commit, as in the last command of the session above.
+## What palm refuses from a source
+
+- A hook command that names a script the repository does not have. Keep scripts inside the repository and reference them relative to the hook file or `${CLAUDE_PLUGIN_ROOT}`.
+- Hidden Unicode such as bidi overrides or tag characters, in any file of an entity.
+- A literal secret in an MCP config or hook command. Write `${NAME}` instead. A skill that carries a known token shape in a file it copies is refused. A high-entropy value in code only warns, and test folders such as `tests/` and `fixtures/` are not copied, so a fake key there never refuses.
+- A skill folder above 200 files or 5 MB, unless the person installing passes `--force`. A root `SKILL.md` makes the whole repository the skill, so keep skills in `skills/<name>/`.
+- A symlink that leaves the repository.
+
+palm also warns when a hook script reads a file it cannot resolve.
+Refer to such a file by a literal path, such as `"$(dirname "$0")/../skills/x/SKILL.md"`, so palm copies it with the script.
 
 ## Next steps
 
-- [Make a repository palm reads well](/palm/guides/palm-friendly-repos/) covers names, versions and plugins.
-- [Share a team baseline](/palm/guides/team-baseline/) puts your origin in every project's `palm.yaml`.
-- [Build an agent that brings its tools](/palm/guides/agent-bundles/) uses `palm create agent`.
+- [Scanning](/palm/concepts/scanning/) and the [scan rules](/palm/reference/scan-rules/) show how palm reads a repository.
+- [Share a team baseline](/palm/guides/team-baseline/) puts your source in every project.
+- [palm create reference](/palm/reference/cli/create/)

@@ -34,7 +34,7 @@
 
 import { PalmError } from '../core/errors.js';
 import type { McpServerConfig, Scope, SecretPolicy, TargetId } from '../core/types.js';
-import { optionalSecretNames } from '../domain/secrets.js';
+import { optionalSecretNames } from '../domain/secret-refs.js';
 import { withoutUndefined } from '../lib/object.js';
 import {
   envRef,
@@ -50,6 +50,11 @@ export interface RenderedMcp {
   notes: string[];
   /** Environment variables the user has to provide (env-ref placements, unresolved literals). */
   envRefs: string[];
+  /**
+   * The part of `envRefs` the harness reads as empty when unset (optional secrets, ruling Q8);
+   * none for Codex, which has no optional form.
+   */
+  optionalRefs: string[];
 }
 
 export const OAUTH_NOTE = 'HTTP MCP servers authenticate via OAuth on first connect';
@@ -296,9 +301,15 @@ function httpEntry(t: JsonTarget, p: HttpParts): Record<string, unknown> {
 }
 
 /** True when the server authenticates through a header (Authorization or a header secret). */
+/**
+ * A header carries the credentials when it is `Authorization`, a recorded header secret, or a
+ * `${VAR}` reference (Y1'): palm.yaml keeps the reference and not the secret record, so the
+ * snippet install and the bare install that reads palm.yaml back render alike.
+ */
 function usesHeaderAuth(cfg: McpServerConfig, headers: Record<string, string>): boolean {
   return (
     Object.keys(headers).some((h) => /^authorization$/i.test(h)) ||
+    Object.values(headers).some((v) => tokensOf(v).length > 0) ||
     (cfg.secrets ?? []).some((s) => s.in === 'header')
   );
 }
@@ -425,6 +436,12 @@ function codexEnvHeader(h: string, raw: string, st: RenderState): string {
   return v;
 }
 
+/** Q8: Codex reads a header's variable itself and has no optional form for it. */
+function noteCodexOptional(v: string | undefined, st: RenderState): void {
+  if (v !== undefined && st.optional.has(v))
+    st.notes.add(`Codex has no optional form for ${v}: export it before starting Codex`);
+}
+
 function codexHttp(
   cfg: McpServerConfig,
   headers: Record<string, string>,
@@ -446,6 +463,7 @@ function codexHttp(
       bearer = bearerName;
       st.envRefs.add(bearer);
     } else envHeaders[h] = codexEnvHeader(h, raw, st);
+    noteCodexOptional(bearerName ?? envHeaders[h], st);
   }
   if (Object.keys(headers).length === 0) st.notes.add(OAUTH_NOTE);
   return withoutUndefined({
@@ -487,19 +505,7 @@ export function renderMcp(
     target === 'codex'
       ? renderCodexTable(cfg, st)
       : renderJsonEntry(cfg, { target, scope: opts.scope ?? 'project' }, st);
-  return { entry, notes: [...st.notes], envRefs: [...st.envRefs] };
-}
-
-/**
- * Harness-specific object (JSON targets) or TOML table (codex); undefined when the
- * harness cannot express the server (codex + sse). `opts.scope` selects the Copilot
- * format (project: VS Code `.vscode/mcp.json`; global: Copilot CLI). Default project.
- */
-export function renderMcpEntry(
-  cfg: McpServerConfig,
-  target: TargetId,
-  policy: SecretPolicy,
-  opts?: RenderMcpOptions,
-): unknown {
-  return renderMcp(cfg, target, policy, opts).entry;
+  const envRefs = [...st.envRefs];
+  const optionalRefs = target === 'codex' ? [] : envRefs.filter((v) => st.optional.has(v));
+  return { entry, notes: [...st.notes], envRefs, optionalRefs };
 }

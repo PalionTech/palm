@@ -21,7 +21,7 @@
 //       verbs, utilities, kinds, global-options      the CLI overview
 //       options <command> [<sub>]                    arguments and options of one command
 //       arguments <command> [<sub>]                  only the arguments of one command
-//       subcommands <command>                        the subcommands of config and cache
+//       subcommands <command>                        the subcommands of cache
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
@@ -125,7 +125,7 @@ function parseHelp(text) {
   return help;
 }
 
-/** `-o, --origin <name-or-alias>` → flags, short, long, argument. */
+/** `-s, --source <name>` → flags, short, long, argument. */
 function parseOption({ term, description }) {
   const m =
     /^(?:(-\w), )?(--[\w-]+)(?: ([<[].*[>\]]))?$/.exec(term) ?? /^(-\w)()(?: (.*))?$/.exec(term);
@@ -139,7 +139,7 @@ function parseOption({ term, description }) {
   };
 }
 
-/** `install (add, i)`, `why <kind> <name>`, `get [key]`. */
+/** `install (add, i)`, `describe (info) <name>`, `cache clean`. */
 function parseCommandTerm(term) {
   const m = /^(\S+)(?: \(([^)]*)\))?(?: (.*))?$/.exec(term);
   return {
@@ -151,9 +151,18 @@ function parseCommandTerm(term) {
 
 const HELP_FLAG = '-h, --help';
 
+/** A section of options: titled so (`Options:`), or listing only flags (`MCP servers (palm install mcp):`). */
+function isOptionSection(help, title) {
+  if (typeof title !== 'string' || title === 'Global Options') return false;
+  const items = help.sections[title]?.items ?? [];
+  return (
+    /\boptions\b/i.test(title) || (items.length > 0 && items.every((i) => i.term.startsWith('-')))
+  );
+}
+
 function optionGroups(help) {
   return help.order
-    .filter((t) => typeof t === 'string' && /\boptions\b/i.test(t) && t !== 'Global Options')
+    .filter((t) => isOptionSection(help, t))
     .map((title) => ({
       title,
       options: help.sections[title].items.map(parseOption),
@@ -277,9 +286,13 @@ function collect() {
 // Rendering tables
 // ---------------------------------------------------------------------------
 
-/** Help text as Markdown table text, verbatim: one word as code, else table and HTML characters escaped. */
+/**
+ * Help text as Markdown table text, verbatim: one word as code, else table and HTML characters
+ * escaped. A backslash is escaped before the pipe (in one pass), so no `\|` in the text can
+ * unescape the cell's pipe; a word with a backslash is plain text, where `\\` shows as `\`.
+ */
 function cell(text) {
-  if (/^\S+$/.test(text) && !text.includes('`')) return code(text.replace(/\|/g, '\\|'));
+  if (/^[^\s`\\]+$/.test(text)) return code(text.replace(/[\\|]/g, '\\$&'));
   const t = text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\*/g, '\\*');
   return t.replace(/_/g, '\\_').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -613,6 +626,16 @@ function coverage(data, idsByFile) {
   return problems;
 }
 
+/** The text of `path`, or undefined when there is no such file (read, not checked first). */
+function readIfExists(path) {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') return undefined;
+    throw e;
+  }
+}
+
 function main() {
   const argv = process.argv.slice(2);
   const check = argv.includes('--check');
@@ -624,7 +647,7 @@ function main() {
   mkdirSync(CAPTURES, { recursive: true });
   for (const [name, text] of Object.entries(files)) {
     const path = join(CAPTURES, name);
-    const current = existsSync(path) ? readFileSync(path, 'utf8') : undefined;
+    const current = readIfExists(path);
     if (current === text) continue;
     if (check) stale.push(`src/captures/${name}`);
     else writeFileSync(path, text);

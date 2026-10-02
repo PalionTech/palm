@@ -30,9 +30,79 @@ export function parseYaml<T = unknown>(text: string, source?: string): T | undef
   return (doc.toJS() ?? undefined) as T | undefined;
 }
 
-/** `value` as YAML text (block style, no folding, trailing newline). */
-export function stringifyYaml(value: unknown): string {
-  return stringify(value, TO_STRING);
+/** Where a node sits in a document: the keys and indexes from the root. */
+export type YamlPath = ReadonlyArray<string | number>;
+
+/**
+ * Whether the collection at `path`, holding `value`, is written in flow style (`[a, b]`,
+ * `{ a: 1 }`): `true` for flow, `false` for the default (block, or the file's own style), and
+ * `'block'` to write it in block style even where the file has it in flow style.
+ */
+type FlowRule = (path: YamlPath, value: unknown) => boolean | 'block';
+
+export interface StringifyYamlOptions {
+  /** Collections this accepts are written in flow style. */
+  flow?: FlowRule;
+  /** Comment (one or more lines, without `#`) placed above the document. */
+  comment?: string;
+}
+
+/** Decides whether the collection `node` at `path` is written in flow style (see FlowRule). */
+type FlowTest = (path: YamlPath, node: YAMLMap | YAMLSeq) => boolean | 'block';
+
+/** Sets `flow` on every collection below `node` that `test` accepts, and clears it for `'block'`. */
+function markFlow(node: unknown, path: YamlPath, test: FlowTest): void {
+  let children: Array<[string | number, unknown]> = [];
+  if (isMap(node)) children = node.items.map((p) => [keyString(p.key), p.value]);
+  else if (isSeq(node)) children = node.items.map((child, i) => [i, child]);
+  for (const [key, child] of children) {
+    const at = [...path, key];
+    if (isMap(child) || isSeq(child)) {
+      const style = test(at, child);
+      if (style === true) child.flow = true;
+      else if (style === 'block') child.flow = false;
+    }
+    markFlow(child, at, test);
+  }
+}
+
+/**
+ * The flow test of a write: top-level `flowKeys` lists and whatever `flow` accepts. With
+ * `onlyNew`, only nodes the patch created (no source range) are touched, so a file's own style
+ * survives.
+ */
+function flowTest(opts: WriteYamlOptions, onlyNew: boolean): FlowTest {
+  return (p, node) => {
+    const style = opts.flow?.(p, node.toJSON()) ?? false;
+    if (onlyNew && node.range) return style === 'block' ? 'block' : false;
+    const key = p.length === 1 ? String(p[0]) : undefined;
+    if (key !== undefined && isSeq(node) && opts.flowKeys?.includes(key)) return true;
+    return style;
+  };
+}
+
+function commentText(comment: string): string {
+  return comment
+    .split('\n')
+    .map((l) => ` ${l}`)
+    .join('\n');
+}
+
+/**
+ * `value` as YAML text (block style, no folding, trailing newline). `opts.flow` picks the
+ * collections written in flow style; `opts.comment` goes above the document. The same value and
+ * options always give the same text.
+ */
+export function stringifyYaml(value: unknown, opts: StringifyYamlOptions = {}): string {
+  if (!opts.flow && opts.comment === undefined) return stringify(value, TO_STRING);
+  const doc = new Document(value);
+  const { flow } = opts;
+  if (flow) markFlow(doc.contents, [], (p, node) => flow(p, node.toJSON()));
+  if (opts.comment !== undefined) {
+    if (doc.contents) doc.contents.commentBefore = commentText(opts.comment);
+    else doc.commentBefore = commentText(opts.comment);
+  }
+  return doc.toString(TO_STRING);
 }
 
 /** A single YAML scalar for `value`, quoted only when YAML requires it (no trailing newline). */
@@ -49,8 +119,10 @@ export async function readYamlFile<T = unknown>(file: string): Promise<T | undef
 export interface WriteYamlOptions {
   /** YAML text to patch; default: the file's current content. `false` writes a fresh document. */
   preserveFrom?: string | false;
-  /** Top-level keys whose lists are written in flow style (`[a, b]`) in a fresh document. */
+  /** Top-level keys whose lists are written in flow style (`[a, b]`) when the write creates them. */
   flowKeys?: readonly string[];
+  /** Collections this accepts are written in flow style when the write creates them. */
+  flow?: FlowRule;
   /** Comment (one or more lines, without `#`) placed above a fresh document. */
   comment?: string;
   /** Permission bits for the file (see `writeFileAtomic`). */
@@ -111,16 +183,6 @@ function updateMap(doc: Document, node: YAMLMap, value: Record<string, unknown>)
   return node;
 }
 
-/** Top-level `flowKeys` sequences the patch created are written in flow style (`[a, b]`). */
-function flowNewKeys(doc: Document, existing: ReadonlySet<string>, flowKeys: readonly string[]) {
-  const root = doc.contents;
-  if (!isMap(root)) return;
-  for (const p of root.items) {
-    const key = keyString(p.key);
-    if (!existing.has(key) && flowKeys.includes(key) && isSeq(p.value)) p.value.flow = true;
-  }
-}
-
 /** `node` updated in place to represent `value`, keeping unchanged nodes and their comments. */
 function updateNode(doc: Document, node: unknown, value: unknown): unknown {
   if (isNode(node) && deepEqual(nodeJS(node), value)) return node;
@@ -130,31 +192,20 @@ function updateNode(doc: Document, node: unknown, value: unknown): unknown {
 }
 
 /** `base` patched to hold `value`; undefined when `base` is blank or not valid YAML. */
-function patchYaml(base: string, value: unknown, flowKeys: readonly string[]): string | undefined {
+function patchYaml(base: string, value: unknown, opts: WriteYamlOptions): string | undefined {
   if (base.trim() === '') return undefined;
   const doc = parseDocument(base);
   if (doc.errors.length > 0) return undefined;
-  const root = doc.contents;
-  const existing = new Set(isMap(root) ? root.items.map((p) => keyString(p.key)) : []);
   doc.contents = updateNode(doc, doc.contents, value) as typeof doc.contents;
-  flowNewKeys(doc, existing, flowKeys);
+  markFlow(doc.contents, [], flowTest(opts, true));
   return doc.toString(TO_STRING);
 }
 
 function freshYaml(value: unknown, opts: WriteYamlOptions): string {
   const doc = new Document(value);
   const root = doc.contents;
-  if (isMap(root)) {
-    for (const p of root.items) {
-      if (opts.flowKeys?.includes(keyString(p.key)) && isSeq(p.value)) p.value.flow = true;
-    }
-  }
-  if (opts.comment !== undefined && root) {
-    root.commentBefore = opts.comment
-      .split('\n')
-      .map((l) => ` ${l}`)
-      .join('\n');
-  }
+  markFlow(root, [], flowTest(opts, false));
+  if (opts.comment !== undefined && root) root.commentBefore = commentText(opts.comment);
   return doc.toString(TO_STRING);
 }
 
@@ -169,7 +220,6 @@ export async function writeYamlFile(
   opts: WriteYamlOptions = {},
 ): Promise<void> {
   const base = opts.preserveFrom ?? (await readTextIfExists(file)) ?? '';
-  const text =
-    (base !== false && patchYaml(base, value, opts.flowKeys ?? [])) || freshYaml(value, opts);
+  const text = (base !== false && patchYaml(base, value, opts)) || freshYaml(value, opts);
   await writeFileAtomic(file, text, opts.mode === undefined ? {} : { mode: opts.mode });
 }

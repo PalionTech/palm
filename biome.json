@@ -48,7 +48,9 @@
       "complexity": {
         "noExcessiveCognitiveComplexity": {
           "level": "error",
-          "options": { "maxAllowedComplexity": 15 }
+          "options": {
+            "maxAllowedComplexity": 15
+          }
         }
       },
       "correctness": {
@@ -66,14 +68,24 @@
   "overrides": [
     {
       "includes": ["src/ui/**", "src/cli.ts", "scripts/**"],
-      "linter": { "rules": { "suspicious": { "noConsole": "off" } } }
-    },
-    {
-      "includes": ["test/**"],
       "linter": {
         "rules": {
-          "style": { "noNonNullAssertion": "off" },
-          "suspicious": { "noTemplateCurlyInString": "off" }
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["test/**", "docs/scripts/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noNonNullAssertion": "off"
+          },
+          "suspicious": {
+            "noTemplateCurlyInString": "off"
+          }
         }
       }
     },
@@ -91,8 +103,9 @@
                       "../domain/**",
                       "../core/**",
                       "../index/**",
+                      "../secrets/**",
+                      "../exec/**",
                       "../targets/**",
-                      "../mcp/**",
                       "../engine/**",
                       "../commands/**",
                       "../create/**",
@@ -124,8 +137,9 @@
                       "!../core/errors.js",
                       "!../core/kinds.js",
                       "../index/**",
+                      "../secrets/**",
+                      "../exec/**",
                       "../targets/**",
-                      "../mcp/**",
                       "../engine/**",
                       "../commands/**",
                       "../create/**",
@@ -153,8 +167,9 @@
                   {
                     "group": [
                       "../index/**",
+                      "../secrets/**",
+                      "../exec/**",
                       "../targets/**",
-                      "../mcp/**",
                       "../engine/**",
                       "../commands/**",
                       "../create/**",
@@ -162,6 +177,35 @@
                       "../cli.js"
                     ],
                     "message": "layer boundary: src/core imports only src/lib and src/domain."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/secrets/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "../index/**",
+                      "../exec/**",
+                      "../targets/**",
+                      "../engine/**",
+                      "../commands/**",
+                      "../create/**",
+                      "../ui/**",
+                      "../cli.js"
+                    ],
+                    "message": "layer boundary: src/secrets imports only src/lib, src/domain and src/core."
                   }
                 ]
               }
@@ -181,15 +225,15 @@
                 "patterns": [
                   {
                     "group": [
+                      "../exec/**",
                       "../targets/**",
-                      "../mcp/**",
                       "../engine/**",
                       "../commands/**",
                       "../create/**",
                       "../ui/**",
                       "../cli.js"
                     ],
-                    "message": "layer boundary: src/index imports only src/lib, src/domain and src/core."
+                    "message": "layer boundary: src/index imports only src/lib, src/domain, src/core and src/secrets."
                   }
                 ]
               }
@@ -210,7 +254,8 @@
                   {
                     "group": [
                       "../index/**",
-                      "../mcp/**",
+                      "../secrets/**",
+                      "../exec/**",
                       "../engine/**",
                       "../commands/**",
                       "../create/**",
@@ -227,7 +272,7 @@
       }
     },
     {
-      "includes": ["src/mcp/**"],
+      "includes": ["src/exec/**"],
       "linter": {
         "rules": {
           "style": {
@@ -238,14 +283,13 @@
                   {
                     "group": [
                       "../index/**",
-                      "../targets/**",
                       "../engine/**",
                       "../commands/**",
                       "../create/**",
                       "../ui/**",
                       "../cli.js"
                     ],
-                    "message": "layer boundary: src/mcp imports only src/lib, src/domain and src/core."
+                    "message": "layer boundary: src/exec imports only src/lib, src/domain, src/core, src/secrets and src/targets."
                   }
                 ]
               }

@@ -60,17 +60,47 @@ function* markdownFiles(dir) {
   }
 }
 
-/** Prose lines with their line numbers: no code fences, imports, JSX-only lines or inline code. */
+const COMMENT_OPEN = '<!--';
+/** Where an HTML comment ends: `-->`, or `--!>` as browsers also accept. */
+const COMMENT_CLOSE = /--!?>/;
+
+/**
+ * `line` without its HTML comments, scanned left to right, so no `<!--` survives and a comment may
+ * span lines: `open` says a comment runs into the line, and the result says one runs past it.
+ */
+function withoutComments(line, open) {
+  let prose = '';
+  let rest = line;
+  let inComment = open;
+  for (;;) {
+    if (inComment) {
+      const close = COMMENT_CLOSE.exec(rest);
+      if (!close) return { prose, open: true };
+      rest = rest.slice(close.index + close[0].length);
+      inComment = false;
+    } else {
+      const start = rest.indexOf(COMMENT_OPEN);
+      if (start < 0) return { prose: prose + rest, open: false };
+      prose += rest.slice(0, start);
+      rest = rest.slice(start + COMMENT_OPEN.length);
+      inComment = true;
+    }
+  }
+}
+
+/** Prose lines with their line numbers: no code fences, imports, comments or inline code. */
 function* proseLines(text) {
   let fenced = false;
+  let comment = false;
   for (const [i, raw] of text.split('\n').entries()) {
-    if (/^\s*(```|~~~)/.test(raw)) {
+    if (!comment && /^\s*(```|~~~)/.test(raw)) {
       fenced = !fenced;
       continue;
     }
-    if (fenced || /^(import |export )/.test(raw)) continue;
-    const line = raw.replace(/`[^`]*`/g, '``').replace(/<!--.*?-->/g, '');
-    yield [i + 1, line];
+    if (fenced || (!comment && /^(import |export )/.test(raw))) continue;
+    const stripped = withoutComments(raw.replace(/`[^`]*`/g, '``'), comment);
+    comment = stripped.open;
+    yield [i + 1, stripped.prose];
   }
 }
 

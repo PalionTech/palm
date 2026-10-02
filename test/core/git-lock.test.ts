@@ -4,13 +4,14 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getAllIndexes } from '../../src/core/cache.js';
-import { fetchOrigin, withCheckoutLock } from '../../src/core/git.js';
-import type { OriginSpec, ScanResult } from '../../src/core/types.js';
-import { Origin } from '../../src/domain/origin.js';
+import { withScopeLock } from '../../src/core/context.js';
+import { fetchSource, withLock } from '../../src/core/git.js';
+import type { Source } from '../../src/core/types.js';
+import { ScopePaths } from '../../src/domain/scope-paths.js';
+import { SourceRef } from '../../src/domain/source.js';
 import { makeContext } from '../support/fakes.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
-import { git, makeRemote } from './gitrepo.js';
+import { makeRemote } from './gitrepo.js';
 
 let sb: Sandbox;
 beforeEach(async () => {
@@ -38,14 +39,14 @@ async function deadPid(): Promise<number> {
   return child.pid ?? 999_999;
 }
 
-describe('withCheckoutLock', () => {
+describe('withLock', () => {
   it('creates the lock exclusively, runs the function and removes the lock', async () => {
     const file = join(sb.root, 'slot', 'repo.lock');
-    const seen = await withCheckoutLock(file, async () => JSON.parse(await readFile(file, 'utf8')));
+    const seen = await withLock(file, async () => JSON.parse(await readFile(file, 'utf8')));
     expect(seen).toMatchObject({ pid: process.pid, host: hostname() });
     expect(existsSync(file)).toBe(false);
     await expect(
-      withCheckoutLock(file, async () => {
+      withLock(file, async () => {
         throw new Error('boom');
       }),
     ).rejects.toThrow('boom');
@@ -56,14 +57,14 @@ describe('withCheckoutLock', () => {
     const file = join(sb.root, 'repo.lock');
     await writeLock(file, lockInfo(process.pid));
     const started = Date.now();
-    const err = await withCheckoutLock(file, async () => 'ran', { timeoutMs: 300 }).catch(
+    const err = await withLock(file, async () => 'ran', { timeoutMs: 300 }).catch(
       (e: unknown) => e,
     );
     expect(Date.now() - started).toBeGreaterThanOrEqual(250);
     expect(err).toMatchObject({
       code: 'E_IO',
       message: expect.stringContaining(
-        `waiting for the checkout lock ${file} (held by pid ${process.pid} on ${hostname()})`,
+        `waiting for the lock ${file} (held by pid ${process.pid} on ${hostname()})`,
       ),
       hint: expect.stringContaining(`delete ${file}`),
     });
@@ -73,36 +74,37 @@ describe('withCheckoutLock', () => {
   it('a lock being written (no content yet) with a fresh mtime also blocks', async () => {
     const file = join(sb.root, 'repo.lock');
     await writeLock(file, '');
-    await expect(
-      withCheckoutLock(file, async () => 'ran', { timeoutMs: 100 }),
-    ).rejects.toMatchObject({ code: 'E_IO', message: expect.not.stringContaining('held by') });
+    await expect(withLock(file, async () => 'ran', { timeoutMs: 100 })).rejects.toMatchObject({
+      code: 'E_IO',
+      message: expect.not.stringContaining('held by'),
+    });
   });
 
   it('takes over a stale lock (mtime older than staleMs) and a dead process’s lock', async () => {
     const file = join(sb.root, 'repo.lock');
     await writeLock(file, lockInfo(process.pid), 11 * 60_000);
-    expect(await withCheckoutLock(file, async () => 'ran', { timeoutMs: 100 })).toBe('ran');
+    expect(await withLock(file, async () => 'ran', { timeoutMs: 100 })).toBe('ran');
     await writeLock(file, 'garbage', 5_000);
-    expect(await withCheckoutLock(file, async () => 'ran', { staleMs: 1_000 })).toBe('ran');
+    expect(await withLock(file, async () => 'ran', { staleMs: 1_000 })).toBe('ran');
     await writeLock(file, lockInfo(await deadPid()));
-    expect(await withCheckoutLock(file, async () => 'ran', { timeoutMs: 100 })).toBe('ran');
+    expect(await withLock(file, async () => 'ran', { timeoutMs: 100 })).toBe('ran');
     // a dead pid on another host proves nothing
     await writeLock(file, lockInfo(await deadPid(), 'some-other-host'));
-    await expect(
-      withCheckoutLock(file, async () => 'ran', { timeoutMs: 100 }),
-    ).rejects.toMatchObject({ code: 'E_IO' });
+    await expect(withLock(file, async () => 'ran', { timeoutMs: 100 })).rejects.toMatchObject({
+      code: 'E_IO',
+    });
   });
 
   it('proceeds as soon as the holder releases', async () => {
     const file = join(sb.root, 'repo.lock');
     const order: string[] = [];
-    const first = withCheckoutLock(file, async () => {
+    const first = withLock(file, async () => {
       order.push('first:start');
       await new Promise((r) => setTimeout(r, 150));
       order.push('first:end');
     });
     await new Promise((r) => setTimeout(r, 20));
-    const second = withCheckoutLock(file, async () => void order.push('second'));
+    const second = withLock(file, async () => void order.push('second'));
     await Promise.all([first, second]);
     expect(order).toEqual(['first:start', 'first:end', 'second']);
   });
@@ -110,7 +112,7 @@ describe('withCheckoutLock', () => {
   it('does not remove a lock another process took over, and refreshes its mtime while held', async () => {
     const file = join(sb.root, 'repo.lock');
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
-    await withCheckoutLock(file, async () => {
+    await withLock(file, async () => {
       const old = new Date(Date.now() - 5 * 60_000);
       await utimes(file, old, old);
       vi.advanceTimersByTime(60_000); // heartbeat
@@ -124,92 +126,93 @@ describe('withCheckoutLock', () => {
   });
 });
 
-describe('checkout slots', () => {
-  const scanOnce = async (_root: string, spec: OriginSpec): Promise<ScanResult> => ({
-    entities: [
-      {
-        kind: 'skill',
-        name: 'a',
-        path: 'a.txt',
-        origin: spec.alias,
-        def: { kind: 'skill', skill: { name: 'a', description: 'A' } },
-      },
-    ],
-    warnings: [],
-    detected: 'convention',
+describe('withScopeLock', () => {
+  it("serialises two runs on one scope through .palm/local/lock (E3')", async () => {
+    const paths = new ScopePaths('project', sb.project, sb.palmHome, sb.env);
+    const order: string[] = [];
+    const first = withScopeLock(paths, async () => {
+      expect(existsSync(join(sb.project, '.palm', 'local', 'lock'))).toBe(true);
+      order.push('first:start');
+      await new Promise((r) => setTimeout(r, 100));
+      order.push('first:end');
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    await Promise.all([first, withScopeLock(paths, async () => void order.push('second'))]);
+    expect(order).toEqual(['first:start', 'first:end', 'second']);
+    expect(existsSync(paths.processLock)).toBe(false);
   });
 
-  it('two aliases of one repo + ref share one checkout, fetched once', async () => {
+  it("E3' a run leaves no empty .palm/local/ or .palm/ behind", async () => {
+    const paths = new ScopePaths('project', sb.project, sb.palmHome, sb.env);
+    await withScopeLock(paths, async () => undefined);
+    expect(existsSync(join(sb.project, '.palm'))).toBe(false);
+  });
+});
+
+describe('checkouts per commit', () => {
+  const lockOf = (co: { repoDir: string }) => `${co.repoDir}.lock`;
+
+  it('two names for one repository share one checkout; concurrent fetches clone once', async () => {
     const remote = await makeRemote(sb.root);
     const ctx = await makeContext(sb);
-    const a: OriginSpec = { alias: 'a', type: 'git', url: remote.bare };
-    const b: OriginSpec = { alias: 'b', type: 'git', url: remote.bare, layout: { skills: '*' } };
-    ctx.config.origins.push(a, b);
-    const indexes = await getAllIndexes(ctx, { scan: scanOnce });
-    expect(indexes.map((i) => [i.origin, i.sha])).toEqual([
-      ['a', remote.shas['v1.1.0']],
-      ['b', remote.shas['v1.1.0']],
-    ]);
-    const slot = new Origin(a).checkoutSlot(join(sb.palmHome, 'cache'));
-    expect(new Origin(b).checkoutSlot(join(sb.palmHome, 'cache'))).toEqual(slot);
-    expect((await readdir(slot.dir)).sort()).toEqual(['checkout.json', 'repo']);
-
-    // concurrent fetches of both aliases: one clone, the other reuses it (same fetchedAt)
-    const [ca, cb] = await Promise.all([
-      fetchOrigin(ctx, a, { refresh: true }),
-      fetchOrigin(ctx, b, { refresh: true }),
-    ]);
+    const a: Source = { name: 'a', type: 'git', url: remote.bare };
+    const b: Source = { name: 'b', type: 'git', url: remote.bare, layout: { skills: '*' } };
+    const [ca, cb] = await Promise.all([fetchSource(ctx, a), fetchSource(ctx, b)]);
     expect(ca.repoDir).toBe(cb.repoDir);
-    expect(ca.fetchedAt).toBe(cb.fetchedAt);
-    expect(existsSync(slot.lockFile)).toBe(false);
+    expect(ca.sourceId).toBe(cb.sourceId);
+    const entries = await readdir(join(sb.palmHome, 'cache', ca.sourceId));
+    expect(entries.sort()).toEqual([
+      `sha-${remote.shas['v1.1.0']}`,
+      `sha-${remote.shas['v1.1.0']}.json`,
+    ]);
+    expect(existsSync(lockOf(ca))).toBe(false);
   });
 
-  it('a fresh lock file blocks a fetch until it is released; a stale one is taken over', async () => {
+  it('a fresh lock blocks a fetch until it is released; a stale one is taken over', async () => {
     const remote = await makeRemote(sb.root);
     const ctx = await makeContext(sb);
-    const spec: OriginSpec = { alias: 'r', type: 'git', url: remote.bare };
-    const slot = new Origin(spec).checkoutSlot(join(sb.palmHome, 'cache'));
-    await writeLock(slot.lockFile, lockInfo(process.pid));
+    const src: Source = { name: 'r', type: 'git', url: remote.bare };
+    const sha = remote.shas['v1.1.0'] as string;
+    const id = new SourceRef(src).id;
+    const lock = join(sb.palmHome, 'cache', id, `sha-${sha}.lock`);
+    await writeLock(lock, lockInfo(process.pid));
     let done = false;
-    const fetching = fetchOrigin(ctx, spec).then((co) => {
+    const fetching = fetchSource(ctx, src).then((co) => {
       done = true;
       return co;
     });
     await new Promise((r) => setTimeout(r, 300));
     expect(done).toBe(false);
-    expect(existsSync(slot.repoDir)).toBe(false);
-    await removeDir(slot.lockFile);
-    expect((await fetching).sha).toBe(remote.shas['v1.1.0']);
-
-    await writeLock(slot.lockFile, lockInfo(process.pid), 11 * 60_000);
-    expect((await fetchOrigin(ctx, spec, { refresh: true })).sha).toBe(remote.shas['v1.1.0']);
-    expect(existsSync(slot.lockFile)).toBe(false);
+    await removeDir(lock);
+    expect((await fetching).sha).toBe(sha);
+    await removeDir(join(sb.palmHome, 'cache'));
+    await writeLock(lock, lockInfo(process.pid), 11 * 60_000);
+    expect((await fetchSource(ctx, src)).sha).toBe(sha);
+    expect(existsSync(lock)).toBe(false);
   });
 
   it('cache hits and offline reads never take the lock', async () => {
     const remote = await makeRemote(sb.root);
-    const spec: OriginSpec = { alias: 'r', type: 'git', url: remote.bare };
-    await fetchOrigin(await makeContext(sb), spec);
-    const slot = new Origin(spec).checkoutSlot(join(sb.palmHome, 'cache'));
-    await writeLock(slot.lockFile, lockInfo(process.pid));
+    const src: Source = { name: 'r', type: 'git', url: remote.bare };
+    const co = await fetchSource(await makeContext(sb), src);
+    await writeLock(lockOf(co), lockInfo(process.pid));
     const offline = await makeContext(sb, { flags: { offline: true } });
-    expect((await fetchOrigin(offline, spec)).ref).toBe('v1.1.0');
-    expect((await fetchOrigin(await makeContext(sb), spec)).ref).toBe('v1.1.0');
-    expect(existsSync(slot.lockFile)).toBe(true);
+    expect((await fetchSource(offline, src)).ref).toBe('v1.1.0');
+    expect((await fetchSource(await makeContext(sb), src)).ref).toBe('v1.1.0');
+    expect((await fetchSource(await makeContext(sb), src, { sha: co.sha })).sha).toBe(co.sha);
+    expect(existsSync(lockOf(co))).toBe(true);
   });
 
-  it('a fetch that fails after touching the checkout leaves no metadata (the next run re-clones)', async () => {
+  it('a fetch that fails leaves no checkout and no lock behind', async () => {
     const remote = await makeRemote(sb.root);
     const ctx = await makeContext(sb);
-    const spec: OriginSpec = { alias: 'r', type: 'git', url: remote.bare, ref: 'v1.0.0' };
-    await fetchOrigin(ctx, spec);
-    const slot = new Origin(spec).checkoutSlot(join(sb.palmHome, 'cache'));
-    expect(existsSync(slot.metaFile)).toBe(true);
-    await git(remote.bare, 'tag', '-d', 'v1.0.0');
-    await expect(fetchOrigin(ctx, spec, { refresh: true })).rejects.toMatchObject({
-      code: 'E_GIT',
+    const src: Source = { name: 'r', type: 'git', url: remote.bare };
+    const missing = 'f'.repeat(40);
+    await expect(fetchSource(ctx, src, { sha: missing })).rejects.toMatchObject({
+      code: 'E_SOURCE',
+      message: `commit fffffff is gone from ${remote.bare} (history rewritten?)`,
     });
-    expect(existsSync(slot.metaFile)).toBe(false);
-    expect(existsSync(slot.lockFile)).toBe(false);
+    const dir = join(sb.palmHome, 'cache', new SourceRef(src).id);
+    expect(await readdir(dir)).toEqual([]);
   });
 });

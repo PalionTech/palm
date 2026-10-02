@@ -1,0 +1,5 @@
+$ palm install acme/unicode-demo bidi-override
+x skill  bidi-override
+x skill bidi-override from acme/unicode-demo: skills/bidi-override/SKILL.md: 1 hidden character, first U+202E RIGHT-TO-LEFT OVERRIDE at line 8
+  fix it in the source (or a fork of it), then run: palm install acme/unicode-demo skill:bidi-override
+1 failed.

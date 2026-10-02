@@ -1,38 +1,36 @@
 $ palm update --help
-Usage: palm update|up [options] [kind] [names...]
+Usage: palm update|up [sources...] [options]
 
-Update entities or refresh origin indexes.
+Move sources to newer commits within their refs.
 
 Arguments:
-  kind                skill, agent, instruction, command, hook, mcp, plugin,
-                      origin (plurals and short names work); omit it for
-                      everything installed
-  names               name[@origin][#ref]
+  sources                sources to update (default: all)
 
 Options:
-  -h, --help          display help for command
+  --to <ref>             move the ref in palm.yaml (a tag, branch, sha or range
+                         such as ^2)
+  --review               print changed scripts and entities as diffs before
+                         asking
+  --strict               with --dry-run: exit 1 when a source is behind its ref
+  --allow-local-sources  palm.yaml may name file:// sources outside the project
+  -h, --help             display help for command
 
 Global Options:
-  -g, --global        use the global scope (~), not this project
-  -t, --target <ids>  comma-separated: claude, codex, copilot, cursor, gemini,
-                      opencode
-  --dry-run           show what would change; write nothing
-  --force             overwrite files palm does not own
-  -y, --yes           accept defaults instead of prompting
-  --offline           use cached origins only; no network
-  --verbose           debug output and stack traces
-  --json              JSON on stdout; everything else on stderr
-  --no-color          no colours (also NO_COLOR=1)
-  -V, --version       print the palm version
+  -g, --global           use ~/.palm/palm.yaml and the harness home directories
+  --dry-run              show what would change; write nothing
+  --force                replace files you changed or that palm does not own
+  -y, --yes              accept plan confirmations (never consents to programs)
+  --allow-exec <list>    allow programs: hook:x@source=sha256:hash,... or all
+  --offline              use the cache only; no network
+  --json                 one JSON document on stdout; everything else on stderr
+  --secrets <policy>     env-ref (default) or literal, for secrets you type
+  -V, --version          print the palm version
 
-Prints the plan first (~ updated, + added, - removed, = unchanged, x failed, and files you
-changed that an update would overwrite), then asks before applying (default No). Without a
-terminal, --yes is required.
+Prints the plan, every new or changed program, and the files you changed, then asks
+(default no). Without a terminal it needs --yes; --yes never consents to programs.
 
 Examples:
-  palm update                               everything installed in this project
-  palm update skills                        every directly installed skill
-  palm update skill tdd --dry-run           show the plan only
-  palm update --yes                         apply without asking (scripts, CI)
-  palm update origins                       refetch and rescan every origin
-  palm update origin mattpocock             one origin
+  palm update
+  palm update mattpocock/skills
+  palm update acme-kit --to ^2
+  palm update --dry-run --strict              exit 1 when a source is behind its ref

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { listRemoteTags, pingRemote } from '../../src/core/git.js';
+import { fetchSource, listRemoteRefs } from '../../src/core/git.js';
 import { GitFailure } from '../../src/core/git-exec.js';
+import { makeContext } from '../support/fakes.js';
+import { removeDir, sandbox } from '../support/sandbox.js';
 
 vi.mock('../../src/core/git-exec.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../src/core/git-exec.js')>();
@@ -16,22 +18,29 @@ vi.mock('../../src/core/git-exec.js', async (importOriginal) => {
 
 describe('git timeouts', () => {
   it('a network call that times out is E_NETWORK with a hint naming a command', async () => {
-    const err = await listRemoteTags('https://example.invalid/o/r.git').catch((e: unknown) => e);
+    const err = await listRemoteRefs('https://example.invalid/o/r.git').catch((e: unknown) => e);
     expect(err).not.toBeInstanceOf(GitFailure);
     expect(err).toMatchObject({
       code: 'E_NETWORK',
       message:
-        'Cannot list tags of https://example.invalid/o/r.git: git ls-remote timed out after 120 s',
+        'cannot list the tags of https://example.invalid/o/r.git: git ls-remote timed out after 120 s',
     });
     expect((err as { hint: string }).hint).toContain(
       'git ls-remote https://example.invalid/o/r.git',
     );
   });
 
-  it('palm doctor pings with a shorter timeout', async () => {
-    await expect(pingRemote('https://example.invalid/o/r.git')).rejects.toMatchObject({
-      code: 'E_NETWORK',
-      message: 'Cannot reach https://example.invalid/o/r.git: git ls-remote timed out after 20 s',
-    });
+  it('a local step that times out is E_GIT pointing at palm cache clean', async () => {
+    const sb = await sandbox();
+    try {
+      const ctx = await makeContext(sb);
+      const src = { name: 'r', type: 'git' as const, url: 'https://example.invalid/o/r.git' };
+      await expect(fetchSource(ctx, src, { sha: 'a'.repeat(40) })).rejects.toMatchObject({
+        code: 'E_GIT',
+        hint: expect.stringContaining('palm cache clean'),
+      });
+    } finally {
+      await removeDir(sb.root);
+    }
   });
 });

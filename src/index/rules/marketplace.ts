@@ -1,55 +1,84 @@
 /**
  * Rule 3 (DESIGN §5): a marketplace file. Every entry with a relative source is scanned as a
- * plugin at that path; remote entries become warnings with the command that would add them.
+ * plugin at that path; remote entries are not fetched: a warning names the `palm install` line
+ * that declares them.
  */
 
 import { join, resolve } from 'node:path';
 import { messageOf } from '../../core/errors.js';
 import {
-  describeSource,
-  isRemoteSource,
+  describeEntrySource,
+  installInput,
   type Marketplace,
   type MarketplaceEntry,
-  originHint,
   readMarketplace,
+  selfEntryPath,
 } from '../marketplace.js';
 import { findPluginManifest, type PluginManifest } from '../plugin-manifest.js';
 import type { ScanContext } from '../scan-context.js';
 import { escapesRoot, joinRel, normRel } from '../util.js';
 import { scanPlugin } from './plugin-manifest.js';
 
-/** The origin-relative plugin directory of an entry; undefined (with a warning) when unusable. */
+/**
+ * A path inside the repository as a path inside the scanned source: below the source's `root`
+ * it is relative to it; the root itself (or above it) is the source root.
+ */
+function rebaseSelf(ctx: ScanContext, repoPath: string): string {
+  const root = normRel(ctx.source.root ?? '');
+  if (root === '') return repoPath;
+  return repoPath.startsWith(`${root}/`) ? repoPath.slice(root.length + 1) : '';
+}
+
+/** A remote entry: never fetched; the warning names the line that declares it. */
+function warnRemote(ctx: ScanContext, entry: MarketplaceEntry): void {
+  const s = entry.source;
+  const remote = installInput(s);
+  if (!remote) {
+    ctx.warnings.push(
+      `plugin "${entry.name}": unsupported source ${describeEntrySource(s)}; skipped`,
+    );
+    return;
+  }
+  const root = remote.root ? `, then set root: ${remote.root} on it in palm.yaml` : '';
+  ctx.warnings.push(
+    `remote plugin "${entry.name}" (${describeEntrySource(s)}) not fetched: declare it: palm install ${remote.input} <names>${root}`,
+  );
+}
+
+/** A source-relative plugin directory, checked: inside the source and present. */
+async function localRoot(
+  ctx: ScanContext,
+  entry: MarketplaceEntry,
+  rootRel: string,
+): Promise<string | undefined> {
+  const shown = describeEntrySource(entry.source);
+  if (escapesRoot(rootRel)) {
+    ctx.warnings.push(`plugin "${entry.name}": source ${shown} points outside the source; skipped`);
+    return undefined;
+  }
+  if ((await ctx.fsKind(rootRel)) !== 'dir') {
+    ctx.warnings.push(`plugin "${entry.name}": source directory ${shown} not found; skipped`);
+    return undefined;
+  }
+  return rootRel;
+}
+
+/**
+ * The source-relative plugin directory of an entry; undefined (with a warning) when unusable. An
+ * entry that names the scanned repository itself is local (ruling C21).
+ */
 async function entryRoot(
   ctx: ScanContext,
   mpRootRel: string,
   entry: MarketplaceEntry,
 ): Promise<string | undefined> {
-  const s = entry.source;
-  if (isRemoteSource(s)) {
-    const hint = originHint(s);
-    ctx.warnings.push(
-      `remote plugin "${entry.name}" (${describeSource(s)}) not fetched → add it as an origin${hint ? `: palm install origin ${hint}` : ''}`,
-    );
+  const self = selfEntryPath(entry.source, ctx.source.url);
+  if (self !== undefined) return localRoot(ctx, entry, rebaseSelf(ctx, self));
+  if (entry.source.type !== 'local') {
+    warnRemote(ctx, entry);
     return undefined;
   }
-  if (s.type !== 'local') {
-    ctx.warnings.push(`plugin "${entry.name}": unsupported source ${describeSource(s)}; skipped`);
-    return undefined;
-  }
-  const rootRel = joinRel(mpRootRel, s.path);
-  if (escapesRoot(rootRel)) {
-    ctx.warnings.push(
-      `plugin "${entry.name}": source ${describeSource(s)} points outside the origin; skipped`,
-    );
-    return undefined;
-  }
-  if ((await ctx.fsKind(rootRel)) !== 'dir') {
-    ctx.warnings.push(
-      `plugin "${entry.name}": source directory ${describeSource(s)} not found; skipped`,
-    );
-    return undefined;
-  }
-  return rootRel;
+  return localRoot(ctx, entry, joinRel(mpRootRel, entry.source.path));
 }
 
 async function loadMarketplace(
@@ -64,8 +93,8 @@ async function loadMarketplace(
   }
 }
 
-/** Origin-relative form of an absolute path inside the origin. */
-const originRel = (ctx: ScanContext, abs: string): string =>
+/** Source-relative form of an absolute path inside the source. */
+const sourceRel = (ctx: ScanContext, abs: string): string =>
   normRel(abs.slice(ctx.rootAbs.length + 1));
 
 /**
@@ -80,8 +109,8 @@ export async function scanMarketplace(
   const mp = await loadMarketplace(ctx, fileAbs);
   if (!mp) return false;
   ctx.warnings.push(...mp.warnings);
-  const marketplaceRel = originRel(ctx, fileAbs);
-  const mpRootRel = mp.rootDir ? originRel(ctx, resolve(mp.rootDir)) : '';
+  const marketplaceRel = sourceRel(ctx, fileAbs);
+  const mpRootRel = sourceRel(ctx, resolve(mp.rootDir));
   let rootCovered = false;
   for (const entry of mp.entries) {
     const rootRel = await entryRoot(ctx, mpRootRel, entry);

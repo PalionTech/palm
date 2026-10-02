@@ -1,0 +1,48 @@
+$ palm install obra/superpowers plugin:superpowers
+This install adds 1 program that will run on your machine.
+
+  1. hook superpowers  from obra/superpowers  (commit 083545e, v4.0.3, 2026-09-28)
+     SessionStart  startup|clear|compact  CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/obra__superpowers/superpowers "$CLAUDE_PROJECT_DIR"/.palm/assets/obra__superpowers/superpowers/hooks/run-hook.cmd session-start
+     targets: claude (.claude/settings.json), codex (.codex/hooks.json)
+     scripts: 2 files, 355 B  ->  .palm/assets/obra__superpowers/superpowers/  (committed with your repo)
+       hooks/run-hook.cmd  755   50 B  sha256:94db96e9
+       ... 1 more  (--review shows every script)
+
+palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
+so teammates and CI install it without being asked; any change asks again.
+x 1 program needs your consent and there is no terminal
+  review:  palm install obra/superpowers plugin:superpowers --dry-run --review
+  then:    palm install obra/superpowers plugin:superpowers --allow-exec hook:superpowers@obra/superpowers=sha256:b48cbe63031365a952411e29c59221210e4f41802b5c66b0cec3dc2ed5cf37eb
+$ palm install obra/superpowers plugin:superpowers --allow-exec hook:superpowers@obra/superpowers=sha256:b48cbe63031365a952411e29c59221210e4f41802b5c66b0cec3dc2ed5cf37eb
+This install adds 1 program that will run on your machine.
+
+  1. hook superpowers  from obra/superpowers  (commit 083545e, v4.0.3, 2026-09-28)
+     SessionStart  startup|clear|compact  CLAUDE_PLUGIN_ROOT="$CLAUDE_PROJECT_DIR"/.palm/assets/obra__superpowers/superpowers "$CLAUDE_PROJECT_DIR"/.palm/assets/obra__superpowers/superpowers/hooks/run-hook.cmd session-start
+     targets: claude (.claude/settings.json), codex (.codex/hooks.json)
+     scripts: 2 files, 355 B  ->  .palm/assets/obra__superpowers/superpowers/  (committed with your repo)
+       hooks/run-hook.cmd  755   50 B  sha256:94db96e9
+       ... 1 more  (--review shows every script)
+
+palm never runs this itself. If you say yes, its hash goes into palm.lock.yaml,
+so teammates and CI install it without being asked; any change asks again.
+
+allowed by --allow-exec: hook:superpowers@obra/superpowers (sha256:b48cbe63)
+i ref ^4.0 saved to palm.yaml (latest tag v4.0.3); edit ref: to track main
++ skill  brainstorming             .agents/skills/brainstorming/, .claude/skills/brainstorming/   2 files   from obra/superpowers v4.0.3   (claude gets its own copy in .claude/skills)
++ skill  test-driven-development   .agents/skills/test-driven-development/, .claude/skills/test-driven-development/   6 files   from obra/superpowers v4.0.3
++ skill  writing-skills            .agents/skills/writing-skills/, .claude/skills/writing-skills/   4 files   from obra/superpowers v4.0.3
++ hook   superpowers               .palm/assets/obra__superpowers/superpowers/, .claude/settings.json +1   2 files +2 merged   from obra/superpowers v4.0.3
+~ trusted hook superpowers sha256:b48cbe63
+4 installed. Commit palm.yaml, palm.lock.yaml, .agents/, .claude/, .palm/ and .codex/ together.
+$ palm remove brainstorming
+x skill brainstorming from obra/superpowers: brainstorming belongs to plugin superpowers: exclude it for the team, or remove the plugin
+  palm remove obra/superpowers skill:brainstorming --exclude
+$ palm remove obra/superpowers brainstorming --exclude
+- skill  brainstorming   .agents/skills/brainstorming/, .claude/skills/brainstorming/   2 files
+1 removed.
+$ cat palm.yaml
+targets: [claude, codex]
+sources:
+  obra/superpowers:
+    ref: ^4.0
+    plugins: [{name: superpowers, exclude: [skill:brainstorming]}]

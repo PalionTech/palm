@@ -1,11 +1,11 @@
-.agents/skills/sdk-helper/SKILL.md
+.agents/skills/grill-me/SKILL.md
+.agents/skills/grill-me/agents/openai.yaml
 .agents/skills/tdd/SKILL.md
 .agents/skills/tdd/agents/openai.yaml
 .agents/skills/tdd/references/mocking.md
 .claude/agents/agent-sdk-verifier-py.md
-.claude/skills/sdk-helper/SKILL.md
+.claude/skills/grill-me/SKILL.md
 .claude/skills/tdd/SKILL.md
-.claude/skills/tdd/agents/openai.yaml
 .claude/skills/tdd/references/mocking.md
 .codex/agents/agent-sdk-verifier-py.toml
 .codex/config.toml

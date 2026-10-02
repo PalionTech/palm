@@ -8,12 +8,14 @@ import YAML from 'yaml';
 import { messageOf } from '../../core/errors.js';
 import { isDocFile } from '../../domain/ignore.js';
 import { isRecord, withoutUndefined } from '../../lib/object.js';
-import { addAgent, addCommand, addHookFile, addInstruction, addSkill } from '../adders.js';
+import { addAgent, addCommandAsSkill, addInstruction, addSkill } from '../adders.js';
 import { MemberList } from '../entity-registry.js';
+import { addHookFile } from '../exec-adders.js';
 import { byDepthThenPath } from '../files.js';
 import { EXTENSIONS, hasExt } from '../plugin-components.js';
 import type { PluginContext, ScanContext } from '../scan-context.js';
 import { asString, baseOf, dirOf, toSlug } from '../util.js';
+import { apmMcpNote } from './apm-mcp.js';
 
 async function readApmManifest(
   ctx: ScanContext,
@@ -27,6 +29,34 @@ async function readApmManifest(
     ctx.warnings.push(`${apmFile}: invalid YAML (${messageOf(e).split('\n')[0]})`);
     return {};
   }
+}
+
+/** `dependencies.apm` as `palm install` inputs: `owner/repo[/path][#ref]` strings, or `{ git, ref }`. */
+function apmDependencyInputs(data: Record<string, unknown>): string[] {
+  const deps = isRecord(data.dependencies) ? data.dependencies.apm : undefined;
+  if (!Array.isArray(deps)) return [];
+  return deps.flatMap((d) => {
+    if (typeof d === 'string') return d.trim() === '' ? [] : [d.trim()];
+    const url = isRecord(d) ? (asString(d.git) ?? asString(d.url)) : undefined;
+    if (!url) return [];
+    const ref = isRecord(d) ? asString(d.ref) : undefined;
+    return [ref ? `${url}#${ref}` : url];
+  });
+}
+
+/** APM dependencies are never followed (DESIGN §5 rule 2): one warning names the commands. */
+function warnApmDependencies(
+  ctx: ScanContext,
+  apmFile: string,
+  data: Record<string, unknown>,
+): void {
+  const mcp = apmMcpNote(apmFile, data);
+  if (mcp) ctx.warnings.push(mcp);
+  const inputs = apmDependencyInputs(data);
+  if (inputs.length === 0) return;
+  const what = inputs.length === 1 ? '1 dependency is' : `${inputs.length} dependencies are`;
+  const commands = inputs.map((i) => `palm install ${i}`).join(', ');
+  ctx.warnings.push(`${apmFile}: ${what} not installed; declare what you need: ${commands}`);
 }
 
 /** Top-level skills are members; nested sub-skills are indexed standalone. */
@@ -62,7 +92,7 @@ async function collectApmFiles(
   for (const f of markdownIn(ctx, '.apm/instructions'))
     members.add(await addInstruction(ctx, f, pkg));
   for (const f of [...markdownIn(ctx, '.apm/prompts'), ...markdownIn(ctx, '.apm/commands')])
-    members.add(await addCommand(ctx, f, pkg));
+    members.add(await addCommandAsSkill(ctx, f, pkg));
 }
 
 /** `hooks.json` takes the package (or its directory's) name; other files their stem. */
@@ -85,7 +115,8 @@ async function collectApmHooks(
 /** Index the APM package. False when `.apm/` holds no primitives (other rules then apply). */
 export async function scanApm(ctx: ScanContext, apmFile: string): Promise<boolean> {
   const data = await readApmManifest(ctx, apmFile);
-  const name = toSlug(asString(data.name), basename(ctx.rootAbs), ctx.alias);
+  warnApmDependencies(ctx, apmFile, data);
+  const name = toSlug(asString(data.name), basename(ctx.rootAbs), ctx.fallbackName);
   const version = asString(data.version);
   const pkg: PluginContext = withoutUndefined({
     name,
@@ -109,7 +140,7 @@ export async function scanApm(ctx: ScanContext, apmFile: string): Promise<boolea
     description: asString(data.description),
     version: ctx.versionOf(version, undefined),
     path: '.',
-    origin: ctx.alias,
+    source: ctx.sourceName,
     def: { kind: 'plugin' as const, members: members.refs, manifestPath: apmFile },
   });
   ctx.registry.addPlugin(plugin, '');

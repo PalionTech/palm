@@ -1,32 +1,34 @@
 ---
 title: palm describe
-description: Show one entity, origin or target in detail.
+description: Show one installed entity with its source, files per harness, notes and program trust, a source, a target, or the entity that wrote a file.
 ---
 
 import Capture from '../../../../components/Capture.astro';
 
-`palm describe` shows one entity, origin or target: where it comes from and which files it has in each harness.
+`palm describe` answers "what is this, where did it come from, and what did it write" for one thing.
 
 ```sh
-palm describe <kind> <name[@origin]> [options]
-palm describe origin <alias>
+palm describe <[kind:]name | path>
+palm describe <source> <[kind:]name>
+palm describe source <name>
 palm describe target <target>
 ```
 
 Alias: `palm info`.
-Kinds: `skill`, `agent`, `instruction`, `command`, `hook`, `mcp`, `plugin`, `origin` and `target`, as singular, plural or [short name](/palm/reference/cli/#kinds).
-The kind is required.
 
-| Command | Meaning |
+| Command | What it shows |
 | --- | --- |
-| `palm describe skill tdd` | Origin, version, dependencies and files per harness of an installed skill. |
-| `palm describe agent comment-sicko@pstack` | An agent (subagent) from one origin, installed or not. |
-| `palm info mcp docs -g` | An MCP server in the global scope. |
-| `palm describe origin mattpocock` | URL, ref, commit, layout, detection rule, counts and cache files of an origin. |
-| `palm describe target codex` | Where each kind goes for Codex in this project. |
-| `palm describe target claude -g` | Where each kind goes for Claude Code in your home directory. |
+| `palm describe tdd` | one installed entity |
+| `palm describe hook:gh-cli` | the same, when a name means two kinds |
+| `palm describe mattpocock/skills handoff` | an entity of a source, installed or not, read from the index |
+| `palm describe mcp docs` | an MCP server, with the block each harness received |
+| `palm describe .claude/skills/tdd/SKILL.md` | the entity that wrote this file |
+| `palm describe setup.sh` | a bare file name, found under `.palm/assets` and the output folders |
+| `palm describe .mcp.json` | every entity with an entry merged into this file |
+| `palm describe source mattpocock/skills` | a source: URL, ref, commit, detection rule, counts and index warnings |
+| `palm describe target codex` | where each kind goes for Codex in this scope |
 
-<Capture name="c-describe" />
+<Capture name="c-describe" title="~/project" />
 
 ## Options
 
@@ -34,40 +36,77 @@ The kind is required.
 
 | Argument | Meaning |
 | --- | --- |
-| `kind` | skill, agent, instruction, command, hook, mcp, plugin, origin, target (plurals and short names work) |
-| `names` | `name[@origin][#ref]` |
+| `what` | [kind:]name, a path, source &lt;name&gt; or target &lt;id&gt; |
 
 | Option | Meaning |
 | --- | --- |
-| `-o, --origin <name-or-alias>` | only this origin: alias, owner/repo[/root], URL or local path (installed entities also: mine, registry, adhoc) |
+| `-s, --source <source>` | the entity from this source |
 
 The [global options](/palm/reference/cli/#global-options) also apply.
 
 {/* /cli-reference */}
 
-## What it shows
+## An entity
 
-| Resource | Fields |
+| Field | Shows |
 | --- | --- |
-| Entity | description, origin, URL, ref, commit, path, version, plugin, kind details, dependencies, `via`, and the files per harness when installed. Otherwise, the command that installs it. |
-| Origin | type, URL or path, ref, commit, root, layout, detection rule, entities per kind, index warnings, checkout and index file. |
-| Target | config folder, detection in each scope, and the path of each kind. palm computes the paths with a dry-run install of a sample entity, so overrides such as `CODEX_HOME` count. |
+| description | from the entity's frontmatter or manifest |
+| source | the declared source, its ref, the resolved tag and the commit |
+| path, version | where the entity lives in the source, and its version |
+| selected by | `palm.yaml`, or `plugin:<name>` when a plugin selected it |
+| files per harness | every generated path and merged entry, per target |
+| notes | what install printed once: dropped fields, skipped targets, "from command", shared folders |
+| activation | for an instruction: the activation the source declared, and where a harness widened it until 0.3 |
+| at | the placement root from `palm.yaml`, when set; placed at the root until 0.3 |
+| program | for a hook or stdio server: every command, the hash, and whether it is trusted |
+| scripts | the asset folder and its file count; for a skill, the scripts it cites |
+| needs | for an MCP server: every variable, and whether it is set |
 
-## Behavior
+An entity that is not installed yet shows what the index knows, from its source, when you name the source first.
+When a bare name exists in two sources, the hint is `palm describe <source> <name>`.
 
-`palm describe` never prompts and writes nothing in the scope.
-To read an index that is not cached yet, it fetches the origin into `~/.palm/cache/`, unless `--offline`.
+`palm describe mcp <name>` adds the rendered block for each harness, so you see exactly what Codex got in TOML.
+
+## A path
+
+Given a path, absolute, relative or starting with `~`, palm names the entity that wrote it.
+palm compares real paths, so a path behind a symlink works, and a bare file name such as `setup.sh` is looked up in `.palm/assets` and the output folders.
+
+| Match | Meaning |
+| --- | --- |
+| `file` | the entity wrote this file |
+| `inside` | the path is a folder, and these entities wrote files inside it |
+| `merged` | the file is shared, and these entities own entries in it, by JSON pointer, TOML table or block |
+
+A path no entity wrote prints so and exits 1.
+
+## A source or a target
+
+`palm describe source <name>` shows the URL or path, ref, commit, root, layout as YAML, the scan rule that matched, the counts per kind and the index warnings. [Scanning](/palm/concepts/scanning/) shows an example.
+For a source `palm.yaml` does not declare, such as `palm describe source mattpocock/skills` before any install, palm fetches it and shows the ref, commit, scan rule, counts and index warnings.
+
+An installed entity whose files are gone shows `(missing)` beside each one, and `palm get` counts them in the files column.
+A name installed only in the other scope gets the same hint as `palm remove`: the command with or without `-g`.
+For a source pinned to a tag or a commit, it also prints the latest release tag.
+
+`palm describe target <target>` prints the project root, then renders a sample entity of every kind for that harness in the current scope, so the paths include any home-directory override you set.
+Under `-g`, paths print as `~/...`.
+
+## Reads and writes
+
+`palm describe` reads `palm.yaml`, the lock and the cached index. It writes nothing.
+It needs no network, except to index a declared source whose commit is not cached.
 
 ## Exit codes
 
 | Code | When |
 | --- | --- |
-| `0` | The entity, origin or target exists. |
-| `1` | Nothing has that name in your origins or the scope's lockfile (`E_NOT_FOUND`). |
-| `2` | No kind, no name, more than one name, or an unknown target. |
+| `0` | The entity, path, source or target was found. |
+| `1` | Nothing matches the name or path, or the name means two kinds. |
+| `2` | No argument, or an unknown kind word. |
 
 ## Related
 
-- [`palm get`](/palm/reference/cli/get/)
-- [`palm why`](/palm/reference/cli/why/)
+- [palm get](/palm/reference/cli/get/)
+- [Scanning](/palm/concepts/scanning/)
 - [Targets matrix](/palm/reference/targets-matrix/)

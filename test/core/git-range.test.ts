@@ -3,14 +3,13 @@ import { join } from 'node:path';
 import { execa } from 'execa';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  fetchOrigin,
+  fetchSource,
   isSemverRange,
   listRemoteRefs,
   maxSatisfyingTag,
-  refSatisfies,
   resolveRef,
 } from '../../src/core/git.js';
-import type { OriginSpec } from '../../src/core/types.js';
+import type { Source } from '../../src/core/types.js';
 import { makeContext } from '../support/fakes.js';
 import { removeDir, type Sandbox, sandbox } from '../support/sandbox.js';
 import { commitFile, git } from './gitrepo.js';
@@ -51,22 +50,7 @@ describe('maxSatisfyingTag', () => {
   });
 });
 
-describe('refSatisfies', () => {
-  it.each<[string, { ref?: string; sha?: string }, boolean]>([
-    ['^1.2', { ref: 'v1.3.0' }, true],
-    ['^1.2', { ref: 'v2.0.0' }, false],
-    ['~1.2', { ref: '1.2.9' }, true],
-    ['main', { ref: 'main' }, true],
-    ['main', { ref: 'dev' }, false],
-    ['abc1234', { ref: 'main', sha: 'abc1234def' }, true],
-    ['v1.0.0', { ref: 'v1.0.1' }, false],
-    ['^1', {}, false],
-  ])('%s against %j → %s', (wanted, locked, expected) => {
-    expect(refSatisfies(wanted, locked)).toBe(expected);
-  });
-});
-
-describe('resolveRef and fetchOrigin with ranges (local bare remote)', () => {
+describe('resolveRef and fetchSource with ranges (local bare remote)', () => {
   let sb: Sandbox;
   let bare: string;
   const shas: Record<string, string> = {};
@@ -85,16 +69,23 @@ describe('resolveRef and fetchOrigin with ranges (local bare remote)', () => {
   });
   afterEach(async () => removeDir(sb.root));
 
-  const spec = (ref?: string): OriginSpec => ({ alias: 'r', type: 'git', url: bare, ref });
+  const spec = (ref?: string): Source => ({ name: 'r', type: 'git', url: bare, ref });
+  const resolved = async (ref?: string) => (await resolveRef(bare, ref)).resolved;
 
   it('resolves ranges to the highest satisfying tag, exact refs as given', async () => {
-    expect(await resolveRef(bare, '^1.2')).toBe('v1.3.0');
-    expect(await resolveRef(bare, '~1.2')).toBe('v1.2.0');
-    expect(await resolveRef(bare, '>=1.2 <2')).toBe('v1.3.0');
-    expect(await resolveRef(bare, '1.x')).toBe('v1.3.0');
-    expect(await resolveRef(bare, 'v1.0.0')).toBe('v1.0.0');
-    expect(await resolveRef(bare, 'main')).toBe('main');
-    expect(await resolveRef(bare, undefined)).toBe('v2.0.0');
+    expect(await resolved('^1.2')).toBe('v1.3.0');
+    expect(await resolved('~1.2')).toBe('v1.2.0');
+    expect(await resolved('>=1.2 <2')).toBe('v1.3.0');
+    expect(await resolved('1.x')).toBe('v1.3.0');
+    expect(await resolved('v1.0.0')).toBe('v1.0.0');
+    expect(await resolved('main')).toBe('main');
+    expect(await resolved(undefined)).toBe('v2.0.0');
+    expect(await resolveRef(bare, undefined)).toEqual({
+      ref: '^2.0',
+      resolved: 'v2.0.0',
+      sha: shas['v2.0.0'],
+    });
+    expect((await resolveRef(bare, '^1.2')).sha).toBe(shas['v1.3.0']);
   });
 
   it('listRemoteRefs reports each branch and tag with its commit (annotated tags peeled)', async () => {
@@ -114,41 +105,37 @@ describe('resolveRef and fetchOrigin with ranges (local bare remote)', () => {
   });
 
   it('prefers a branch or tag named exactly like the range', async () => {
-    expect(await resolveRef(bare, '3.x')).toBe('3.x');
+    expect(await resolved('3.x')).toBe('3.x');
   });
 
-  it('fails with E_ORIGIN naming the nearest tags when nothing satisfies the range', async () => {
+  it('fails with E_SOURCE naming the nearest tags when nothing satisfies the range', async () => {
     const err = await resolveRef(bare, '^4').catch((e: unknown) => e);
-    expect(err).toMatchObject({ code: 'E_ORIGIN' });
+    expect(err).toMatchObject({ code: 'E_SOURCE' });
     expect((err as Error).message).toBe(
-      `No tag of ${bare} satisfies "^4" (nearest: v2.0.0, v1.3.0, v1.2.0)`,
+      `no tag of ${bare} satisfies "^4" (nearest: v2.0.0, v1.3.0, v1.2.0)`,
     );
-    expect((err as { hint?: string }).hint).toBe(
-      `List every tag with: git ls-remote --tags ${bare}`,
-    );
+    expect((err as { hint?: string }).hint).toBe(`git ls-remote --tags ${bare}`);
     await expect(resolveRef(bare, '^0.1')).rejects.toThrow(
       '(nearest: v2.0.0, v1.3.0, v1.2.0, v1.0.0)',
     );
   });
 
-  it('fetchOrigin checks out the resolved tag and records it with its sha', async () => {
+  it('fetchSource checks out the resolved tag and records the intent beside it', async () => {
     const ctx = await makeContext(sb);
-    const co = await fetchOrigin(ctx, spec('^1.2'));
+    const co = await fetchSource(ctx, spec('^1.2'));
     expect(co.ref).toBe('v1.3.0');
     expect(co.sha).toBe(shas['v1.3.0']);
     expect(await readFile(join(co.root, 'a.txt'), 'utf8')).toBe('v1.3.0');
-    const meta = JSON.parse(
-      await readFile(join(co.repoDir, '..', 'checkout-ref--1.2.json'), 'utf8'),
-    );
-    expect(meta).toMatchObject({ requested: '^1.2', ref: 'v1.3.0', sha: shas['v1.3.0'] });
+    const meta = JSON.parse(await readFile(`${co.repoDir}.json`, 'utf8'));
+    expect(meta).toMatchObject({ sha: shas['v1.3.0'], refs: { '^1.2': { resolved: 'v1.3.0' } } });
 
     // A cache hit needs no network; offline works from the cache too.
     await execa('mv', [bare, `${bare}.hidden`]);
-    expect((await fetchOrigin(ctx, spec('^1.2'))).ref).toBe('v1.3.0');
+    expect((await fetchSource(ctx, spec('^1.2'))).ref).toBe('v1.3.0');
     const offline = await makeContext(sb, { flags: { offline: true } });
-    expect((await fetchOrigin(offline, spec('^1.2'))).sha).toBe(shas['v1.3.0']);
+    expect((await fetchSource(offline, spec('^1.2'))).sha).toBe(shas['v1.3.0']);
     await execa('mv', [`${bare}.hidden`, bare]);
 
-    await expect(fetchOrigin(ctx, spec('^9'))).rejects.toMatchObject({ code: 'E_ORIGIN' });
+    await expect(fetchSource(ctx, spec('^9'))).rejects.toMatchObject({ code: 'E_SOURCE' });
   });
 });

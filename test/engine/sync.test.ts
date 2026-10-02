@@ -1,203 +1,297 @@
-import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { loadConfig } from '../../src/core/config-file.js';
-import { type McpServerConfig, TRANSFORM_VERSION } from '../../src/core/types.js';
-import { Lock } from '../../src/domain/lock.js';
-import { Manifest } from '../../src/domain/manifest.js';
-import { installEntities } from '../../src/engine/install.js';
-import { syncManifest } from '../../src/engine/sync.js';
-import { readJsonFile } from '../../src/lib/fs.js';
-import { removeDir } from '../support/sandbox.js';
-import { makeWorld, resolveAndSave, type World } from './world.js';
+import './fakes.js';
 
-async function realTargets(w: World): Promise<void> {
-  w.deps.getTarget = (await import('../../src/targets/index.js')).getTarget;
+import { readFile, stat } from 'node:fs/promises';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { Lock, renderHashOf } from '../../src/domain/lock.js';
+import { Manifest } from '../../src/domain/manifest.js';
+import { installFromSource } from '../../src/engine/install.js';
+import { syncScope } from '../../src/engine/sync.js';
+import { fetchCalls, remotes } from './fakes.js';
+import { makeWorld, type World, writeTree } from './world.js';
+
+const SKILLS = {
+  'skills/tdd/SKILL.md': 'Test first.\n',
+  'skills/review/SKILL.md': 'Review carefully.\n',
+};
+
+async function mtime(file: string): Promise<number> {
+  return (await stat(file)).mtimeMs;
 }
 
-describe('syncManifest', () => {
-  let w: World;
-  afterEach(async () => removeDir(w.sb.root));
+async function installed(w: World, names: string[]): Promise<string> {
+  const url = await w.remote('skills', { 'v1.0.0': SKILLS });
+  const r = await installFromSource(
+    w.ctx,
+    { source: url, names: names.map((name) => ({ name })) },
+    { scope: 'project' },
+    w.deps,
+  );
+  expect(r.failures).toEqual([]);
+  return url;
+}
 
-  it('a range pin (#^1.2) satisfied by the locked tag (v1.3.0) is unchanged', async () => {
-    w = await makeWorld();
-    await installEntities(
-      w.ctx,
-      [{ kind: 'skill', spec: 'tdd@a' }],
-      { scope: 'project', targets: ['claude'] },
-      w.deps,
-    );
-    const file = join(w.sb.project, 'palm.lock.yaml');
-    const lock = await Lock.load(file);
-    lock.entries[0]!.ref = 'v1.3.0';
-    await lock.save(file);
-    await Manifest.of({
-      targets: ['claude'],
-      skills: ['tdd@a#^1.2'],
-    }).save(join(w.sb.project, 'palm.yaml'));
-    const deploys = w.calls.deploy.length;
-    const r = await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
-    expect(r.outcomes.map((o) => o.status)).toEqual(['unchanged']);
-    expect(w.calls.deploy).toHaveLength(deploys);
-  });
-});
+/** Makes the commit `ref` names unavailable: no cache holds it and the remote no longer has it. */
+function unreachable(url: string, ref: string): string {
+  const remote = remotes.get(url);
+  const sha = remote?.refs[ref] as string;
+  if (remote) {
+    delete remote.refs[ref];
+    delete remote.trees[sha];
+  }
+  return sha;
+}
 
-describe('lockfile v1 upgrade', () => {
-  let w: World;
-  afterEach(async () => removeDir(w.sb.root));
+/** palm.yaml with source `name` pinned to `ref` (a teammate's edit). */
+async function pin(w: World, name: string, ref: string): Promise<void> {
+  const m = await Manifest.load(w.path('palm.yaml'));
+  const src = m.sources(w.project, 'palm.yaml').byName(name);
+  await m
+    .addSource({ ...(src?.source ?? { name: '', type: 'git' }), ref }, w.project)
+    .save(w.path('palm.yaml'));
+}
 
-  it('a v1 lock loads, the next install re-renders its entries and writes v2 with hashes', async () => {
-    w = await makeWorld();
-    const file = join(w.sb.project, 'palm.lock.yaml');
-    await installEntities(
-      w.ctx,
-      [{ kind: 'skill', spec: 'tdd@a' }],
-      { scope: 'project', targets: ['claude'] },
-      w.deps,
-    );
-    await writeFile(
-      file,
-      [
-        'version: 1',
-        'entries:',
-        '  - kind: skill',
-        '    name: tdd',
-        '    origin: a',
-        '    path: skills/tdd',
-        `    contentHash: ${(await Lock.load(file)).entries[0]!.contentHash}`,
-        '    installedAt: 2026-01-01T00:00:00.000Z',
-        '    targets: [claude]',
-        '    files: [.claude/skill/tdd.txt]',
-        '',
-      ].join('\n'),
-    );
-    await Manifest.of({ targets: ['claude'], skills: ['tdd@a'] }).save(
-      join(w.sb.project, 'palm.yaml'),
-    );
-    const r = await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
-    expect(r.outcomes[0]).toMatchObject({ status: 'updated' });
-    expect(r.outcomes[0]!.notes).toContain('re-rendered for this palm version');
-    const text = await readFile(file, 'utf8');
-    expect(text).toMatch(/^version: 2$/m);
-    expect(text).not.toContain('installedAt');
-    expect((await Lock.load(file)).entries[0]).toMatchObject({
-      transform: TRANSFORM_VERSION,
-      files: [{ path: '.claude/skill/tdd.txt', hash: expect.stringMatching(/^sha256:/) }],
-    });
-  });
-});
-
-describe('machine-independent targets', () => {
-  let w: World;
-  afterEach(async () => removeDir(w.sb.root));
-
-  it('persists detected targets to palm.yaml (project), never to config.yaml (global)', async () => {
-    w = await makeWorld({ detect: ['claude', 'cursor'] });
-    const project = await resolveAndSave(w.ctx, { scope: 'project' }, w.deps);
-    expect(project).toEqual(['claude', 'cursor']);
-    expect((await Manifest.load(join(w.sb.project, 'palm.yaml'))).toJSON().targets).toEqual([
-      'claude',
-      'cursor',
-    ]);
-    expect(w.log.messages).toContainEqual({
-      level: 'info',
-      msg: 'saved targets claude, cursor to palm.yaml',
-    });
-
-    // the second developer detects something else, but gets the recorded set
-    const other = await makeWorld({ detect: ['codex'] });
-    other.ctx.paths.projectRoot = w.sb.project;
-    expect(await resolveAndSave(other.ctx, { scope: 'project' }, other.deps)).toEqual([
-      'claude',
-      'cursor',
-    ]);
-    await removeDir(other.sb.root);
-
-    // config.yaml `targets` would become every project's default: only `palm config set targets` writes it.
-    const logged = w.log.messages.length;
-    await resolveAndSave(w.ctx, { scope: 'global' }, w.deps);
-    expect((await loadConfig(w.ctx.paths)).targets).toBeUndefined();
-    expect(w.log.messages.slice(logged).filter((m) => m.level === 'info')).toEqual([]);
-    await resolveAndSave(w.ctx, { scope: 'global', flag: ['codex'] }, w.deps);
-    expect((await loadConfig(w.ctx.paths)).targets).toBeUndefined();
-  });
-
-  it('shrinking targets removes the dropped harness files on the next install', async () => {
-    w = await makeWorld();
-    await realTargets(w);
-    w.ctx.flags.yes = true;
-    const manifest = join(w.sb.project, 'palm.yaml');
-    await Manifest.of({
-      targets: ['claude', 'codex'],
-      skills: ['wayfinder@a'],
-      mcp: [{ name: 'fs', command: 'npx', args: ['server-fs'] }],
-    }).save(manifest);
-    await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
-    const at = (p: string) => join(w.sb.project, p);
-    expect(existsSync(at('.agents/skills/wayfinder/SKILL.md'))).toBe(true);
-    expect(await readFile(at('.codex/config.toml'), 'utf8')).toContain('[mcp_servers.fs]');
-
-    await Manifest.of({
-      targets: ['claude'],
-      skills: ['wayfinder@a'],
-      mcp: [{ name: 'fs', command: 'npx', args: ['server-fs'] }],
-    }).save(manifest);
-    const r = await syncManifest(w.ctx, { scope: 'project', prune: false }, w.deps);
+describe('syncScope (bare install)', () => {
+  it('writes neither palm.yaml nor the lock on a clean clone with committed outputs', async () => {
+    const w = await makeWorld({ targets: ['claude', 'cursor'] });
+    await installed(w, ['tdd', 'review']);
+    const manifest = await w.manifestText();
+    const lock = await w.lockText();
+    const times = [await mtime(w.path('palm.yaml')), await mtime(w.path('palm.lock.yaml'))];
+    fetchCalls.length = 0;
+    const r = await syncScope(w.ctx, { scope: 'project' }, w.deps);
     expect(r.failures).toEqual([]);
-    expect(r.outcomes.map((o) => [o.entry.name, o.status, o.entry.targets])).toEqual([
-      ['wayfinder', 'updated', ['claude']],
-      ['fs', 'updated', ['claude']],
-    ]);
-    expect(existsSync(at('.agents/skills/wayfinder'))).toBe(false);
-    const toml = existsSync(at('.codex/config.toml'))
-      ? await readFile(at('.codex/config.toml'), 'utf8')
-      : '';
-    expect(toml).not.toContain('mcp_servers');
-    expect(existsSync(at('.claude/skills/wayfinder/SKILL.md'))).toBe(true);
-    const mcp = await readJsonFile<{ mcpServers: Record<string, unknown> }>(at('.mcp.json'));
-    expect(Object.keys(mcp.mcpServers)).toEqual(['fs']);
-    const lock = await Lock.load(at('palm.lock.yaml'));
-    for (const e of lock.entries) {
-      expect(e.targets).toEqual(['claude']);
-      expect(e.files.every((f) => !f.path.startsWith('.agents/'))).toBe(true);
-      expect((e.merged ?? []).every((m) => !m.file.startsWith('.codex/'))).toBe(true);
-    }
+    expect(r.outcomes.map((o) => o.status)).toEqual(['unchanged', 'unchanged']);
+    expect(await w.manifestText()).toBe(manifest);
+    expect(await w.lockText()).toBe(lock);
+    expect([await mtime(w.path('palm.yaml')), await mtime(w.path('palm.lock.yaml'))]).toEqual(
+      times,
+    );
+    expect(fetchCalls.every((c) => c.sha)).toBe(true);
   });
 
-  it('a transport change (url → command) leaves no stale url or headers', async () => {
-    w = await makeWorld();
-    await realTargets(w);
-    w.ctx.flags.yes = true;
-    const opts = { scope: 'project' as const, targets: ['claude' as const, 'codex' as const] };
-    const http: McpServerConfig = {
-      name: 'fs',
-      transport: 'http',
-      url: 'https://fs.example/mcp',
-      headers: { 'X-Team': 'palm' },
-    };
-    await installEntities(w.ctx, [{ kind: 'mcp', spec: 'fs', adhocMcp: http }], opts, w.deps);
-    const at = (p: string) => join(w.sb.project, p);
-    expect(await readFile(at('.codex/config.toml'), 'utf8')).toContain('url');
+  it('restores a missing generated file', async () => {
+    const w = await makeWorld({ targets: ['claude'] });
+    await installed(w, ['tdd']);
+    await w.remove('.claude/skills/tdd/SKILL.md');
+    const r = await syncScope(w.ctx, { scope: 'project' }, w.deps);
+    expect(r.outcomes.map((o) => o.status)).toEqual(['restored']);
+    expect(await w.read('.claude/skills/tdd/SKILL.md')).toBe('Test first.\n');
+  });
 
-    const stdio: McpServerConfig = { name: 'fs', transport: 'stdio', command: 'npx', args: ['x'] };
-    const r = await installEntities(
+  it('keeps an edited file as modified (kept) and reports a failure', async () => {
+    const w = await makeWorld({ targets: ['claude'] });
+    await installed(w, ['tdd']);
+    await w.write('.claude/skills/tdd/SKILL.md', 'my edit\n');
+    const r = await syncScope(w.ctx, { scope: 'project' }, w.deps);
+    expect(r.outcomes.map((o) => o.status)).toEqual(['modified']);
+    expect(r.failures).toHaveLength(1);
+    expect(r.failures[0]).toMatchObject({
+      code: 'E_CONFLICT',
+      hint: expect.stringContaining('--force'),
+    });
+    expect(await w.read('.claude/skills/tdd/SKILL.md')).toBe('my edit\n');
+  });
+
+  it('restores a missing file of an entity while keeping its edited one', async () => {
+    const w = await makeWorld({ targets: ['claude'] });
+    const url = await w.remote('skills', {
+      'v1.0.0': { 'skills/tdd/SKILL.md': 'Test first.\n', 'skills/tdd/notes.md': 'notes\n' },
+    });
+    await installFromSource(
       w.ctx,
-      [{ kind: 'mcp', spec: 'fs', adhocMcp: stdio }],
-      opts,
+      { source: url, names: [{ name: 'tdd' }] },
+      { scope: 'project' },
       w.deps,
     );
-    expect(r.outcomes[0]!.status).toBe('updated');
-    const json = await readJsonFile<{ mcpServers: { fs: Record<string, unknown> } }>(
-      at('.mcp.json'),
+    await w.write('.claude/skills/tdd/SKILL.md', 'my edit\n');
+    await w.remove('.claude/skills/tdd/notes.md');
+    const r = await syncScope(w.ctx, { scope: 'project' }, w.deps);
+    expect(r.outcomes.map((o) => o.status)).toEqual(['modified']);
+    expect(await w.read('.claude/skills/tdd/notes.md')).toBe('notes\n');
+    expect(await w.read('.claude/skills/tdd/SKILL.md')).toBe('my edit\n');
+  });
+
+  it('re-renders an in-repo source that changed and updates the entry content hash', async () => {
+    const w = await makeWorld({ targets: ['claude'] });
+    const src = await w.local('agent-kit', { 'skills/review/SKILL.md': 'v1\n' });
+    await installFromSource(
+      w.ctx,
+      { source: src, names: [{ name: 'review' }] },
+      { scope: 'project' },
+      w.deps,
     );
-    expect(json.mcpServers.fs).toMatchObject({ command: 'npx', args: ['x'] });
-    expect(json.mcpServers.fs).not.toHaveProperty('url');
-    expect(json.mcpServers.fs).not.toHaveProperty('headers');
-    const toml = await readFile(at('.codex/config.toml'), 'utf8');
-    expect(toml).toContain('command = "npx"');
-    expect(toml).not.toMatch(/url|X-Team|http_headers/);
-    const lock = await Lock.load(at('palm.lock.yaml'));
-    expect(lock.entries[0]!.merged).toHaveLength(2);
+    const before = (await w.entry('skill', 'review'))?.content;
+    await w.write('agent-kit/skills/review/SKILL.md', 'v2\n');
+    const r = await syncScope(w.ctx, { scope: 'project' }, w.deps);
+    expect(r.outcomes.map((o) => o.status)).toEqual(['re-rendered']);
+    expect(await w.read('.claude/skills/review/SKILL.md')).toBe('v2\n');
+    const after = (await w.entry('skill', 'review'))?.content;
+    expect(after).toMatch(/^sha256:/);
+    expect(after).not.toBe(before);
+    expect((await w.lock()).sources['./agent-kit']?.tree).toBeUndefined();
+  });
+
+  it('undeploys an entry removed from palm.yaml by hand, keeping an edited file', async () => {
+    const w = await makeWorld({ targets: ['claude'] });
+    await installed(w, ['tdd', 'review']);
+    const m = await Manifest.load(w.path('palm.yaml'));
+    await m.removeEntry('skills', 'skill', 'review').save(w.path('palm.yaml'));
+    const r = await syncScope(w.ctx, { scope: 'project' }, w.deps);
+    expect(r.outcomes.find((o) => o.entry.name === 'review')?.status).toBe('removed');
+    expect(w.exists('.claude/skills/review/SKILL.md')).toBe(false);
+    expect((await w.lock()).entries.map((e) => e.name)).toEqual(['tdd']);
+  });
+
+  it('resolves an edited pin fresh and renders the new version', async () => {
+    const w = await makeWorld({ targets: ['claude'] });
+    const url = await w.remote('skills', {
+      'v1.0.0': SKILLS,
+      'v2.0.0': { 'skills/tdd/SKILL.md': 'Test first, v2.\n' },
+    });
+    await installFromSource(
+      w.ctx,
+      { source: `${url}#v1.0.0`, names: [{ name: 'tdd' }] },
+      { scope: 'project' },
+      w.deps,
+    );
+    const m = await Manifest.load(w.path('palm.yaml'));
+    const [name] = m.sourceNames();
+    const src = m.sources(w.project, 'palm.yaml').byName(name as string);
+    await m
+      .addSource({ ...(src?.source ?? { name: '', type: 'git' }), ref: 'v2.0.0' }, w.project)
+      .save(w.path('palm.yaml'));
+    const r = await syncScope(w.context({ yes: true }), { scope: 'project' }, w.deps);
+    expect(r.outcomes.map((o) => o.status)).toEqual(['updated']);
+    expect(await w.read('.claude/skills/tdd/SKILL.md')).toBe('Test first, v2.\n');
+    expect((await w.lock()).sources[name as string]).toMatchObject({ ref: 'v2.0.0' });
+  });
+
+  it('without the locked commit keeps an edited file and updates an unedited one by its render hash', async () => {
+    const w = await makeWorld({ targets: ['claude'] });
+    const url = await w.remote('skills', {
+      'v1.0.0': SKILLS,
+      'v2.0.0': {
+        'skills/tdd/SKILL.md': 'Test first, v2.\n',
+        'skills/review/SKILL.md': 'Review carefully, v2.\n',
+      },
+    });
+    await installFromSource(
+      w.ctx,
+      { source: `${url}#v1.0.0`, names: [{ name: 'tdd' }, { name: 'review' }] },
+      { scope: 'project' },
+      w.deps,
+    );
+    const review = await w.entry('skill', 'review');
+    const disk = await readFile(w.path('.claude/skills/review/SKILL.md'));
+    const path = '.claude/skills/review/SKILL.md';
+    expect(renderHashOf({ files: [{ path, data: disk }], fragments: [] })).toBe(
+      review?.render.claude,
+    );
+    await w.write('.claude/skills/tdd/SKILL.md', 'my edit\n');
+    const sha = unreachable(url, 'v1.0.0');
+    await pin(w, 'skills', 'v2.0.0');
+    fetchCalls.length = 0;
+    const r = await syncScope(w.context({ yes: true }), { scope: 'project' }, w.deps);
+    expect(fetchCalls.filter((c) => c.sha === sha)).toHaveLength(1);
+    const status = (n: string) => r.outcomes.find((o) => o.entry.name === n);
+    expect(status('tdd')).toMatchObject({
+      status: 'modified',
+      notes: [
+        `locked commit ${sha.slice(0, 7)} unavailable; palm install skills skill:tdd --force overwrites`,
+      ],
+    });
+    expect(r.failures).toEqual([
+      expect.objectContaining({
+        name: 'tdd',
+        code: 'E_CONFLICT',
+        hint: 'palm install skills skill:tdd --force',
+      }),
+    ]);
+    expect(await w.read('.claude/skills/tdd/SKILL.md')).toBe('my edit\n');
+    expect(status('review')?.status).toBe('updated');
+    expect(await w.read('.claude/skills/review/SKILL.md')).toBe('Review carefully, v2.\n');
+    const forced = await installFromSource(
+      w.context({ force: true }),
+      { source: 'skills', names: [{ kind: 'skill', name: 'tdd' }] },
+      { scope: 'project' },
+      w.deps,
+    );
+    expect(forced.failures).toEqual([]);
+    expect(await w.read('.claude/skills/tdd/SKILL.md')).toBe('Test first, v2.\n');
+  });
+
+  it('keeps every file of a changed in-repo skill it cannot check, the ones the source dropped too', async () => {
+    const w = await makeWorld({ targets: ['claude'] });
+    const src = await w.local('agent-kit', {
+      'skills/review/SKILL.md': 'v1\n',
+      'skills/review/notes.md': 'notes\n',
+      'skills/review/old.md': 'old\n',
+    });
+    await installFromSource(
+      w.ctx,
+      { source: src, names: [{ name: 'review' }] },
+      { scope: 'project' },
+      w.deps,
+    );
+    await w.write('.claude/skills/review/notes.md', 'my notes\n');
+    await w.remove('agent-kit/skills/review/notes.md');
+    await w.remove('agent-kit/skills/review/old.md');
+    await w.write('agent-kit/skills/review/SKILL.md', 'v2\n');
+    const r = await syncScope(w.ctx, { scope: 'project' }, w.deps);
+    expect(r.outcomes[0]).toMatchObject({
+      status: 'modified',
+      notes: [
+        'palm cannot rebuild what it wrote from ./agent-kit; palm install ./agent-kit skill:review --force overwrites',
+      ],
+    });
+    expect(await w.read('.claude/skills/review/notes.md')).toBe('my notes\n');
+    expect(w.exists('.claude/skills/review/old.md')).toBe(true);
+    expect(await w.read('.claude/skills/review/SKILL.md')).toBe('v1\n');
+  });
+});
+
+describe('syncScope under -g (applied.yaml)', () => {
+  async function globalWorld(): Promise<{ w: World; kit: string }> {
+    const w = await makeWorld({ detect: ['claude'] });
+    await writeTree(join(w.palmHome, 'kit'), SKILLS);
+    const r = await installFromSource(
+      w.ctx,
+      {
+        source: join(w.palmHome, 'kit'),
+        names: [{ name: 'tdd' }, { name: 'review' }],
+      },
+      { scope: 'global' },
+      w.deps,
+    );
+    expect(r.failures).toEqual([]);
+    return { w, kit: join(w.home, '.claude', 'skills') };
+  }
+
+  async function pullWithout(w: World, name: string): Promise<void> {
+    const lockFile = join(w.palmHome, 'palm.lock.yaml');
+    const manifestFile = join(w.palmHome, 'palm.yaml');
+    const lock = await Lock.load(lockFile);
+    await lock.remove({ kind: 'skill', name }).save(lockFile);
+    const m = await Manifest.load(manifestFile);
+    await m.removeEntry('./kit', 'skill', name).save(manifestFile);
+  }
+
+  it('deletes the files of an entry a pulled lock dropped', async () => {
+    const { w, kit } = await globalWorld();
+    await pullWithout(w, 'review');
+    const r = await syncScope(w.ctx, { scope: 'global' }, w.deps);
+    expect(r.failures).toEqual([]);
+    expect(await stat(join(kit, 'review', 'SKILL.md')).catch(() => undefined)).toBeUndefined();
+    expect(await stat(join(kit, 'tdd', 'SKILL.md'))).toBeDefined();
+  });
+
+  it('keeps a file of a dropped entry that was edited on this machine', async () => {
+    const { w, kit } = await globalWorld();
+    await writeTree(kit, { 'review/SKILL.md': 'edited here\n' });
+    await pullWithout(w, 'review');
+    const r = await syncScope(w.ctx, { scope: 'global' }, w.deps);
+    expect(r.warnings.join('\n')).toContain('you changed it since palm wrote it');
+    expect(await stat(join(kit, 'review', 'SKILL.md'))).toBeDefined();
   });
 });

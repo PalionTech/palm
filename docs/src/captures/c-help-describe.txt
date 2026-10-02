@@ -1,35 +1,29 @@
 $ palm describe --help
-Usage: palm describe|info [options] [kind] [names...]
+Usage: palm describe|info <name or path> [options]
 
-Show one entity, origin or target.
+Show one entity, source, target or file.
 
 Arguments:
-  kind                          skill, agent, instruction, command, hook, mcp,
-                                plugin, origin, target (plurals and short names
-                                work)
-  names                         name[@origin][#ref]
+  what                   [kind:]name, a path, source <name> or target <id>
 
 Options:
-  -o, --origin <name-or-alias>  only this origin: alias, owner/repo[/root], URL
-                                or local path (installed entities also: mine,
-                                registry, adhoc)
-  -h, --help                    display help for command
+  -s, --source <source>  the entity from this source
+  -h, --help             display help for command
 
 Global Options:
-  -g, --global                  use the global scope (~), not this project
-  -t, --target <ids>            comma-separated: claude, codex, copilot, cursor,
-                                gemini, opencode
-  --dry-run                     show what would change; write nothing
-  --force                       overwrite files palm does not own
-  -y, --yes                     accept defaults instead of prompting
-  --offline                     use cached origins only; no network
-  --verbose                     debug output and stack traces
-  --json                        JSON on stdout; everything else on stderr
-  --no-color                    no colours (also NO_COLOR=1)
-  -V, --version                 print the palm version
+  -g, --global           use ~/.palm/palm.yaml and the harness home directories
+  --dry-run              show what would change; write nothing
+  --force                replace files you changed or that palm does not own
+  -y, --yes              accept plan confirmations (never consents to programs)
+  --allow-exec <list>    allow programs: hook:x@source=sha256:hash,... or all
+  --offline              use the cache only; no network
+  --json                 one JSON document on stdout; everything else on stderr
+  --secrets <policy>     env-ref (default) or literal, for secrets you type
+  -V, --version          print the palm version
 
 Examples:
-  palm describe skill tdd                   origin, version, dependencies, files per harness
-  palm describe agent comment-sicko@pstack
-  palm describe origin mattpocock           url, ref, sha, layout, counts, cache path
-  palm describe target claude -g            where each kind goes at the global scope
+  palm describe tdd
+  palm describe mcp:docs
+  palm describe .claude/skills/tdd/SKILL.md   the entity that wrote a file
+  palm describe source mattpocock/skills
+  palm describe target cursor

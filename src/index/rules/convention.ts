@@ -6,14 +6,8 @@
 
 import type { Kind } from '../../core/types.js';
 import { isDocFile, isScanIgnoredRel } from '../../domain/ignore.js';
-import {
-  addAgent,
-  addCommand,
-  addHookFile,
-  addInstruction,
-  addMcpFile,
-  addSkill,
-} from '../adders.js';
+import { addAgent, addCommandAsSkill, addInstruction, addSkill } from '../adders.js';
+import { addHookFile, addMcpFile } from '../exec-adders.js';
 import { byDepthThenPath } from '../files.js';
 import type { ScanContext } from '../scan-context.js';
 import { dirDepth, joinRel } from '../util.js';
@@ -23,7 +17,11 @@ const SKILL_MAX_DEPTH = 5;
 /** Maximum directory depth of other convention-scanned files. */
 const OTHER_MAX_DEPTH = 6;
 
-type ConventionKind = Exclude<Kind, 'skill' | 'plugin'>;
+/** What a file found by convention is; a command file becomes a skill. */
+type ConventionKind = 'agent' | 'command' | 'instruction' | 'hook' | 'mcp';
+
+/** The kind a convention file is claimed under in the registry. */
+const claimKind = (kind: ConventionKind): Kind => (kind === 'command' ? 'skill' : kind);
 
 interface FileShape {
   base: string;
@@ -62,6 +60,7 @@ const CLASSIFIERS: ReadonlyArray<[ConventionKind, (f: FileShape) => boolean]> = 
   ['command', (f) => f.parent === 'commands' && mdOrToml(f) && !isDocFile(f.base)],
   ['agent', (f) => inAgentsDir(f) && mdOrToml(f) && !isDocFile(f.base)],
   ['instruction', (f) => f.parent === 'rules' && f.lower.endsWith('.mdc')],
+  ['instruction', (f) => f.parent === 'rules' && f.lower.endsWith('.md') && !isDocFile(f.base)],
   [
     'instruction',
     (f) => f.parent === 'instructions' && f.lower.endsWith('.md') && !isDocFile(f.base),
@@ -78,7 +77,7 @@ function classify(rel: string): ConventionKind | undefined {
 
 const ADDERS: Record<ConventionKind, (ctx: ScanContext, rel: string) => Promise<unknown>> = {
   agent: (ctx, rel) => addAgent(ctx, rel, undefined, false),
-  command: (ctx, rel) => addCommand(ctx, rel, undefined),
+  command: (ctx, rel) => addCommandAsSkill(ctx, rel, undefined),
   instruction: (ctx, rel) => addInstruction(ctx, rel, undefined),
   hook: (ctx, rel) => addHookFile(ctx, rel, undefined),
   mcp: (ctx, rel) => addMcpFile(ctx, rel, undefined, false),
@@ -94,10 +93,19 @@ function sortCanonicalFirst(
   return items.sort((a, b) => (linked.get(a) ?? 0) - (linked.get(b) ?? 0) || byDepthThenPath(a, b));
 }
 
+/**
+ * Top-most skill directories only (ruling C4): a SKILL.md below another skill's directory
+ * (`references/animations/SKILL.md`) is that skill's content, never an entity of its own.
+ */
 async function scanConventionSkills(ctx: ScanContext): Promise<void> {
   const dirs = ctx.files
     .allSkillDirs()
-    .filter((d) => dirDepth(`${d}/SKILL.md`) <= SKILL_MAX_DEPTH && !isScanIgnoredRel(d));
+    .filter(
+      (d) =>
+        dirDepth(`${d}/SKILL.md`) <= SKILL_MAX_DEPTH &&
+        !isScanIgnoredRel(d) &&
+        ctx.files.parentSkillDir(d) === undefined,
+    );
   for (const d of sortCanonicalFirst(ctx, dirs, (x) => joinRel(x, 'SKILL.md'))) {
     if (!ctx.registry.isClaimed('skill', d)) await addSkill(ctx, d);
   }
@@ -111,7 +119,11 @@ async function scanConventionFiles(ctx: ScanContext): Promise<void> {
   }
   for (const f of sortCanonicalFirst(ctx, [...kinds.keys()], (x) => x)) {
     const kind = kinds.get(f) as ConventionKind;
-    if (ctx.registry.isClaimed(kind, f) || ctx.files.insideSkillDir(f) || isScanIgnoredRel(f))
+    if (
+      ctx.registry.isClaimed(claimKind(kind), f) ||
+      ctx.files.insideSkillDir(f) ||
+      isScanIgnoredRel(f)
+    )
       continue;
     await ADDERS[kind](ctx, f);
   }
@@ -120,7 +132,7 @@ async function scanConventionFiles(ctx: ScanContext): Promise<void> {
 /** Every skill, then every other convention-shaped file not claimed by an earlier rule. */
 export async function scanConvention(ctx: ScanContext): Promise<void> {
   if (ctx.files.isSkillDir('')) {
-    // The whole origin is one skill; everything else is part of it.
+    // The whole source is one skill; everything else is part of it.
     await addSkill(ctx, '');
     return;
   }

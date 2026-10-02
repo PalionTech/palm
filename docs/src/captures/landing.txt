@@ -1,13 +1,20 @@
-$ palm install agent comment-sicko --target claude,codex,copilot,cursor,gemini,opencode
-i saved targets claude, codex, copilot, cursor, gemini, opencode to palm.yaml
-project scope → claude, codex, copilot, cursor, gemini, opencode
-status       kind   name           origin  targets                                      files
-───────────  ─────  ─────────────  ──────  ───────────────────────────────────────────  ─────
-+ installed  agent  comment-sicko  pstack  claude,codex,copilot,cursor,gemini,opencode  6
-1 installed
-$ palm install skill tdd@mattpocock
-project scope → claude, codex, copilot, cursor, gemini, opencode
-status       kind   name  origin      targets                                      files
-───────────  ─────  ────  ──────────  ───────────────────────────────────────────  ─────
-+ installed  skill  tdd   mattpocock  claude,codex,copilot,cursor,gemini,opencode  6
-1 installed
+$ palm init --target claude,codex,copilot,cursor,gemini,opencode
++ wrote palm.yaml: targets claude, codex, copilot, cursor, gemini, opencode
++ wrote .gitignore: .palm/local/, palm.local.yaml
+next: see what a source offers, for example: palm install mattpocock/skills
+$ palm install anthropics/claude-plugins-official agent-sdk-verifier-py
+i agent agent-sdk-verifier-py preloads skill sdk-helper, mcp context7, not installed: palm install anthropics/claude-plugins-official sdk-helper mcp:context7
+i ref main saved to palm.yaml; edit ref: to pin a tag
++ agent  agent-sdk-verifier-py   .claude/agents/agent-sdk-verifier-py.md, .codex/agents/agent-sdk-verifier-py.toml +4   6 files   from anthropics/claude-plugins-official main
+    .codex/agents/agent-sdk-verifier-py.toml: dropped model (sonnet), tools, skills, mcpServers, color (not supported by Codex)
+    .github/agents/agent-sdk-verifier-py.agent.md: dropped model (sonnet), tools: Bash(python -m pytest:*) restriction (all of execute), mcpServers, skills, color (not supported by GitHub Copilot)
+    .cursor/agents/agent-sdk-verifier-py.md: dropped model (sonnet), tools, skills, mcpServers, color (not supported by Cursor)
+    .gemini/agents/agent-sdk-verifier-py.md: dropped model (sonnet), tools: Bash(python -m pytest:*) restriction (all of run_shell_command), skills, color (not supported by Gemini CLI)
+    .opencode/agents/agent-sdk-verifier-py.md: dropped model (sonnet), color (green), tools: Bash(python -m pytest:*) restriction (all of bash), skills (not supported by OpenCode)
+1 installed. Commit palm.yaml, palm.lock.yaml, .claude/, .codex/, .cursor/, .gemini/, .github/ and .opencode/ together.
+$ palm install mattpocock/skills tdd
+i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
++ skill  tdd   .agents/skills/tdd/, .claude/skills/tdd/   5 files   from mattpocock/skills v1.2.3
+    claude gets its own copy in .claude/skills
+    cursor reads .claude/skills; no second copy
+1 installed. Commit palm.yaml, palm.lock.yaml and .agents/ together.

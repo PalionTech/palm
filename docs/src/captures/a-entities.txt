@@ -1,0 +1,16 @@
+$ palm install anthropics/claude-plugins-official
+i 5 notes from indexing anthropics/claude-plugins-official (see: palm describe source anthropics/claude-plugins-official)
+anthropics/claude-plugins-official  main (bc94689)   3 plugins, 2 skills, 1 agent, 1 hook, 3 MCP servers
+  plugin  agent-sdk-dev           2 skills, 1 agent, 1 hook   (also hook agent-sdk-dev: name it plugin:agent-sdk-dev)
+  plugin  github                  1 MCP server   (also mcp github: name it plugin:github)
+  plugin  context7                2 MCP servers   (also mcp context7: name it plugin:context7)
+  skill   sdk-helper              Helps with Agent SDK questions.
+  skill   new-sdk-app             Create and setup a new Claude Agent SDK application
+  agent   agent-sdk-verifier-py   Use this agent to verify a Python Agent SDK app. Examples: <example>C…
+  hook    agent-sdk-dev           claude: PreToolUse -> python3 hooks/guard.py   (a program; asks before installing)   (also plugin agent-sdk-dev: name it hook:agent-sdk-dev)
+  mcp     github                  http: https://api.githubcopilot.com/mcp/   (also plugin github: name it mcp:github)
+  mcp     context7                http: https://mcp.context7.com/mcp   (also plugin context7: name it mcp:context7)
+  mcp     fs                      stdio: npx -y @modelcontextprotocol/server-filesystem .   (a program; asks before installing)
+Nothing written. Install some:
+    palm install anthropics/claude-plugins-official sdk-helper new-sdk-app
+    palm install anthropics/claude-plugins-official --all

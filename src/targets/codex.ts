@@ -1,39 +1,37 @@
 import path from 'node:path';
-import { pathExists } from '../lib/fs.js';
-import type { TargetLayout, TargetSpec } from './layout.js';
-import { sharedSkillsRoot } from './shared-skills.js';
+import type { ScopePaths } from '../domain/scope-paths.js';
+import {
+  DISPLAY_NAMES,
+  fixedSkillsDir,
+  outputDirsOf,
+  sharedSkillsRoot,
+  type TargetLayout,
+  type TargetSpec,
+} from './layout.js';
+
+function codexLayout(paths: ScopePaths): TargetLayout {
+  const base = paths.harnessHome('codex');
+  const skills = sharedSkillsRoot(paths);
+  const agentsMd = path.join(paths.scope === 'project' ? paths.root : base, 'AGENTS.md');
+  const hooks = path.join(base, 'hooks.json');
+  const config = path.join(base, 'config.toml');
+  return {
+    configDir: base,
+    skillsDir: fixedSkillsDir(skills),
+    agentsDir: path.join(base, 'agents'),
+    instructions: { blockFile: agentsMd },
+    hooks: { mergeFile: hooks },
+    mcp: { toml: config },
+    roots: [{ dir: base, stop: base }, skills],
+    mergedFiles: [hooks, config, agentsMd],
+  };
+}
 
 export const codexSpec: TargetSpec = {
   id: 'codex',
-  displayName: 'Codex',
-  layout(paths): TargetLayout {
-    const base = paths.harnessHome('codex');
-    const skills = sharedSkillsRoot(paths);
-    const agentsMd =
-      paths.scope === 'project' ? path.join(paths.root, 'AGENTS.md') : path.join(base, 'AGENTS.md');
-    return {
-      configDir: base,
-      skillsDir: skills.dir,
-      agentsDir: path.join(base, 'agents'),
-      instructions: { blockFile: agentsMd },
-      commands:
-        paths.scope === 'project'
-          ? {
-              skip: 'Codex has no project-scoped custom prompts; command skipped (for ~/.codex/prompts: `palm install command <name> -g`)',
-            }
-          : { dir: path.join(base, 'prompts') },
-      hooks: { mergeFile: path.join(base, 'hooks.json') },
-      mcp: { toml: path.join(base, 'config.toml') },
-      roots: [{ dir: base, stop: base }, skills],
-      mergedFiles: [path.join(base, 'hooks.json'), path.join(base, 'config.toml'), agentsMd],
-    };
-  },
-  async detect(paths) {
-    if (paths.scope === 'project')
-      return (
-        (await pathExists(path.join(paths.root, '.codex'))) ||
-        pathExists(path.join(paths.root, 'AGENTS.md'))
-      );
-    return pathExists(paths.harnessHome('codex'));
-  },
+  displayName: DISPLAY_NAMES.codex,
+  layout: codexLayout,
+  // AGENTS.md alone never marks Codex: Copilot, Cursor, Gemini CLI and OpenCode read it too.
+  markers: (paths) => [paths.harnessHome('codex')],
+  outputDirs: (paths) => outputDirsOf(codexLayout(paths), paths),
 };

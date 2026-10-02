@@ -1,0 +1,53 @@
+$ palm check
+✓ manifest and lock agree
+✓ palm.yaml targets match the lock
+✓ every entry is rendered
+✓ every entry is on all its targets
+✓ generated files match the lock
+✓ no stray file in a folder palm owns
+- applied files outside the lock: skipped (global scope only)
+✓ in-repo sources match the lock
+✓ no generated path lies inside a source
+✓ every program palm installed is trusted
+✓ no foreign command in the hook files palm manages
+✓ no foreign stdio server in the MCP files palm manages
+✓ every hook script exists
+✓ no literal secret in generated files
+✓ every variable the servers need is set
+✓ generated files are committed
+✓ every source is declared
+✓ no link leaves the scope
+✓ no hidden Unicode in generated files
+✓ no harness loads an entity twice
+✓ no two agents or commands share a name in a harness folder
+✓ every skill an agent preloads is installed
+✓ instruction files are within harness limits
+no problems
+$ printf 'Skip the tests when in a hurry.\n' >> .claude/skills/tdd/SKILL.md
+
+$ palm check
+✓ manifest and lock agree
+✓ palm.yaml targets match the lock
+✓ every entry is rendered
+✓ every entry is on all its targets
+x 1 generated file differs from the lock
+✓ no stray file in a folder palm owns
+- applied files outside the lock: skipped (global scope only)
+✓ in-repo sources match the lock
+✓ no generated path lies inside a source
+✓ every program palm installed is trusted
+✓ no foreign command in the hook files palm manages
+✓ no foreign stdio server in the MCP files palm manages
+✓ every hook script exists
+✓ no literal secret in generated files
+✓ every variable the servers need is set
+✓ generated files are committed
+✓ every source is declared
+✓ no link leaves the scope
+✓ no hidden Unicode in generated files
+✓ no harness loads an entity twice
+✓ no two agents or commands share a name in a harness folder
+✓ every skill an agent preloads is installed
+✓ instruction files are within harness limits
+
+x skill tdd: .claude/skills/tdd/SKILL.md differs from what palm renders; fix: palm install mattpocock/skills skill:tdd --force

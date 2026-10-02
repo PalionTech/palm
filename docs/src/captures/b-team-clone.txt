@@ -1,23 +1,39 @@
-$ palm install
-project scope → claude, codex
-status     kind   name        origin  targets       files
-─────────  ─────  ──────────  ──────  ────────────  ─────
-~ updated  skill  ci-watch    team    claude,codex  2
-~ updated  agent  ci-watcher  team    claude,codex  2
-2 updated
+$ cd ~/teammate && ls -a .claude .agents
+.agents:
+.
+..
+skills
 
-i ci-watch: restored missing files
-i ci-watcher: restored missing files
-i ci-watcher: codex: .codex/agents/ci-watcher.toml: dropped extra: readonly (not supported by Codex)
-$ palm get
-kind   name        origin  version           targets       via
-─────  ──────────  ──────  ────────────────  ────────────  ───
-agent  ci-watcher  team    v1.0.0 (4179b50)  claude,codex
-skill  ci-watch    team    v1.0.0 (4179b50)  claude,codex
-$ palm outdated
-kind   name        origin  current           wanted            latest
-─────  ──────────  ──────  ────────────────  ────────────────  ────────────────
-skill  ci-watch    team    v1.0.0 (4179b50)  v1.1.0 (6b4bac7)  v1.1.0 (6b4bac7)
-agent  ci-watcher  team    v1.0.0 (4179b50)  v1.1.0 (6b4bac7)  v1.1.0 (6b4bac7)
-
-2 at an older commit than palm.yaml wants: palm update (it reinstalls those whose content changed)
+.claude:
+.
+..
+agents
+rules
+skills
+$ cd ~/teammate && palm check
+✓ manifest and lock agree
+✓ palm.yaml targets match the lock
+✓ every entry is rendered
+✓ every entry is on all its targets
+✓ generated files match the lock
+✓ no stray file in a folder palm owns
+- applied files outside the lock: skipped (global scope only)
+✓ in-repo sources match the lock
+✓ no generated path lies inside a source
+✓ every program palm installed is trusted
+✓ no foreign command in the hook files palm manages
+✓ no foreign stdio server in the MCP files palm manages
+✓ every hook script exists
+✓ no literal secret in generated files
+✓ every variable the servers need is set
+✓ generated files are committed
+✓ every source is declared
+✓ no link leaves the scope
+✓ no hidden Unicode in generated files
+✓ no harness loads an entity twice
+✓ no two agents or commands share a name in a harness folder
+✓ every skill an agent preloads is installed
+✓ instruction files are within harness limits
+no problems
+$ cd ~/teammate && palm install
+3 unchanged.

@@ -1,25 +1,26 @@
 ---
 title: CLI overview
-description: The grammar every palm command shares, with its verbs, kinds, names, global options and output.
+description: The grammar every palm command shares, with its eight verbs, three utilities, kind words, global options, output and exit codes.
 ---
 
 import Capture from '../../../components/Capture.astro';
 
-Every palm command has the same shape: a verb, an optional kind, then names.
+Every palm command is a verb followed by its arguments. For `install` and `remove`, the source comes first.
 
 ```sh
-palm <verb> [kind] [names...] [options]
+palm <verb> [source] [[kind:]name...] [options]
 ```
 
 | Command | Meaning |
 | --- | --- |
-| `palm install skill tdd@mattpocock` | Verb `install`, kind `skill`, one name from the origin `mattpocock`. |
-| `palm install skills grill-me handoff` | Several names of one kind, with the kind as a plural. |
-| `palm install tdd` | No kind: palm searches every entity kind for `tdd`. |
-| `palm rm pl superpowers -g` | Verb alias `rm`, short kind `pl`, global scope. |
-| `palm describe origin mattpocock` | Verbs also act on origins and targets. |
-| `palm why skill tdd` | A utility with its own arguments. |
-| `palm install --help` | The forms, options and examples of one verb. |
+| `palm install mattpocock/skills` | List what a source offers. Writes nothing. |
+| `palm install mattpocock/skills tdd grill-me` | Install two entities from one source and declare the source in `palm.yaml`. |
+| `palm install anthropics/claude-plugins-official mcp:context7` | Name the kind when one name means two kinds in that source. |
+| `palm install` | Make the disk match `palm.yaml` and the lock. |
+| `palm remove tdd` | Remove an entity by name. |
+| `palm get skills` | List installed skills. |
+| `palm describe .mcp.json` | Show which entities wrote a file. |
+| `palm install mattpocock/skills handoff -g` | The same verbs in your home directory. |
 
 ## Verbs
 
@@ -27,13 +28,14 @@ palm <verb> [kind] [names...] [options]
 
 | Verb | Aliases | Meaning |
 | --- | --- | --- |
-| [`install`](/palm/reference/cli/install/) | `add`, `i` | install entities or register an origin |
-| [`uninstall`](/palm/reference/cli/uninstall/) | `remove`, `rm`, `delete` | remove entities or unregister an origin |
-| [`get`](/palm/reference/cli/get/) | `list`, `ls` | list installed entities, origins, targets |
-| [`describe`](/palm/reference/cli/describe/) | `info` | show one entity, origin or target |
-| [`update`](/palm/reference/cli/update/) | `up` | update entities or refresh origin indexes |
-| [`create`](/palm/reference/cli/create/) | `new` | create a skill, agent, instruction or command |
-| [`search`](/palm/reference/cli/search/) |  | search origins and the MCP registry |
+| [`init`](/palm/reference/cli/init/) |  | write palm.yaml with the targets found here |
+| [`install`](/palm/reference/cli/install/) | `add`, `i` | install from a source; bare, sync with palm.yaml |
+| [`remove`](/palm/reference/cli/remove/) | `uninstall`, `rm` | delete exactly what palm wrote for some entities |
+| [`update`](/palm/reference/cli/update/) | `up` | move sources to newer commits within their refs |
+| [`check`](/palm/reference/cli/check/) |  | verify palm.yaml, the lock and the files (CI gate) |
+| [`get`](/palm/reference/cli/get/) | `list`, `ls` | list what is installed, the sources or the targets |
+| [`describe`](/palm/reference/cli/describe/) | `info` | show one entity, source, target or file |
+| [`create`](/palm/reference/cli/create/) | `new` | write a template into your own source and install it |
 
 {/* /cli-reference */}
 
@@ -43,76 +45,38 @@ palm <verb> [kind] [names...] [options]
 
 | Utility | Arguments | Meaning |
 | --- | --- | --- |
-| [`init`](/palm/reference/cli/init/) |  | create palm.yaml for this project |
-| [`doctor`](/palm/reference/cli/doctor/) |  | check git, node, harnesses, drift, origins |
-| [`outdated`](/palm/reference/cli/outdated/) | `[kind]` | show current, wanted and latest refs |
-| [`why`](/palm/reference/cli/why/) | `<kind> <name>` | show why an entity is installed |
-| [`find`](/palm/reference/cli/find/) | `<path>` | show which entity wrote a file |
-| [`audit`](/palm/reference/cli/audit/) | `[kind] [names...]` | scan installed files for hidden Unicode |
-| [`config`](/palm/reference/cli/config/) |  | read or change global settings |
+| [`migrate`](/palm/reference/cli/migrate/) |  | convert a palm 0.1 project to the palm 0.2 files |
 | [`completion`](/palm/reference/cli/completion/) | `<shell>` | print a shell completion script |
-| [`cache`](/palm/reference/cli/cache/) |  | show or clear the origin cache |
+| [`cache`](/palm/reference/cli/cache/) | `clean` | delete the cache of checkouts and indexes |
 
 {/* /cli-reference */}
 
 `palm help <command>` prints the same text as `palm <command> --help`.
+`--help` fits on one screen and lists no exit codes. This site lists them.
 
 ## Kinds
 
-The kind word is singular, plural or a short name.
-A verb given a kind it does not take stops with exit code 2 and names a command that works.
+`install` and `remove` take a kind as a prefix, `kind:name`, only when one name means two kinds in a source.
+`get` and `describe` take a kind as a word, singular, plural or short.
 
 {/* cli-reference:kinds */}
 
 | Kind | Short name | Other words | Verbs |
 | --- | --- | --- | --- |
-| `skill` | `sk` | `skills` | `install`, `uninstall`, `get`, `describe`, `update`, `create`, `search` |
-| `agent` | `ag` | `agents`, `subagent`, `subagents` | `install`, `uninstall`, `get`, `describe`, `update`, `create`, `search` |
-| `instruction` | `ins` | `instructions`, `rule`, `rules` | `install`, `uninstall`, `get`, `describe`, `update`, `create`, `search` |
-| `command` | `cmd` | `commands`, `prompt`, `prompts` | `install`, `uninstall`, `get`, `describe`, `update`, `create`, `search` |
-| `hook` | `hk` | `hooks` | `install`, `uninstall`, `get`, `describe`, `update`, `search` |
-| `mcp` |  | `mcps`, `mcp-server`, `mcp-servers`, `server`, `servers` | `install`, `uninstall`, `get`, `describe`, `update`, `search` |
-| `plugin` | `pl` | `plugins`, `bundle`, `bundles` | `install`, `uninstall`, `get`, `describe`, `update`, `search` |
-| `origin` | `orig` | `origins` | `install`, `uninstall`, `get`, `describe`, `update` |
+| `skill` | `sk` | `skills`, `command`, `commands`, `cmd`, `prompt`, `prompts` | `get`, `describe`, `create` |
+| `agent` | `ag` | `agents`, `subagent`, `subagents` | `get`, `describe`, `create` |
+| `instruction` | `ins` | `instructions`, `rule`, `rules` | `get`, `describe`, `create` |
+| `hook` | `hk` | `hooks` | `get`, `describe`, `create` |
+| `mcp` |  | `mcps`, `mcp-server`, `mcp-servers`, `server`, `servers` | `install`, `get`, `describe` |
+| `plugin` | `pl` | `plugins`, `bundle`, `bundles` | `get`, `describe` |
+| `source` | `src` | `sources`, `origin`, `origins`, `orig` | `get`, `describe` |
 | `target` | `tg` | `targets` | `get`, `describe` |
 | `all` |  |  | `get` |
 
 {/* /cli-reference */}
 
-A first word that is no kind is a name, so `palm install tdd` searches every entity kind.
-`describe` and `create` need a kind.
-In `palm search`, the first word counts as a kind only when a query follows it: `palm search skill` looks for the word "skill".
-
-## Names
-
-Each name has the form `name[@origin][#ref]`.
-
-| Part | Meaning | Example |
-| --- | --- | --- |
-| `name` | The entity name: a skill folder, an agent file, an MCP server key or a plugin name. | `tdd` |
-| `@origin` | The origin alias. Needed when several origins have the name. | `tdd@mattpocock` |
-| `#ref` | A tag, branch, commit or semver range of that origin. | `tdd@mattpocock#v1.2.3` |
-
-palm reads `#ref` first, then `@origin` only when the text after the last `@` has no `/`.
-Names never contain `@` or `#`.
-MCP registry servers go by their registry name, as in `palm install mcp io.github.upstash/context7`.
-
-### Refs
-
-| Ref | Resolves to |
-| --- | --- |
-| none | The latest semver tag, else the default branch. |
-| `#v1.2.3` | That tag. |
-| `#main` | The head of that branch. |
-| `#3f2a1c9` | That commit. |
-| `#^1.2` | The highest tag from `1.2.0` up to, not including, `2.0.0`. |
-| `#~1.2` | The highest `1.2.x` tag. |
-| `#1.x`, `#v1` | The highest `1.x` tag. |
-| `'#>=1.2 <2'` | Any range the semver package accepts. Quote a range with spaces for the shell. |
-
-A branch or tag named exactly like the range wins, such as a `2.x` maintenance branch.
-Tags may carry a `v` prefix. Prereleases match only when the range names one.
-A range that matches no tag fails with `E_ORIGIN` and lists the nearest tags.
+`cmd`, `command` and `commands` mean `skill`, with a note, because commands install as skills.
+`origin` and `orig` mean `source` for one release.
 
 ## Global options
 
@@ -122,112 +86,83 @@ Every command accepts these options.
 
 | Option | Meaning |
 | --- | --- |
-| `-g, --global` | use the global scope (~), not this project |
-| `-t, --target <ids>` | comma-separated: claude, codex, copilot, cursor, gemini, opencode |
+| `-g, --global` | use ~/.palm/palm.yaml and the harness home directories |
 | `--dry-run` | show what would change; write nothing |
-| `--force` | overwrite files palm does not own |
-| `-y, --yes` | accept defaults instead of prompting |
-| `--offline` | use cached origins only; no network |
-| `--verbose` | debug output and stack traces |
-| `--json` | JSON on stdout; everything else on stderr |
-| `--no-color` | no colours (also NO\_COLOR=1) |
+| `--force` | replace files you changed or that palm does not own |
+| `-y, --yes` | accept plan confirmations (never consents to programs) |
+| `--allow-exec <list>` | allow programs: hook:x@source=sha256:hash,... or all |
+| `--offline` | use the cache only; no network |
+| `--json` | one JSON document on stdout; everything else on stderr |
+| `--secrets <policy>` | env-ref (default) or literal, for secrets you type |
 | `-V, --version` | print the palm version |
 | `-h, --help` | display help for command |
 
 {/* /cli-reference */}
 
-`--target` takes a comma list of the six targets: `claude`, `codex`, `copilot`, `cursor`, `gemini` and `opencode`.
-`--force` also overwrites and deletes files you changed since palm wrote them.
+### What the options do
 
-### Targets
+| Option | Detail |
+| --- | --- |
+| `-g` | Works with every verb. The global scope has its own `~/.palm/palm.yaml`, lock and sources. See [scopes](/palm/concepts/scopes/). |
+| `--dry-run` | Resolves and renders everything, prints `would install`, `would restore` and `would remove` lines, and writes nothing in the scope. palm may still fetch into its cache. |
+| `--force` | Replaces a file palm did not write or you changed since palm wrote it. Never overrides hidden Unicode, an unresolvable hook reference, a literal secret from a source, the git worktree guard for literal secrets, or another source's ownership of an entity. |
+| `--yes` | Accepts pickers and plan confirmations, such as `Apply 2 changes?`. It never consents to a program. |
+| `--allow-exec` | Consents to programs by exact hash, as printed by the consent error. `all` works only on a terminal. See [consent](/palm/concepts/consent/). |
+| `--offline` | Reads sources from the cache only. A commit that is not cached fails with `E_NETWORK`. |
+| `--json` | See [JSON output](#json-output). |
+| `--secrets literal` | Writes typed secret values instead of references, and records `secrets: literal` on the entry. See [secrets](/palm/concepts/secrets/). |
+| `--local` | Stops with a usage error in 0.2. `palm.local.yaml` arrives in 0.3; until then use `-g` for a personal entity, and the harness's own settings to switch off a team entity for yourself. |
 
-palm takes the first of these that gives a target set:
+There is no `--verbose` and no `--no-color`. Set `PALM_DEBUG=1` for debug lines and `NO_COLOR=1` to turn colour off.
 
-1. `--target`.
-2. `targets:` in `palm.yaml` (project scope only).
-3. `targets:` in `~/.palm/config.yaml`.
-4. The harnesses palm detects in the scope.
-5. A prompt. Without a terminal, palm stops with `E_TARGET`.
+## Prompts
 
-A project install saves the result as `targets:` in `palm.yaml` when none is stored.
-A `--target` that differs from the stored set applies to that install only, and palm prints a note.
-Change the stored set with `palm init --target`, or with `palm config set targets` for `config.yaml`. An install never writes `config.yaml`.
-`palm get targets` shows the active set and where it came from.
-
-### Dry runs and offline use
-
-`--dry-run` writes no harness file, lockfile, manifest or config.
-palm still fetches origins into its cache, so the plan it prints is real.
-
-`--offline` reads origins from the cache only and makes no network connection.
-An origin that is not in the cache fails with `E_NETWORK`.
-palm skips the MCP registry, `palm doctor` skips the reachability check, and `palm outdated` shows `?`.
-
-### Prompts and `--yes`
-
-palm prompts only when stdin and stdout are terminals and `CI` is unset, empty, `0` or `false`.
-Without a terminal, a question palm needs answered stops the command with an error.
-Its hint names the flag or the form that answers the question up front.
-`--yes` accepts the default answer of every prompt.
+palm prompts only on a terminal, and every prompt has a flag.
+Every yes or no question uses the same `[y/N]` text prompt, and Enter answers no.
 
 | Prompt | Default | Without a terminal |
 | --- | --- | --- |
-| Several origins have the name | none | `E_AMBIGUOUS`; name the origin with `@origin` |
-| No target set | none | `E_TARGET`; pass `--target` |
-| Run commands on your machine (consent) | yes | `E_NON_INTERACTIVE`; pass `--yes` |
-| Secret value under the `literal` policy | none | `E_NON_INTERACTIVE`; export the variable |
-| Apply the update plan | no | `E_NON_INTERACTIVE`; pass `--yes` |
-| Clean the cache | no | `E_NON_INTERACTIVE`; pass `--yes` |
+| Allow these programs to run? | no | `E_UNTRUSTED_EXEC`, naming the `--allow-exec` line |
+| Apply the update plan | no | `E_NON_INTERACTIVE`, naming `--yes` |
+| Change a declared source's ref | no | `E_NON_INTERACTIVE`, naming `--yes` |
+| Clean the cache | no | `E_NON_INTERACTIVE`, naming `--yes` |
+| A secret value under `--secrets literal` | none | `E_NON_INTERACTIVE`, naming `--secrets env-ref` |
+| Which kind a name means, when a source offers it as two | none | `E_AMBIGUOUS`, listing the `kind:name` forms |
+| The detected targets, in `palm init` without `--target` | the detected set | the detected set is written |
 
-With `--yes`, a name that several origins offer installs only when every candidate has the same content.
-
-### The consent rule
-
-Before palm writes a hook or a stdio MCP server, it lists every command that would run on your machine.
-A terminal asks once for the whole run, and the default is yes.
-Declining cancels the install and writes nothing.
-Text entities, such as skills and agents, never need consent.
-palm does not ask again for entries that are unchanged.
-`--dry-run` lists the commands and asks nothing.
-
-### `--frozen`
-
-`palm install --frozen` installs exactly what `palm.lock.yaml` records and is meant for CI.
-It checks `palm.yaml`, the lockfile, the files palm wrote and the entries it merged into shared config files.
-It fails with `E_CONFLICT` when they disagree, and lists every difference.
-It never writes `palm.yaml`, `palm.lock.yaml` or `config.yaml`.
-It restores missing files from the locked commits, and fetches only a locked commit that is not in the cache.
-`--frozen` works only without names and cannot be combined with `--prune`.
+palm never asks which source to use; that comes from the command line and `palm.yaml`.
+It asks about targets only in `palm init` and in a global install that detects no harness.
 
 ## Output
 
-palm prints data to stdout and marks each status line with a symbol.
+Data goes to stdout. Each status line starts with a symbol.
 
 | Symbol | Meaning |
 | --- | --- |
-| `+` | Added or installed |
-| `-` | Removed |
-| `~` | Updated |
-| `=` | Unchanged |
-| `x` | Error |
-| `!` | Warning |
-| `i` | Information |
+| `+` | installed or added |
+| `-` | removed |
+| `~` | updated or re-rendered |
+| `↺` | restored: a missing generated file written again |
+| `=` | unchanged: the render equals the lock and the disk equals the render, on every target; reports print these as one count line |
+| `⊘` | skipped for one target, with the reason; an in-repo source that `palm update` skips gets one line for the whole source |
+| `x` | error or failed |
+| `!` | warning, a modified file palm kept, or a partial install |
+| `i` | information |
 
-Warnings are collected and printed once at the end, on stderr, under a `Warnings` heading.
-An error comes last: an `x` line with the message, then a hint line that names a command to run.
-`--verbose` adds debug lines and stack traces.
+Warnings are collected and printed once at the end, on stderr, under a `Warnings` heading. A note that applies to many rows prints once.
+An error comes last, as an `x` line with the message and then a hint that is a command you can paste.
+When the same command with another flag fixes the error, the hint repeats your command with that flag, and names every flag that must go together.
+Hints name sources as you declared them in `palm.yaml`, carry `-g` in the global scope, and write `kind:name` when a name is ambiguous.
+In the global scope, paths print as `~/...`.
 
-### Colour
+Colour appears only when stdout is a terminal. `NO_COLOR=1` turns it off.
 
-`--no-color`, or `NO_COLOR` set to any non-empty value, turns colour off.
-Otherwise palm colours its output in a terminal whose `TERM` is not `dumb`, and when `CI` or `FORCE_COLOR` is non-empty.
-
-### JSON
+### JSON output
 
 With `--json`, stdout holds exactly one JSON document and every other line goes to stderr.
-A list comes as `{ "items": [...] }`.
-Every document has a `warnings` array.
+A list comes as `{ "items": [...] }`, and every document has a `warnings` array.
 An error is `{ "error": { "code", "message", "hint" }, "warnings": [] }`, and the exit code still reports it.
+A dry run reports statuses such as `would-install` and `would-remove`, and a version is an object `{ "ref", "sha" }`.
 
 <Capture name="c-json" />
 
@@ -235,17 +170,28 @@ An error is `{ "error": { "code", "message", "hint" }, "warnings": [] }`, and th
 
 | Code | Meaning |
 | --- | --- |
-| `0` | Success, including `--help` and `--version` |
-| `1` | Failure, including an install where one target failed |
-| `2` | Usage error: unknown command, option or kind |
-| `70` | Internal error; `--verbose` prints the stack trace |
-| `130` | Cancelled at a prompt or with Ctrl-C |
+| `0` | Success, including `--help`, `--version` and a bare `palm`. Warnings never change it. |
+| `1` | Failure: a refusal, a failed or partial install, a modified file palm kept, or a failed check |
+| `2` | Usage error: an unknown command, option or argument, a removed 0.1 command, or a 0.1 `palm.yaml` |
+| `130` | Cancelled: Ctrl-C, Esc at a prompt, a declined source ref change, a declined program you named, or a declined new version of a trusted program |
 
 [Exit codes and errors](/palm/reference/exit-codes/) lists every error code with its fix.
+
+## Old commands
+
+The palm 0.1 grammar works for one release as hidden aliases.
+
+<Capture name="c-legacy" title="~/project" />
+
+The 0.1 form `install skill tdd@mattpocock` resolves the alias `mattpocock` against the declared sources, so `mattpocock/skills` matches, and runs.
+When no declared source matches, the hint is the `palm install <source> <name>` form, never `palm migrate`.
+The removed commands `doctor`, `audit`, `outdated`, `why`, `find`, `search` and `config` print one line naming the replacement and exit 2.
+Removed 0.1 flags print their replacement: `--frozen` prints `palm check` and runs it.
+[Migrate from palm 0.1](/palm/guides/migrate-from-0-1/#old-commands-and-flags) maps each one.
 
 ## Related
 
 - [Exit codes and errors](/palm/reference/exit-codes/)
 - [Environment variables](/palm/reference/environment/)
 - [palm.yaml](/palm/reference/palm-yaml/)
-- [Project and global scope](/palm/concepts/scopes/)
+- [Sources](/palm/concepts/sources/)

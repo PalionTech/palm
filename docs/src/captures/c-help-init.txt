@@ -1,24 +1,28 @@
 $ palm init --help
 Usage: palm init [options]
 
-Choose the targets for this project, write them to palm.yaml and ignore .palm/.
+Write palm.yaml with the targets found here.
 
 Options:
-  -h, --help          display help for command
+  --target <ids>       comma-separated: claude, codex, copilot, cursor, gemini,
+                       opencode
+  --here               start a separate project in this directory
+  -h, --help           display help for command
 
 Global Options:
-  -g, --global        use the global scope (~), not this project
-  -t, --target <ids>  comma-separated: claude, codex, copilot, cursor, gemini,
-                      opencode
-  --dry-run           show what would change; write nothing
-  --force             overwrite files palm does not own
-  -y, --yes           accept defaults instead of prompting
-  --offline           use cached origins only; no network
-  --verbose           debug output and stack traces
-  --json              JSON on stdout; everything else on stderr
-  --no-color          no colours (also NO_COLOR=1)
-  -V, --version       print the palm version
+  -g, --global         use ~/.palm/palm.yaml and the harness home directories
+  --dry-run            show what would change; write nothing
+  --force              replace files you changed or that palm does not own
+  -y, --yes            accept plan confirmations (never consents to programs)
+  --allow-exec <list>  allow programs: hook:x@source=sha256:hash,... or all
+  --offline            use the cache only; no network
+  --json               one JSON document on stdout; everything else on stderr
+  --secrets <policy>   env-ref (default) or literal, for secrets you type
+  -V, --version        print the palm version
+
+Refuses inside a directory that has a palm.yaml above it in the same repository, unless --here.
 
 Examples:
-  palm init
-  palm init --target claude,codex
+  palm init                                   targets found here (.claude/, .cursor/, ...)
+  palm init --target claude,cursor            these targets
+  palm init --here                            a separate project inside a larger one

@@ -1,113 +1,111 @@
 ---
 title: palm.lock.yaml
-description: Every key of the lockfile, how palm writes it, and how it reads version 1.
+description: Every key of the lock, version 3, which records what each source resolved to, what palm rendered per target, the files it wrote, and the programs you trusted.
 ---
 
 import Capture from '../../../components/Capture.astro';
 
-`palm.lock.yaml` records every file and merged value palm wrote, the commit it came from and a hash of each file.
-palm writes it on every install, update and uninstall. Commit it next to `palm.yaml`.
+`palm.lock.yaml` records what each source resolved to and what palm wrote. palm writes it on `install`, `remove` and `update`, and you commit it with `palm.yaml` and the generated files.
 
-```sh
-palm install skill grill-me --target claude,codex
-palm install --frozen
+<Capture name="c-lock" title="~/project" />
+
+The lock is deterministic. Saving the same lock twice gives the same bytes, and a newcomer's lock for the same `palm.yaml` equals a veteran's.
+
+## Top level
+
+| Key | Meaning |
+| --- | --- |
+| `version` | `3`. Versions 1 and 2 come from palm 0.1, and only `palm migrate` reads them. |
+| `sources` | one record per source, keyed by the name in `palm.yaml` |
+| `entries` | one record per installed entity, sorted by kind, then name |
+
+## Sources
+
+| Key | Meaning |
+| --- | --- |
+| `url` | the clone URL of a git source |
+| `root` | the folder inside the repository, when set |
+| `ref` | the intent, copied from `palm.yaml` when it was resolved |
+| `resolved` | the tag a range resolved to |
+| `sha` | the resolved commit, the one a bare install uses |
+| `path` | an in-repo source's project-relative path |
+| `layout` | the layout in effect, so another machine rebuilds the same index from the commit alone |
+| `descriptor` | the scan rule that produced the index: `descriptor`, `apm`, `marketplace`, `plugin-manifest` or `convention` |
+
+An in-repo source has no commit and no source-wide hash.
+Each of its entries carries a `content` hash over that entry's own files, and `palm check` compares entry by entry.
+Two pull requests that change two different skills therefore touch two different lock lines.
+
+## Entries
+
+| Key | Meaning |
+| --- | --- |
+| `kind`, `name` | the entity |
+| `source` | the source name, or `manifest` for an MCP server declared in `palm.yaml` |
+| `path` | where the entity lives in the source |
+| `via` | `plugin:<name>` when a plugin selected it |
+| `content` | sha256 of the entity's content in the source; for an in-repo source, the signal that its files changed |
+| `render` | one render hash per target: sha256 over the path, mode and content hash of every file the target writes, plus every fragment it merges |
+| `files` | every path palm wrote for the entry, sorted, closure files included |
+| `merged` | the fragments merged into shared files, as `{ file, at, id, key }` |
+| `exec`, `trust` | the entry's programs and your consent; see below |
+| `notes` | what install printed once: dropped fields, skipped targets, shared folders; `palm describe` shows them |
+| `targets` | only when `palm.yaml` narrows the entry below the scope's set; a refused target never narrows it |
+| `at` | the placement root from `palm.yaml`, stored for 0.3 |
+| `deps` | plugin entries only: the members the plugin declared |
+
+Two hashes per entry per target, never one per file, keep the lock short and let every machine compute the same values.
+
+## Merged entries
+
+A fragment in a shared file, such as a hook in `.claude/settings.json` or a server in `.mcp.json`, carries two identities.
+
+| Key | Meaning |
+| --- | --- |
+| `file` | the shared file |
+| `at` | a JSON pointer such as `/hooks/Stop`, a TOML table such as `/mcp_servers/docs`, or `block:<id>` for a Markdown block |
+| `id` | palm's identity, `palm:<kind>:<name>:<n>` |
+| `key` | what finds the fragment on disk: the object key, the block id, or a short hash of an array item's identity |
+
+palm tells "changed" (found, different value) from "missing" (not found).
+Removing one plugin therefore never takes another plugin's hook, even when both merged into the same array.
+
+## Exec and trust
+
+An entry with a hook or a stdio MCP server carries its programs.
+
+```yaml title="palm.lock.yaml"
+    exec:
+      commands:
+        - { id: Stop//-, command: 'bash "$CLAUDE_PROJECT_DIR"/agent-kit/hooks/quality.sh' }
+      hash: sha256:5d41c3b0…
+    trust: [sha256:5d41c3b0…]
 ```
 
-Here the origin `mattpocock` is a git repository at tag `v1.2.0`:
-
-<Capture name="c-lockfile" />
-
-| Key | Type | Meaning |
-| --- | --- | --- |
-| `version` | number | The lockfile format. palm writes `2`. |
-| `targets` | list of target ids | The target set this scope was last installed against: `targets:` from `palm.yaml`, or from `config.yaml` in the global scope. A bare `palm install` removes only the targets that left this set since. Absent until an install records it. |
-| `createdDirs` | list of paths | Harness folders palm created in this scope, such as `.claude`. An uninstall that leaves one empty removes it. Absent when there are none. |
-| `entries` | list | One entry per installed entity in the scope. |
-
-## Location
-
-| Scope | File |
+| Key | Meaning |
 | --- | --- |
-| project | `palm.lock.yaml` next to `palm.yaml` in the project root |
-| global | `~/.palm/palm.lock.yaml`, or `$PALM_HOME/palm.lock.yaml` |
+| `exec.commands` | one line per command a harness runs: `<event>//<matcher or ->` for hooks, `stdio` for a server |
+| `exec.closure` | the scripts the commands run and the files they read, with their count and tree hash; for an in-repo source, hashed where they sit, since they run in place |
+| `exec.hash` | the program hash over the canonical commands, events, matchers, environment keys, working directory and the closure tree |
+| `trust` | the hashes a person consented to; palm installs silently while `exec.hash` is among them |
 
-## Entry keys
+The lock diff is the team's consent record, with readable commands and one hash line reviewed together.
+An entry with a program and no `trust:`, or with an empty `render:`, fails `palm check`.
+A hook you declined is not in the lock. It is an `exclude:` on the plugin entry in `palm.yaml`, where review sees it.
 
-palm writes the keys of an entry in this order and leaves out the ones that do not apply.
+## What the lock never holds
 
-| Key | Type | Meaning |
-| --- | --- | --- |
-| `kind` | string | `skill`, `agent`, `instruction`, `command`, `hook`, `mcp` or `plugin`. |
-| `name` | string | The entity name. For MCP servers, the key in the harness config. |
-| `origin` | string | The origin alias, or `registry`, `adhoc` or `mine`. |
-| `url` | string | Git origins: the clone URL. A machine without the alias recreates it from this. |
-| `root` | string | Git origins: the folder in the repository that is the origin root. |
-| `ref` | string | The tag or branch palm resolved. |
-| `sha` | string | The commit. A bare `palm install` deploys exactly this commit. |
-| `path` | string | Where the entity sits in the origin: a folder for skills and plugins, else a file. For registry servers, the registry name. |
-| `contentHash` | string | `sha256:<hex>` of the entity's source. |
-| `transform` | number | The version of palm's rendering the files were written with. `0` marks an entry read from version 1. |
-| `targets` | list | The targets the entity was written to. |
-| `files` | list of `{ path, hash }` | Every file palm wrote. See [files](#files). |
-| `merged` | list of `{ file, pointer, value }` | Every value palm inserted into a shared file. See [merged](#merged). |
-| `via` | string | `plugin:<name>` or `agent:<name>` for a dependency. Direct installs have none. |
-| `deps` | list of `{ kind, name }` | Plugin and agent entries: the entities they declared. |
+No absolute path, home directory, hostname, timestamp, machine fact, per-file hash, created-folder list, top-level target list, secret value or merged value.
+The value of a merged fragment is recomputed from the render, and a secret-shaped value appears only as a redacted hash.
 
-### `files`
+## The global lock
 
-`path` is relative to the project root in project scope, and absolute in global scope.
-`hash` is `sha256:<hex>` of the file as palm wrote it, with text hashed using LF line ends.
-Before palm overwrites or deletes a file, it compares the file on disk with this hash.
-A file you changed is refused with `E_CONFLICT` unless you pass `--force`.
-An empty hash means unknown, from version 1 or a dry run, and never counts as a change.
-
-### `merged`
-
-`file` is the shared file, such as `.mcp.json`, `.claude/settings.json` or `.codex/config.toml`.
-`pointer` is a JSON pointer to the place palm inserted the value.
-For a managed block in `AGENTS.md` or `GEMINI.md`, it is `block:<id>`.
-`value` is the exact value palm inserted, so an uninstall removes that value and nothing else.
-A secret is recorded as its `${NAME}` placeholder, never as its value.
-
-This project has an agent with a skill and an MCP server as dependencies, and an ad hoc MCP server:
-
-<Capture name="c-lockfile-deps" />
-
-## Determinism
-
-The same install gives the same bytes on every machine:
-
-- No timestamps.
-- Entries sorted by kind (`skill`, `agent`, `instruction`, `command`, `hook`, `mcp`, `plugin`), then by name ignoring case, then by origin.
-- Names and paths compared by code point, never by locale.
-- Keys in a fixed order, `files` sorted by path, `targets` in the order `claude`, `codex`, `copilot`, `cursor`, `gemini`, `opencode`.
-- Empty `merged` and `deps` lists left out.
-- LF line ends. palm writes the file fresh each time, with a comment line at the top.
-
-## Recorded truthfully
-
-An entry lists only the targets and files that succeeded.
-An entity whose every target failed keeps its previous entry, or has none.
-palm saves the lockfile after every entity, so an interrupted install leaves a lockfile that matches the disk.
-
-## Version 1
-
-palm reads a version 1 lockfile and converts it in memory.
-Version 1 has `installedAt` timestamps and `files` as plain paths.
-The converted entries get an empty `hash` and `transform: 0`.
-The next save writes version 2, and the first install re-renders every entry and records its hashes.
-
-A lockfile with any other `version` fails with `E_PARSE` and the hint to upgrade palm.
-
-## When the lockfile breaks
-
-An entry without `kind`, `name` or `origin`, or a malformed `files` item, fails with `E_PARSE`.
-Restore the file from version control, or delete it and run `palm install`.
-After a merge conflict, resolve both sides, then run `palm install` so palm checks the result against the disk.
+`~/.palm/palm.lock.yaml` has the same shape.
+Every path starts with a token: `<home>`, `<palm>`, `<agents>`, `<claude>`, `<codex>`, `<copilot>`, `<cursor>`, `<gemini>` or `<opencode>`.
+The same lock works on machines whose harness homes differ, and `~/.palm/applied.yaml` records the real paths this machine holds.
 
 ## Related
 
-- [palm.yaml](/palm/reference/palm-yaml/)
-- [`palm install`](/palm/reference/cli/install/)
-- [`palm find`](/palm/reference/cli/find/)
-- [Why native files per harness](/palm/explanation/why-native-files/)
+- [palm.yaml and palm.lock.yaml](/palm/concepts/manifest-and-lockfile/)
+- [palm.yaml reference](/palm/reference/palm-yaml/)
+- [Consent and executable content](/palm/concepts/consent/)

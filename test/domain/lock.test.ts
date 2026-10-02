@@ -1,839 +1,411 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { LockEntry } from '../../src/core/types.js';
-import { lockId } from '../../src/domain/entity-key.js';
-import { answersTo, filePaths, LOCK_COMMENT, Lock } from '../../src/domain/lock.js';
-import { removeDir, tempDir } from '../support/sandbox.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { LockEntry, LockSource, Rendered } from '../../src/core/types.js';
+import {
+  fragmentId,
+  fragmentKey,
+  LOCK_VERSION,
+  Lock,
+  renderHashOf,
+} from '../../src/domain/lock.js';
+import { cleanupTmp, read, tmpDir, write } from '../support/sandbox.js';
 
-/** Locked files with made-up but distinct hashes. */
-const locked = (...paths: string[]): LockEntry['files'] =>
-  paths.map((path, i) => ({ path, hash: `sha256:${i}${path.length}` }));
+afterEach(cleanupTmp);
 
-/** Insertion order differs from file order on purpose (the writer sorts). */
-const FIXTURE_ENTRIES: LockEntry[] = [
-  {
-    kind: 'skill',
-    name: 'wayfinder',
-    origin: 'mattpocock',
-    url: 'https://github.com/mattpocock/skills.git',
-    ref: 'v1.2.0',
-    sha: '0123456789abcdef0123456789abcdef01234567',
-    path: 'skills/wayfinder',
-    contentHash: 'sha256:aaaa',
-    transform: 1,
-    targets: ['claude', 'codex'],
-    files: locked('.claude/skills/wayfinder', '.agents/skills/wayfinder'),
+const entry = (e: Partial<LockEntry> & Pick<LockEntry, 'kind' | 'name'>): LockEntry => ({
+  source: 'mattpocock/skills',
+  path: `skills/${e.name}`,
+  content: 'sha256:c0',
+  render: {},
+  files: [],
+  ...e,
+});
+
+const SOURCES: Record<string, LockSource> = {
+  'obra/superpowers': {
+    descriptor: 'plugin-manifest',
+    sha: 'a1b2',
+    resolved: 'v4.0.3',
+    ref: '^4',
+    url: 'https://github.com/obra/superpowers.git',
   },
-  {
-    kind: 'plugin',
-    name: 'superpowers',
-    origin: 'obra',
-    path: 'plugins/superpowers',
-    contentHash: 'sha256:bbbb',
-    transform: 1,
-    targets: ['claude'],
-    files: [],
-    deps: [
-      { kind: 'skill', name: 'brainstorm' },
-      { kind: 'command', name: 'plan' },
-    ],
-  },
-  {
-    via: 'plugin:superpowers',
-    files: locked('.claude/skills/brainstorm'),
-    targets: ['claude'],
-    kind: 'skill',
-    name: 'brainstorm',
-    origin: 'obra',
-    path: 'plugins/superpowers/skills/brainstorm',
-    contentHash: 'sha256:cccc',
-    transform: 1,
-    merged: [],
-  },
-  {
-    kind: 'mcp',
-    name: 'context7',
-    origin: 'registry',
-    url: 'https://registry.modelcontextprotocol.io',
-    ref: '1.0.3',
-    path: 'io.github.upstash/context7',
-    contentHash: 'sha256:dddd',
-    transform: 1,
-    targets: ['claude', 'cursor'],
-    files: [],
-    merged: [
-      {
-        file: '.mcp.json',
-        pointer: '/mcpServers/context7',
-        value: {
-          type: 'http',
-          url: 'https://mcp.context7.com/mcp',
-          headers: { Authorization: 'Bearer ${CTX_TOKEN}' },
+  './agent-kit': { tree: 'sha256:1093', path: 'agent-kit', descriptor: 'convention' },
+};
+
+function sampleLock(): Lock {
+  return new Lock(SOURCES, [
+    entry({
+      kind: 'hook',
+      name: 'quality',
+      source: './agent-kit',
+      path: 'hooks/hooks.json',
+      render: { claude: 'sha256:c4d5' },
+      merged: [
+        {
+          key: 'sha256:3e01a9f2',
+          id: 'palm:hook:quality:0',
+          at: '/hooks/Stop',
+          file: '.claude/settings.json',
         },
+      ],
+      exec: {
+        hash: 'sha256:a7cc',
+        commands: [
+          { command: 'bash "$CLAUDE_PROJECT_DIR"/agent-kit/hooks/quality.sh', id: 'Stop//-' },
+        ],
       },
-      {
-        file: '.cursor/mcp.json',
-        pointer: '/mcpServers/context7',
-        value: { url: 'https://mcp.context7.com/mcp' },
-      },
-    ],
-  },
-  {
-    kind: 'hook',
-    name: 'fmt',
-    origin: 'a',
-    path: 'hooks/fmt.json',
-    contentHash: 'sha256:eeee',
-    transform: 1,
-    targets: ['claude'],
-    files: locked('.palm/hooks/fmt/run.sh'),
-    merged: [
-      {
-        file: '.claude/settings.json',
-        pointer: '/hooks/PostToolUse/-',
-        value: {
-          matcher: 'Edit',
-          hooks: [{ type: 'command', command: '"$CLAUDE_PROJECT_DIR"/.palm/hooks/fmt/run.sh' }],
-        },
-      },
-    ],
-  },
-  {
-    kind: 'skill',
-    name: 'Alpha',
-    origin: 'b',
-    path: 'skills/alpha',
-    contentHash: 'sha256:ffff',
-    transform: 1,
-    targets: ['copilot'],
-    files: locked('.github/skills/alpha'),
-  },
-  {
-    kind: 'skill',
-    name: 'alpha',
-    origin: 'a',
-    path: 'skills/alpha',
-    contentHash: 'sha256:ffff',
-    transform: 1,
-    targets: ['copilot'],
-    files: locked('.github/skills/alpha'),
-  },
-  {
-    kind: 'agent',
-    name: 'reviewer',
-    origin: 'a',
-    path: 'agents/reviewer.md',
-    contentHash: 'sha256:1111',
-    transform: 1,
-    targets: ['claude', 'codex', 'copilot', 'cursor'],
-    files: locked(
-      '.claude/agents/reviewer.md',
-      '.codex/agents/reviewer.toml',
-      '.github/agents/reviewer.agent.md',
-      '.cursor/agents/reviewer.md',
-    ),
-    deps: [{ kind: 'skill', name: 'tdd' }],
-  },
-  {
-    kind: 'instruction',
-    name: 'style',
-    origin: 'd',
-    path: 'rules/style.md',
-    contentHash: 'sha256:2222',
-    transform: 1,
-    targets: ['cursor'],
-    files: locked('.cursor/rules/style.mdc'),
-    via: 'agent:alpha',
-  },
-];
-
-/** What `save` writes for FIXTURE_ENTRIES (lockfile v2). */
-const FIXTURE_TEXT = `${[
-  '# palm lockfile — generated, do not edit by hand.',
-  'version: 2',
-  'entries:',
-  '  - kind: skill',
-  '    name: alpha',
-  '    origin: a',
-  '    path: skills/alpha',
-  '    contentHash: sha256:ffff',
-  '    transform: 1',
-  '    targets:',
-  '      - copilot',
-  '    files:',
-  '      - path: .github/skills/alpha',
-  '        hash: sha256:020',
-  '  - kind: skill',
-  '    name: Alpha',
-  '    origin: b',
-  '    path: skills/alpha',
-  '    contentHash: sha256:ffff',
-  '    transform: 1',
-  '    targets:',
-  '      - copilot',
-  '    files:',
-  '      - path: .github/skills/alpha',
-  '        hash: sha256:020',
-  '  - kind: skill',
-  '    name: brainstorm',
-  '    origin: obra',
-  '    path: plugins/superpowers/skills/brainstorm',
-  '    contentHash: sha256:cccc',
-  '    transform: 1',
-  '    targets:',
-  '      - claude',
-  '    files:',
-  '      - path: .claude/skills/brainstorm',
-  '        hash: sha256:025',
-  '    via: plugin:superpowers',
-  '  - kind: skill',
-  '    name: wayfinder',
-  '    origin: mattpocock',
-  '    url: https://github.com/mattpocock/skills.git',
-  '    ref: v1.2.0',
-  '    sha: 0123456789abcdef0123456789abcdef01234567',
-  '    path: skills/wayfinder',
-  '    contentHash: sha256:aaaa',
-  '    transform: 1',
-  '    targets:',
-  '      - claude',
-  '      - codex',
-  '    files:',
-  '      - path: .agents/skills/wayfinder',
-  '        hash: sha256:124',
-  '      - path: .claude/skills/wayfinder',
-  '        hash: sha256:024',
-  '  - kind: agent',
-  '    name: reviewer',
-  '    origin: a',
-  '    path: agents/reviewer.md',
-  '    contentHash: sha256:1111',
-  '    transform: 1',
-  '    targets:',
-  '      - claude',
-  '      - codex',
-  '      - copilot',
-  '      - cursor',
-  '    files:',
-  '      - path: .claude/agents/reviewer.md',
-  '        hash: sha256:026',
-  '      - path: .codex/agents/reviewer.toml',
-  '        hash: sha256:127',
-  '      - path: .cursor/agents/reviewer.md',
-  '        hash: sha256:326',
-  '      - path: .github/agents/reviewer.agent.md',
-  '        hash: sha256:232',
-  '    deps:',
-  '      - kind: skill',
-  '        name: tdd',
-  '  - kind: instruction',
-  '    name: style',
-  '    origin: d',
-  '    path: rules/style.md',
-  '    contentHash: sha256:2222',
-  '    transform: 1',
-  '    targets:',
-  '      - cursor',
-  '    files:',
-  '      - path: .cursor/rules/style.mdc',
-  '        hash: sha256:023',
-  '    via: agent:alpha',
-  '  - kind: hook',
-  '    name: fmt',
-  '    origin: a',
-  '    path: hooks/fmt.json',
-  '    contentHash: sha256:eeee',
-  '    transform: 1',
-  '    targets:',
-  '      - claude',
-  '    files:',
-  '      - path: .palm/hooks/fmt/run.sh',
-  '        hash: sha256:022',
-  '    merged:',
-  '      - file: .claude/settings.json',
-  '        pointer: /hooks/PostToolUse/-',
-  '        value:',
-  '          matcher: Edit',
-  '          hooks:',
-  '            - type: command',
-  '              command: \'"$CLAUDE_PROJECT_DIR"/.palm/hooks/fmt/run.sh\'',
-  '  - kind: mcp',
-  '    name: context7',
-  '    origin: registry',
-  '    url: https://registry.modelcontextprotocol.io',
-  '    ref: 1.0.3',
-  '    path: io.github.upstash/context7',
-  '    contentHash: sha256:dddd',
-  '    transform: 1',
-  '    targets:',
-  '      - claude',
-  '      - cursor',
-  '    files: []',
-  '    merged:',
-  '      - file: .mcp.json',
-  '        pointer: /mcpServers/context7',
-  '        value:',
-  '          type: http',
-  '          url: https://mcp.context7.com/mcp',
-  '          headers:',
-  '            Authorization: Bearer ${CTX_TOKEN}',
-  '      - file: .cursor/mcp.json',
-  '        pointer: /mcpServers/context7',
-  '        value:',
-  '          url: https://mcp.context7.com/mcp',
-  '  - kind: plugin',
-  '    name: superpowers',
-  '    origin: obra',
-  '    path: plugins/superpowers',
-  '    contentHash: sha256:bbbb',
-  '    transform: 1',
-  '    targets:',
-  '      - claude',
-  '    files: []',
-  '    deps:',
-  '      - kind: skill',
-  '        name: brainstorm',
-  '      - kind: command',
-  '        name: plan',
-].join('\n')}\n`;
-
-/** A lockfile v1 as palm 0.0 wrote it (timestamps, plain file paths). */
-const V1_TEXT = `${[
-  '# palm lockfile — generated, do not edit by hand.',
-  'version: 1',
-  'entries:',
-  '  - kind: skill',
-  '    name: alpha',
-  '    origin: a',
-  '    path: skills/alpha',
-  '    contentHash: sha256:ffff',
-  '    installedAt: 2026-09-01T10:00:06.000Z',
-  '    targets:',
-  '      - copilot',
-  '    files:',
-  '      - .github/skills/alpha',
-  '  - kind: skill',
-  '    name: Alpha',
-  '    origin: b',
-  '    path: skills/alpha',
-  '    contentHash: sha256:ffff',
-  '    installedAt: 2026-09-01T10:00:05.000Z',
-  '    targets:',
-  '      - copilot',
-  '    files:',
-  '      - .github/skills/alpha',
-  '  - kind: skill',
-  '    name: brainstorm',
-  '    origin: obra',
-  '    path: plugins/superpowers/skills/brainstorm',
-  '    contentHash: sha256:cccc',
-  '    installedAt: 2026-09-01T10:00:02.000Z',
-  '    targets:',
-  '      - claude',
-  '    files:',
-  '      - .claude/skills/brainstorm',
-  '    via: plugin:superpowers',
-  '  - kind: skill',
-  '    name: wayfinder',
-  '    origin: mattpocock',
-  '    url: https://github.com/mattpocock/skills.git',
-  '    ref: v1.2.0',
-  '    sha: 0123456789abcdef0123456789abcdef01234567',
-  '    path: skills/wayfinder',
-  '    contentHash: sha256:aaaa',
-  '    installedAt: 2026-09-01T10:00:00.000Z',
-  '    targets:',
-  '      - claude',
-  '      - codex',
-  '    files:',
-  '      - .claude/skills/wayfinder',
-  '      - .agents/skills/wayfinder',
-  '  - kind: agent',
-  '    name: reviewer',
-  '    origin: a',
-  '    path: agents/reviewer.md',
-  '    contentHash: sha256:1111',
-  '    installedAt: 2026-09-01T10:00:07.000Z',
-  '    targets:',
-  '      - claude',
-  '      - codex',
-  '      - copilot',
-  '      - cursor',
-  '    files:',
-  '      - .claude/agents/reviewer.md',
-  '      - .codex/agents/reviewer.toml',
-  '      - .github/agents/reviewer.agent.md',
-  '      - .cursor/agents/reviewer.md',
-  '    deps:',
-  '      - kind: skill',
-  '        name: tdd',
-  '  - kind: instruction',
-  '    name: style',
-  '    origin: d',
-  '    path: rules/style.md',
-  '    contentHash: sha256:2222',
-  '    installedAt: 2026-09-01T10:00:08.000Z',
-  '    targets:',
-  '      - cursor',
-  '    files:',
-  '      - .cursor/rules/style.mdc',
-  '    via: agent:alpha',
-  '  - kind: hook',
-  '    name: fmt',
-  '    origin: a',
-  '    path: hooks/fmt.json',
-  '    contentHash: sha256:eeee',
-  '    installedAt: 2026-09-01T10:00:04.000Z',
-  '    targets:',
-  '      - claude',
-  '    files:',
-  '      - .palm/hooks/fmt/run.sh',
-  '    merged:',
-  '      - file: .claude/settings.json',
-  '        pointer: /hooks/PostToolUse/-',
-  '        value:',
-  '          matcher: Edit',
-  '          hooks:',
-  '            - type: command',
-  '              command: \'"$CLAUDE_PROJECT_DIR"/.palm/hooks/fmt/run.sh\'',
-  '  - kind: mcp',
-  '    name: context7',
-  '    origin: registry',
-  '    url: https://registry.modelcontextprotocol.io',
-  '    ref: 1.0.3',
-  '    path: io.github.upstash/context7',
-  '    contentHash: sha256:dddd',
-  '    installedAt: 2026-09-01T10:00:03.000Z',
-  '    targets:',
-  '      - claude',
-  '      - cursor',
-  '    files: []',
-  '    merged:',
-  '      - file: .mcp.json',
-  '        pointer: /mcpServers/context7',
-  '        value:',
-  '          type: http',
-  '          url: https://mcp.context7.com/mcp',
-  '          headers:',
-  '            Authorization: Bearer ${CTX_TOKEN}',
-  '      - file: .cursor/mcp.json',
-  '        pointer: /mcpServers/context7',
-  '        value:',
-  '          url: https://mcp.context7.com/mcp',
-  '  - kind: plugin',
-  '    name: superpowers',
-  '    origin: obra',
-  '    path: plugins/superpowers',
-  '    contentHash: sha256:bbbb',
-  '    installedAt: 2026-09-01T10:00:01.000Z',
-  '    targets:',
-  '      - claude',
-  '    files: []',
-  '    deps:',
-  '      - kind: skill',
-  '        name: brainstorm',
-  '      - kind: command',
-  '        name: plan',
-].join('\n')}\n`;
-
-function entry(name: string, extra: Partial<LockEntry> = {}): LockEntry {
-  return {
-    kind: 'skill',
-    name,
-    origin: 'o',
-    path: `skills/${name}`,
-    contentHash: 'sha256:x',
-    transform: 1,
-    targets: ['claude'],
-    files: [{ path: `.claude/skills/${name}`, hash: 'sha256:f' }],
-    ...extra,
-  };
+      trust: ['sha256:a7cc'],
+    }),
+    entry({
+      kind: 'skill',
+      name: 'tdd',
+      render: { cursor: 'sha256:9a0b', claude: 'sha256:9a0b' },
+      files: ['.claude/skills/tdd/SKILL.md', '.claude/skills/tdd/b.md'],
+      notes: ['cursor reads .claude/skills; no second copy'],
+    }),
+    entry({
+      kind: 'plugin',
+      name: 'superpowers',
+      source: 'obra/superpowers',
+      path: '.',
+      deps: [
+        { kind: 'hook', name: 'session-start' },
+        { kind: 'skill', name: 'brainstorming' },
+      ],
+    }),
+    entry({
+      kind: 'skill',
+      name: 'brainstorming',
+      source: 'obra/superpowers',
+      via: 'plugin:superpowers',
+    }),
+  ]);
 }
 
-const agent = (name: string, deps: string[], extra: Partial<LockEntry> = {}): LockEntry =>
-  entry(name, {
-    kind: 'agent',
-    files: [{ path: `.claude/agents/${name}.md`, hash: 'sha256:f' }],
-    deps: deps.map((d) => ({ kind: 'skill', name: d })),
-    ...extra,
+describe('Lock save', () => {
+  it('writes the DESIGN layout: version, sources by name, entries by kind and name, keys in order', async () => {
+    const file = join(await tmpDir(), 'palm.lock.yaml');
+    await sampleLock().save(file);
+    expect(await read(file)).toBe(`# palm lockfile: written by palm, do not edit by hand.
+version: 3
+sources:
+  ./agent-kit:
+    path: agent-kit
+    tree: sha256:1093
+    descriptor: convention
+  obra/superpowers:
+    url: https://github.com/obra/superpowers.git
+    ref: ^4
+    resolved: v4.0.3
+    sha: a1b2
+    descriptor: plugin-manifest
+entries:
+  - kind: skill
+    name: brainstorming
+    source: obra/superpowers
+    via: plugin:superpowers
+    path: skills/brainstorming
+    content: sha256:c0
+    render: {}
+    files: []
+  - kind: skill
+    name: tdd
+    source: mattpocock/skills
+    path: skills/tdd
+    content: sha256:c0
+    render: {claude: sha256:9a0b, cursor: sha256:9a0b}
+    files:
+      - .claude/skills/tdd/SKILL.md
+      - .claude/skills/tdd/b.md
+    notes:
+      - cursor reads .claude/skills; no second copy
+  - kind: hook
+    name: quality
+    source: ./agent-kit
+    path: hooks/hooks.json
+    content: sha256:c0
+    render: {claude: sha256:c4d5}
+    files: []
+    merged:
+      - {file: .claude/settings.json, at: /hooks/Stop, id: palm:hook:quality:0, key: sha256:3e01a9f2}
+    exec:
+      commands:
+        - {id: Stop//-, command: bash "$CLAUDE_PROJECT_DIR"/agent-kit/hooks/quality.sh}
+      hash: sha256:a7cc
+    trust: [sha256:a7cc]
+  - kind: plugin
+    name: superpowers
+    source: obra/superpowers
+    path: .
+    content: sha256:c0
+    render: {}
+    files: []
+    deps:
+      - {kind: skill, name: brainstorming}
+      - {kind: hook, name: session-start}
+`);
   });
 
-const names = (entries: LockEntry[]): string[] => entries.map((e) => e.name);
-
-describe('Lock file I/O', () => {
-  let dir: string;
-  beforeEach(async () => {
-    dir = await tempDir();
+  it('is deterministic: the same lock gives the same bytes, and hash() is their sha256', async () => {
+    const dir = await tmpDir();
+    const a = sampleLock();
+    const b = new Lock(SOURCES, [...sampleLock().entries].reverse());
+    await a.save(join(dir, 'a.yaml'));
+    await b.save(join(dir, 'b.yaml'));
+    expect(await read(join(dir, 'a.yaml'))).toBe(await read(join(dir, 'b.yaml')));
+    expect(a.hash()).toBe(b.hash());
+    expect(a.hash()).toMatch(/^sha256:[0-9a-f]{64}$/);
+    const reloaded = await Lock.load(join(dir, 'a.yaml'));
+    expect(reloaded.toJSON()).toEqual(a.toJSON());
+    expect(reloaded.hash()).toBe(a.hash());
   });
-  afterEach(async () => removeDir(dir));
+});
 
-  it('writes lockfile v2 (golden), and load → save is stable', async () => {
-    const built = join(dir, 'built.yaml');
-    const lock = new Lock();
-    for (const e of FIXTURE_ENTRIES) lock.upsert(structuredClone(e));
-    await lock.save(built);
-    expect(await readFile(built, 'utf8')).toBe(FIXTURE_TEXT);
-
-    const file = join(dir, 'palm.lock.yaml');
-    await writeFile(file, FIXTURE_TEXT);
-    const loaded = await Lock.load(file);
-    expect(loaded.size).toBe(FIXTURE_ENTRIES.length);
-    await loaded.save(file);
-    expect(await readFile(file, 'utf8')).toBe(FIXTURE_TEXT);
-    expect(FIXTURE_TEXT.startsWith(`# ${LOCK_COMMENT}\n`)).toBe(true);
-    expect(FIXTURE_TEXT).not.toMatch(/installedAt|\r|\d{4}-\d{2}-\d{2}T/);
-  });
-
-  it('is deterministic: any insertion order, saved twice, gives identical bytes', async () => {
-    const a = join(dir, 'a.yaml');
-    const b = join(dir, 'b.yaml');
-    const shuffled = [...FIXTURE_ENTRIES].reverse().map((e) => ({
-      ...structuredClone(e),
-      files: [...e.files].reverse(),
-      targets: [...e.targets].reverse(),
-    }));
-    await new Lock(structuredClone(FIXTURE_ENTRIES)).save(a);
-    await new Lock(shuffled).save(b);
-    const first = await readFile(a, 'utf8');
-    expect(await readFile(b, 'utf8')).toBe(first);
-    await (await Lock.load(a)).save(a);
-    await (await Lock.load(a)).save(a);
-    expect(await readFile(a, 'utf8')).toBe(first);
-  });
-
-  it('loads a v1 lock (timestamps, plain file paths) and saves it as v2', async () => {
-    const file = join(dir, 'palm.lock.yaml');
-    await writeFile(file, V1_TEXT);
-    const lock = await Lock.load(file);
-    const wayfinder = lock.find({ kind: 'skill', name: 'wayfinder' });
-    expect(wayfinder).toMatchObject({
-      transform: 0,
-      files: [
-        { path: '.claude/skills/wayfinder', hash: '' },
-        { path: '.agents/skills/wayfinder', hash: '' },
-      ],
-    });
-    expect(wayfinder).not.toHaveProperty('installedAt');
-    expect(lock.toJSON().version).toBe(2);
-    await lock.save(file);
-    const text = await readFile(file, 'utf8');
-    expect(text).toMatch(/^version: 2$/m);
-    expect(text).not.toContain('installedAt');
-    expect(text).toContain('      - path: .claude/skills/wayfinder\n        hash: ""\n');
-    expect(text).toContain('    transform: 0\n');
-    await (await Lock.load(file)).save(file);
-    expect(await readFile(file, 'utf8')).toBe(text);
-  });
-
-  it('lists files changed on disk since palm wrote them (edit-safe)', async () => {
-    await writeFile(join(dir, 'same.txt'), 'same');
-    await writeFile(join(dir, 'edited.txt'), 'edited by hand');
-    const hashes: Record<string, string> = {
-      [join(dir, 'same.txt')]: 'h:same',
-      [join(dir, 'edited.txt')]: 'h:edited',
-    };
-    const e = entry('x', {
-      files: [
-        { path: 'same.txt', hash: 'h:same' },
-        { path: 'edited.txt', hash: 'h:original' },
-        { path: 'missing.txt', hash: 'h:gone' },
-        { path: 'unknown.txt', hash: '' },
-      ],
-    });
-    const paths = { abs: (f: string) => join(dir, f) };
-    const changed = await Lock.modifiedFiles(e, paths, async (abs) => hashes[abs] ?? 'h:?');
-    expect(changed).toEqual(['edited.txt']);
-    expect(filePaths(e)).toEqual(['same.txt', 'edited.txt', 'missing.txt', 'unknown.txt']);
-  });
-
-  it('sorts one name from several origins by origin', async () => {
-    const file = join(dir, 'l.yaml');
-    await new Lock([entry('x', { origin: 'o2' }), entry('x', { origin: 'o1' })]).save(file);
-    expect((await Lock.load(file)).entries.map((e) => e.origin)).toEqual(['o1', 'o2']);
-  });
-
+describe('Lock load', () => {
   it('is empty when the file is missing or empty', async () => {
-    expect((await Lock.load(join(dir, 'nope.yaml'))).toJSON()).toEqual({ version: 2, entries: [] });
-    await writeFile(join(dir, 'empty.yaml'), '');
-    expect((await Lock.load(join(dir, 'empty.yaml'))).size).toBe(0);
-    await writeFile(join(dir, 'no-entries.yaml'), 'version: 1\n');
-    expect((await Lock.load(join(dir, 'no-entries.yaml'))).entries).toEqual([]);
+    expect((await Lock.load('/nonexistent/palm.lock.yaml')).size).toBe(0);
+    const file = join(await tmpDir(), 'palm.lock.yaml');
+    await write(file, '');
+    expect((await Lock.load(file)).toJSON()).toEqual({
+      version: LOCK_VERSION,
+      sources: {},
+      entries: [],
+    });
   });
 
-  it('defaults targets and files, and keeps the first of repeated keys', async () => {
-    const file = join(dir, 'l.yaml');
-    await writeFile(
+  it('sends a 0.1 lock to palm migrate, and loadLegacy reads it as data', async () => {
+    const file = join(await tmpDir(), 'palm.lock.yaml');
+    await write(
       file,
-      [
-        'entries:',
-        '  - {kind: skill, name: a, origin: o, path: p, contentHash: h, installedAt: t}',
-        '  - {kind: skill, name: A, origin: o, path: second, contentHash: h, installedAt: t}',
-        '',
-      ].join('\n'),
+      'version: 2\ntargets: [claude]\nentries:\n  - kind: skill\n    name: tdd\n    origin: matt\n    path: skills/tdd\n',
     );
-    const lock = await Lock.load(file);
-    expect(lock.entries).toEqual([
-      {
+    await expect(Lock.load(file)).rejects.toMatchObject({
+      code: 'E_USAGE',
+      message: 'palm.lock.yaml is version 2 (palm 0.1)',
+      hint: 'palm migrate',
+    });
+    expect(await Lock.loadLegacy(file)).toEqual({
+      version: 2,
+      targets: ['claude'],
+      entries: [{ kind: 'skill', name: 'tdd', origin: 'matt', path: 'skills/tdd' }],
+    });
+    await write(file, 'entries:\n  - kind: skill\n    name: tdd\n    origin: matt\n');
+    await expect(Lock.load(file)).rejects.toMatchObject({
+      code: 'E_USAGE',
+      message: expect.stringContaining('version 1'),
+    });
+    expect((await Lock.loadLegacy(file))?.version).toBe(1);
+    await sampleLock().save(file);
+    expect(await Lock.loadLegacy(file)).toBeUndefined();
+    expect(await Lock.loadLegacy(join(file, '..', 'missing.yaml'))).toBeUndefined();
+  });
+
+  it('refuses an unknown version and entries without the required fields', async () => {
+    const file = join(await tmpDir(), 'palm.lock.yaml');
+    await write(file, 'version: 4\nentries: []\n');
+    await expect(Lock.load(file)).rejects.toMatchObject({ code: 'E_PARSE' });
+    for (const missing of ['kind', 'name', 'source', 'path', 'content', 'render']) {
+      const e: Record<string, unknown> = {
         kind: 'skill',
-        name: 'a',
-        origin: 'o',
+        name: 'x',
+        source: 's',
         path: 'p',
-        contentHash: 'h',
-        transform: 0,
-        targets: [],
-        files: [],
-      },
+        content: 'c',
+        render: {},
+      };
+      delete e[missing];
+      await write(file, `version: 3\nentries:\n  - ${JSON.stringify(e)}\n`);
+      await expect(Lock.load(file), missing).rejects.toMatchObject({
+        code: 'E_PARSE',
+        message: expect.stringContaining('entry 1'),
+      });
+    }
+  });
+});
+
+describe('Lock as a collection', () => {
+  it('finds, selects, upserts and removes by kind + name (any case) + source', () => {
+    const lock = sampleLock();
+    lock.upsert(entry({ kind: 'skill', name: 'TDD', source: 'other' }));
+    expect(lock.find({ kind: 'skill', name: 'tdd' }, 'mattpocock/skills')?.source).toBe(
+      'mattpocock/skills',
+    );
+    expect(lock.findAll({ kind: 'skill', name: 'Tdd' })).toHaveLength(2);
+    expect(lock.select({ name: 'TDD', source: 'OTHER' })).toHaveLength(1);
+    expect(lock.select({ kind: 'agent', name: 'tdd' })).toEqual([]);
+    lock.upsert({ ...entry({ kind: 'skill', name: 'tdd' }), content: 'sha256:new' });
+    expect(lock.find({ kind: 'skill', name: 'tdd' }, 'mattpocock/skills')?.content).toBe(
+      'sha256:new',
+    );
+    lock.remove({ kind: 'skill', name: 'tdd' });
+    expect(lock.findAll({ kind: 'skill', name: 'tdd' })).toEqual([]);
+    expect(lock.entriesOf('obra/superpowers').map((e) => e.name)).toEqual([
+      'superpowers',
+      'brainstorming',
     ]);
   });
 
-  it('rejects malformed locks', async () => {
-    const cases: Array<[string, RegExp]> = [
-      ['- a\n', /must be a YAML mapping/],
-      ['version: 3\nentries: []\n', /unsupported lockfile version 3/],
-      [
-        'entries:\n  - {kind: skill, name: a, origin: o, files: [{hash: x}]}\n',
-        /malformed `files`/,
-      ],
-      ['entries:\n  - {kind: skill, name: a}\n', /entry 1 needs a kind, name and origin/],
-      ['entries:\n  - just-a-string\n', /entry 1 needs/],
-      ['entries: [a\n', /./],
-    ];
-    for (const [text, message] of cases) {
-      const file = join(dir, 'bad.yaml');
-      await writeFile(file, text);
-      await expect(Lock.load(file)).rejects.toMatchObject({ code: 'E_PARSE', message });
-    }
-    await mkdir(join(dir, 'a-dir'));
-    await expect(Lock.load(join(dir, 'a-dir'))).rejects.toMatchObject({ code: 'E_IO' });
-  });
-});
-
-describe('Lock lookups and edits', () => {
-  it('finds by entity (any case) and by origin', () => {
-    const lock = new Lock([entry('a'), entry('A', { origin: 'p' }), entry('b')]);
-    expect(lock.find({ kind: 'skill', name: 'A' })?.origin).toBe('o');
-    expect(lock.find({ kind: 'skill', name: 'a' }, 'p')?.name).toBe('A');
-    expect(lock.find({ kind: 'skill', name: 'a' }, 'q')).toBeUndefined();
-    expect(lock.find({ kind: 'agent', name: 'a' })).toBeUndefined();
-    expect(lock.findAll({ kind: 'skill', name: 'a' }).map((e) => e.origin)).toEqual(['o', 'p']);
-    expect(lock.findAll({ kind: 'skill', name: 'zz' })).toEqual([]);
+  it('keeps source records', () => {
+    const lock = new Lock().setSource('a/b', { url: 'u', sha: 's' });
+    expect(lock.source('a/b')).toEqual({ url: 'u', sha: 's' });
+    expect(Object.keys(lock.removeSource('a/b').sources)).toEqual([]);
   });
 
-  it('upserts in place, appends new keys, removes by origin or entity', () => {
-    const lock = new Lock([entry('a'), entry('b')]);
-    lock.upsert(entry('A', { contentHash: 'sha256:y' }));
-    expect(names(lock.entries)).toEqual(['A', 'b']);
-    expect(lock.find({ kind: 'skill', name: 'a' })?.contentHash).toBe('sha256:y');
-    lock.upsert(entry('a', { origin: 'p' })).upsert(entry('c'));
-    expect(lock.entries.map(lockId)).toEqual(['skill:a@o', 'skill:b@o', 'skill:a@p', 'skill:c@o']);
-    lock.remove({ kind: 'skill', name: 'a', origin: 'p' });
-    expect(lock.findAll({ kind: 'skill', name: 'a' })).toHaveLength(1);
-    lock.upsert(entry('a', { origin: 'p' })).remove({ kind: 'skill', name: 'A' });
-    expect(names(lock.entries)).toEqual(['b', 'c']);
-    lock
-      .remove({ kind: 'skill', name: 'missing', origin: 'o' })
-      .remove({ kind: 'skill', name: 'gone' });
-    expect(lock.size).toBe(2);
-  });
-
-  it('selects by kind, name or registry name, and origin', () => {
-    const weather = entry('weather', {
-      kind: 'mcp',
-      origin: 'registry',
-      path: 'io.github.acme/weather',
-    });
-    const lock = new Lock([entry('a'), entry('a', { kind: 'agent' }), weather]);
-    expect(lock.select({ name: 'A' })).toHaveLength(2);
-    expect(lock.select({ kind: 'agent', name: 'a' })).toHaveLength(1);
-    expect(lock.select({ name: 'a', origin: 'x' })).toEqual([]);
-    expect(lock.select({ name: 'io.github.acme/WEATHER' })).toEqual([weather]);
-    expect(answersTo(weather, 'Weather')).toBe(true);
+  it('links plugins and members through via and deps, per source', () => {
+    const lock = sampleLock();
+    lock.upsert(
+      entry({
+        kind: 'skill',
+        name: 'brainstorming',
+        source: 'elsewhere',
+        via: 'plugin:superpowers',
+      }),
+    );
+    const plugin = lock.find({ kind: 'plugin', name: 'superpowers' }) as LockEntry;
+    expect(lock.childrenOf(plugin).map((e) => e.source)).toEqual(['obra/superpowers']);
+    expect(lock.childrenOf({ kind: 'plugin', name: 'superpowers' })).toHaveLength(2);
+    const member = lock.find(
+      { kind: 'skill', name: 'brainstorming' },
+      'obra/superpowers',
+    ) as LockEntry;
+    expect(lock.parentOf(member)?.name).toBe('superpowers');
     expect(
-      answersTo(entry('x', { path: 'io.github.acme/weather' }), 'io.github.acme/weather'),
-    ).toBe(false);
+      lock.usersOf({ kind: 'skill', name: 'brainstorming', source: 'obra/superpowers' }),
+    ).toEqual([plugin]);
+    expect(lock.usersOf({ kind: 'skill', name: 'brainstorming', source: 'elsewhere' })).toEqual([]);
   });
 
-  it('serialises through toJSON (change detection by JSON.stringify)', () => {
-    const lock = new Lock([entry('a')]);
-    const before = JSON.stringify(lock);
-    expect(JSON.parse(before)).toEqual({ version: 2, entries: [entry('a')] });
-    lock.upsert(entry('a'));
-    expect(JSON.stringify(lock)).toBe(before);
-    lock.upsert(entry('a', { contentHash: 'sha256:z' }));
-    expect(JSON.stringify(lock)).not.toBe(before);
-    expect(Lock.from({ version: 2, entries: [entry('q')] }).entries).toEqual([entry('q')]);
-  });
-});
-
-describe('Lock via graph', () => {
-  const plugin = entry('Bundle', {
-    kind: 'plugin',
-    files: [],
-    deps: [{ kind: 'skill', name: 'm' }],
-  });
-  const member = entry('m', { via: 'plugin:bundle' });
-  const nested = entry('n', { via: 'agent:helper' });
-  const helper = agent('helper', ['n'], { via: 'plugin:Bundle' });
-
-  it('links children and parents case-insensitively', () => {
-    const lock = new Lock([plugin, member, helper, nested, entry('direct')]);
-    expect(names(lock.childrenOf(plugin))).toEqual(['m', 'helper']);
-    expect(lock.childrenOf(entry('m'))).toEqual([]); // skills install nothing
-    expect(lock.parentOf(member)).toBe(plugin);
-    expect(lock.parentOf(entry('direct'))).toBeUndefined();
-    expect(lock.parentOf(entry('x', { via: 'garbage' }))).toBeUndefined();
-    expect(lock.rootOf(nested)).toBe(plugin);
-    expect(lock.rootOf(plugin)).toBe(plugin);
-  });
-
-  it('stops at a via cycle instead of looping', () => {
-    const a = agent('a', [], { via: 'agent:b' });
-    const b = agent('b', [], { via: 'agent:a' });
-    const self = agent('self', [], { via: 'agent:self' });
-    const lock = new Lock([a, b, self]);
-    expect(lock.rootOf(a)).toBe(b);
-    expect(lock.rootOf(self)).toBe(self);
-    expect(names(lock.dependentsOf([a]))).toEqual(['a', 'b']);
-  });
-
-  it('collects dependents breadth first, not descending into stopAt', () => {
-    const lock = new Lock([plugin, member, helper, nested]);
-    expect(names(lock.dependentsOf([plugin]))).toEqual(['Bundle', 'm', 'helper', 'n']);
-    expect(names(lock.dependentsOf([plugin], new Set([lockId(helper)])))).toEqual(['Bundle', 'm']);
-    expect(names(lock.dependentsOf([member]))).toEqual(['m']);
-  });
-
-  it('diamond (A → S, B → S): only the via parent reaches S, both use it', () => {
-    const a = agent('A', ['s']);
-    const b = agent('B', ['S']);
-    const s = entry('s', { via: 'agent:A' });
-    const lock = new Lock([a, b, s]);
-    expect(names(lock.dependentsOf([a]))).toEqual(['A', 's']);
-    expect(names(lock.dependentsOf([b]))).toEqual(['B']);
-    expect(names(lock.usersOf(s))).toEqual(['A', 'B']);
-    expect(names(lock.usersOf(s, new Set([lockId(a)])))).toEqual(['B']);
-    // only plugins and agents install dependencies
-    const odd = entry('odd', { deps: [{ kind: 'skill', name: 's' }] });
-    expect(names(new Lock([odd, s]).usersOf(s))).toEqual([]);
+  it('ownedPaths lists files and fragments; trust is recorded once and checked', () => {
+    const lock = sampleLock();
+    expect([...lock.ownedPaths()].sort()).toEqual([
+      '.claude/settings.json#/hooks/Stop#sha256:3e01a9f2',
+      '.claude/skills/tdd/SKILL.md',
+      '.claude/skills/tdd/b.md',
+    ]);
+    const hook = lock.find({ kind: 'hook', name: 'quality' }) as LockEntry;
+    expect(lock.trusted(hook)).toBe(true);
+    const changed = {
+      ...hook,
+      exec: { ...(hook.exec as NonNullable<LockEntry['exec']>), hash: 'sha256:b2d4' },
+    };
+    lock.upsert(changed);
+    expect(lock.trusted(changed)).toBe(false);
+    lock.trust(changed, 'sha256:b2d4').trust(changed, 'sha256:b2d4');
+    const now = lock.find({ kind: 'hook', name: 'quality' }) as LockEntry;
+    expect(now.trust).toEqual(['sha256:a7cc', 'sha256:b2d4']);
+    expect(lock.trusted(now)).toBe(true);
+    expect(lock.trusted(entry({ kind: 'skill', name: 'x' }))).toBe(true);
   });
 });
 
 describe('Lock.planRemoval', () => {
-  it('diamond: removing A keeps S (re-parented to B); removing A and B removes S', () => {
-    const a = agent('A', ['s']);
-    const b = agent('B', ['s']);
-    const s = entry('s', { via: 'agent:A' });
-    const lock = new Lock([a, b, s]);
-
-    const plan = lock.planRemoval([a]);
-    expect(names(plan.removed)).toEqual(['A']);
-    expect(plan.kept).toEqual([{ entry: s, via: 'agent:B' }]);
-    lock.reparent(plan.kept);
-    expect(lock.find(s)?.via).toBe('agent:B');
-
-    const both = new Lock([a, b, s]).planRemoval([a, b]);
-    expect(names(both.removed)).toEqual(['A', 'B', 's']);
-    expect(both.kept).toEqual([]);
-  });
-
-  it('keeps what the manifest lists (now direct) and follows kept entries no further', () => {
-    const p = entry('p', { kind: 'plugin', files: [], deps: [{ kind: 'agent', name: 'h' }] });
-    const h = agent('h', ['x'], { via: 'plugin:p' });
-    const x = entry('x', { via: 'agent:h' });
-    const lock = new Lock([p, h, x]);
-    const plan = lock.planRemoval([p], { listed: (e) => e.name === 'h' });
-    expect(names(plan.removed)).toEqual(['p']);
-    expect(plan.kept).toEqual([{ entry: h }]);
-    lock.reparent(plan.kept);
-    expect(lock.find(h)?.via).toBeUndefined();
-    expect(lock.find(x)?.via).toBe('agent:h');
-  });
-
-  it('checks roots only with checkRoots (orphaned dependencies)', () => {
-    const a = agent('A', []);
-    const b = agent('B', ['s']);
-    const s = entry('s', { via: 'agent:A' });
-    const lock = new Lock([a, b, s]);
-    expect(names(lock.planRemoval([s]).removed)).toEqual(['s']);
-    const orphan = lock.planRemoval([s], { checkRoots: true });
-    expect(orphan.removed).toEqual([]);
-    expect(orphan.kept).toEqual([{ entry: s, via: 'agent:B' }]);
-    const direct = entry('d');
-    expect(names(new Lock([direct]).planRemoval([direct], { checkRoots: true }).removed)).toEqual([
-      'd',
+  function plugins(): Lock {
+    const src = 'obra/superpowers';
+    return new Lock({}, [
+      entry({
+        kind: 'plugin',
+        name: 'a',
+        source: src,
+        deps: [
+          { kind: 'skill', name: 'x' },
+          { kind: 'skill', name: 'y' },
+        ],
+      }),
+      entry({ kind: 'plugin', name: 'b', source: src, deps: [{ kind: 'skill', name: 'y' }] }),
+      entry({ kind: 'skill', name: 'x', source: src, via: 'plugin:a' }),
+      entry({ kind: 'skill', name: 'y', source: src, via: 'plugin:a' }),
+      entry({ kind: 'skill', name: 'z', source: src, via: 'plugin:a' }),
     ]);
+  }
+
+  it('takes the members of a removed plugin unless another plugin still declares them', () => {
+    const lock = plugins();
+    const a = lock.find({ kind: 'plugin', name: 'a' }) as LockEntry;
+    const plan = lock.planRemoval([a]);
+    expect(plan.removed.map((e) => e.name)).toEqual(['a', 'x', 'z']);
+    expect(plan.kept).toEqual([
+      { entry: lock.find({ kind: 'skill', name: 'y' }), via: 'plugin:b' },
+    ]);
+    lock.reparent(plan.kept);
+    expect(lock.find({ kind: 'skill', name: 'y' })?.via).toBe('plugin:b');
+  });
+
+  it('keeps a member palm.yaml lists directly, without via; removing both plugins takes the rest', () => {
+    const lock = plugins();
+    const [a, b] = ['a', 'b'].map((n) => lock.find({ kind: 'plugin', name: n }) as LockEntry);
+    const plan = lock.planRemoval([a as LockEntry, b as LockEntry], {
+      listed: (e) => e.name === 'z',
+    });
+    expect(plan.removed.map((e) => e.name)).toEqual(['a', 'b', 'x', 'y']);
+    expect(plan.kept.map((k) => [k.entry.name, k.via])).toEqual([['z', undefined]]);
+    lock.reparent(plan.kept);
+    expect(lock.find({ kind: 'skill', name: 'z' })).not.toHaveProperty('via');
+  });
+
+  it('removes a non-plugin root alone', () => {
+    const lock = plugins();
+    const x = lock.find({ kind: 'skill', name: 'x' }) as LockEntry;
+    expect(lock.planRemoval([x])).toEqual({ removed: [x], kept: [] });
   });
 });
 
-describe('Lock files on disk', () => {
-  let dir: string;
-  beforeEach(async () => {
-    dir = await tempDir();
-  });
-  afterEach(async () => removeDir(dir));
+describe('renderHashOf, fragmentKey, fragmentId', () => {
+  const rendered: Pick<Rendered, 'files' | 'fragments'> = {
+    files: [
+      { path: '.claude/skills/tdd/SKILL.md', data: new TextEncoder().encode('# tdd\n') },
+      { path: '.palm/assets/k/h/run.sh', data: new TextEncoder().encode('echo\n'), mode: 0o755 },
+    ],
+    fragments: [
+      {
+        file: '.claude/settings.json',
+        at: '/hooks/Stop',
+        id: 'palm:hook:h:0',
+        key: 'sha256:1',
+        value: { hooks: [{ type: 'command', command: 'x' }] },
+      },
+    ],
+  };
 
-  const paths = (root: string) => ({ abs: (f: string) => (f.startsWith('/') ? f : join(root, f)) });
-
-  it('protects merge targets and the files of entries that stay', () => {
-    const a = entry('a', { merged: [{ file: '.mcp.json', pointer: '/x', value: 1 }] });
-    const b = entry('b', { files: [{ path: '/abs/b', hash: '' }] });
-    const lock = new Lock([a, b]);
-    const p = paths('/root');
-    expect([...lock.protectedFiles(p, [a])].sort()).toEqual(['/abs/b', '/root/.mcp.json']);
-    expect([...lock.protectedFiles(p, [])].sort()).toEqual([
-      '/abs/b',
-      '/root/.claude/skills/a',
-      '/root/.mcp.json',
-    ]);
-  });
-
-  it('knows whether an entry and its dependents are intact', async () => {
-    const p = entry('p', { kind: 'plugin', files: [] });
-    const m = entry('m', { via: 'plugin:p' });
-    const lock = new Lock([p, m]);
-    const at = paths(dir);
-    expect(Lock.filesPresent(p, at)).toBe(true);
-    expect(Lock.filesPresent(m, at)).toBe(false);
-    expect(await lock.intact(p, at)).toBe(false);
-    await mkdir(join(dir, '.claude/skills/m'), { recursive: true });
-    expect(await lock.intact(p, at)).toBe(true);
-  });
-
-  it('merged records count too: mergedDrift names each one its file no longer holds (H3)', async () => {
-    const merged = [
-      { file: '.mcp.json', pointer: '/mcpServers/a', value: { url: 'u' } },
-      { file: 'AGENTS.md', pointer: 'block:instruction:a', value: 'text' },
-    ];
-    const e = entry('a', { files: [], merged });
-    const lock = new Lock([e]);
-    const at = paths(dir);
-    const states: Record<string, 'held' | 'missing' | 'changed'> = {
-      [join(dir, '.mcp.json')]: 'held',
-      [join(dir, 'AGENTS.md')]: 'changed',
-    };
-    const check = async (rec: { file: string }) => states[rec.file] ?? 'missing';
-    expect(await Lock.mergedDrift(e, at, check)).toEqual([{ record: merged[1], state: 'changed' }]);
-    expect(await lock.intact(e, at, check)).toBe(false);
-    expect(await lock.intact(e, at)).toBe(true); // without a check only files count
-    states[join(dir, 'AGENTS.md')] = 'held';
-    expect(await Lock.inPlace(e, at, check)).toBe(true);
-    const failing = async () => {
-      throw new Error('unreadable');
-    };
-    expect(await Lock.mergedDrift(e, at, failing)).toHaveLength(2); // an error counts as changed
+  it('changes when a file byte, a mode or a fragment value changes, never with order', () => {
+    const base = renderHashOf(rendered);
+    expect(base).toMatch(/^sha256:[0-9a-f]{64}$/);
+    const [f0, f1] = rendered.files as [Rendered['files'][0], Rendered['files'][0]];
+    const g0 = rendered.fragments[0] as Rendered['fragments'][0];
+    expect(renderHashOf({ files: [f1, f0], fragments: [g0] })).toBe(base);
+    expect(
+      renderHashOf({
+        ...rendered,
+        files: [f0, { ...f1, data: new TextEncoder().encode('echo!\n') }],
+      }),
+    ).not.toBe(base);
+    expect(renderHashOf({ ...rendered, files: [f0, { ...f1, mode: 0o644 }] })).not.toBe(base);
+    expect(renderHashOf({ ...rendered, fragments: [{ ...g0, value: { hooks: [] } }] })).not.toBe(
+      base,
+    );
+    expect(
+      renderHashOf({ ...rendered, fragments: [{ ...g0, value: { ...(g0.value as object) } }] }),
+    ).toBe(base);
+    expect(renderHashOf({ ...rendered, fragments: [{ ...g0, id: 'palm:hook:h:9' }] })).toBe(base);
   });
 
-  it('records the persisted targets and the dirs palm created, sorted and deduplicated', async () => {
-    const file = join(dir, 'palm.lock.yaml');
-    const lock = new Lock([entry('a')]);
-    lock.targets = ['codex', 'claude'];
-    lock.noteCreatedDirs(['.codex', '.claude']).noteCreatedDirs(['.codex']);
-    await lock.save(file);
-    const text = await readFile(file, 'utf8');
-    expect(text).toContain('targets: [claude, codex]\ncreatedDirs:\n  - .claude\n  - .codex\n');
-    const back = await Lock.load(file);
-    expect(back.targets).toEqual(['claude', 'codex']);
-    expect(back.createdDirs).toEqual(['.claude', '.codex']);
+  it('fragmentKey: block id, object key or table name, else a short hash of the identity fields', () => {
+    expect(fragmentKey('block:instruction:db', 'text')).toBe('instruction:db');
+    expect(fragmentKey('/mcpServers/docs', { url: 'x' })).toBe('docs');
+    expect(fragmentKey('/mcp_servers/docs', { url: 'x' })).toBe('docs');
+    expect(fragmentKey('/instructions', '.opencode/instructions/a.md')).toMatch(
+      /^sha256:[0-9a-f]{8}$/,
+    );
+    const hook = { matcher: 'Bash', hooks: [{ type: 'command', command: 'a.sh', timeout: 5 }] };
+    const key = fragmentKey('/hooks/PreToolUse', hook);
+    expect(key).toMatch(/^sha256:[0-9a-f]{8}$/);
+    expect(
+      fragmentKey('/hooks/PreToolUse', {
+        hooks: [{ timeout: 9, command: 'a.sh', type: 'command' }],
+        matcher: 'Bash',
+      }),
+    ).toBe(key);
+    expect(fragmentKey('/hooks/PreToolUse', { ...hook, matcher: 'Edit' })).not.toBe(key);
+    expect(() => fragmentKey('', {})).toThrowError(expect.objectContaining({ code: 'E_INTERNAL' }));
+    expect(fragmentId({ kind: 'hook', name: 'quality' }, 0)).toBe('palm:hook:quality:0');
   });
 });

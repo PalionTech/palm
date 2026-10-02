@@ -1,20 +1,21 @@
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { Entity, LayoutDescriptor, OriginSpec, ScanResult } from '../../src/core/types.js';
-import { scanOrigin } from '../../src/index/scan.js';
+import type { Entity, LayoutDescriptor, ScanResult, Source } from '../../src/core/types.js';
+import { scanSource } from './helpers.js';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures/', import.meta.url));
 
-function spec(alias: string, extra: Partial<OriginSpec> = {}): OriginSpec {
-  return { alias, type: 'local', path: join(FIXTURES, alias), ...extra };
+function source(name: string, fixture: string, extra: Partial<Source> = {}): Source {
+  return { name, type: 'local', path: join(FIXTURES, fixture), ...extra };
 }
 
-async function scan(fixture: string, extra: Partial<OriginSpec> = {}): Promise<ScanResult> {
-  return scanOrigin(join(FIXTURES, fixture), spec(fixture.replace(/-like$/, ''), extra));
+async function scan(fixture: string, extra: Partial<Source> = {}): Promise<ScanResult> {
+  const name = fixture.replace(/-like$/, '');
+  return scanSource(join(FIXTURES, fixture), source(name, fixture, extra));
 }
 
-/** `kind:name path <plugin>` — compact, order-independent view of an index. */
+/** `kind:name path <plugin>`: a compact, order-independent view of an index. */
 function summary(r: ScanResult): string[] {
   return r.entities
     .map((e) => `${e.kind}:${e.name} ${e.path}${e.plugin ? ` <${e.plugin}>` : ''}`)
@@ -37,7 +38,7 @@ function find(r: ScanResult, kind: Entity['kind'], name: string): Entity {
 
 interface Case {
   fixture: string;
-  extra?: Partial<OriginSpec>;
+  extra?: Partial<Source>;
   detected: ScanResult['detected'];
   entities: string[];
   plugins?: Record<string, string[]>;
@@ -116,7 +117,7 @@ const CASES: Case[] = [
     warnings: [
       /poteto-mode\/SKILL\.md: frontmatter name "Poteto Mode" is not a valid slug; using "poteto-mode"/,
       /duplicate skill "tdd" at team-kit\/skills\/tdd ignored \(already indexed from pstack\/skills\/tdd\)/,
-      /remote plugin "far-away" \(github:acme\/far-away#v1\.0\.0\) not fetched → add it as an origin: palm install origin acme\/far-away#v1\.0\.0/,
+      /remote plugin "far-away" \(github:acme\/far-away#v1\.0\.0\) not fetched: declare it: palm install acme\/far-away#v1\.0\.0 <names>$/,
       /plugin "missing-dir": source directory does-not-exist not found; skipped/,
       /plugin "pstack" at pstack does not declare 1 skill \(setup-benny\)/,
     ],
@@ -146,7 +147,7 @@ const CASES: Case[] = [
     detected: 'marketplace',
     entities: [
       'agent:agent-sdk-verifier-py plugins/agent-sdk-dev/agents/agent-sdk-verifier-py.md <agent-sdk-dev>',
-      'command:new-sdk-app plugins/agent-sdk-dev/commands/new-sdk-app.md <agent-sdk-dev>',
+      'skill:new-sdk-app plugins/agent-sdk-dev/commands/new-sdk-app.md <agent-sdk-dev>',
       'hook:agent-sdk-dev plugins/agent-sdk-dev/hooks/hooks.json <agent-sdk-dev>',
       'mcp:context7 external_plugins/context7/.mcp.json <context7>',
       'mcp:fs external_plugins/context7/.mcp.json <context7>',
@@ -159,8 +160,8 @@ const CASES: Case[] = [
     plugins: {
       'agent-sdk-dev': [
         'agent:agent-sdk-verifier-py',
-        'command:new-sdk-app',
         'hook:agent-sdk-dev',
+        'skill:new-sdk-app',
         'skill:sdk-helper',
       ],
       github: ['mcp:github'],
@@ -169,8 +170,8 @@ const CASES: Case[] = [
     warnings: [
       /plugin clangd-lsp: lspServers not supported by palm \(ignored\)/,
       /plugin "clangd-lsp" at plugins\/clangd-lsp has no installable components; skipped/,
-      /remote plugin "42crunch" \(https:\/\/github\.com\/42Crunch-AI\/claude-plugins\.git \(plugins\/api-security-testing\)@faf5305385de\) not fetched/,
-      /remote plugin "agentforce-adlc" .* palm install origin https:\/\/github\.com\/SalesforceAIResearch\/agentforce-adlc\.git$/,
+      /remote plugin "42crunch" \(https:\/\/github\.com\/42Crunch-AI\/claude-plugins\.git \(plugins\/api-security-testing\)@faf5305385de\) not fetched: declare it: palm install 42Crunch-AI\/claude-plugins\/plugins\/api-security-testing#faf5305385de8afed9468904e8639be737aff39e <names>$/,
+      /remote plugin "agentforce-adlc" .* palm install SalesforceAIResearch\/agentforce-adlc#09bf1539d41f9ff355ba3eb5d05d4a75813423bb <names>$/,
       /plugin "npm-plugin": unsupported source npm:@acme\/plugin; skipped/,
     ],
   },
@@ -185,7 +186,6 @@ const CASES: Case[] = [
       'instruction:python instructions/python.instructions.md',
       'mcp:awesome-copilot plugins/awesome-copilot/mcp.json <awesome-copilot>',
       'plugin:awesome-copilot plugins/awesome-copilot',
-      'skill:qdrant-horizontal-scaling skills/qdrant-scaling/scaling-data-volume/horizontal-scaling',
       'skill:qdrant-scaling skills/qdrant-scaling',
       'skill:suggest-awesome-github-copilot-agents skills/suggest-awesome-github-copilot-agents <awesome-copilot>',
     ],
@@ -199,7 +199,6 @@ const CASES: Case[] = [
     warnings: [
       /remote plugin "agent-council" \(github:Avyayalaya\/agent-council#v0\.1\.3\)/,
       /remote plugin "anarlog" \(github:fastrepl\/anarlog\/agent-plugins\/anarlog@259b68866a7d\)/,
-      /horizontal-scaling\/SKILL\.md: frontmatter name "qdrant-horizontal-scaling" differs from directory "horizontal-scaling"/,
     ],
   },
   {
@@ -231,7 +230,7 @@ const CASES: Case[] = [
     detected: 'apm',
     entities: [
       'agent:reviewer .apm/agents/reviewer.agent.md <my-apm-pkg>',
-      'command:release .apm/prompts/release.prompt.md <my-apm-pkg>',
+      'skill:release .apm/prompts/release.prompt.md <my-apm-pkg>',
       'hook:format-on-save .apm/hooks/format-on-save.json <my-apm-pkg>',
       'instruction:typescript .apm/instructions/typescript.instructions.md <my-apm-pkg>',
       'plugin:my-apm-pkg .',
@@ -240,52 +239,58 @@ const CASES: Case[] = [
     plugins: {
       'my-apm-pkg': [
         'agent:reviewer',
-        'command:release',
         'hook:format-on-save',
         'instruction:typescript',
         'skill:lint-fix',
+        'skill:release',
       ],
     },
-    warnings: [],
+    warnings: [
+      /^apm\.yml: 1 MCP server dependency is not installed \(io\.github\.github\/github-mcp-server\); palm installs a server with: palm install mcp --snippet /,
+      /^apm\.yml: 2 dependencies are not installed; declare what you need: palm install microsoft\/apm-sample-package, palm install github\/awesome-copilot\/skills\/review-and-refactor#v1\.2\.0$/,
+    ],
   },
   {
     fixture: 'codex-agent-like',
     detected: 'convention',
     entities: [
       'agent:reviewer agents/reviewer.toml',
-      'command:explain prompts/explain.prompt.md',
-      'command:review commands/review.toml',
-      'command:ship commands/ship.md',
       'hook:codex-agent hooks/hooks.json',
       'instruction:style rules/style.mdc',
       'mcp:local-fs .mcp.json',
+      'skill:explain prompts/explain.prompt.md',
+      'skill:review commands/review.toml',
+      'skill:ship commands/ship.md',
     ],
-    warnings: [/skipped agents\/partial\.md: agent file without name\/description frontmatter/],
+    warnings: [
+      /skipped agents\/partial\.md: agent file without name\/description frontmatter/,
+      // The Gemini hook runs ./check.sh, which the source does not ship.
+      /^unresolvable-reference: hook "codex-agent" \(critical\): hooks\/hooks\.json: cannot relocate "\.\/check\.sh" in command "\.\/check\.sh": no such file in the source$/,
+    ],
   },
   {
     fixture: 'caveman-like',
     detected: 'marketplace',
     entities: [
       'agent:cavecrew-builder agents/cavecrew-builder.md <caveman>',
-      'command:caveman commands/caveman.toml <caveman>',
-      'command:caveman-init commands/caveman-init.md <caveman>',
       'hook:caveman .claude-plugin/plugin.json <caveman>',
       'plugin:caveman .',
       'skill:caveman skills/caveman <caveman>',
       'skill:caveman-commit skills/caveman-commit <caveman>',
+      'skill:caveman-init commands/caveman-init.md <caveman>',
     ],
     plugins: {
       caveman: [
         'agent:cavecrew-builder',
-        'command:caveman',
-        'command:caveman-init',
         'hook:caveman',
         'skill:caveman',
         'skill:caveman-commit',
+        'skill:caveman-init',
       ],
     },
     warnings: [
-      /duplicate command "caveman-init" at commands\/caveman-init\.toml ignored \(already indexed from commands\/caveman-init\.md\)/,
+      /duplicate skill "caveman-init" at commands\/caveman-init\.toml ignored \(already indexed from commands\/caveman-init\.md\)/,
+      /^command commands\/caveman\.toml dropped: skill "caveman" at skills\/caveman has the same name$/,
       /duplicate skill "caveman" at plugins\/caveman\/skills\/caveman ignored \(already indexed from skills\/caveman\)/,
     ],
   },
@@ -304,17 +309,17 @@ const CASES: Case[] = [
     fixture: 'nested-plugins-like',
     detected: 'plugin-manifest',
     entities: [
-      'command:go plugins/alpha/commands/go.md <alpha>',
-      'command:hello plugins/beta/commands/hello.toml <beta>',
       'mcp:beta-server plugins/beta/gemini-extension.json <beta>',
       'plugin:alpha plugins/alpha',
       'plugin:beta plugins/beta',
       'skill:alpha-skill plugins/alpha/skills/alpha-skill <alpha>',
+      'skill:go plugins/alpha/commands/go.md <alpha>',
+      'skill:hello plugins/beta/commands/hello.toml <beta>',
       'skill:loose skills/loose',
     ],
     plugins: {
-      alpha: ['command:go', 'skill:alpha-skill'],
-      beta: ['command:hello', 'mcp:beta-server'],
+      alpha: ['skill:alpha-skill', 'skill:go'],
+      beta: ['mcp:beta-server', 'skill:hello'],
     },
     warnings: [],
   },
@@ -346,7 +351,7 @@ const CASES: Case[] = [
   },
 ];
 
-describe('scanOrigin fixtures', () => {
+describe('scanSource fixtures', () => {
   it.each(CASES.map((c) => [c.fixture + (c.extra ? ' (descriptor)' : ''), c] as const))(
     '%s',
     async (_label, c) => {
@@ -362,14 +367,14 @@ describe('scanOrigin fixtures', () => {
         ).toBe(true);
       expect(r.warnings, r.warnings.join('\n')).toHaveLength(c.warnings.length);
       for (const e of r.entities) {
-        expect(e.origin).toBe(c.fixture.replace(/-like$/, ''));
+        expect(e.source).toBe(c.fixture.replace(/-like$/, ''));
         expect(e.def.kind).toBe(e.kind);
       }
     },
   );
 });
 
-describe('scanOrigin definitions', () => {
+describe('scanSource definitions', () => {
   it('mattpocock-like: skills carry the plugin version and never index agents/openai.yaml', async () => {
     const r = await scan('mattpocock-like');
     expect(r.entities.some((e) => e.kind === 'agent')).toBe(false);
@@ -385,7 +390,7 @@ describe('scanOrigin definitions', () => {
     });
   });
 
-  it('superpowers-like: picks the Claude manifest and its hooks dialect', async () => {
+  it('superpowers-like: picks the Claude manifest, its hooks dialect and the hook closure', async () => {
     const r = await scan('superpowers-like');
     const hook = find(r, 'hook', 'superpowers');
     expect(hook.def).toEqual({
@@ -394,6 +399,17 @@ describe('scanOrigin definitions', () => {
         name: 'superpowers',
         dialect: 'claude',
         pluginRootRel: '.',
+        promptHooks: [],
+        references: [
+          {
+            raw: '"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd"',
+            form: 'plugin-root',
+            site: 'command',
+            rel: 'hooks/run-hook.cmd',
+          },
+        ],
+        // hooks/ holds the definition and swallows the script it names.
+        closure: { paths: ['hooks'] },
         raw: {
           hooks: {
             SessionStart: [
@@ -440,24 +456,36 @@ describe('scanOrigin definitions', () => {
         description: 'TypeScript conventions',
         globs: ['**/*.ts', '**/*.tsx'],
         alwaysApply: false,
+        activation: 'paths',
         body: 'Use exhaustive switches.\n',
         sourceFormat: 'mdc',
       },
     });
     expect(find(r, 'instruction', 'no-inline-imports').def).toMatchObject({
-      instruction: { alwaysApply: true },
+      instruction: { alwaysApply: true, activation: 'always' },
     });
     expect(find(r, 'hook', 'cursor-team-kit').def).toMatchObject({
-      hooks: { dialect: 'cursor', pluginRootRel: 'team-kit' },
+      hooks: {
+        dialect: 'cursor',
+        pluginRootRel: 'team-kit',
+        references: [
+          { form: 'plugin-root', rel: 'team-kit/hooks/mark.sh' },
+          { raw: './hooks/record.sh', form: 'relative', rel: 'team-kit/hooks/record.sh' },
+        ],
+        closure: { paths: ['team-kit/hooks'] },
+      },
     });
+    expect(find(r, 'mcp', 'ahrefs')).toMatchObject({ version: '1.0.0' });
     expect(find(r, 'mcp', 'ahrefs').def).toEqual({
       kind: 'mcp',
       mcp: {
         name: 'ahrefs',
         transport: 'http',
         url: 'https://api.ahrefs.com/mcp/mcp',
-        source: { type: 'origin', ref: 'cursor-monorepo', version: '1.0.0' },
+        from: { type: 'source', ref: 'cursor-monorepo' },
       },
+      references: [],
+      closure: { paths: [] },
     });
     expect(find(r, 'plugin', 'pstack').def).toMatchObject({
       manifestPath: 'pstack/.cursor-plugin/plugin.json',
@@ -479,16 +507,24 @@ describe('scanOrigin definitions', () => {
     expect(r.entities.some((e) => e.name === 'template-skill')).toBe(false);
   });
 
-  it('claude-plugins-official-like: commands, agents, flat and wrapped .mcp.json', async () => {
+  it('claude-plugins-official-like: commands as skills, agents, flat and wrapped .mcp.json', async () => {
     const r = await scan('claude-plugins-official-like');
-    expect(find(r, 'command', 'new-sdk-app').def).toEqual({
-      kind: 'command',
-      command: {
+    expect(find(r, 'skill', 'new-sdk-app')).toMatchObject({
+      path: 'plugins/agent-sdk-dev/commands/new-sdk-app.md',
+      notes: [
+        'from command new-sdk-app.md: installed as a skill, which a harness may also load on its own when it looks relevant',
+      ],
+    });
+    expect(find(r, 'skill', 'new-sdk-app').def).toEqual({
+      kind: 'skill',
+      skill: {
         name: 'new-sdk-app',
         description: 'Create and setup a new Claude Agent SDK application',
-        argumentHint: '[project-name]',
-        body: 'You are tasked with helping the user create a new Claude Agent SDK application.\n',
-        sourceFormat: 'claude-md',
+        fromCommand: {
+          argumentHint: '[project-name]',
+          body: 'You are tasked with helping the user create a new Claude Agent SDK application.\n',
+          sourceFormat: 'claude-md',
+        },
       },
     });
     expect(find(r, 'agent', 'agent-sdk-verifier-py').def).toMatchObject({
@@ -504,8 +540,13 @@ describe('scanOrigin definitions', () => {
       },
     });
     expect(find(r, 'hook', 'agent-sdk-dev').def).toMatchObject({
-      hooks: { dialect: 'claude', pluginRootRel: 'plugins/agent-sdk-dev' },
+      hooks: {
+        dialect: 'claude',
+        pluginRootRel: 'plugins/agent-sdk-dev',
+        closure: { paths: ['plugins/agent-sdk-dev/hooks'] },
+      },
     });
+    // `secrets` comes from the secret scanner's detectSecrets (a fake here).
     expect(find(r, 'mcp', 'github').def).toMatchObject({
       mcp: {
         transport: 'http',
@@ -515,17 +556,19 @@ describe('scanOrigin definitions', () => {
             in: 'header',
             header: 'Authorization',
             required: true,
-            format: 'Bearer {value}',
           },
         ],
       },
     });
+    // `.` and a scoped npm package are not files of the source.
     expect(find(r, 'mcp', 'fs').def).toMatchObject({
       mcp: {
         transport: 'stdio',
         command: 'npx',
         secrets: [{ name: 'FS_TOKEN', in: 'env', required: true }],
       },
+      references: [],
+      closure: { paths: [] },
     });
     expect(find(r, 'skill', 'sdk-helper')).toMatchObject({
       version: '1.10',
@@ -538,7 +581,7 @@ describe('scanOrigin definitions', () => {
     });
   });
 
-  it('awesome-copilot-like: materialized agent paths, instructions, Copilot hooks, sub-skills', async () => {
+  it('awesome-copilot-like: materialized agent paths, instructions, Copilot hooks, nested skills as content', async () => {
     const r = await scan('awesome-copilot-like');
     expect(find(r, 'agent', 'meta-agentic-project-scaffold').def).toMatchObject({
       agent: {
@@ -552,21 +595,16 @@ describe('scanOrigin definitions', () => {
       agent: { displayName: 'C# Expert', extra: { 'mcp-servers': { nuget: { command: 'dnx' } } } },
     });
     expect(find(r, 'instruction', 'a11y').def).toMatchObject({
-      instruction: { alwaysApply: true, sourceFormat: 'instructions-md' },
+      instruction: { alwaysApply: true, activation: 'always', sourceFormat: 'instructions-md' },
     });
     expect(find(r, 'instruction', 'python').def).toMatchObject({
-      instruction: { globs: ['**/*.py', '**/*.pyi'], alwaysApply: false },
+      instruction: { globs: ['**/*.py', '**/*.pyi'], alwaysApply: false, activation: 'paths' },
     });
     expect(find(r, 'hook', 'license-checker').def).toMatchObject({
       hooks: { dialect: 'copilot', pluginRootRel: 'hooks/license-checker' },
     });
-    expect(find(r, 'skill', 'qdrant-horizontal-scaling').def).toMatchObject({
-      skill: {
-        parent: 'qdrant-scaling',
-        dirName: 'horizontal-scaling',
-        description: "Diagnoses horizontal scaling: 'vertical or horizontal?', 'how many nodes?'",
-      },
-    });
+    // A SKILL.md below another skill's directory is its content (ruling C4).
+    expect(r.entities.some((e) => e.name === 'qdrant-horizontal-scaling')).toBe(false);
     expect(find(r, 'skill', 'qdrant-scaling').def).not.toHaveProperty('skill.parent');
     // .github/{skills,agents}, .vscode/mcp.json are install output / dev config.
     expect(
@@ -584,12 +622,22 @@ describe('scanOrigin definitions', () => {
       description: 'A sample APM package',
       def: { manifestPath: 'apm.yml' },
     });
+    // APM: the hook's own directory is copied; relative paths start there.
     expect(find(r, 'hook', 'format-on-save').def).toMatchObject({
-      hooks: { dialect: 'claude', pluginRootRel: '.' },
+      hooks: { dialect: 'claude', pluginRootRel: '.', closure: { paths: ['.apm/hooks'] } },
+    });
+    expect(find(r, 'instruction', 'typescript').def).toMatchObject({
+      instruction: { globs: ['**/*.ts'], activation: 'paths' },
+    });
+    expect(find(r, 'skill', 'release')).toMatchObject({
+      notes: [
+        'from command release.prompt.md: installed as a skill, which a harness may also load on its own when it looks relevant',
+      ],
+      def: { skill: { fromCommand: { sourceFormat: 'prompt-md' } } },
     });
   });
 
-  it('codex-agent-like: Codex TOML agent, Gemini command and Gemini hooks', async () => {
+  it('codex-agent-like: Codex TOML agent, Gemini command as a skill and Gemini hooks', async () => {
     const r = await scan('codex-agent-like');
     expect(find(r, 'agent', 'reviewer').def).toMatchObject({
       agent: {
@@ -601,29 +649,51 @@ describe('scanOrigin definitions', () => {
         extra: { model_reasoning_effort: 'high', sandbox_mode: 'read-only' },
       },
     });
-    expect(find(r, 'command', 'review').def).toMatchObject({
-      command: { body: 'Review {{args}} carefully.', sourceFormat: 'gemini-toml' },
+    expect(find(r, 'skill', 'review').def).toMatchObject({
+      skill: {
+        fromCommand: { body: 'Review {{args}} carefully.', sourceFormat: 'gemini-toml' },
+      },
     });
-    expect(find(r, 'command', 'ship').def).toMatchObject({
-      command: { argumentHint: '[--dry-run]' },
+    expect(find(r, 'skill', 'ship').def).toMatchObject({
+      skill: { fromCommand: { argumentHint: '[--dry-run]' } },
     });
-    expect(find(r, 'hook', 'codex-agent').def).toMatchObject({
-      hooks: { dialect: 'gemini', pluginRootRel: '.' },
+    expect(find(r, 'hook', 'codex-agent')).toMatchObject({
+      def: {
+        hooks: {
+          dialect: 'gemini',
+          pluginRootRel: '.',
+          references: [
+            { raw: './check.sh', form: 'relative', unresolved: 'no such file in the source' },
+          ],
+          closure: { paths: ['hooks'] },
+        },
+      },
+      issues: [
+        {
+          code: 'unresolvable-reference',
+          severity: 'critical',
+          file: 'hooks/hooks.json',
+        },
+      ],
     });
     expect(find(r, 'instruction', 'style').def).toMatchObject({
-      instruction: { globs: ['src/**/*.ts'], alwaysApply: false },
+      instruction: { globs: ['src/**/*.ts'], alwaysApply: false, activation: 'paths' },
     });
   });
 
-  it('caveman-like: inline manifest hooks are wrapped', async () => {
+  it('caveman-like: inline manifest hooks are wrapped; the closure is the script they name', async () => {
     const r = await scan('caveman-like');
     expect(find(r, 'hook', 'caveman').def).toMatchObject({
       hooks: {
         dialect: 'claude',
         pluginRootRel: '.',
         raw: { hooks: { SessionStart: [{ hooks: [{ type: 'command', timeout: 30 }] }] } },
+        // .claude-plugin/ (the definition's directory) is a manifest directory: never copied.
+        closure: { paths: ['src/hooks/activate.js'] },
       },
     });
+    // The skill wins over the Gemini command of the same name.
+    expect(find(r, 'skill', 'caveman').def).not.toHaveProperty('skill.fromCommand');
   });
 
   it('nested-plugins-like: one manifest per plugin (Claude beats Codex), Gemini inline MCP', async () => {
@@ -637,7 +707,7 @@ describe('scanOrigin definitions', () => {
     });
   });
 
-  it('root-skill-like: the whole origin is one skill, non-spec keys pass through', async () => {
+  it('root-skill-like: the whole source is one skill, non-spec keys pass through', async () => {
     const r = await scan('root-skill-like');
     expect(find(r, 'skill', 'last30days')).toMatchObject({
       version: '2.1.0',
@@ -660,8 +730,8 @@ describe('scanOrigin definitions', () => {
   });
 });
 
-describe('scanOrigin layout options', () => {
-  const layoutScan = (fixture: string, layout: LayoutDescriptor, extra: Partial<OriginSpec> = {}) =>
+describe('scanSource layout options', () => {
+  const layoutScan = (fixture: string, layout: LayoutDescriptor, extra: Partial<Source> = {}) =>
     scan(fixture, { layout, ...extra });
 
   it('descriptor include restricts to canonical names', async () => {

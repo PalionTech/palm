@@ -1,4 +1,4 @@
-import { mkdir, readdir, stat, symlink } from 'node:fs/promises';
+import { chmod, mkdir, readdir, stat, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -7,6 +7,7 @@ import {
   isEnoent,
   isWithin,
   pathExists,
+  readFileAndMode,
   readJsonFile,
   readJsonIfExists,
   readTextIfExists,
@@ -79,6 +80,18 @@ describe('small helpers', () => {
     expect(await readTextIfExists(join(dir, 'a.txt'))).toBe('hi');
     expect(await readTextIfExists(join(dir, 'missing.txt'))).toBeUndefined();
     await expect(readTextIfExists(dir)).rejects.toMatchObject({ code: 'EISDIR' });
+  });
+
+  it('readFileAndMode: bytes and mode of one file, EISDIR for a directory', async () => {
+    const dir = await tmpDir();
+    const file = join(dir, 'run.sh');
+    await write(file, '#!/bin/sh\n');
+    await chmod(file, 0o755);
+    const { data, mode } = await readFileAndMode(file);
+    expect(data.toString('utf8')).toBe('#!/bin/sh\n');
+    expect(mode & 0o777).toBe(0o755);
+    await expect(readFileAndMode(dir)).rejects.toMatchObject({ code: 'EISDIR' });
+    await expect(readFileAndMode(join(dir, 'missing'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 

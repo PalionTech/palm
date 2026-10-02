@@ -1,189 +1,243 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DepRef } from '../../src/domain/dep-ref.js';
-import { depMatches, isMcpManifestEntry, loadYaml, Manifest } from '../../src/domain/manifest.js';
-import { removeDir, tempDir } from '../support/sandbox.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { detectManifestFormat, Manifest, memberSelected } from '../../src/domain/manifest.js';
+import { cleanupTmp, read, tmpDir, write } from '../support/sandbox.js';
 
-const registryEntry = {
-  kind: 'mcp' as const,
-  name: 'gh',
-  origin: 'registry',
-  path: 'io.github.x/gh',
-};
+afterEach(cleanupTmp);
 
-describe('Manifest dependencies', () => {
-  it('lists references as DepRefs and inline MCP entries as objects', () => {
-    const m = Manifest.of({
-      skills: ['a@x#v1', { name: 'b', origin: 'y' }],
-      mcp: ['io.github.x/gh', { name: 'docs', url: 'https://e.x/mcp' }, { name: 'plain' }],
-    });
-    const skills = m.deps('skill');
-    expect(skills.every((d) => d instanceof DepRef)).toBe(true);
-    expect(skills.map(String)).toEqual(['a@x#v1', 'b@y']);
-    const mcp = m.deps('mcp');
-    expect(mcp.map((d) => d instanceof DepRef)).toEqual([true, false, true]);
-    expect(mcp[1]).toEqual({ name: 'docs', url: 'https://e.x/mcp' });
-    expect(m.deps('agent')).toEqual([]);
-  });
+const DESIGN_EXAMPLE = `# the team's agent setup
+targets: [claude, cursor]
 
-  it('adds, replaces by name (any case) and removes; emptied sections disappear', () => {
-    const m = Manifest.of();
-    m.addDep('skill', DepRef.parse('a@x')).addDep('skill', { name: 'b', origin: 'x' });
-    m.addDep('skill', 'A@y#v1');
-    expect(m.toJSON().skills).toEqual(['A@y#v1', 'b@x']);
-    expect(m.hasDep('skill', 'a')).toBe(true);
-    expect(m.hasDep('agent', 'a')).toBe(false);
-    m.removeDep('skill', 'B').removeDep('skill', 'nope');
-    expect(m.toJSON().skills).toEqual(['A@y#v1']);
-    m.removeDep('skill', 'a');
-    expect(m.toJSON()).toEqual({});
-  });
+sources:
+  mattpocock/skills:                    # GitHub shorthand
+    ref: v1.2.3                         # tag, branch, sha, or a range
+    skills: [tdd, handoff]
+  obra/superpowers:
+    ref: ^4
+    plugins:
+      - name: superpowers
+        exclude: [skill:brainstorming, hook:session-start]
+  acme-kit:
+    url: https://gitlab.acme.com/platform/agent-kit.git
+    root: kit
+    ref: ^1
+    layout: { agents: [people/*.md] }   # consumer override
+    agents: [reviewer]
+    instructions:
+      - { name: db-conventions, targets: [claude], at: packages/database }
+  ./agent-kit:
+    skills: [review]
+    hooks: [quality]
 
-  it('keeps MCP entries as strings or objects, matching registry names', () => {
-    const m = Manifest.of()
-      .addDep('mcp', { name: 'io.github.github/github-mcp-server' })
-      .addDep('mcp', { name: 'docs', transport: 'http', url: 'https://e.x/mcp', env: undefined })
-      .addDep('mcp', { name: 'gh', registry: 'io.github.x/gh', version: '1.0.0' });
-    expect(m.toJSON().mcp).toEqual([
-      'io.github.github/github-mcp-server',
-      { name: 'docs', transport: 'http', url: 'https://e.x/mcp' },
-      { name: 'gh', registry: 'io.github.x/gh', version: '1.0.0' },
-    ]);
-    // replacing by registry name
-    m.addDep('mcp', { name: 'gh2', registry: 'IO.GITHUB.X/GH' });
-    expect(m.toJSON().mcp).toHaveLength(3);
-    expect(m.hasDep('mcp', 'io.github.x/gh')).toBe(true);
-    m.removeDep('mcp', 'io.github.x/gh');
-    expect(m.toJSON().mcp).toHaveLength(2);
-  });
+mcp:
+  docs:
+    url: https://example.com/mcp
+    headers: { Authorization: "Bearer \${DOCS_TOKEN}" }
+x-team-note: kept as is
+`;
 
-  it('ignores unparsable items when matching names', () => {
-    const m = Manifest.of({ skills: ['#only-a-ref', 42 as never, 'ok'] });
-    expect(m.hasDep('skill', 'ok')).toBe(true);
-    m.addDep('skill', 'new');
-    expect(m.toJSON().skills).toEqual(['#only-a-ref', 42, 'ok', 'new']);
-  });
+async function manifestFile(text: string): Promise<string> {
+  const file = join(await tmpDir(), 'palm.yaml');
+  await write(file, text);
+  return file;
+}
 
-  it('finds the dependency an installed entry realises', () => {
-    const m = Manifest.of({
-      skills: ['Tdd@a'],
-      mcp: [{ name: 'gh', registry: 'io.github.x/gh', version: '2.0.0' }, 'io.github.y/z'],
-    });
-    expect(String(m.depFor({ kind: 'skill', name: 'tdd', origin: 'b', path: 'x' }))).toBe('Tdd@a');
-    expect(m.depFor(registryEntry)).toEqual({
-      name: 'gh',
-      registry: 'io.github.x/gh',
-      version: '2.0.0',
-    });
-    expect(m.lists({ ...registryEntry, name: 'z', path: 'io.github.y/z' })).toBe(true);
-    expect(m.lists({ kind: 'agent', name: 'tdd', origin: 'a', path: 'x' })).toBe(false);
-  });
-
-  it('depMatches: names ignore case; registry servers also match by registry name', () => {
-    expect(
-      depMatches('skill', { name: 'A' }, { kind: 'skill', name: 'a', origin: 'o', path: 'p' }),
-    ).toBe(true);
-    expect(
-      depMatches('agent', { name: 'a' }, { kind: 'skill', name: 'a', origin: 'o', path: 'p' }),
-    ).toBe(false);
-    expect(depMatches('mcp', { name: 'io.github.x/GH' }, registryEntry)).toBe(true);
-    expect(depMatches('mcp', { name: 'other', registry: 'io.github.x/gh' }, registryEntry)).toBe(
-      true,
-    );
-    expect(depMatches('mcp', { name: 'io.github.x/gh' }, { ...registryEntry, origin: 'a' })).toBe(
-      false,
-    );
-    expect(
-      depMatches('skill', { name: 'io.github.x/gh' }, { ...registryEntry, kind: 'skill' }),
-    ).toBe(false);
-    expect(depMatches('mcp', { name: 'nope' }, registryEntry)).toBe(false);
-  });
-
-  it('isMcpManifestEntry needs an MCP field', () => {
-    expect(isMcpManifestEntry({ name: 'a', url: 'u' })).toBe(true);
-    expect(isMcpManifestEntry({ name: 'a', registry: 'r' })).toBe(true);
-    expect(isMcpManifestEntry({ name: 'a', origin: 'o' })).toBe(false);
-    expect(isMcpManifestEntry('a')).toBe(false);
-  });
-
-  it('exposes targets and origins, and replaces targets', () => {
-    const data = { targets: ['claude' as const], origins: ['x'] };
-    const m = Manifest.of(data);
-    expect(m.targets).toEqual(['claude']);
-    expect(m.origins).toEqual(['x']);
-    m.setTargets(['codex', 'cursor']);
-    expect(m.targets).toEqual(['codex', 'cursor']);
-    expect(data.targets).toEqual(['claude']); // the wrapped data is never changed
-    expect(JSON.parse(JSON.stringify(m))).toEqual({ targets: ['codex', 'cursor'], origins: ['x'] });
+describe('detectManifestFormat', () => {
+  it.each<[unknown, 3 | 'legacy' | 'empty']>([
+    [undefined, 'empty'],
+    [null, 'empty'],
+    [{}, 'empty'],
+    [{ targets: ['claude'] }, 3],
+    [{ sources: { 'a/b': { skills: ['tdd'] } } }, 3],
+    [{ origins: [] }, 'legacy'],
+    [{ skills: ['tdd@matt'] }, 'legacy'],
+    [{ commands: [] }, 'legacy'],
+    [{ mcp: [{ name: 'x' }] }, 'legacy'],
+    [{ sources: { 'a/b': { skills: ['tdd@matt'] } } }, 'legacy'],
+    [{ sources: { 'a/b': { agents: [{ name: 'r#v1' }] } } }, 'legacy'],
+  ])('%j → %s', (raw, format) => {
+    expect(detectManifestFormat(raw)).toBe(format);
   });
 });
 
-describe('Manifest files', () => {
-  let dir: string;
-  beforeEach(async () => {
-    dir = await tempDir();
+describe('Manifest.load', () => {
+  it('reads the DESIGN example, normalising entries and keeping unknown keys', async () => {
+    const m = await Manifest.load(await manifestFile(DESIGN_EXAMPLE));
+    expect(m.targets).toEqual(['claude', 'cursor']);
+    expect(m.sourceNames()).toEqual([
+      'mattpocock/skills',
+      'obra/superpowers',
+      'acme-kit',
+      './agent-kit',
+    ]);
+    expect(m.entries('mattpocock/skills', 'skill')).toEqual([{ name: 'tdd' }, { name: 'handoff' }]);
+    expect(m.entries('acme-kit', 'instruction')).toEqual([
+      { name: 'db-conventions', targets: ['claude'], at: 'packages/database' },
+    ]);
+    expect(m.mcp.docs).toEqual({
+      url: 'https://example.com/mcp',
+      headers: { Authorization: 'Bearer ${DOCS_TOKEN}' },
+    });
+    expect((m.toJSON() as Record<string, unknown>)['x-team-note']).toBe('kept as is');
+    expect(m.allEntries()).toHaveLength(7);
+    const sources = m.sources('/work', 'palm.yaml');
+    expect(sources.byName('./agent-kit')?.source.path).toBe('/work/agent-kit');
   });
-  afterEach(async () => removeDir(dir));
 
-  it('is empty when missing', async () => {
-    expect((await Manifest.load(join(dir, 'palm.yaml'))).toJSON()).toEqual({});
+  it('is empty when the file is missing or blank', async () => {
+    expect((await Manifest.load('/nonexistent/palm.yaml')).toJSON()).toEqual({});
+    expect((await Manifest.load(await manifestFile('# nothing yet\n'))).toJSON()).toEqual({});
   });
 
-  it('patches the file: comments, key order and flow lists survive', async () => {
-    const file = join(dir, 'palm.yaml');
-    const text = [
-      '# project manifest',
-      'targets: [claude, codex]',
-      'skills:',
-      '  # the planning skill',
-      '  - wayfinder@mattpocock',
-      'agents: []',
-      'custom: kept',
-      '',
-    ].join('\n');
-    await writeFile(file, text);
+  it('sends a 0.1 file to palm migrate with E_USAGE', async () => {
+    for (const text of [
+      'origins:\n  - mattpocock/skills\n',
+      'skills:\n  - tdd@matt\n',
+      'sources:\n  a/b:\n    skills: [tdd@a]\n',
+    ]) {
+      await expect(Manifest.load(await manifestFile(text))).rejects.toMatchObject({
+        code: 'E_USAGE',
+        message: 'palm.yaml is in the 0.1 format',
+        hint: 'palm migrate',
+      });
+    }
+  });
+
+  it('names the key of malformed content with E_PARSE', async () => {
+    const cases: Array<[string, RegExp]> = [
+      ['targets: [claude, vim]\n', /targets names an unknown target "vim"/],
+      ['sources: [a]\n', /sources must be a mapping/],
+      ['sources:\n  a/b:\n    skills: tdd\n', /sources\."a\/b"\.skills must be a list/],
+      ['sources:\n  a/b:\n    skills: [{ targets: [claude] }]\n', /skills\[0\] must be a name/],
+      [
+        'targets: [claude]\nsources:\n  a/b:\n    skills: [{ name: t, targets: [codex] }]\n',
+        /not in targets/,
+      ],
+      [
+        'sources:\n  a/b:\n    plugins: [{ name: p, exclude: [widget:x] }]\n',
+        /exclude has "widget:x"/,
+      ],
+      ['mcp:\n  "../x": { url: https://x }\n', /is not a valid server name/],
+      ['a: [\n', /invalid YAML/],
+    ];
+    for (const [text, message] of cases) {
+      await expect(Manifest.load(await manifestFile(text)), text).rejects.toMatchObject({
+        code: 'E_PARSE',
+        message: expect.stringMatching(message),
+      });
+    }
+  });
+});
+
+describe('Manifest.save', () => {
+  it('round-trips: every comment, the key order and the data survive a save', async () => {
+    const file = await manifestFile(DESIGN_EXAMPLE);
+    const before = await Manifest.load(file);
+    await before.save(file);
+    const text = await read(file);
+    const comments = (t: string) => [...t.matchAll(/#[^\n]*/g)].map((m) => m[0].trim());
+    expect(comments(text)).toEqual(comments(DESIGN_EXAMPLE));
+    const keys = (t: string) => [...t.matchAll(/^\s*([\w./-]+):/gm)].map((m) => m[1]);
+    expect(keys(text)).toEqual(keys(DESIGN_EXAMPLE));
+    expect(text).toContain('targets: [claude, cursor]\n');
+    expect((await Manifest.load(file)).toJSON()).toEqual(before.toJSON());
+    await (await Manifest.load(file)).save(file);
+    expect(await read(file)).toBe(text);
+  });
+
+  it('patches edits in place: comments and key order survive, new entries go last', async () => {
+    const file = await manifestFile(DESIGN_EXAMPLE);
     const m = await Manifest.load(file);
+    m.addEntry('mattpocock/skills', 'skill', 'grill-me');
+    m.addEntry('acme-kit', 'agent', { name: 'writer', targets: ['claude'] });
+    m.removeEntry('./agent-kit', 'hook', 'quality');
+    m.setMcp('xcodebuild', { command: 'npx', args: ['-y', 'xcodebuildmcp@latest'] });
     await m.save(file);
-    expect(await readFile(file, 'utf8')).toBe(text);
+    const text = await read(file);
+    expect(text).toContain("# the team's agent setup\ntargets: [claude, cursor]\n");
+    expect(text).toContain(
+      '    ref: v1.2.3 # tag, branch, sha, or a range\n    skills: [tdd, handoff, grill-me]\n',
+    );
+    expect(text).toContain('    agents: [reviewer, {name: writer, targets: [claude]}]\n');
+    expect(text).toContain('  ./agent-kit:\n    skills: [review]\n\nmcp:');
+    expect(text).toContain(
+      '  xcodebuild:\n    command: npx\n    args: [-y, xcodebuildmcp@latest]\n',
+    );
+    expect(text.indexOf('mattpocock/skills')).toBeLessThan(text.indexOf('obra/superpowers'));
+    expect((await Manifest.load(file)).toJSON()).toEqual(m.toJSON());
+  });
 
-    await m.addDep('skill', DepRef.parse('tdd@mattpocock')).save(file);
-    const after = await readFile(file, 'utf8');
-    expect(after).toContain('# project manifest');
-    expect(after).toContain('# the planning skill');
-    expect(after).toContain('targets: [claude, codex]');
-    expect(after).toContain('custom: kept');
-    expect((await Manifest.load(file)).deps('skill').map(String)).toEqual([
-      'wayfinder@mattpocock',
-      'tdd@mattpocock',
+  it('drops emptied sections and sources left without entries', async () => {
+    const file = await manifestFile(
+      'targets: [claude]\nsources:\n  a/b:\n    ref: v1\n    skills: [tdd]\n',
+    );
+    const m = await Manifest.load(file);
+    m.removeEntry('a/b', 'skill', 'TDD');
+    expect(m.hasSource('a/b')).toBe(false);
+    await m.save(file);
+    expect(await read(file)).toBe('targets: [claude]\n');
+  });
+
+  it('writes a fresh file with flow targets, flow name lists and flow entry objects', async () => {
+    const file = join(await tmpDir(), 'palm.yaml');
+    const m = Manifest.of()
+      .setTargets(['claude'])
+      .addSource({ name: 'acme', type: 'git', url: 'https://h/acme.git', ref: '^1' }, '/w')
+      .addEntry('acme', 'skill', 'tdd')
+      .addEntry('acme', 'plugin', { name: 'kit', exclude: ['skill:x'] });
+    await m.save(file);
+    expect(await read(file)).toBe(
+      'targets: [claude]\nsources:\n  acme:\n    url: https://h/acme.git\n    ref: ^1\n    skills: [tdd]\n    plugins:\n      - {name: kit, exclude: [skill:x]}\n',
+    );
+  });
+});
+
+describe('Manifest mutators', () => {
+  it('addSource updates the location and keeps the entries; addEntry replaces by name', () => {
+    const m = Manifest.of({
+      sources: {
+        acme: { url: 'https://h/old.git', skills: ['a', { name: 'b', targets: ['claude'] }] },
+      },
+    });
+    m.addSource({ name: 'acme', type: 'git', url: 'https://h/new.git', ref: 'main' }, '/w');
+    expect(m.toJSON().sources?.acme).toEqual({
+      url: 'https://h/new.git',
+      ref: 'main',
+      skills: ['a', { name: 'b', targets: ['claude'] }],
+    });
+    m.addEntry('acme', 'skill', { name: 'B' });
+    expect(m.entries('acme', 'skill')).toEqual([{ name: 'a' }, { name: 'B' }]);
+    expect(m.toJSON().sources?.acme?.skills).toEqual(['a', 'B']);
+    expect(m.hasEntry('ACME', 'skill', 'b')).toBe(true);
+    expect(m.hasEntry('acme', 'agent', 'b')).toBe(false);
+  });
+
+  it('excludeMember adds kind:name once to the plugin entry', () => {
+    const m = Manifest.of({ sources: { 'obra/superpowers': { plugins: ['superpowers'] } } });
+    m.excludeMember('obra/superpowers', 'superpowers', { kind: 'skill', name: 'brainstorming' });
+    m.excludeMember('obra/superpowers', 'superpowers', { kind: 'skill', name: 'brainstorming' });
+    expect(m.entries('obra/superpowers', 'plugin')).toEqual([
+      { name: 'superpowers', exclude: ['skill:brainstorming'] },
     ]);
   });
 
-  it('writes a fresh file in canonical order with flow-style targets', async () => {
-    const file = join(dir, 'sub', 'palm.yaml');
-    await Manifest.of({ plugins: ['p'], skills: ['a@b'], targets: ['claude'] }).save(file);
-    expect(await readFile(file, 'utf8')).toBe(
-      'targets: [claude]\nskills:\n  - a@b\nplugins:\n  - p\n',
-    );
+  it('manages hand-declared MCP servers and never changes the input data', () => {
+    const data = { targets: ['claude' as const], mcp: { docs: { url: 'https://x' } } };
+    const m = Manifest.of(data).removeMcp('docs').setMcp('fs', { command: 'npx', env: undefined });
+    expect(m.mcp).toEqual({ fs: { command: 'npx' } });
+    expect(data.mcp.docs).toEqual({ url: 'https://x' });
   });
+});
 
-  it('drops null sections and rejects non-list sections, non-mappings, bad YAML and unreadable files', async () => {
-    const file = join(dir, 'palm.yaml');
-    await writeFile(file, 'skills:\nagents: [a]\n');
-    expect((await Manifest.load(file)).toJSON()).toEqual({ agents: ['a'] });
-    await writeFile(file, 'skills: wayfinder\n');
-    await expect(Manifest.load(file)).rejects.toMatchObject({
-      code: 'E_PARSE',
-      message: /"skills" must be a list/,
-    });
-    await writeFile(file, '- a\n');
-    await expect(Manifest.load(file)).rejects.toMatchObject({
-      code: 'E_PARSE',
-      message: /mapping/,
-    });
-    await writeFile(file, 'skills: [a\n');
-    await expect(Manifest.load(file)).rejects.toMatchObject({ code: 'E_PARSE' });
-    await mkdir(join(dir, 'd'));
-    await expect(loadYaml(join(dir, 'd'))).rejects.toMatchObject({ code: 'E_IO' });
+describe('memberSelected', () => {
+  it('applies only and exclude over kind:name, names in any case', () => {
+    const e = { name: 'kit', only: ['skill:tdd', 'hook:fmt'], exclude: ['hook:FMT'] };
+    expect(memberSelected(e, { kind: 'skill', name: 'TDD' })).toBe(true);
+    expect(memberSelected(e, { kind: 'hook', name: 'fmt' })).toBe(false);
+    expect(memberSelected(e, { kind: 'agent', name: 'tdd' })).toBe(false);
+    expect(
+      memberSelected({ name: 'kit', exclude: ['review'] }, { kind: 'agent', name: 'review' }),
+    ).toBe(false);
+    expect(memberSelected({ name: 'kit' }, { kind: 'agent', name: 'x' })).toBe(true);
   });
 });

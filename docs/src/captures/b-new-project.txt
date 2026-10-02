@@ -1,32 +1,18 @@
 $ palm init --target claude,codex
-+ ./palm.yaml: targets claude, codex
-+ .palm/ in ./.gitignore
-
-next: palm search <query>   or   palm install skill <name>@<origin>
-$ palm install skill tdd@mattpocock
-project scope → claude, codex
-status       kind   name  origin      targets       files
-───────────  ─────  ────  ──────────  ────────────  ─────
-+ installed  skill  tdd   mattpocock  claude,codex  6
-1 installed
-$ palm install agent agent-sdk-verifier-py
-project scope → claude, codex
-status       kind   name                                      origin    targets       files
-───────────  ─────  ────────────────────────────────────────  ────────  ────────────  ─────────────
-+ installed  agent  agent-sdk-verifier-py                     official  claude,codex  2
-+ installed  skill  sdk-helper (agent:agent-sdk-verifier-py)  official  claude,codex  2
-+ installed  mcp    context7 (agent:agent-sdk-verifier-py)    official  claude,codex  0 (+2 merged)
-3 installed
-
-i agent-sdk-verifier-py: codex: .codex/agents/agent-sdk-verifier-py.toml: dropped model (sonnet), tools, skills, mcpServers, color (not supported by Codex)
-i context7: optional secret CONTEXT7_API_KEY (unset): export it to use it (left empty otherwise)
-$ palm install mcp docs --url https://docs.example.com/mcp
-project scope → claude, codex
-status       kind  name  origin  targets       files
-───────────  ────  ────  ──────  ────────────  ─────────────
-+ installed  mcp   docs  adhoc   claude,codex  0 (+2 merged)
-1 installed
-
-i docs: no credentials declared; the harness will start OAuth on first connect if the server needs it
-i docs: claude: HTTP MCP servers authenticate via OAuth on first connect
-i docs: codex: HTTP MCP servers authenticate via OAuth on first connect
++ wrote palm.yaml: targets claude, codex
++ wrote .gitignore: .palm/local/, palm.local.yaml
+next: see what a source offers, for example: palm install mattpocock/skills
+$ palm install mattpocock/skills tdd grill-me
+i ref ^1.2 saved to palm.yaml (latest tag v1.2.3); edit ref: to track main
++ skill  tdd        .agents/skills/tdd/, .claude/skills/tdd/   5 files   from mattpocock/skills v1.2.3   (claude gets its own copy in .claude/skills)
++ skill  grill-me   .agents/skills/grill-me/, .claude/skills/grill-me/   3 files   from mattpocock/skills v1.2.3
+2 installed. Commit palm.yaml, palm.lock.yaml, .agents/ and .claude/ together.
+$ palm install anthropics/claude-plugins-official agent-sdk-verifier-py
+i agent agent-sdk-verifier-py preloads skill sdk-helper, mcp context7, not installed: palm install anthropics/claude-plugins-official sdk-helper mcp:context7
+i ref main saved to palm.yaml; edit ref: to pin a tag
++ agent  agent-sdk-verifier-py   .claude/agents/agent-sdk-verifier-py.md, .codex/agents/agent-sdk-verifier-py.toml   2 files   from anthropics/claude-plugins-official main
+    .codex/agents/agent-sdk-verifier-py.toml: dropped model (sonnet), tools, skills, mcpServers, color (not supported by Codex)
+1 installed. Commit palm.yaml, palm.lock.yaml and .codex/ together.
+$ palm install mcp docs --url https://docs.example.com/mcp --header 'Authorization=Bearer ${DOCS_TOKEN}'
++ mcp  docs   .mcp.json, .codex/config.toml   merged   (needs DOCS_TOKEN in the environment)
+1 installed. Commit palm.yaml, palm.lock.yaml and .mcp.json together.

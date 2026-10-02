@@ -1,0 +1,16 @@
+.agents/skills/test-driven-development/SKILL.md
+.agents/skills/test-driven-development/scripts/find-polluter.sh
+.agents/skills/test-driven-development/testing-anti-patterns.md
+.agents/skills/writing-skills/SKILL.md
+.agents/skills/writing-skills/examples/CLAUDE_MD_TESTING.md
+.claude/settings.json
+.claude/skills/test-driven-development/SKILL.md
+.claude/skills/test-driven-development/scripts/find-polluter.sh
+.claude/skills/test-driven-development/testing-anti-patterns.md
+.claude/skills/writing-skills/SKILL.md
+.claude/skills/writing-skills/examples/CLAUDE_MD_TESTING.md
+.codex/hooks.json
+.palm/assets/obra__superpowers/superpowers/hooks/hooks.json
+.palm/assets/obra__superpowers/superpowers/hooks/run-hook.cmd
+palm.lock.yaml
+palm.yaml

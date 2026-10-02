@@ -1,39 +1,35 @@
 $ palm get --help
-Usage: palm get|list [options] [kind] [names...]
+Usage: palm get|list [kind] [names...] [options]
 
-List installed entities, origins, targets.
+List what is installed, the sources or the targets.
 
 Arguments:
-  kind                          skill, agent, instruction, command, hook, mcp,
-                                plugin, origin, target, all (plurals and short
-                                names work); omit it for every installed entity
-  names                         name[@origin][#ref]
+  kind                   skill, agent, instruction, hook, mcp, plugin; source,
+                         target or all
+  names                  only these names
 
 Options:
-  --available                   list what your origins offer instead of what is
-                                installed
-  -o, --origin <name-or-alias>  only this origin: alias, owner/repo[/root], URL
-                                or local path (installed entities also: mine,
-                                registry, adhoc)
-  -h, --help                    display help for command
+  -s, --source <source>  only what came from this source
+  --files                every file palm wrote, with its entry
+  -h, --help             display help for command
 
 Global Options:
-  -g, --global                  use the global scope (~), not this project
-  -t, --target <ids>            comma-separated: claude, codex, copilot, cursor,
-                                gemini, opencode
-  --dry-run                     show what would change; write nothing
-  --force                       overwrite files palm does not own
-  -y, --yes                     accept defaults instead of prompting
-  --offline                     use cached origins only; no network
-  --verbose                     debug output and stack traces
-  --json                        JSON on stdout; everything else on stderr
-  --no-color                    no colours (also NO_COLOR=1)
-  -V, --version                 print the palm version
+  -g, --global           use ~/.palm/palm.yaml and the harness home directories
+  --dry-run              show what would change; write nothing
+  --force                replace files you changed or that palm does not own
+  -y, --yes              accept plan confirmations (never consents to programs)
+  --allow-exec <list>    allow programs: hook:x@source=sha256:hash,... or all
+  --offline              use the cache only; no network
+  --json                 one JSON document on stdout; everything else on stderr
+  --secrets <policy>     env-ref (default) or literal, for secrets you type
+  -V, --version          print the palm version
+
+Kinds: skill (sk), agent (ag), instruction (ins), hook (hk), mcp, plugin (pl); also
+source (src), target (tg) and all. Plurals work too.
 
 Examples:
-  palm get                                  everything installed in this project
-  palm get skills                           installed skills
-  palm get sk --available -o mattpocock     what one origin offers
-  palm get origins                          registered origins and what they hold
-  palm get targets                          the harnesses palm writes to, and why
-  palm get all -g                           installed entities, origins and targets
+  palm get
+  palm get skills
+  palm get --source mattpocock/skills --files
+  palm get sources
+  palm get targets -g
