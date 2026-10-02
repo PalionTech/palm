@@ -159,8 +159,10 @@ jobs:
   # After the Linux job passed: Node 24 on Linux for every push to main; Node 24 on Linux and
   # macOS on Node 22 weekly and on manual dispatch. Platform-independent checks (lint, types,
   # shape, knip, docs) ran in the test job already.
+  # No matrix expression in the name: a job skipped by `if` is never expanded, so a templated
+  # name would show raw on pull requests. GitHub appends the matrix values itself.
   compat:
-    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    name: compat
     needs: test
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ${{ matrix.os }}
