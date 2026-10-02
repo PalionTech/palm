@@ -667,3 +667,65 @@ The maintainer decided them on 2026-09-30; the plan above assumes the answers.
    wizard and `mine` go. MCP servers keep a first-class path in (section 4.12).
 4. Targets. All six stay; Gemini and OpenCode are marked unverified until the 1.0
    end-to-end job runs them.
+
+## 10. Next goals (added 2026-10-02)
+
+Four goals the maintainer set after 0.2, to be scheduled after the 0.3 and 1.0 phases of
+section 7 or interleaved with them. Each lists the steps that make it concrete.
+
+### 10.1 Installation without a hurdle
+
+Target: `palm` installs with the package manager a person already uses, on macOS, Linux and
+Windows, with no Node setup step.
+
+1. Windows support first (section 7, 1.0): path handling, the hook idioms for PowerShell
+   and cmd, a Windows job in CI, the persona rerun with a Windows persona.
+2. A standalone binary per platform (Node single-executable build or a bundler that embeds the
+   runtime), published on each GitHub release with checksums and provenance.
+3. Homebrew: a tap `paliontech/homebrew-tap` with a formula that downloads the release
+   binary, plus a submission to homebrew-core once the project qualifies.
+4. Windows: a `winget` manifest and a Scoop bucket; Chocolatey if there is demand.
+5. Linux: the release binary through the tap (Linuxbrew) and `npx @paliontech/palm` for
+   Node users; a Docker image for CI runners.
+6. The docs' install page shows one line per installer, and `palm --version` reports the
+   channel it came from, so bug reports say which build they used.
+
+### 10.2 Penetration test with Strix
+
+Target: an independent, automated attack on palm's threat model before 1.0.
+
+1. The threat model written down: hostile sources (hooks, MCP servers, symlinks, path
+   traversal, hidden Unicode, secrets), consent bypass, the lock as an attack surface, the
+   global scope through dotfiles, `file://` sources, the cache.
+2. Strix run on rented compute (RunPod or Hetzner) against a sandboxed palm with the persona
+   fixtures, repeated per release candidate; findings land as issues with a severity.
+3. A fix wave per finding class, each with a regression test in the e2e suite.
+4. SECURITY.md updated with what was tested and how to report.
+
+### 10.3 More harnesses
+
+Target: every harness people actually use has a target in palm.
+
+1. A candidate list ranked by usage: Pi (as named by the maintainer; confirm which product),
+   Amp, Kiro, Windsurf, Cline, Roo Code, Aider, Zed, Goose, JetBrains Junie. Each candidate
+   gets a one-page survey: where it reads skills, agents, instructions, hooks and MCP
+   servers, and whether it has a declarative hook model.
+2. One target per harness: a `TargetSpec`, a placement row per kind, the hook mapping rows,
+   conversion tests, and an e2e step that runs the real CLI.
+3. The targets matrix in the docs carries the harness version each row was verified against.
+
+### 10.4 Compatibility that stays current
+
+Target: when a harness changes where or how it reads files, palm notices before users do.
+
+1. A scheduled job (GitHub Actions cron) that, per harness, fetches the latest release, its
+   changelog and the documentation pages palm's placement tables cite, and diffs them against
+   the last verified version.
+2. An AI step (Claude Code in the job) that reads the diff, decides whether a placement row,
+   hook mapping or config schema is affected, and opens either an issue ("no change needed:
+   versions bumped") or a pull request with the proposed table change and the updated
+   "verified against" version.
+3. The e2e suite runs the real CLIs at their latest versions in a container on the same
+   schedule; a failure opens an issue with the step and the output.
+4. The docs' targets matrix and the compatibility page are generated from the verified
+   versions, so they are never hand-edited.
