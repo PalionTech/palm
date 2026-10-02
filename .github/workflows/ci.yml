@@ -1,47 +1,83 @@
-# Pull request and main-branch checks. The `gate` job is the single required status check:
-# it passes only when every matrix leg and the docs checks passed, so the ruleset never has to
-# list job names.
+# Pull request and main-branch checks. The `gate` job is the single required status check.
+#
+# Pull requests run one Linux job on Node 22 (the engines minimum): lint, typecheck, shape, knip,
+# build, tests with coverage, pack smoke test, publint, and the docs checks when their inputs
+# changed. Pushes to main add Node 24 on Linux. macOS runs weekly and on manual dispatch: it
+# was 77% of the Linux-equivalent minutes (10x multiplier) and, over the first 39 runs, never
+# failed apart from Linux.
 name: ci
 
 on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    # Weekly: the full set, macOS included.
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
-    name: test (${{ matrix.os }}, node ${{ matrix.node }})
-    runs-on: ${{ matrix.os }}
+    name: test (ubuntu-latest, node 22)
+    runs-on: ubuntu-latest
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        node: [22, 24]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # On a pull request HEAD is the merge commit and HEAD^1 the base-branch tip, so
+          # `git diff HEAD^1` is exactly the change the pull request makes.
+          fetch-depth: 2
+
+      # The docs checks compare the committed captures and CLI tables with what dist/cli.js
+      # prints, so the CLI's inputs (sources, fixtures, dependencies, bundler config) count as
+      # docs inputs too. No base to diff against (schedule, dispatch, forced push): run them.
+      - name: Changed files (do the docs checks run?)
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=""
+          if [ "$EVENT" = pull_request ]; then
+            base="HEAD^1"
+          elif [ "$EVENT" = push ] && [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
+            if git fetch --no-tags --depth=1 origin "$BEFORE"; then base="$BEFORE"; fi
+          fi
+          if [ -z "$base" ]; then
+            echo "No base to diff against ($EVENT): the docs checks run."
+            echo "docs=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$base" HEAD)"
+          printf '%s\n' "$changed"
+          pattern='^(docs/|brand/|src/|test/fixtures/|README\.md$|package(-lock)?\.json$|ts(config\.json|down\.config\.ts)$|\.github/workflows/ci\.yml$)'
+          if grep -qE "$pattern" <<<"$changed"; then
+            echo "docs=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No docs input changed: the docs checks are skipped."
+            echo "docs=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            docs/package-lock.json
 
       - run: npm ci
 
       - name: Lint (format check + lint ratchet + no provider-shaped secret literal)
         run: npm run lint
-
-      - name: No provider-shaped secret literal in a tracked file
-        run: node scripts/check-secrets.mjs
 
       - name: Typecheck
         run: npm run typecheck
@@ -49,29 +85,32 @@ jobs:
       - name: Function shape ratchet
         run: npm run check:shape
 
+      - name: Unused code and dependencies (knip)
+        run: npm run knip
+
+      - name: Build
+        id: build
+        run: npm run build
+
+      # The tests' globalSetup would build dist/ a second time; they test this build instead.
       - name: Tests with coverage
+        env:
+          PALM_SKIP_DIST_BUILD: '1'
         run: npm run test:coverage
 
       - name: Upload coverage (lcov)
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: coverage-${{ matrix.os }}-node${{ matrix.node }}
+          name: coverage
           path: coverage/lcov.info
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Build
-        run: npm run build
-
-      - name: Pack
+      - name: Pack, install the tarball globally and smoke-test palm
         run: |
           mkdir -p "$RUNNER_TEMP/pack"
           npm pack --pack-destination "$RUNNER_TEMP/pack"
-          ls -l "$RUNNER_TEMP/pack"
-
-      - name: Install the packed tarball and smoke-test palm
-        run: |
           prefix="$RUNNER_TEMP/palm-smoke"
           tarball="$(ls "$RUNNER_TEMP"/pack/*.tgz)"
           cd "$RUNNER_TEMP"
@@ -88,45 +127,47 @@ jobs:
       - name: Package lint (publint)
         run: npx publint
 
-      - name: Unused code and dependencies (knip)
-        run: npm run knip
-
-  changeset:
-    name: changeset status
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: npm
-
-      - run: npm ci
-
       # Advisory: a PR without a changeset gets a warning, not a failure, so dependency bumps
       # and internal changes are not blocked. User-visible changes still need one.
       - name: Check for a changeset
-        env:
-          BASE_REF: ${{ github.base_ref }}
+        if: ${{ github.event_name == 'pull_request' }}
         run: |
-          if ! npx changeset status --since="origin/$BASE_REF"; then
+          if ! npx changeset status --since=HEAD^1; then
             msg="No changeset in this PR. If users can see the change, run 'npx changeset'."
             echo "::warning::$msg Otherwise ignore this, or run 'npx changeset --empty'."
           fi
 
-  # The docs show real palm output: terminal captures and CLI option tables generated from
-  # dist/cli.js. This job fails when any of them no longer matches the CLI, and builds the site
-  # (STYLE.md copy check and internal link check included).
-  docs:
-    name: docs checks
-    runs-on: ubuntu-latest
+      # Docs checks: terminal captures and CLI option tables generated from dist/cli.js must
+      # match the CLI, and the site must build (STYLE.md copy check and internal link check
+      # included). They run whenever the build succeeded, so a failing test does not hide them.
+      - name: Install the docs site dependencies
+        if: ${{ !cancelled() && steps.changes.outputs.docs == 'true' && steps.build.outcome == 'success' }}
+        run: npm --prefix docs ci
+
+      - name: CLI reference is up to date
+        if: ${{ !cancelled() && steps.changes.outputs.docs == 'true' && steps.build.outcome == 'success' }}
+        run: npm --prefix docs run cli-reference:check
+
+      - name: Terminal captures are up to date
+        if: ${{ !cancelled() && steps.changes.outputs.docs == 'true' && steps.build.outcome == 'success' }}
+        run: npm --prefix docs run capture:check
+
+      - name: Build the site (brand assets, copy check, link check)
+        if: ${{ !cancelled() && steps.changes.outputs.docs == 'true' && steps.build.outcome == 'success' }}
+        run: npm --prefix docs run build
+
+  # After the Linux job passed: Node 24 on Linux for every push to main; Node 24 on Linux and
+  # macOS on Node 22 weekly and on manual dispatch. Platform-independent checks (lint, types,
+  # shape, knip, docs) ran in the test job already.
+  compat:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    needs: test
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(github.event_name == 'push' && '{"include":[{"os":"ubuntu-latest","node":24}]}' || '{"include":[{"os":"ubuntu-latest","node":24},{"os":"macos-latest","node":22}]}') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -134,40 +175,49 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            docs/package-lock.json
 
       - run: npm ci
 
-      - name: Build the CLI (captures and the CLI reference run dist/cli.js)
+      - name: Build
         run: npm run build
 
-      - run: npm --prefix docs ci
+      - name: Tests
+        env:
+          PALM_SKIP_DIST_BUILD: '1'
+        run: npm test
 
-      - name: CLI reference is up to date
-        run: npm --prefix docs run cli-reference:check
+      - name: Pack, install the tarball globally and smoke-test palm
+        run: |
+          mkdir -p "$RUNNER_TEMP/pack"
+          npm pack --pack-destination "$RUNNER_TEMP/pack"
+          prefix="$RUNNER_TEMP/palm-smoke"
+          tarball="$(ls "$RUNNER_TEMP"/pack/*.tgz)"
+          cd "$RUNNER_TEMP"
+          npm install --global --prefix "$prefix" "$tarball"
+          export PATH="$prefix/bin:$PATH"
+          expected="$(node -p "require(process.env.GITHUB_WORKSPACE + '/package.json').version")"
+          actual="$(palm --version)"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::palm --version printed '$actual', expected '$expected'"
+            exit 1
+          fi
+          palm --help
 
-      - name: Terminal captures are up to date
-        run: npm --prefix docs run capture:check
-
-      - name: Build the site (brand assets, copy check, link check)
-        run: npm --prefix docs run build
-
+  # Pull requests only: the one check the ruleset requires, so it never has to list job names.
+  # It passes only when the test job passed (the docs checks are steps in it, skipped when no
+  # docs input changed).
   gate:
     name: gate
-    if: ${{ always() }}
-    needs: [test, docs]
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: [test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Every matrix job and the docs checks passed
+      - name: The test job passed
         env:
           TEST_RESULT: ${{ needs.test.result }}
-          DOCS_RESULT: ${{ needs.docs.result }}
         run: |
           echo "test: $TEST_RESULT"
-          echo "docs: $DOCS_RESULT"
-          [ "$TEST_RESULT" = success ] && [ "$DOCS_RESULT" = success ]
+          [ "$TEST_RESULT" = success ]

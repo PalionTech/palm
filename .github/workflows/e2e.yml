@@ -1,19 +1,26 @@
-# Nightly end-to-end run of scripts/e2e.sh against real public repositories. It tests the
-# packed tarball installed globally (PALM_BIN=palm, found on PATH), not the checkout's dist/.
-# A failure opens one issue titled "Nightly e2e failed", or comments on it if it is still open.
+# Weekly end-to-end run of scripts/e2e.sh against real public repositories, on Linux. Manual
+# dispatch picks Linux, macOS or both. It tests the packed tarball installed globally
+# (PALM_BIN=palm, found on PATH), not the checkout's dist/. A failed weekly run opens one issue
+# titled "Weekly e2e failed", or comments on it if it is still open.
 name: e2e
 
 on:
   schedule:
-    - cron: '17 4 * * *'
+    - cron: '17 4 * * 1'
   workflow_dispatch:
+    inputs:
+      os:
+        description: Runner OS (a macOS minute is billed as ten Linux minutes)
+        type: choice
+        options: [ubuntu-latest, macos-latest, both]
+        default: ubuntu-latest
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   e2e:
@@ -23,7 +30,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # The schedule has no inputs: Linux.
+        os: ${{ fromJSON(inputs.os == 'both' && '["ubuntu-latest","macos-latest"]' || inputs.os == 'macos-latest' && '["macos-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -68,16 +76,17 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # Scheduled runs only: whoever dispatched a run by hand is watching it.
   report:
     name: report failure
     needs: [e2e]
-    if: ${{ failure() }}
+    if: ${{ failure() && github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       issues: write
     steps:
-      - name: Open or update the "Nightly e2e failed" issue
+      - name: Open or update the "Weekly e2e failed" issue
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -86,7 +95,7 @@ jobs:
           SHA: ${{ github.sha }}
           EVENT: ${{ github.event_name }}
         run: |
-          title="Nightly e2e failed"
+          title="Weekly e2e failed"
           RUN_URL="$SERVER/$GH_REPO/actions/runs/$RUN_ID"
           body="The e2e run failed on \`$SHA\` ($EVENT): $RUN_URL
 

@@ -1,11 +1,23 @@
 # CodeQL code scanning for the TypeScript sources and for the workflows themselves.
-# Runs on pull requests, on main (the baseline PR results are compared against) and weekly.
+# Runs on every push to main (the baseline PR results are compared against), weekly, and on
+# pull requests that change code CodeQL reads (JavaScript/TypeScript files or workflows), not on
+# every pull request commit. The actions language stays: it costs about one Linux minute per
+# run and scans the workflows that hold publish rights (release.yml) for injection.
 name: codeql
 
 on:
-  pull_request:
   push:
     branches: [main]
+  pull_request:
+    paths:
+      - '**/*.ts'
+      - '**/*.mts'
+      - '**/*.cts'
+      - '**/*.js'
+      - '**/*.mjs'
+      - '**/*.cjs'
+      - '.github/workflows/**'
+      - '.github/actions/**'
   schedule:
     - cron: '23 5 * * 1'
 

@@ -1,12 +1,23 @@
 # Blocks pull requests that add dependencies with known vulnerabilities (moderate or worse)
 # or with GPL/AGPL licences, which would conflict with palm's MIT licence for users.
+# Pull requests only, and only those that change a manifest, a lockfile or a workflow (actions
+# are dependencies too): without one there is nothing to review.
 name: dependency-review
 
 on:
   pull_request:
+    paths:
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '.github/workflows/**'
+      - '.github/actions/**'
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   review:

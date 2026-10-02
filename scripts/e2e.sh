@@ -352,7 +352,9 @@ s09_get_describe() {
   run "$P1" describe hook gh-cli
   has "trusted"
   run "$P1" check --json
-  node -e 'const d=JSON.parse(process.argv[1]); if (!d.ok || !Array.isArray(d.checks)) process.exit(1)' "$OUT" || fail "check --json is not one ok document"
+  # JSON goes through stdin: Linux caps one argv string at 128 KiB (E2BIG), which broke the
+  # nightly e2e on 0.1 when a --json document grew past it.
+  node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8")); if (!d.ok || !Array.isArray(d.checks)) process.exit(1)' <<<"$OUT" || fail "check --json is not one ok document"
 }
 
 s10_update() {
