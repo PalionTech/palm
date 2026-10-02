@@ -1,7 +1,0 @@
----
-"@paliontech/palm": minor
----
-
-Breaking: palm 0.2 replaces origins with sources declared in palm.yaml. `palm install <owner/repo> [names]` lists a source or installs from it and records it (a new source gets `ref: ^M.m` of its latest release, and palm says so); `palm install` alone makes the disk match palm.yaml and the new version 3 lock, which records one render hash per target, the file list, merged-entry identities and program hashes. Generated files, including the scripts hooks run under `.palm/assets/`, are committed, and `palm check` is the read-only CI gate. Programs (hooks and stdio MCP servers) need a hash-pinned consent: the prompt defaults to no, `--yes` never consents, and without a terminal palm prints the exact `--allow-exec <key>=<hash>` line; `install <source> --all` leaves programs out. `update [sources] [--to ref]` moves the sha within the ref's range, `remove` deletes exactly what palm wrote, `create` writes a template into an in-repo source such as `./agent-kit`, and `install mcp` takes flags or a README snippet (`--snippet <file or ->`). A literal secret from a source is written as `${VAR}`. The registry client, `search`, `doctor`, `audit`, `outdated`, `why`, `find`, `config`, the `command` kind, `--frozen` and `~/.palm/config.yaml` are gone; the old commands print their replacement.
-
-To migrate a palm 0.1 project, run `palm migrate` in it (`palm migrate -g` for the global scope; `--dry-run` prints the new palm.yaml first), then commit palm.yaml, palm.lock.yaml, `.gitignore` and `.palm/assets/`.
