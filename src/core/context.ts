@@ -2,10 +2,7 @@
  * The context of one command: where it runs, how it talks to the user, and its flags. Nothing is
  * read to build it; scopes open their manifest and lock when a command needs them.
  */
-import { rmdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
 import { ScopePaths } from '../domain/scope-paths.js';
-import { pathExists } from '../lib/fs.js';
 import { setGitRunner } from '../lib/git-query.js';
 import { runGit } from './git-exec.js';
 import { withLock } from './lock-file.js';
@@ -43,26 +40,11 @@ export function scopedPaths(ctx: PalmContext, scope: Scope): ScopePaths {
 }
 
 /**
- * Runs `fn` holding the scope's advisory lock (`<project>/.palm/lock` or `$PALM_HOME/lock`,
+ * Runs `fn` holding the scope's advisory lock (`<project>/.palm/local/lock` or `$PALM_HOME/lock`,
  * DESIGN.md section 2), so two palm processes on one scope take turns. Dry runs and read-only
- * commands do not call it.
+ * commands do not call it. The lock's directory stays when the run ends: another palm may be
+ * creating its lock in it at that moment, and removing it under that process fails its run (B1).
  */
 export async function withScopeLock<T>(paths: ScopePaths, fn: () => Promise<T>): Promise<T> {
-  const made = await missingDirs(dirname(paths.processLock), paths.palmDir);
-  try {
-    return await withLock(paths.processLock, fn);
-  } finally {
-    // The lock's directories (`.palm/local/`, `.palm/`) go again when the run left nothing in them.
-    for (const dir of made) await rmdir(dir).catch(() => undefined);
-  }
-}
-
-/** The directories from `dir` up to `top` (both included) that do not exist yet, deepest first. */
-async function missingDirs(dir: string, top: string): Promise<string[]> {
-  const out: string[] = [];
-  for (let d = dir; !(await pathExists(d)); d = dirname(d)) {
-    out.push(d);
-    if (d === top || dirname(d) === d) break;
-  }
-  return out;
+  return withLock(paths.processLock, fn);
 }

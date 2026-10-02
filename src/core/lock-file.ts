@@ -49,20 +49,27 @@ function parseLockInfo(text: string): Partial<LockInfo> {
   }
 }
 
-/** Creates `file` exclusively (O_EXCL) and returns what it wrote; undefined when it exists. */
+/**
+ * Creates `file` exclusively (O_EXCL) and returns what it wrote; undefined when it exists. Its
+ * directory is made right before the create; when something else removed that directory in
+ * between (ENOENT from the create, or from `mkdir` itself, which fails when the directory it
+ * found goes before it checked it), it is made and the create tried once more.
+ */
 async function tryCreateLock(file: string): Promise<LockInfo | undefined> {
   const info: LockInfo = {
     pid: process.pid,
     host: hostname(),
     createdAt: new Date().toISOString(),
   };
-  try {
-    await writeFile(file, `${JSON.stringify(info)}\n`, { flag: 'wx' });
-    return info;
-  } catch (e) {
-    // EEXIST: held; ENOENT: its directory went with the last holder (the caller recreates it).
-    if (errnoCode(e) === 'EEXIST' || errnoCode(e) === 'ENOENT') return undefined;
-    throw e;
+  for (let retried = false; ; retried = true) {
+    try {
+      await mkdir(dirname(file), { recursive: true });
+      await writeFile(file, `${JSON.stringify(info)}\n`, { flag: 'wx' });
+      return info;
+    } catch (e) {
+      if (errnoCode(e) === 'EEXIST') return undefined;
+      if (retried || !isEnoent(e)) throw e;
+    }
   }
 }
 
@@ -102,8 +109,6 @@ async function acquireLock(file: string, opts: LockOptions): Promise<LockInfo> {
   const timeoutMs = opts.timeoutMs ?? LOCK_TIMEOUT_MS;
   const deadline = Date.now() + timeoutMs;
   for (let delay = 25; ; delay = Math.min(delay * 2, 1000)) {
-    // Each try: the holder that just left may have removed the directory it created.
-    await mkdir(dirname(file), { recursive: true });
     const mine = await tryCreateLock(file);
     if (mine) return mine;
     const holder = await liveHolder(file, opts.staleMs ?? LOCK_STALE_MS);
