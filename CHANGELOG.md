@@ -14,6 +14,12 @@ collects them into a new section below, bumps the version and publishes to npm.
      The 0.0.0 heading keeps the introduction above the first release; delete it once
      0.1.0 is listed. -->
 
+## 0.2.1
+
+### Patch Changes
+
+- [#19](https://github.com/PalionTech/palm/pull/19) [`47d1747`](https://github.com/PalionTech/palm/commit/47d1747259ff32188c61a3bec0fc461c8d7c456a) Thanks [@MaxBer04](https://github.com/MaxBer04)! - Two or more palm commands started together in a project could fail with `ENOENT` on `.palm/local`: a run that finished removed the empty `.palm/local/` directory while another run was creating its lock in it. palm now keeps `.palm/local/` after a run (it is ignored by git and holds only the lock while palm runs), and a lock whose directory disappears at that moment is created again.
+
 ## 0.2.0
 
 ### Minor Changes
