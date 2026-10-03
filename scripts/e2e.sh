@@ -109,7 +109,9 @@ allow_exec() { sed -n 's/^ *then: .*--allow-exec \([^ ]*\).*$/\1/p' <<<"$OUT" | 
 js() { node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if(!(eval(process.argv[2]))) process.exit(1)' "$1" "$2" || fail "${1#"$SB"/}: expected $2"; }
 js_toml() { (cd "$REPO" && node --input-type=module -e 'import {parse} from "smol-toml"; import fs from "node:fs"; const d=parse(fs.readFileSync(process.argv[1],"utf8")); if(!(eval(process.argv[2]))) process.exit(1)' "$1" "$2") || fail "${1#"$SB"/}: expected $2"; }
 js_yaml() { (cd "$REPO" && node --input-type=module -e 'import {parse} from "yaml"; import fs from "node:fs"; const d=parse(fs.readFileSync(process.argv[1],"utf8")); if(!(eval(process.argv[2]))) process.exit(1)' "$1" "$2") || fail "${1#"$SB"/}: expected $2"; }
-mode_of() { stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"; }
+# Permission bits in octal, e.g. 755. Not `stat -f '%Lp' || stat -c '%a'`: on GNU coreutils -f
+# means --file-system, so it prints the file system block before failing on '%Lp'.
+mode_of() { node -e 'console.log((require("fs").statSync(process.argv[1]).mode & 0o777).toString(8))' "$1"; }
 # Invariant 1: no absolute path, home directory or hostname in palm.yaml or the lock.
 portable() {
   local f
@@ -352,7 +354,9 @@ s09_get_describe() {
   run "$P1" describe hook gh-cli
   has "trusted"
   run "$P1" check --json
-  node -e 'const d=JSON.parse(process.argv[1]); if (!d.ok || !Array.isArray(d.checks)) process.exit(1)' "$OUT" || fail "check --json is not one ok document"
+  # JSON goes through stdin: Linux caps one argv string at 128 KiB (E2BIG), which broke the
+  # nightly e2e on 0.1 when a --json document grew past it.
+  node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8")); if (!d.ok || !Array.isArray(d.checks)) process.exit(1)' <<<"$OUT" || fail "check --json is not one ok document"
 }
 
 s10_update() {

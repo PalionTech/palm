@@ -1,17 +1,13 @@
 name: docs
 
 # Builds the Starlight site in docs/ and deploys it to GitHub Pages
-# (https://paliontech.github.io/palm/). Pull requests only build: the build fails on broken
-# internal links (starlight-links-validator) and on STYLE.md violations (scripts/check-copy.mjs).
+# (https://paliontech.github.io/palm/). The build fails on broken internal links
+# (starlight-links-validator) and on STYLE.md violations (scripts/check-copy.mjs). Pull requests
+# do not run this workflow: the docs checks in ci.yml build the same site with the same checks.
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'docs/**'
-      - 'brand/**'
-      - '.github/workflows/docs.yml'
-  pull_request:
     paths:
       - 'docs/**'
       - 'brand/**'
@@ -21,9 +17,11 @@ on:
 permissions:
   contents: read
 
+# One run per ref. An in-progress run is never cancelled: cancelling a Pages deployment midway
+# can leave the site half-deployed; a newer run waits and deploys after it.
 concurrency:
   group: pages-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
   build:

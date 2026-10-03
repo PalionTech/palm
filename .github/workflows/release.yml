@@ -35,6 +35,7 @@ on:
 permissions:
   contents: read
 
+# Never cancelled: a publish cut off midway can leave a version on npm without its tag/release.
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -64,8 +65,29 @@ jobs:
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
-      - name: Install and verify
-        run: npm ci && npm run verify
+      - name: Install
+        run: npm ci
+
+      # Only a push that can publish runs the full verify: no changeset pending and this version
+      # not on npm yet. Any other push only opens or updates the "Version Packages" pull request
+      # (or does nothing), and ci verifies the same commit. When npm cannot be asked, verify runs.
+      - name: Will this push publish?
+        id: publish
+        run: |
+          pending="$(find .changeset -maxdepth 1 -name '*.md' ! -name README.md | wc -l | tr -d ' ')"
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          published="$(npm view "$name@$version" version 2>/dev/null || true)"
+          echo "pending changesets: $pending; $name@$version on npm: ${published:-no}"
+          if [ "$pending" = 0 ] && [ "$published" != "$version" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify before a publish
+        if: ${{ steps.publish.outputs.publish == 'true' }}
+        run: npm run verify
 
       - name: Version pull request or publish
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
