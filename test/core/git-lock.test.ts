@@ -142,10 +142,27 @@ describe('withScopeLock', () => {
     expect(existsSync(paths.processLock)).toBe(false);
   });
 
-  it("E3' a run leaves no empty .palm/local/ or .palm/ behind", async () => {
+  it("E3' B1 a run removes its lock but keeps the lock's directory another run may be using", async () => {
     const paths = new ScopePaths('project', sb.project, sb.palmHome, sb.env);
     await withScopeLock(paths, async () => undefined);
-    expect(existsSync(join(sb.project, '.palm'))).toBe(false);
+    expect(await readdir(join(sb.project, '.palm', 'local'))).toEqual([]);
+  });
+
+  it('B1 ten runs started together on a scope without .palm/ all get the lock in turn', async () => {
+    const paths = new ScopePaths('project', sb.project, sb.palmHome, sb.env);
+    expect(existsSync(paths.palmDir)).toBe(false);
+    let holders = 0;
+    let most = 0;
+    const run = async (i: number): Promise<number> => {
+      most = Math.max(most, ++holders);
+      await new Promise((r) => setTimeout(r, i % 3));
+      holders--;
+      return i;
+    };
+    const ten = Array.from({ length: 10 }, (_, i) => withScopeLock(paths, () => run(i)));
+    expect(await Promise.all(ten)).toEqual([...Array(10).keys()]);
+    expect(most).toBe(1);
+    expect(existsSync(paths.processLock)).toBe(false);
   });
 });
 
